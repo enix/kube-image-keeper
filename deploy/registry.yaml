@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cache-registry-deployment
+  labels:
+    app: cache-registry
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cache-registry
+  template:
+    metadata:
+      labels:
+        app: cache-registry
+    spec:
+      containers:
+        - name: cache-registry
+          image: registry
+          ports:
+            - containerPort: 5000
+              protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cache-registry-service
+spec:
+  selector:
+    app: cache-registry
+  ports:
+    - name: docker-registry
+      port: 5000
+      targetPort: 5000
+---
+apiVersion: networking.k8s.io/v1beta1
+kind: Ingress
+metadata:
+  name: cache-registry-ingress
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  rules:
+    - host: 185.145.250.158.nip.io
+      http:
+        paths:
+          - path: /
+            backend:
+              serviceName: cache-registry-service
+              servicePort: 5000
+  tls:
+    - hosts:
+        - 185.145.250.158.nip.io
+      secretName: cache-registry-tls
