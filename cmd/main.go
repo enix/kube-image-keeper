@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"path/filepath"
 
 	"gitlab.enix.io/products/docker-cache-registry/internal/registry"
@@ -64,22 +65,22 @@ func newK8sClient() (*kubernetes.Clientset, error) {
 
 var podImages = map[types.UID]map[string]struct{}{}
 
-func mapPodImage(pod *v1.Pod, images []string) {
+func mapPodImage(pod *v1.Pod, images map[string]struct{}) {
 	if _, ok := podImages[pod.UID]; !ok {
 		podImages[pod.UID] = map[string]struct{}{}
 	}
 
-	for _, image := range images {
+	for image := range images {
 		podImages[pod.UID][image] = struct{}{}
 	}
 }
 
-func unmapPodImage(pod *v1.Pod, images []string) {
+func unmapPodImage(pod *v1.Pod, images map[string]struct{}) {
 	if _, ok := podImages[pod.UID]; !ok {
 		return
 	}
 
-	for _, image := range images {
+	for image := range images {
 		delete(podImages[pod.UID], image)
 	}
 
@@ -124,17 +125,22 @@ func main() {
 
 			containers := append(pod.Spec.Containers, pod.Spec.InitContainers...)
 
-			klog.InfoS("pod event", "pod", klog.KObj(pod), "event", event.Type)
+			klog.V(2).InfoS("pod event", "pod", klog.KObj(pod), "event", event.Type)
 
-			var images []string
-			for _, container := range containers {
-				images = append(images, container.Image)
+			images := map[string]struct{}{}
+			for i, container := range containers {
+				image, ok := pod.Annotations[fmt.Sprintf("tugger-original-image-%d", i)]
+				if !ok {
+					klog.V(2).InfoS("missing original image, ignoring", "pod", klog.KObj(pod), "container", container.Name)
+					continue
+				}
+				images[image] = struct{}{}
 			}
 
 			switch event.Type {
 			// TODO case watch.Modified:
 			case watch.Added:
-				for _, image := range images {
+				for image := range images {
 					klog.InfoS("caching image", "image", image)
 					if cacheUpdated, err := registry.CacheImage(image); err != nil {
 						klog.ErrorS(err, "failed to cache image", "image", image)
@@ -151,7 +157,7 @@ func main() {
 			case watch.Deleted:
 				unmapPodImage(pod, images)
 
-				for _, image := range images {
+				for image := range images {
 					if isImageInUse(image) {
 						klog.InfoS("image still in use, not deleting", "image", image)
 					} else {
