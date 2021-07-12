@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"gitlab.enix.io/products/docker-cache-registry/internal/cache"
+	"gitlab.enix.io/products/docker-cache-registry/internal/proxy"
 	"gitlab.enix.io/products/docker-cache-registry/internal/registry"
 	"k8s.io/client-go/util/homedir"
 	klog "k8s.io/klog/v2"
@@ -35,10 +36,13 @@ func main() {
 	}
 
 	cacheController := cache.New(k8sClient)
-	finished, err := cacheController.WatchPods()
+	watchFinished, err := cacheController.WatchPods()
 	if err != nil {
 		panic(err.Error())
 	}
 
-	<-finished
+	serveFinished := proxy.Serve(cacheController)
+
+	<-watchFinished
+	<-serveFinished
 }

@@ -16,12 +16,12 @@ spec:
     spec:
       containers:
       - name: nginx
-        image: nginx
+        image: library/nginx
         imagePullPolicy: Always
         ports:
         - containerPort: 80
       - name: alpine
-        image: nginx
+        image: library/nginx
         imagePullPolicy: Always
         command:
           - sleep

@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"gitlab.enix.io/products/docker-cache-registry/internal/registry"
@@ -16,13 +17,18 @@ import (
 type Cache struct {
 	*kubernetes.Clientset
 
-	podImages map[types.UID]map[string]struct{}
+	podImages map[types.UID]map[string]*ImageInfo
+}
+
+type ImageInfo struct {
+	SourceImage string
+	Cached      bool
 }
 
 func New(k8sClient *kubernetes.Clientset) *Cache {
 	return &Cache{
 		Clientset: k8sClient,
-		podImages: map[types.UID]map[string]struct{}{},
+		podImages: map[types.UID]map[string]*ImageInfo{},
 	}
 }
 
@@ -43,45 +49,48 @@ func (c *Cache) WatchPods() (chan struct{}, error) {
 
 			klog.V(2).InfoS("pod event", "pod", klog.KObj(pod), "event", event.Type)
 
-			images := map[string]struct{}{}
+			imageInfos := map[string]*ImageInfo{}
 			for i, container := range containers {
-				image, ok := pod.Annotations[fmt.Sprintf("tugger-original-image-%d", i)]
+				sourceImage, ok := pod.Annotations[fmt.Sprintf("tugger-original-image-%d", i)]
 				if !ok {
-					klog.V(2).InfoS("missing original image, ignoring", "pod", klog.KObj(pod), "container", container.Name)
+					klog.V(2).InfoS("missing source image, ignoring", "pod", klog.KObj(pod), "container", container.Name)
 					continue
 				}
-				images[image] = struct{}{}
+				imageInfos[container.Image] = &ImageInfo{
+					SourceImage: sourceImage,
+				}
 			}
 
 			switch event.Type {
 			// TODO case watch.Modified:
 			case watch.Added:
-				for image := range images {
-					klog.InfoS("caching image", "image", image)
-					if cacheUpdated, err := registry.CacheImage(image); err != nil {
-						klog.ErrorS(err, "failed to cache image", "image", image)
+				c.mapPodImage(pod, imageInfos)
+
+				for _, imageInfo := range imageInfos {
+					klog.InfoS("caching image", "image", imageInfo.SourceImage)
+					if cacheUpdated, err := registry.CacheImage(imageInfo.SourceImage); err != nil {
+						klog.ErrorS(err, "failed to cache image", "image", imageInfo.SourceImage)
+						continue
 					} else if cacheUpdated {
-						klog.InfoS("image cached", "image", image)
+						klog.InfoS("image cached", "image", imageInfo.SourceImage)
 					} else {
-						klog.InfoS("image already cached, ignoring", "image", image)
+						klog.InfoS("image already cached, ignoring", "image", imageInfo.SourceImage)
 					}
+					imageInfo.Cached = true
 				}
-
-				c.mapPodImage(pod, images)
-
 				break
 			case watch.Deleted:
-				c.unmapPodImage(pod, images)
+				c.unmapPodImage(pod, imageInfos)
 
-				for image := range images {
+				for image, imageInfo := range imageInfos {
 					if c.isImageInUse(image) {
-						klog.InfoS("image still in use, not deleting", "image", image)
+						klog.InfoS("image still in use, not deleting", "image", imageInfo.SourceImage)
 					} else {
-						klog.InfoS("deleting image from cache", "image", image)
-						if err := registry.DeleteImage(image); err != nil {
-							klog.ErrorS(err, "failed to delete image from cache", "image", image)
+						klog.InfoS("deleting image from cache", "image", imageInfo.SourceImage)
+						if err := registry.DeleteImage(imageInfo.SourceImage); err != nil {
+							klog.ErrorS(err, "failed to delete image from cache", "image", imageInfo.SourceImage)
 						} else {
-							klog.InfoS("image deleted from cache", "image", image)
+							klog.InfoS("image deleted from cache", "image", imageInfo.SourceImage)
 						}
 					}
 				}
@@ -99,22 +108,32 @@ func (c *Cache) WatchPods() (chan struct{}, error) {
 	return finished, nil
 }
 
-func (c *Cache) mapPodImage(pod *v1.Pod, images map[string]struct{}) {
-	if _, ok := c.podImages[pod.UID]; !ok {
-		c.podImages[pod.UID] = map[string]struct{}{}
+func (c *Cache) GetImageInfo(image string) (*ImageInfo, error) {
+	for _, images := range c.podImages {
+		if imageInfo, ok := images[image]; ok {
+			return imageInfo, nil
+		}
 	}
 
-	for image := range images {
-		c.podImages[pod.UID][image] = struct{}{}
+	return nil, errors.New("image not found")
+}
+
+func (c *Cache) mapPodImage(pod *v1.Pod, imageInfos map[string]*ImageInfo) {
+	if _, ok := c.podImages[pod.UID]; !ok {
+		c.podImages[pod.UID] = map[string]*ImageInfo{}
+	}
+
+	for image, imageInfo := range imageInfos {
+		c.podImages[pod.UID][image] = imageInfo
 	}
 }
 
-func (c *Cache) unmapPodImage(pod *v1.Pod, images map[string]struct{}) {
+func (c *Cache) unmapPodImage(pod *v1.Pod, imageInfos map[string]*ImageInfo) {
 	if _, ok := c.podImages[pod.UID]; !ok {
 		return
 	}
 
-	for image := range images {
+	for image := range imageInfos {
 		delete(c.podImages[pod.UID], image)
 	}
 
@@ -124,13 +143,6 @@ func (c *Cache) unmapPodImage(pod *v1.Pod, images map[string]struct{}) {
 }
 
 func (c *Cache) isImageInUse(image string) bool {
-	for _, images := range c.podImages {
-		for i := range images {
-			if i == image {
-				return true
-			}
-		}
-	}
-
-	return false
+	imageInfo, err := c.GetImageInfo(image)
+	return err == nil && imageInfo.SourceImage != ""
 }
