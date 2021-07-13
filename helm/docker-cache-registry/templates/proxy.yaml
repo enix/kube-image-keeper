@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cache-proxy-deployment
+  labels:
+    app: cache-proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cache-proxy
+  template:
+    metadata:
+      labels:
+        app: cache-proxy
+    spec:
+      serviceAccountName: docker-cache-registry
+      containers:
+        - name: cache-proxy
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          command:
+            - docker-cache-registry
+            - -v=9
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cache-proxy-service
+spec:
+  selector:
+    app: cache-proxy
+  ports:
+    - name: docker-proxy
+      port: 8080
+      targetPort: 8080
+
+---
+apiVersion: networking.k8s.io/v1beta1
+kind: Ingress
+metadata:
+  name: cache-proxy-ingress
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+spec:
+  rules:
+    - host: {{ .Values.cacheProxyEndpoint }}
+      http:
+        paths:
+          - path: /
+            backend:
+              serviceName: cache-proxy-service
+              servicePort: 8080
+  tls:
+    - hosts:
+        - {{ .Values.cacheProxyEndpoint }}
+      secretName: cache-proxy-tls

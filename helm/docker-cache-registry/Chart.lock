@@ -1,0 +1,6 @@
+dependencies:
+- name: tugger
+  repository: https://jainishshah17.github.io/tugger
+  version: ~0.4.2
+digest: sha256:b1920b3b450db4874e780efcb106c4c6373a11cc0762e6fc958d1a21289c10c4
+generated: "2021-07-15T12:55:38.335868684+02:00"

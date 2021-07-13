@@ -5,9 +5,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"gitlab.enix.io/products/docker-cache-registry/internal/cache"
+	"gitlab.enix.io/products/docker-cache-registry/internal/registry"
 )
-
-var cacheRegistry = "https://185.145.250.158.nip.io"
 
 type proxy struct {
 	cacheController *cache.Cache
@@ -40,7 +39,7 @@ func Serve(cacheController *cache.Cache) chan struct{} {
 
 func (p *proxy) v2Endpoint(c *gin.Context) {
 	image := p.getImage(c, false)
-	proxyRegistry(c, cacheRegistry, image)
+	proxyRegistry(c, registry.Protocol+registry.Endpoint, image)
 }
 
 func (p *proxy) routeProxy(c *gin.Context) {
@@ -60,7 +59,7 @@ func (p *proxy) routeProxy(c *gin.Context) {
 	}
 
 	if imageInfo.Cached {
-		proxyRegistry(c, cacheRegistry, imageInfo.SourceImage)
+		proxyRegistry(c, registry.Protocol+registry.Endpoint, imageInfo.SourceImage)
 	} else {
 		proxyRegistry(c, "https://index.docker.io", imageInfo.SourceImage)
 	}

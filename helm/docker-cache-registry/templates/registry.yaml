@@ -23,6 +23,7 @@ spec:
           env:
             - name: REGISTRY_STORAGE_DELETE_ENABLED
               value: "true"
+
 ---
 apiVersion: v1
 kind: Service
@@ -35,25 +36,3 @@ spec:
     - name: docker-registry
       port: 5000
       targetPort: 5000
----
-apiVersion: networking.k8s.io/v1beta1
-kind: Ingress
-metadata:
-  name: cache-registry-ingress
-  annotations:
-    kubernetes.io/ingress.class: nginx
-    cert-manager.io/cluster-issuer: letsencrypt
-    nginx.ingress.kubernetes.io/proxy-body-size: "0"
-spec:
-  rules:
-    - host: 185.145.250.158.nip.io
-      http:
-        paths:
-          - path: /
-            backend:
-              serviceName: cache-registry-service
-              servicePort: 5000
-  tls:
-    - hosts:
-        - 185.145.250.158.nip.io
-      secretName: cache-registry-tls

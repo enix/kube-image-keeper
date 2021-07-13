@@ -10,6 +10,9 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
+var Endpoint = "cache-registry-service:5000"
+var Protocol = "http://"
+
 func getK8sClientConfig(kubeconfig string) (*rest.Config, error) {
 	if kubeconfig == "" {
 		config, err := rest.InClusterConfig()
@@ -51,7 +54,7 @@ func imageExists(ref name.Reference) bool {
 }
 
 func DeleteImage(imageName string) error {
-	ref, err := name.ParseReference("185.145.250.158.nip.io/" + imageName)
+	ref, err := name.ParseReference(Endpoint + "/" + imageName)
 	if err != nil {
 		return err
 	}
@@ -65,7 +68,7 @@ func DeleteImage(imageName string) error {
 		return err
 	}
 
-	digest, err := name.NewDigest("185.145.250.158.nip.io/" + imageName + "@" + descriptor.Digest.String())
+	digest, err := name.NewDigest(Endpoint + "/" + imageName + "@" + descriptor.Digest.String())
 
 	if err != nil {
 		return err
@@ -75,7 +78,7 @@ func DeleteImage(imageName string) error {
 }
 
 func CacheImage(imageName string) (bool, error) {
-	destRef, err := name.ParseReference("185.145.250.158.nip.io/" + imageName)
+	destRef, err := name.ParseReference(Endpoint + "/" + imageName)
 	if err != nil {
 		return false, err
 	}
