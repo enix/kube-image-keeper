@@ -2,23 +2,17 @@ package main
 
 import (
 	"flag"
-	"path/filepath"
 
 	"gitlab.enix.io/products/docker-cache-registry/internal/cache"
 	"gitlab.enix.io/products/docker-cache-registry/internal/proxy"
 	"gitlab.enix.io/products/docker-cache-registry/internal/registry"
-	"k8s.io/client-go/util/homedir"
 	klog "k8s.io/klog/v2"
 )
 
 var kubeconfig *string
 
 func initFlags() {
-	if home := homedir.HomeDir(); home != "" {
-		kubeconfig = flag.String("kubeconfig", filepath.Join(home, ".kube", "config"), "(optional) absolute path to the kubeconfig file")
-	} else {
-		kubeconfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
-	}
+	kubeconfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
 
 	klog.InitFlags(nil)
 	flag.Set("logtostderr", "true")
@@ -34,15 +28,16 @@ func main() {
 	if err != nil {
 		panic(err.Error())
 	}
-
 	cacheController := cache.New(k8sClient)
-	watchFinished, err := cacheController.WatchPods()
+
+	stopCh := make(chan struct{})
+	err = cacheController.WatchPods(stopCh)
 	if err != nil {
 		panic(err.Error())
 	}
 
 	serveFinished := proxy.Serve(cacheController)
 
-	<-watchFinished
 	<-serveFinished
+	stopCh <- struct{}{}
 }
