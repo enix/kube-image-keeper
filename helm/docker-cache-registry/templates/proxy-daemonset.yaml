@@ -24,4 +24,4 @@ spec:
               protocol: TCP
           command:
             - docker-cache-registry
-            - -v=9
+            - -v={{ .Values.proxy.verbosity }}

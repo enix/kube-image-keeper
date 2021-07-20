@@ -8,6 +8,8 @@ image:
 
 proxy:
   hostPort: 7439
+  verbosity: 1
+  env: []
 
 tugger:
   createMutatingWebhook: true
