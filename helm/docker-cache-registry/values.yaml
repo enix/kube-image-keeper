@@ -6,7 +6,14 @@ image:
   repository: enix/docker-cache-registry
   tag: ""
 
-cacheProxyEndpoint:
+proxy:
+  hostPort: 7439
 
 tugger:
   createMutatingWebhook: true
+  rules:
+    - pattern: ^jainishshah17/tugger.*
+    - pattern: ^enix/docker-cache-registry.*
+    - pattern: ^registry.*
+    - pattern: (.*)
+      replacement: localhost:7439/$1
