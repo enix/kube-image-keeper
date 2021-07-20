@@ -23,16 +23,3 @@ spec:
           env:
             - name: REGISTRY_STORAGE_DELETE_ENABLED
               value: "true"
-
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: cache-registry-service
-spec:
-  selector:
-    app: cache-registry
-  ports:
-    - name: docker-registry
-      port: 5000
-      targetPort: 5000
