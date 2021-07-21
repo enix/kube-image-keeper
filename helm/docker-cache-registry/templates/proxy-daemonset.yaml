@@ -25,3 +25,8 @@ spec:
           command:
             - docker-cache-registry
             - -v={{ .Values.proxy.verbosity }}
+          env:
+            - name: KUBERNETES_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName

@@ -3,10 +3,12 @@ package cache
 import (
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"gitlab.enix.io/products/docker-cache-registry/internal/registry"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/informers"
 	coreinformers "k8s.io/client-go/informers/core/v1"
@@ -29,7 +31,15 @@ type ImageInfo struct {
 }
 
 func New(k8sClient *kubernetes.Clientset) *Cache {
-	informerFactory := informers.NewSharedInformerFactory(k8sClient, time.Hour*24)
+	nodeName := os.Getenv("KUBERNETES_NODE_NAME")
+	if nodeName == "" {
+		panic("missing env: KUBERNETES_NODE_NAME")
+	}
+
+	tweakListOptions := informers.WithTweakListOptions(func(opt *metav1.ListOptions) {
+		opt.FieldSelector = "spec.nodeName=" + nodeName
+	})
+	informerFactory := informers.NewSharedInformerFactoryWithOptions(k8sClient, time.Hour*24, tweakListOptions)
 	podInformer := informerFactory.Core().V1().Pods()
 
 	c := &Cache{
