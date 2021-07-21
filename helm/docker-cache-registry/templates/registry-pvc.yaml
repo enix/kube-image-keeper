@@ -1,0 +1,13 @@
+{{- if .Values.registry.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: docker-cache-registry-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ .Values.registry.persistence.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.registry.persistence.size }}
+{{- end }}

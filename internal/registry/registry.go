@@ -54,7 +54,7 @@ func imageExists(ref name.Reference) bool {
 }
 
 func DeleteImage(imageName string) error {
-	ref, err := name.ParseReference(Endpoint + "/" + imageName)
+	ref, err := name.ParseReference(Endpoint+"/"+imageName, name.Insecure)
 	if err != nil {
 		return err
 	}
@@ -78,11 +78,11 @@ func DeleteImage(imageName string) error {
 }
 
 func CacheImage(imageName string) (bool, error) {
-	destRef, err := name.ParseReference(Endpoint + "/" + imageName)
+	destRef, err := name.ParseReference(Endpoint+"/"+imageName, name.Insecure)
 	if err != nil {
 		return false, err
 	}
-	sourceRef, err := name.ParseReference(imageName)
+	sourceRef, err := name.ParseReference(imageName, name.Insecure)
 	if err != nil {
 		return false, err
 	}

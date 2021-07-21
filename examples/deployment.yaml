@@ -21,7 +21,7 @@ spec:
         ports:
         - containerPort: 80
       - name: alpine
-        image: library/nginx
+        image: library/alpine
         imagePullPolicy: Always
         command:
           - sleep

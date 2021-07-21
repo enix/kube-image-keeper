@@ -27,3 +27,14 @@ spec:
             - name: {{ .name }}
               value: {{ .value | quote }}
             {{- end }}
+          volumeMounts:
+            {{- if .Values.registry.persistence.enabled }}
+            - mountPath: /var/lib/registry
+              name: registry
+            {{- end }}
+      volumes:
+        {{- if .Values.registry.persistence.enabled }}
+        - name: registry
+          persistentVolumeClaim:
+            claimName: docker-cache-registry-pvc
+        {{- end }}

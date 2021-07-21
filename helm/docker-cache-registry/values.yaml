@@ -11,6 +11,12 @@ proxy:
   verbosity: 1
   env: []
 
+registry:
+  persistence:
+    enabled: false
+    storageClass: null
+    size: 20GiB
+
 tugger:
   createMutatingWebhook: true
   rules:
