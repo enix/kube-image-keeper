@@ -1,0 +1,24 @@
+# permissions for end users to edit cachedimages.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cachedimage-editor-role
+rules:
+- apiGroups:
+  - dcr.enix.io
+  resources:
+  - cachedimages
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - dcr.enix.io
+  resources:
+  - cachedimages/status
+  verbs:
+  - get

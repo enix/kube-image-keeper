@@ -1,0 +1,21 @@
+domain: dcr.enix.io
+layout:
+- go.kubebuilder.io/v3
+projectName: qwe
+repo: gitlab.enix.io/products/docker-cache-registry
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: dcr.enix.io
+  group: dcr.enix.io
+  kind: CachedImage
+  path: gitlab.enix.io/products/docker-cache-registry/api/v1alpha1
+  version: v1alpha1
+- controller: true
+  group: core
+  kind: Pod
+  path: k8s.io/api/core/v1
+  version: v1
+version: "3"

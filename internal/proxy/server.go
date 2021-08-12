@@ -30,7 +30,7 @@ func Serve(cacheController *cache.Cache) chan struct{} {
 
 	finished := make(chan struct{})
 	go func() {
-		r.Run()
+		r.Run(":8082")
 		finished <- struct{}{}
 	}()
 

@@ -1,0 +1,20 @@
+# permissions for end users to view cachedimages.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cachedimage-viewer-role
+rules:
+- apiGroups:
+  - dcr.enix.io
+  resources:
+  - cachedimages
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - dcr.enix.io
+  resources:
+  - cachedimages/status
+  verbs:
+  - get

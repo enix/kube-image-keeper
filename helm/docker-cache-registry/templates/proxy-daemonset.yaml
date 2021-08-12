@@ -13,18 +13,28 @@ spec:
       labels:
         app: cache-proxy
     spec:
-      serviceAccountName: docker-cache-registry
+      serviceAccountName: controller-manager
       containers:
         - name: cache-proxy
           image: {{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}
           ports:
-            - containerPort: 8080
+            - containerPort: 8082
               hostIP: 127.0.0.1
               hostPort: {{ .Values.proxy.hostPort }}
               protocol: TCP
           command:
-            - docker-cache-registry
+            - registry-proxy
             - -v={{ .Values.proxy.verbosity }}
+          env:
+            - name: KUBERNETES_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+        - name: cache-manager
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}
+          ports:
+          command:
+            - manager
           env:
             - name: KUBERNETES_NODE_NAME
               valueFrom:
