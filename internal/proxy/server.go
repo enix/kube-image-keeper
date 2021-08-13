@@ -6,15 +6,20 @@ import (
 	"github.com/gin-gonic/gin"
 	"gitlab.enix.io/products/docker-cache-registry/internal/cache"
 	"gitlab.enix.io/products/docker-cache-registry/internal/registry"
+	"k8s.io/klog/v2"
 )
 
-type proxy struct {
+type Proxy struct {
 	cacheController *cache.Cache
 }
 
-func Serve(cacheController *cache.Cache) chan struct{} {
+func New() (*Proxy, error) {
+	c, err := cache.New()
+	return &Proxy{cacheController: c}, err
+}
+
+func (p *Proxy) Serve() chan struct{} {
 	r := gin.Default()
-	p := proxy{cacheController: cacheController}
 
 	v2 := r.Group("/v2")
 	{
@@ -37,14 +42,14 @@ func Serve(cacheController *cache.Cache) chan struct{} {
 	return finished
 }
 
-func (p *proxy) v2Endpoint(c *gin.Context) {
-	image := p.getImage(c, false)
+func (p *Proxy) v2Endpoint(c *gin.Context) {
+	image := p.getImage(c)
 	proxyRegistry(c, registry.Protocol+registry.Endpoint, image)
 }
 
-func (p *proxy) routeProxy(c *gin.Context) {
-	image := p.getImage(c, true)
-	imageInfo, err := p.cacheController.GetImageInfo(image)
+func (p *Proxy) routeProxy(c *gin.Context) {
+	image := p.getImage(c)
+	cachedImage, err := p.cacheController.GetCachedImage(image)
 	if err != nil {
 		c.JSON(401, &gin.H{
 			"errors": []gin.H{
@@ -58,17 +63,16 @@ func (p *proxy) routeProxy(c *gin.Context) {
 		return
 	}
 
-	if imageInfo.Cached {
-		proxyRegistry(c, registry.Protocol+registry.Endpoint, imageInfo.SourceImage)
+	if cachedImage.Status.PulledAt != 0 {
+		klog.Info("cached image available, proxying cache registry")
+		proxyRegistry(c, registry.Protocol+registry.Endpoint, cachedImage.Spec.SourceImage)
 	} else {
-		proxyRegistry(c, "https://index.docker.io", imageInfo.SourceImage)
+		klog.Info("cached image not available yet, proxying origin")
+		proxyRegistry(c, "https://index.docker.io", cachedImage.Spec.SourceImage)
 	}
 }
 
-func (p *proxy) getImage(c *gin.Context, withHost bool) string {
+func (p *Proxy) getImage(c *gin.Context) string {
 	image := fmt.Sprintf("%s/%s", c.Param("library"), c.Param("name"))
-	if !withHost {
-		return image
-	}
-	return fmt.Sprintf("%s/%s", c.Request.Host, image)
+	return image
 }

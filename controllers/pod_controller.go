@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"regexp"
-	"strings"
 
 	dcrenixiov1alpha1 "gitlab.enix.io/products/docker-cache-registry/api/v1alpha1"
 	"gitlab.enix.io/products/docker-cache-registry/internal/cache"
@@ -105,15 +104,17 @@ func (r *PodReconciler) desiredCachedImages(pod corev1.Pod) ([]dcrenixiov1alpha1
 			// klog.V(2).InfoS("missing source image, ignoring", "pod", klog.KObj(pod), "container", container.Name)
 			continue
 		}
-		nameRegex := regexp.MustCompile(`[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*`)
-		sanitizedName := strings.Join(nameRegex.FindAllString(container.Image, -1), "-")
+		re := regexp.MustCompile(`localhost:[0-9]+/`)
+		image := string(re.ReplaceAll([]byte(container.Image), []byte("")))
+		sanitizedName := cache.SanitizeImageName(image)
 		cachedImage := dcrenixiov1alpha1.CachedImage{
 			TypeMeta: metav1.TypeMeta{APIVersion: dcrenixiov1alpha1.GroupVersion.String(), Kind: "CachedImage"},
 			ObjectMeta: metav1.ObjectMeta{
 				Name: sanitizedName,
 			},
 			Spec: dcrenixiov1alpha1.CachedImageSpec{
-				Image: sourceImage,
+				Image:       image,
+				SourceImage: sourceImage,
 			},
 		}
 
@@ -127,22 +128,4 @@ func (r *PodReconciler) desiredCachedImages(pod corev1.Pod) ([]dcrenixiov1alpha1
 	}
 
 	return cachedImages, nil
-}
-
-func (r *PodReconciler) getImageInfosFromPod(pod *corev1.Pod) map[string]*cache.ImageInfo {
-	containers := append(pod.Spec.Containers, pod.Spec.InitContainers...)
-
-	imageInfos := map[string]*cache.ImageInfo{}
-	for i, container := range containers {
-		sourceImage, ok := pod.Annotations[fmt.Sprintf("tugger-original-image-%d", i)]
-		if !ok {
-			klog.V(2).InfoS("missing source image, ignoring", "pod", klog.KObj(pod), "container", container.Name)
-			continue
-		}
-		imageInfos[container.Image] = &cache.ImageInfo{
-			SourceImage: sourceImage,
-		}
-	}
-
-	return imageInfos
 }

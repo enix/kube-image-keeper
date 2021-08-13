@@ -25,19 +25,9 @@ spec:
           command:
             - registry-proxy
             - -v={{ .Values.proxy.verbosity }}
-          env:
-            - name: KUBERNETES_NODE_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: spec.nodeName
         - name: cache-manager
           image: {{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}
           ports:
           command:
             - manager
             - -leader-elect
-          env:
-            - name: KUBERNETES_NODE_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: spec.nodeName

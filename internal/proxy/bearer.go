@@ -32,7 +32,6 @@ func NewBearer(endpoint string, scope string) (*Bearer, error) {
 		wwwAuthenticate := parseWwwAuthenticate(response.Header.Get("www-authenticate"))
 		url := fmt.Sprintf("%s?service=%s&scope=%s", wwwAuthenticate["realm"], wwwAuthenticate["service"], scope)
 
-		fmt.Println(wwwAuthenticate, url)
 		response, err := http.Get(url)
 		if err != nil {
 			return nil, err

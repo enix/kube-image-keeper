@@ -22,7 +22,8 @@ import (
 
 // CachedImageSpec defines the desired state of CachedImage
 type CachedImageSpec struct {
-	Image string `json:"image"`
+	Image       string `json:"image"`
+	SourceImage string `json:"sourceImage"`
 }
 
 // CachedImageStatus defines the observed state of CachedImage
@@ -33,6 +34,8 @@ type CachedImageStatus struct {
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 //+kubebuilder:resource:scope=Cluster,shortName=ci
+//+kubebuilder:printcolumn:name="Source image",type="string",JSONPath=".spec.sourceImage"
+//+kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // CachedImage is the Schema for the cachedimages API
 type CachedImage struct {

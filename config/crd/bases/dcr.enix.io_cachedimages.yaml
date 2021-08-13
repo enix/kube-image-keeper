@@ -18,7 +18,14 @@ spec:
     singular: cachedimage
   scope: Cluster
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .spec.sourceImage
+      name: Source image
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: CachedImage is the Schema for the cachedimages API
@@ -40,8 +47,11 @@ spec:
             properties:
               image:
                 type: string
+              sourceImage:
+                type: string
             required:
             - image
+            - sourceImage
             type: object
           status:
             description: CachedImageStatus defines the observed state of CachedImage
