@@ -68,7 +68,7 @@ func DeleteImage(imageName string) error {
 		return err
 	}
 
-	digest, err := name.NewDigest(Endpoint + "/" + imageName + "@" + descriptor.Digest.String())
+	digest, err := name.NewDigest(Endpoint+"/"+imageName+"@"+descriptor.Digest.String(), name.Insecure)
 
 	if err != nil {
 		return err

@@ -78,7 +78,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		_ = cachedImage
 		err = r.Patch(ctx, &cachedImage, client.Apply, applyOpts...)
 		if err != nil {
-			log.Info("couldn't patch cachedimage", "cachedImage", klog.KObj(&cachedImage))
+			log.Error(err, "couldn't patch cachedimage", "cachedImage", klog.KObj(&cachedImage))
 			return ctrl.Result{}, err
 		}
 		log.Info("cachedimage patched", "cachedImage", klog.KObj(&cachedImage))

@@ -18,10 +18,13 @@ package controllers
 
 import (
 	"context"
+	"net/http"
 
+	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	dcrenixiov1alpha1 "gitlab.enix.io/products/docker-cache-registry/api/v1alpha1"
@@ -59,6 +62,33 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// https://book.kubebuilder.io/reference/using-finalizers.html
+	finalizerName := "cachedimage.dcr.enix.io/finalizer"
+	if !cachedImage.ObjectMeta.DeletionTimestamp.IsZero() {
+		if containsString(cachedImage.GetFinalizers(), finalizerName) {
+			log.Info("deleting image cache")
+			if err := r.deleteExternalResources(&cachedImage); err != nil {
+				return ctrl.Result{}, err
+			}
+
+			log.Info("removing finalizer")
+			controllerutil.RemoveFinalizer(&cachedImage, finalizerName)
+			if err := r.Update(ctx, &cachedImage); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+
+		return ctrl.Result{}, nil
+	}
+
+	log.Info("adding finalizer")
+	if !containsString(cachedImage.GetFinalizers(), finalizerName) {
+		controllerutil.AddFinalizer(&cachedImage, finalizerName)
+		if err := r.Update(ctx, &cachedImage); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
 	image := cachedImage.Spec.Image
 	log.Info("caching image", "image", image)
 	if cacheUpdated, err := registry.CacheImage(image); err != nil {
@@ -79,4 +109,24 @@ func (r *CachedImageReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&dcrenixiov1alpha1.CachedImage{}).
 		Complete(r)
+}
+
+func (r *CachedImageReconciler) deleteExternalResources(cachedImage *dcrenixiov1alpha1.CachedImage) error {
+	err := registry.DeleteImage(cachedImage.Spec.Image)
+	if err, ok := err.(*transport.Error); ok {
+		if err.StatusCode == http.StatusNotFound {
+			return nil
+		}
+	}
+	return err
+}
+
+// Helper functions to check and remove string from a slice of strings.
+func containsString(slice []string, s string) bool {
+	for _, item := range slice {
+		if item == s {
+			return true
+		}
+	}
+	return false
 }
