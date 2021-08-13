@@ -32,7 +32,7 @@ type CachedImageStatus struct {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
-//+kubebuilder:resource:scope=Cluster
+//+kubebuilder:resource:scope=Cluster,shortName=ci
 
 // CachedImage is the Schema for the cachedimages API
 type CachedImage struct {

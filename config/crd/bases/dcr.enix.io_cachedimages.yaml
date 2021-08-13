@@ -13,6 +13,8 @@ spec:
     kind: CachedImage
     listKind: CachedImageList
     plural: cachedimages
+    shortNames:
+    - ci
     singular: cachedimage
   scope: Cluster
   versions:

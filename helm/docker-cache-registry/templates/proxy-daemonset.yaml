@@ -35,6 +35,7 @@ spec:
           ports:
           command:
             - manager
+            - -leader-elect
           env:
             - name: KUBERNETES_NODE_NAME
               valueFrom:
