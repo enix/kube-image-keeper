@@ -71,6 +71,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 
 	applyOpts := []client.PatchOption{
 		client.FieldOwner("pod-controller"),
+		client.ForceOwnership,
 	}
 
 	for _, cachedImage := range cachedImages {
