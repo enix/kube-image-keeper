@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"regexp"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+
 	dcrenixiov1alpha1 "gitlab.enix.io/products/docker-cache-registry/api/v1alpha1"
 	"gitlab.enix.io/products/docker-cache-registry/internal/cache"
 	corev1 "k8s.io/api/core/v1"
@@ -28,8 +30,13 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
 // PodReconciler reconciles a Pod object
@@ -75,7 +82,17 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	}
 
 	for _, cachedImage := range cachedImages {
-		_ = cachedImage
+		var ci dcrenixiov1alpha1.CachedImage
+		err = r.Get(ctx, client.ObjectKeyFromObject(&cachedImage), &ci)
+		if err != nil && !apierrors.IsNotFound(err) {
+			return ctrl.Result{}, err
+		}
+
+		if !ci.DeletionTimestamp.IsZero() {
+			log.Info("cachedimage is being deleted, retrying later", "cachedImage", klog.KObj(&cachedImage))
+			return ctrl.Result{Requeue: true}, err
+		}
+
 		err = r.Patch(ctx, &cachedImage, client.Apply, applyOpts...)
 		if err != nil {
 			log.Error(err, "couldn't patch cachedimage", "cachedImage", klog.KObj(&cachedImage))
@@ -90,8 +107,18 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	p := predicate.Funcs{
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			return true
+		},
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1.Pod{}).
+		Watches(
+			&source.Kind{Type: &dcrenixiov1alpha1.CachedImage{}},
+			handler.EnqueueRequestsFromMapFunc(r.podsWithDeletingCachedImages),
+			builder.WithPredicates(p),
+		).
 		Complete(r)
 }
 
@@ -117,16 +144,38 @@ func (r *PodReconciler) desiredCachedImages(pod corev1.Pod) ([]dcrenixiov1alpha1
 				Image:       image,
 				SourceImage: sourceImage,
 			},
+			Status: dcrenixiov1alpha1.CachedImageStatus{
+				PulledAt: 0,
+			},
 		}
-
-		// "You have to implement your own ownership and garbage collector implementation." - https://github.com/operator-framework/operator-sdk/issues/1914#issuecomment-532257704
-
-		// if err := ctrl.SetControllerReference(&pod, &cachedImage, r.Scheme); err != nil {
-		// 	return cachedImages, err
-		// }
 
 		cachedImages = append(cachedImages, cachedImage)
 	}
 
 	return cachedImages, nil
+}
+
+func (r *PodReconciler) podsWithDeletingCachedImages(obj client.Object) []ctrl.Request {
+	var podList corev1.PodList
+	if err := r.List(context.Background(), &podList); err != nil {
+		log.Log.Error(err, "could not list pods")
+		return nil
+	}
+
+	cachedImage := obj.(*dcrenixiov1alpha1.CachedImage)
+	res := make([]ctrl.Request, 1)
+
+filter:
+	for _, pod := range podList.Items {
+		for _, value := range pod.GetAnnotations() {
+			if cachedImage.Spec.SourceImage == value {
+				log.Log.Info("image in use", "pod", pod.Namespace+"/"+pod.Name)
+				res[0].Name = pod.Name
+				res[0].Namespace = pod.Namespace
+				break filter
+			}
+		}
+	}
+
+	return res
 }
