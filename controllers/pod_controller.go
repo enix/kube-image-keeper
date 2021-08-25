@@ -89,8 +89,8 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		}
 
 		if !ci.DeletionTimestamp.IsZero() {
-			log.Info("cachedimage is being deleted, retrying later", "cachedImage", klog.KObj(&cachedImage))
-			return ctrl.Result{Requeue: true}, err
+			log.Info("cachedimage is already being deleted, skipping", "cachedImage", klog.KObj(&cachedImage))
+			continue
 		}
 
 		err = r.Patch(ctx, &cachedImage, client.Apply, applyOpts...)
@@ -168,7 +168,7 @@ func (r *PodReconciler) podsWithDeletingCachedImages(obj client.Object) []ctrl.R
 filter:
 	for _, pod := range podList.Items {
 		for _, value := range pod.GetAnnotations() {
-			if cachedImage.Spec.SourceImage == value {
+			if cachedImage.Spec.SourceImage == value && !cachedImage.DeletionTimestamp.IsZero() {
 				log.Log.Info("image in use", "pod", pod.Namespace+"/"+pod.Name)
 				res[0].Name = pod.Name
 				res[0].Namespace = pod.Namespace

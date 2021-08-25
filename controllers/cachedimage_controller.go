@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -81,8 +82,8 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, nil
 	}
 
-	log.Info("adding finalizer")
 	if !containsString(cachedImage.GetFinalizers(), finalizerName) {
+		log.Info("adding finalizer")
 		controllerutil.AddFinalizer(&cachedImage, finalizerName)
 		if err := r.Update(ctx, &cachedImage); err != nil {
 			return ctrl.Result{}, err
@@ -97,7 +98,20 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	} else if cacheUpdated {
 		log.Info("image cached", "image", image)
 	} else {
-		log.Info("image already cached, ignoring", "image", image)
+		log.Info("image already cached, cache not updated", "image", image)
+	}
+
+	expiresAt := cachedImage.Spec.ExpiresAt
+	if !expiresAt.IsZero() {
+		if time.Now().After(expiresAt.Time) {
+			log.Info("cachedimage expired, deleting it", "image", image)
+			err := r.Delete(ctx, &cachedImage)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+		} else {
+			return ctrl.Result{RequeueAfter: expiresAt.Sub(time.Now())}, nil
+		}
 	}
 
 	log.Info("reconciled cachedimage")

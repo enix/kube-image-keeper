@@ -45,6 +45,9 @@ spec:
           spec:
             description: CachedImageSpec defines the desired state of CachedImage
             properties:
+              expiresAt:
+                format: date-time
+                type: string
               image:
                 type: string
               sourceImage:

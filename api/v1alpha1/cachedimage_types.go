@@ -24,6 +24,8 @@ import (
 type CachedImageSpec struct {
 	Image       string `json:"image"`
 	SourceImage string `json:"sourceImage"`
+	// +optional
+	ExpiresAt *metav1.Time `json:"expiresAt,omitempty"`
 }
 
 // CachedImageStatus defines the observed state of CachedImage
