@@ -31,3 +31,4 @@ spec:
           command:
             - manager
             - -leader-elect
+            - -expiry-delay={{ .Values.cache.expiryDelay }}

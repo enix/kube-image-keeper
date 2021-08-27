@@ -6,6 +6,9 @@ image:
   repository: enix/docker-cache-registry
   tag: ""
 
+cache:
+  expiryDelay: 30
+
 proxy:
   hostPort: 7439
   verbosity: 1

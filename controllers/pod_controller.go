@@ -47,7 +47,8 @@ const cachedImageOwnerKey = ".metadata.podOwner"
 // PodReconciler reconciles a Pod object
 type PodReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme      *runtime.Scheme
+	ExpiryDelay time.Duration
 }
 
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch;create;update;patch;delete
@@ -96,7 +97,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 				cachedImageInUse = cachedImageInUse || p.DeletionTimestamp.IsZero()
 			}
 			if !cachedImageInUse {
-				expiresAt := metav1.NewTime(time.Now().Add(60 * time.Second))
+				expiresAt := metav1.NewTime(time.Now().Add(r.ExpiryDelay))
 				log.Info("cachedimage not is use anymore, setting an expiry date", "expiresAt", expiresAt)
 
 				applyOpts := []client.PatchOption{
