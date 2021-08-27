@@ -23,8 +23,9 @@ registry:
 tugger:
   createMutatingWebhook: true
   rules:
-    - pattern: ^jainishshah17/tugger.*
-    - pattern: ^enix/docker-cache-registry.*
-    - pattern: ^registry.*
+    - pattern: ^jainishshah17/tugger(:.*)?
+    - pattern: ^enix/docker-cache-registry(:.*)?
+    - pattern: ^registry(:.*)?
+    - pattern: ^controller(:.*)?
     - pattern: (.*)
       replacement: localhost:7439/$1

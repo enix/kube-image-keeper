@@ -2,5 +2,5 @@
 
 ## Installation
 
-1. Install [cert-manager](https://cert-manager.io/docs/installation/kubernetes/) on your cluster.
-1. Install the helm chart `helm install dcr ./helm/docker-cache-registry/ --values=./values.yaml --set=image.tag=debug-017`.
+1. Install the helm chart `helm upgrade --install --namespace dcr-system dcr ./helm/docker-cache-registry/ --set=image.tag=latest`.
+1. Apply the kustomize configuration `k apply -k ./config/default`.

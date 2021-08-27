@@ -13,7 +13,7 @@ spec:
       labels:
         app: cache-proxy
     spec:
-      serviceAccountName: controller-manager
+      serviceAccountName: dcr-controller-manager
       containers:
         - name: cache-proxy
           image: {{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}

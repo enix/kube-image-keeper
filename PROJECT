@@ -1,7 +1,7 @@
 domain: dcr.enix.io
 layout:
 - go.kubebuilder.io/v3
-projectName: qwe
+projectName: docker-cache-registry
 repo: gitlab.enix.io/products/docker-cache-registry
 resources:
 - api:
