@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -104,7 +105,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	expiresAt := cachedImage.Spec.ExpiresAt
 	if !expiresAt.IsZero() {
 		if time.Now().After(expiresAt.Time) {
-			log.Info("cachedimage expired, deleting it", "image", image)
+			log.Info("cachedimage expired, deleting it", "image", image, "now", time.Now(), "expiresAt", expiresAt)
 			err := r.Delete(ctx, &cachedImage)
 			if err != nil {
 				return ctrl.Result{}, err
@@ -120,6 +121,23 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *CachedImageReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &corev1.Pod{}, cachedImageOwnerKey, func(rawObj client.Object) []string {
+		pod := rawObj.(*corev1.Pod)
+		cachedImages, err := desiredCachedImages(pod)
+		if err != nil {
+			return []string{}
+		}
+
+		cachedImageNames := make([]string, len(cachedImages))
+		for _, cachedImage := range cachedImages {
+			cachedImageNames = append(cachedImageNames, cachedImage.Name)
+		}
+
+		return cachedImageNames
+	}); err != nil {
+		return err
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&dcrenixiov1alpha1.CachedImage{}).
 		Complete(r)

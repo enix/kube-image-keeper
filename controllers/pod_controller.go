@@ -19,8 +19,11 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"regexp"
+	"time"
 
+	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
 	dcrenixiov1alpha1 "gitlab.enix.io/products/docker-cache-registry/api/v1alpha1"
@@ -38,6 +41,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
+
+const cachedImageOwnerKey = ".metadata.podOwner"
 
 // PodReconciler reconciles a Pod object
 type PodReconciler struct {
@@ -69,16 +74,45 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	cachedImages, err := r.desiredCachedImages(pod)
+	cachedImages, err := desiredCachedImages(&pod)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	log.Info("cachedImages", "quantity", len(cachedImages))
+	if !pod.DeletionTimestamp.IsZero() {
+		log.Info("pod is deleting")
+		for _, cachedImage := range cachedImages {
+			if !cachedImage.Spec.ExpiresAt.IsZero() {
+				continue
+			}
 
-	applyOpts := []client.PatchOption{
-		client.FieldOwner("pod-controller"),
-		client.ForceOwnership,
+			var podsList corev1.PodList
+			if err := r.List(ctx, &podsList, client.MatchingFields{cachedImageOwnerKey: cachedImage.Name}); err != nil {
+				return ctrl.Result{}, err
+			}
+
+			cachedImageInUse := false
+			for _, p := range podsList.Items {
+				cachedImageInUse = cachedImageInUse || p.DeletionTimestamp.IsZero()
+			}
+			if !cachedImageInUse {
+				expiresAt := metav1.NewTime(time.Now().Add(60 * time.Second))
+				log.Info("cachedimage not is use anymore, setting an expiry date", "expiresAt", expiresAt)
+
+				applyOpts := []client.PatchOption{
+					client.FieldOwner("pod-controller"),
+					client.ForceOwnership,
+				}
+
+				cachedImage.Spec.ExpiresAt = &expiresAt
+				err = r.Patch(ctx, &cachedImage, client.Apply, applyOpts...)
+				if err != nil && !apierrors.IsNotFound(err) {
+					return ctrl.Result{}, err
+				}
+			}
+		}
+		log.Info("reconciled deleting pod")
+		return ctrl.Result{}, nil
 	}
 
 	for _, cachedImage := range cachedImages {
@@ -93,11 +127,22 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			continue
 		}
 
-		err = r.Patch(ctx, &cachedImage, client.Apply, applyOpts...)
-		if err != nil {
-			log.Error(err, "couldn't patch cachedimage", "cachedImage", klog.KObj(&cachedImage))
-			return ctrl.Result{}, err
+		if apierrors.IsNotFound(err) {
+			err = r.Create(ctx, &cachedImage)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+		} else {
+			ci.Spec = cachedImage.Spec
+			err = r.Update(ctx, &ci)
+			if err != nil {
+				if statusErr, ok := err.(*errors.StatusError); ok && statusErr.Status().Code == http.StatusConflict {
+					return ctrl.Result{Requeue: true}, nil
+				}
+				return ctrl.Result{}, err
+			}
 		}
+
 		log.Info("cachedimage patched", "cachedImage", klog.KObj(&cachedImage))
 	}
 
@@ -112,6 +157,7 @@ func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			return true
 		},
 	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1.Pod{}).
 		Watches(
@@ -122,7 +168,7 @@ func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *PodReconciler) desiredCachedImages(pod corev1.Pod) ([]dcrenixiov1alpha1.CachedImage, error) {
+func desiredCachedImages(pod *corev1.Pod) ([]dcrenixiov1alpha1.CachedImage, error) {
 	containers := append(pod.Spec.Containers, pod.Spec.InitContainers...)
 	cachedImages := []dcrenixiov1alpha1.CachedImage{}
 
@@ -135,6 +181,7 @@ func (r *PodReconciler) desiredCachedImages(pod corev1.Pod) ([]dcrenixiov1alpha1
 		re := regexp.MustCompile(`localhost:[0-9]+/`)
 		image := string(re.ReplaceAll([]byte(container.Image), []byte("")))
 		sanitizedName := cache.SanitizeImageName(image)
+
 		cachedImage := dcrenixiov1alpha1.CachedImage{
 			TypeMeta: metav1.TypeMeta{APIVersion: dcrenixiov1alpha1.GroupVersion.String(), Kind: "CachedImage"},
 			ObjectMeta: metav1.ObjectMeta{
