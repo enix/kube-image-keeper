@@ -63,7 +63,7 @@ func (p *Proxy) routeProxy(c *gin.Context) {
 		return
 	}
 
-	if cachedImage.Status.PulledAt != 0 {
+	if cachedImage.Status.IsCached {
 		klog.Info("cached image available, proxying cache registry")
 		proxyRegistry(c, registry.Protocol+registry.Endpoint, cachedImage.Spec.SourceImage)
 	} else {

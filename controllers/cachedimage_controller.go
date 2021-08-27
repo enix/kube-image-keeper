@@ -23,6 +23,7 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -98,8 +99,20 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	} else if cacheUpdated {
 		log.Info("image cached", "image", image)
+		if err := r.Get(ctx, req.NamespacedName, &cachedImage); err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
 	} else {
 		log.Info("image already cached, cache not updated", "image", image)
+	}
+
+	cachedImage.Status.IsCached = true
+	err := r.Status().Update(context.Background(), &cachedImage)
+	if err != nil {
+		if statusErr, ok := err.(*errors.StatusError); ok && statusErr.Status().Code == http.StatusConflict {
+			return ctrl.Result{Requeue: true}, nil
+		}
+		return ctrl.Result{}, err
 	}
 
 	expiresAt := cachedImage.Spec.ExpiresAt

@@ -30,7 +30,7 @@ type CachedImageSpec struct {
 
 // CachedImageStatus defines the observed state of CachedImage
 type CachedImageStatus struct {
-	PulledAt int `json:"pulledAt,omitempty"`
+	IsCached bool `json:"isCached,omitempty"`
 }
 
 //+kubebuilder:object:root=true

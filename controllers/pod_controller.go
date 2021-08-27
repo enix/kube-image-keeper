@@ -191,9 +191,6 @@ func desiredCachedImages(pod *corev1.Pod) ([]dcrenixiov1alpha1.CachedImage, erro
 				Image:       image,
 				SourceImage: sourceImage,
 			},
-			Status: dcrenixiov1alpha1.CachedImageStatus{
-				PulledAt: 0,
-			},
 		}
 
 		cachedImages = append(cachedImages, cachedImage)
