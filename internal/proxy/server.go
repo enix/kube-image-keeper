@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"gitlab.enix.io/products/docker-cache-registry/internal/cache"
@@ -11,21 +12,32 @@ import (
 
 type Proxy struct {
 	cacheController *cache.Cache
+	engine          *gin.Engine
 }
+
+const (
+	headerOriginRegistryKey = "Origin-Registry"
+)
 
 func New() (*Proxy, error) {
 	c, err := cache.New()
-	return &Proxy{cacheController: c}, err
+	return &Proxy{cacheController: c, engine: gin.Default()}, err
 }
 
 func (p *Proxy) Serve() chan struct{} {
-	r := gin.Default()
+	r := p.engine
 
-	v2 := r.Group("/v2")
 	{
-		v2.GET("/", p.v2Endpoint)
+		v2 := r.Group("/v2")
+		v2.Use(p.UrlRewrite())
+		v2.Any("*test", func(c *gin.Context) {})
+	}
 
-		name := v2.Group("/:library/:name")
+	internal := r.Group("/internal")
+	{
+		internal.GET("/", p.v2Endpoint)
+
+		name := internal.Group("/:library/:name")
 		{
 			name.GET("/manifests/:reference", p.routeProxy)
 			name.HEAD("/manifests/:reference", p.routeProxy)
@@ -42,9 +54,28 @@ func (p *Proxy) Serve() chan struct{} {
 	return finished
 }
 
+func (p *Proxy) UrlRewrite() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var originRegistry string
+
+		parts := strings.Split(c.Request.URL.Path[3:], "/")[1:]
+		if len(parts) > 4 {
+			originRegistry = strings.Join(parts[:len(parts)-4], "/")
+			c.Request.URL.Path = "/" + strings.Join(parts[len(parts)-4:], "/")
+		} else {
+			originRegistry = "index.docker.io"
+		}
+
+		c.Request.URL.Path = "/internal" + c.Request.URL.Path
+		c.Request.Header.Set(headerOriginRegistryKey, originRegistry)
+
+		p.engine.ServeHTTP(c.Writer, c.Request)
+		c.Abort()
+	}
+}
+
 func (p *Proxy) v2Endpoint(c *gin.Context) {
-	image := p.getImage(c)
-	proxyRegistry(c, registry.Protocol+registry.Endpoint, image)
+	proxyRegistry(c, registry.Protocol+registry.Endpoint, "")
 }
 
 func (p *Proxy) routeProxy(c *gin.Context) {
@@ -67,12 +98,19 @@ func (p *Proxy) routeProxy(c *gin.Context) {
 		klog.Info("cached image available, proxying cache registry")
 		proxyRegistry(c, registry.Protocol+registry.Endpoint, cachedImage.Spec.SourceImage)
 	} else {
-		klog.Info("cached image not available yet, proxying origin")
-		proxyRegistry(c, "https://index.docker.io", cachedImage.Spec.SourceImage)
+		headerOriginRegistry := c.Request.Header.Get(headerOriginRegistryKey)
+		klog.InfoS("cached image not available yet, proxying origin", "headerOriginRegistry", headerOriginRegistry)
+		proxyRegistry(c, "https://"+headerOriginRegistry, cachedImage.Spec.SourceImage)
 	}
 }
 
 func (p *Proxy) getImage(c *gin.Context) string {
-	image := fmt.Sprintf("%s/%s", c.Param("library"), c.Param("name"))
-	return image
+	headerOriginRegistry := c.Request.Header.Get(headerOriginRegistryKey)
+	library := c.Param("library")
+	name := c.Param("name")
+	reference := c.Param("reference")
+	if reference == "" {
+		reference = c.Param("digest")
+	}
+	return fmt.Sprintf("%s/%s/%s", headerOriginRegistry, library, name)
 }

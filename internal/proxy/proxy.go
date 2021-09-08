@@ -27,11 +27,20 @@ func parseWwwAuthenticate(wwwAuthenticate string) map[string]string {
 }
 
 func proxyRegistry(c *gin.Context, endpoint string, image string) {
-	klog.V(2).InfoS("proxying registry", "endpoint", endpoint)
+	klog.V(2).InfoS("proxying registry", "endpoint", endpoint, "image", image)
 
 	remote, err := url.Parse(endpoint)
 	if err != nil {
 		panic(err)
+	}
+
+	parts := strings.Split(image, "/")
+	originRegistry := ""
+	if len(parts) > 2 {
+		originRegistry = parts[0] + "/"
+		image = strings.Join(parts[1:], "/")
+	} else {
+		image = strings.Join(parts, "/")
 	}
 
 	scope := fmt.Sprintf("repository:%s:pull", image)
@@ -47,6 +56,7 @@ func proxyRegistry(c *gin.Context, endpoint string, image string) {
 		req.Host = remote.Host
 		req.URL.Scheme = remote.Scheme
 		req.URL.Host = remote.Host
+		req.URL.Path = "/v2/" + originRegistry + strings.Join(strings.Split(req.URL.Path, "/")[2:], "/")
 
 		token := bearer.GetToken()
 		if token != "" {
