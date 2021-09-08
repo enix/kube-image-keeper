@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httputil"
@@ -26,7 +27,7 @@ func parseWwwAuthenticate(wwwAuthenticate string) map[string]string {
 	return opts
 }
 
-func proxyRegistry(c *gin.Context, endpoint string, image string) {
+func proxyRegistry(c *gin.Context, endpoint string, image string, httpToError bool) error {
 	klog.V(2).InfoS("proxying registry", "endpoint", endpoint, "image", image)
 
 	remote, err := url.Parse(endpoint)
@@ -64,5 +65,19 @@ func proxyRegistry(c *gin.Context, endpoint string, image string) {
 		}
 	}
 
+	proxy.ModifyResponse = func(resp *http.Response) error {
+		if httpToError && resp.StatusCode != http.StatusOK {
+			return errors.New(resp.Status)
+		}
+		return nil
+	}
+
+	var proxyError error
+	proxy.ErrorHandler = func(rw http.ResponseWriter, req *http.Request, err error) {
+		proxyError = err
+	}
+
 	proxy.ServeHTTP(c.Writer, c.Request)
+
+	return proxyError
 }

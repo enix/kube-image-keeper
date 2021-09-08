@@ -5,23 +5,20 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"gitlab.enix.io/products/docker-cache-registry/internal/cache"
 	"gitlab.enix.io/products/docker-cache-registry/internal/registry"
 	"k8s.io/klog/v2"
 )
 
 type Proxy struct {
-	cacheController *cache.Cache
-	engine          *gin.Engine
+	engine *gin.Engine
 }
 
 const (
 	headerOriginRegistryKey = "Origin-Registry"
 )
 
-func New() (*Proxy, error) {
-	c, err := cache.New()
-	return &Proxy{cacheController: c, engine: gin.Default()}, err
+func New() *Proxy {
+	return &Proxy{engine: gin.Default()}
 }
 
 func (p *Proxy) Serve() chan struct{} {
@@ -75,42 +72,24 @@ func (p *Proxy) UrlRewrite() gin.HandlerFunc {
 }
 
 func (p *Proxy) v2Endpoint(c *gin.Context) {
-	proxyRegistry(c, registry.Protocol+registry.Endpoint, "")
+	proxyRegistry(c, registry.Protocol+registry.Endpoint, "", false)
 }
 
 func (p *Proxy) routeProxy(c *gin.Context) {
 	image := p.getImage(c)
-	cachedImage, err := p.cacheController.GetCachedImage(image)
-	if err != nil {
-		c.JSON(401, &gin.H{
-			"errors": []gin.H{
-				{
-					"code":    "NAME_UNKNOWN",
-					"message": err.Error(),
-				},
-			},
-		})
-
-		return
-	}
-
-	if cachedImage.Status.IsCached {
-		klog.Info("cached image available, proxying cache registry")
-		proxyRegistry(c, registry.Protocol+registry.Endpoint, cachedImage.Spec.SourceImage)
-	} else {
+	if err := proxyRegistry(c, registry.Protocol+registry.Endpoint, image, true); err != nil {
 		headerOriginRegistry := c.Request.Header.Get(headerOriginRegistryKey)
 		klog.InfoS("cached image not available yet, proxying origin", "headerOriginRegistry", headerOriginRegistry)
-		proxyRegistry(c, "https://"+headerOriginRegistry, cachedImage.Spec.SourceImage)
+		proxyRegistry(c, "https://"+headerOriginRegistry, image, false)
 	}
 }
 
 func (p *Proxy) getImage(c *gin.Context) string {
-	headerOriginRegistry := c.Request.Header.Get(headerOriginRegistryKey)
 	library := c.Param("library")
 	name := c.Param("name")
-	reference := c.Param("reference")
-	if reference == "" {
-		reference = c.Param("digest")
+	reference := ":" + c.Param("reference")
+	if reference == ":" {
+		reference = "@" + c.Param("digest")
 	}
-	return fmt.Sprintf("%s/%s/%s", headerOriginRegistry, library, name)
+	return fmt.Sprintf("%s/%s%s", library, name, reference)
 }

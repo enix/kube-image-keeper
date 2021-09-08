@@ -20,10 +20,5 @@ func main() {
 
 	klog.Info("Starting")
 
-	p, err := proxy.New()
-	if err != nil {
-		panic(err)
-	}
-
-	<-p.Serve()
+	<-proxy.New().Serve()
 }

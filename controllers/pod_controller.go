@@ -21,13 +21,13 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
 	dcrenixiov1alpha1 "gitlab.enix.io/products/docker-cache-registry/api/v1alpha1"
-	"gitlab.enix.io/products/docker-cache-registry/internal/cache"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -169,37 +169,6 @@ func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func desiredCachedImages(pod *corev1.Pod) ([]dcrenixiov1alpha1.CachedImage, error) {
-	containers := append(pod.Spec.Containers, pod.Spec.InitContainers...)
-	cachedImages := []dcrenixiov1alpha1.CachedImage{}
-
-	for i, container := range containers {
-		sourceImage, ok := pod.Annotations[fmt.Sprintf("tugger-original-image-%d", i)]
-		if !ok {
-			// klog.V(2).InfoS("missing source image, ignoring", "pod", klog.KObj(pod), "container", container.Name)
-			continue
-		}
-		re := regexp.MustCompile(`localhost:[0-9]+/`)
-		image := string(re.ReplaceAll([]byte(container.Image), []byte("")))
-		sanitizedName := cache.SanitizeImageName(image)
-
-		cachedImage := dcrenixiov1alpha1.CachedImage{
-			TypeMeta: metav1.TypeMeta{APIVersion: dcrenixiov1alpha1.GroupVersion.String(), Kind: "CachedImage"},
-			ObjectMeta: metav1.ObjectMeta{
-				Name: sanitizedName,
-			},
-			Spec: dcrenixiov1alpha1.CachedImageSpec{
-				Image:       image,
-				SourceImage: sourceImage,
-			},
-		}
-
-		cachedImages = append(cachedImages, cachedImage)
-	}
-
-	return cachedImages, nil
-}
-
 func (r *PodReconciler) podsWithDeletingCachedImages(obj client.Object) []ctrl.Request {
 	var podList corev1.PodList
 	if err := r.List(context.Background(), &podList); err != nil {
@@ -223,4 +192,40 @@ filter:
 	}
 
 	return res
+}
+
+func desiredCachedImages(pod *corev1.Pod) ([]dcrenixiov1alpha1.CachedImage, error) {
+	containers := append(pod.Spec.Containers, pod.Spec.InitContainers...)
+	cachedImages := []dcrenixiov1alpha1.CachedImage{}
+
+	for i, container := range containers {
+		sourceImage, ok := pod.Annotations[fmt.Sprintf("tugger-original-image-%d", i)]
+		if !ok {
+			// klog.V(2).InfoS("missing source image, ignoring", "pod", klog.KObj(pod), "container", container.Name)
+			continue
+		}
+		re := regexp.MustCompile(`localhost:[0-9]+/`)
+		image := string(re.ReplaceAll([]byte(container.Image), []byte("")))
+		sanitizedName := sanitizeImageName(image)
+
+		cachedImage := dcrenixiov1alpha1.CachedImage{
+			TypeMeta: metav1.TypeMeta{APIVersion: dcrenixiov1alpha1.GroupVersion.String(), Kind: "CachedImage"},
+			ObjectMeta: metav1.ObjectMeta{
+				Name: sanitizedName,
+			},
+			Spec: dcrenixiov1alpha1.CachedImageSpec{
+				Image:       image,
+				SourceImage: sourceImage,
+			},
+		}
+
+		cachedImages = append(cachedImages, cachedImage)
+	}
+
+	return cachedImages, nil
+}
+
+func sanitizeImageName(image string) string {
+	nameRegex := regexp.MustCompile(`[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*`)
+	return strings.Join(nameRegex.FindAllString(image, -1), "-")
 }
