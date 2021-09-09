@@ -49,7 +49,7 @@ func TestRewriteToInternalUrl(t *testing.T) {
 		},
 		{
 			name:       "From custom registry",
-			path:       "/v2/index.docker.io/bitnami/wordpress/manifests/5.8.0-debian-10-r26",
+			path:       "/v2/docker.io/bitnami/wordpress/manifests/5.8.0-debian-10-r26",
 			wantPath:   "/internal/bitnami/wordpress/manifests/5.8.0-debian-10-r26",
 			wantOrigin: "index.docker.io",
 		},

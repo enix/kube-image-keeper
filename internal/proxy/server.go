@@ -98,6 +98,10 @@ func RewriteToInternalUrl(path string) (string, originRegistry string) {
 		return "", ""
 	} else if len(parts) > 4 {
 		originRegistry = strings.Join(parts[:len(parts)-4], "/")
+		if strings.HasSuffix(originRegistry, "docker.io") {
+			originRegistry = "index.docker.io"
+		}
+
 		parts = parts[len(parts)-4:]
 		path = "/" + strings.Join(parts, "/")
 	} else {
