@@ -21,8 +21,8 @@ func (b *Bearer) GetToken() string {
 	return b.AccessToken
 }
 
-func NewBearer(endpoint string, scope string) (*Bearer, error) {
-	response, err := http.Get(endpoint + "/v2")
+func NewBearer(endpoint string, path string) (*Bearer, error) {
+	response, err := http.Get(endpoint + path)
 	if err != nil {
 		return nil, err
 	}
@@ -30,7 +30,7 @@ func NewBearer(endpoint string, scope string) (*Bearer, error) {
 	bearer := Bearer{}
 	if response.StatusCode == 401 {
 		wwwAuthenticate := parseWwwAuthenticate(response.Header.Get("www-authenticate"))
-		url := fmt.Sprintf("%s?service=%s&scope=%s", wwwAuthenticate["realm"], wwwAuthenticate["service"], scope)
+		url := fmt.Sprintf("%s?service=%s&scope=%s", wwwAuthenticate["realm"], wwwAuthenticate["service"], wwwAuthenticate["scope"])
 
 		response, err := http.Get(url)
 		if err != nil {

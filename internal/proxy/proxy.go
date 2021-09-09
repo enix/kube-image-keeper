@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -44,12 +43,6 @@ func proxyRegistry(c *gin.Context, endpoint string, image string, httpToError bo
 		image = strings.Join(parts, "/")
 	}
 
-	scope := fmt.Sprintf("repository:%s:pull", image)
-	bearer, err := NewBearer(endpoint, scope)
-	if err != nil {
-		panic(err)
-	}
-
 	proxy := httputil.NewSingleHostReverseProxy(remote)
 
 	proxy.Director = func(req *http.Request) {
@@ -59,6 +52,10 @@ func proxyRegistry(c *gin.Context, endpoint string, image string, httpToError bo
 		req.URL.Host = remote.Host
 		req.URL.Path = "/v2/" + originRegistry + strings.Join(strings.Split(req.URL.Path, "/")[2:], "/")
 
+		bearer, err := NewBearer(endpoint, req.URL.Path)
+		if err != nil {
+			panic(err)
+		}
 		token := bearer.GetToken()
 		if token != "" {
 			req.Header.Set("Authorization", "Bearer "+token)
