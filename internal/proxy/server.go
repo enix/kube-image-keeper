@@ -26,8 +26,8 @@ func (p *Proxy) Serve() chan struct{} {
 
 	{
 		v2 := r.Group("/v2")
-		v2.Use(p.UrlRewrite())
-		v2.Any("*test", func(c *gin.Context) {})
+		v2.Use(p.RewriteToInternalUrlMiddleware())
+		v2.Any("*catch-all-for-rewrite", func(c *gin.Context) {})
 	}
 
 	internal := r.Group("/internal")
@@ -51,19 +51,11 @@ func (p *Proxy) Serve() chan struct{} {
 	return finished
 }
 
-func (p *Proxy) UrlRewrite() gin.HandlerFunc {
+func (p *Proxy) RewriteToInternalUrlMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var originRegistry string
 
-		parts := strings.Split(c.Request.URL.Path[3:], "/")[1:]
-		if len(parts) > 4 {
-			originRegistry = strings.Join(parts[:len(parts)-4], "/")
-			c.Request.URL.Path = "/" + strings.Join(parts[len(parts)-4:], "/")
-		} else {
-			originRegistry = "index.docker.io"
-		}
-
-		c.Request.URL.Path = "/internal" + c.Request.URL.Path
+		c.Request.URL.Path, originRegistry = RewriteToInternalUrl(c.Request.URL.Path)
 		c.Request.Header.Set(headerOriginRegistryKey, originRegistry)
 
 		p.engine.ServeHTTP(c.Writer, c.Request)
@@ -79,7 +71,7 @@ func (p *Proxy) routeProxy(c *gin.Context) {
 	image := p.getImage(c)
 	if err := proxyRegistry(c, registry.Protocol+registry.Endpoint, image, true); err != nil {
 		headerOriginRegistry := c.Request.Header.Get(headerOriginRegistryKey)
-		klog.InfoS("cached image not available yet, proxying origin", "headerOriginRegistry", headerOriginRegistry)
+		klog.InfoS("cached image not available yet, proxying origin", "registry", headerOriginRegistry)
 		proxyRegistry(c, "https://"+headerOriginRegistry, image, false)
 	}
 }
@@ -92,4 +84,27 @@ func (p *Proxy) getImage(c *gin.Context) string {
 		reference = "@" + c.Param("digest")
 	}
 	return fmt.Sprintf("%s/%s%s", library, name, reference)
+}
+
+func RewriteToInternalUrl(path string) (string, originRegistry string) {
+	path = strings.Trim(path, "/")
+	if len(path) < 3 {
+		return "", ""
+	}
+
+	parts := strings.Split(path[3:], "/")
+
+	if len(parts) < 3 {
+		return "", ""
+	} else if len(parts) > 4 {
+		originRegistry = strings.Join(parts[:len(parts)-4], "/")
+		parts = parts[len(parts)-4:]
+		path = "/" + strings.Join(parts, "/")
+	} else {
+		originRegistry = "index.docker.io"
+	}
+
+	path = "/internal/" + strings.Join(parts, "/")
+
+	return path, originRegistry
 }
