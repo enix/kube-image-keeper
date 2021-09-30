@@ -3,6 +3,8 @@ FROM golang:1.16-alpine3.14 AS builder
 
 WORKDIR /workspace
 
+RUN go get sigs.k8s.io/controller-tools/cmd/controller-gen@v0.4.1
+
 # Copy the Go Modules manifests
 COPY go.mod go.mod
 COPY go.sum go.sum
@@ -16,10 +18,15 @@ COPY api/ api/
 COPY controllers/ controllers/
 COPY cmd/ cmd/
 COPY internal/ internal/
+COPY hack/ hack/
+
+ENV CGO_ENABLED=0 GOOS=linux GOARCH=amd64
+
+RUN controller-gen object:headerFile="./hack/boilerplate.go.txt" paths="./..."
 
 # Build
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o manager cmd/cache/main.go
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o registry-proxy cmd/proxy/main.go
+RUN go build -a -o manager cmd/cache/main.go
+RUN go build -a -o registry-proxy cmd/proxy/main.go
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
