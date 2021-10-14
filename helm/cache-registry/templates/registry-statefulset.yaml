@@ -45,7 +45,7 @@ spec:
           {{- if .Values.registry.persistence.enabled }}
           volumeMounts:
             - mountPath: /var/lib/registry
-              name: { include "cache-registry.fullname" . }}-data
+              name: {{ include "cache-registry.fullname" . }}-data
           {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
@@ -62,7 +62,7 @@ spec:
 {{- if .Values.registry.persistence.enabled }}
   volumeClaimTemplates:
   - metadata:
-      name: { include "cache-registry.fullname" . }}-data
+      name: {{ include "cache-registry.fullname" . }}-data
     spec:
       accessModes: [ "ReadWriteOnce" ]
       storageClassName: {{ .Values.registry.persistence.storageClass }}
