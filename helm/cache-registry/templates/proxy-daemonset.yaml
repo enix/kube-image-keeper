@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "cache-registry.fullname" . }}-proxy
+  labels:
+    {{- include "cache-registry.proxy-labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "cache-registry.proxy-selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.proxy.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "cache-registry.proxy-selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.proxy.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "cache-registry.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.proxy.podSecurityContext | nindent 8 }}
+      containers:
+        - name: cache-proxy
+          securityContext:
+            {{- toYaml .Values.proxy.proxy.securityContext | nindent 12 }}
+          image: "{{ .Values.proxy.image.repository }}:{{ .Values.proxy.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.proxy.image.pullPolicy }}
+          ports:
+            - containerPort: 8082
+              hostIP: 127.0.0.1
+              hostPort: {{ .Values.proxy.hostPort }}
+              protocol: TCP
+          command:
+            - registry-proxy
+            - -v={{ .Values.proxy.verbosity }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+        - name: cache-manager
+          securityContext:
+            {{- toYaml .Values.proxy.manager.securityContext | nindent 12 }}
+          image: "{{ .Values.proxy.image.repository }}:{{ .Values.proxy.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.proxy.image.pullPolicy }}
+          command:
+            - manager
+            - -leader-elect
+            - -expiry-delay={{ .Values.cache.expiryDelay }}
+      {{- with .Values.proxy.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.proxy.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.proxy.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -1,4 +1,5 @@
-helm/docker-cache-registry/charts/*.tgz
+helm/cache-registry/charts/*.tgz
+
 
 # Binaries for programs and plugins
 *.exe

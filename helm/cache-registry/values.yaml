@@ -1,0 +1,61 @@
+# Default values for cache-registry.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+cache:
+  expiryDelay: 30
+
+proxy:
+  image:
+    repository: enix/docker-cache-registry
+    pullPolicy: IfNotPresent
+    # Overrides the image tag whose default is the chart appVersion.
+    tag: ""
+  hostPort: 7439
+  verbosity: 1
+  imagePullSecrets: []
+  podAnnotations: {}
+  podSecurityContext: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  proxy:
+    securityContext: {}
+    resources: {}
+  manager:
+    securityContext: {}
+    resources: {}
+
+registry:
+  image:
+    repository: registry
+    pullPolicy: IfNotPresent
+    tag: "latest"
+  persistence:
+    enabled: false
+    storageClass: null
+    size: 20GiB
+  service:
+    type: ClusterIP
+  env: []
+  resources: {}
+  imagePullSecrets: []
+  podAnnotations: {}
+  podSecurityContext: {}
+  securityContext: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+tugger:
+  createMutatingWebhook: true
+  rules:
+    - pattern: ^jainishshah17/tugger(:.*)?
+    - pattern: ^enix/docker-cache-registry(:.*)?
+    - pattern: ^registry(:.*)?
+    - pattern: (.*)
+      replacement: localhost:7439/$1
+
+serviceAccount:
+  annotations: {}
+  name: ""
