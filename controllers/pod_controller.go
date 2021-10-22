@@ -199,11 +199,14 @@ func desiredCachedImages(pod *corev1.Pod) ([]dcrenixiov1alpha1.CachedImage, erro
 	cachedImages := []dcrenixiov1alpha1.CachedImage{}
 
 	for i, container := range containers {
-		sourceImage, ok := pod.Annotations[fmt.Sprintf("tugger-original-image-%d", i)]
+		sourceImage, ok := pod.Annotations[fmt.Sprintf("original-image-%d", i)]
 		if !ok {
-			// klog.V(2).InfoS("missing source image, ignoring", "pod", klog.KObj(pod), "container", container.Name)
-			continue
+			if sourceImage, ok = pod.Annotations[fmt.Sprintf("original-init-image-%d", i)]; !ok {
+				// klog.V(2).InfoS("missing source image, ignoring", "pod", klog.KObj(pod), "container", container.Name)
+				continue
+			}
 		}
+
 		re := regexp.MustCompile(`localhost:[0-9]+/`)
 		image := string(re.ReplaceAll([]byte(container.Image), []byte("")))
 		sanitizedName := sanitizeImageName(image)

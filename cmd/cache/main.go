@@ -98,7 +98,7 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "Pod")
 		os.Exit(1)
 	}
-	mgr.GetWebhookServer().Register("/mutate-core-v1-pod", &webhook.Admission{Handler: &dcrenixiov1.PodAnnotator{Client: mgr.GetClient()}})
+	mgr.GetWebhookServer().Register("/mutate-core-v1-pod", &webhook.Admission{Handler: &dcrenixiov1.ImageRewriter{Client: mgr.GetClient()}})
 	//+kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {

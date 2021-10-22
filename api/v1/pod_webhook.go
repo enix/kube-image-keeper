@@ -3,9 +3,11 @@ package v1
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
@@ -19,16 +21,14 @@ type ImageRewriter struct {
 
 func (a *ImageRewriter) Handle(ctx context.Context, req admission.Request) admission.Response {
 	pod := &corev1.Pod{}
-
 	err := a.decoder.Decode(req, pod)
 	if err != nil {
 		return admission.Errored(http.StatusBadRequest, err)
 	}
 
-	if pod.Annotations == nil {
-		pod.Annotations = map[string]string{}
+	if req.Namespace != "dcr-system" {
+		a.RewriteImages(pod)
 	}
-	pod.Annotations["example-mutating-admission-webhook"] = "foo"
 
 	marshaledPod, err := json.Marshal(pod)
 	if err != nil {
@@ -38,8 +38,35 @@ func (a *ImageRewriter) Handle(ctx context.Context, req admission.Request) admis
 	return admission.PatchResponseFromRaw(req.Object.Raw, marshaledPod)
 }
 
+func (a *ImageRewriter) RewriteImages(pod *corev1.Pod) {
+	if pod.Annotations == nil {
+		pod.Annotations = map[string]string{}
+	}
+
+	if pod.Labels == nil {
+		pod.Labels = map[string]string{}
+	}
+
+	pod.Labels["dcr-images-rewritten"] = "true"
+
+	// Handle Containers
+	for i := range pod.Spec.Containers {
+		handleContainer(pod, &pod.Spec.Containers[i], fmt.Sprintf("original-image-%d", i))
+	}
+
+	// Handle init containers
+	for i := range pod.Spec.InitContainers {
+		handleContainer(pod, &pod.Spec.InitContainers[i], fmt.Sprintf("original-init-image-%d", i))
+	}
+}
+
 // InjectDecoder injects the decoder
 func (a *ImageRewriter) InjectDecoder(d *admission.Decoder) error {
 	a.decoder = d
 	return nil
+}
+
+func handleContainer(pod *corev1.Pod, container *v1.Container, annotationKey string) {
+	pod.Annotations[annotationKey] = container.Image
+	container.Image = "localhost:7439/" + container.Image
 }
