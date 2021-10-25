@@ -4,6 +4,7 @@
 
 cache:
   expiryDelay: 30
+  installCRD: true
 
 proxy:
   image:

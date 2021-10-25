@@ -1,0 +1,72 @@
+{{- if .Values.cache.installCRD -}}
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: cachedimages.dcr.enix.io
+spec:
+  group: dcr.enix.io
+  names:
+    kind: CachedImage
+    listKind: CachedImageList
+    plural: cachedimages
+    shortNames:
+    - ci
+    singular: cachedimage
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.sourceImage
+      name: Source image
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: CachedImage is the Schema for the cachedimages API
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: CachedImageSpec defines the desired state of CachedImage
+            properties:
+              expiresAt:
+                format: date-time
+                type: string
+              image:
+                type: string
+              sourceImage:
+                type: string
+            required:
+            - image
+            - sourceImage
+            type: object
+          status:
+            description: CachedImageStatus defines the observed state of CachedImage
+            properties:
+              isCached:
+                type: boolean
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
+{{- end -}}
