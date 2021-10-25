@@ -34,7 +34,7 @@ registry:
   persistence:
     enabled: false
     storageClass: null
-    size: 20GiB
+    size: 20Gi
   service:
     type: ClusterIP
   env: []
