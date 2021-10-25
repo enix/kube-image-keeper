@@ -1,11 +1,61 @@
+---
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: {{ default (include "cache-registry.fullname" .) .Values.serviceAccount.name }}
 rules:
-  - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get", "list", "watch"]
+  - apiGroups:
+    - ""
+    resources:
+    - pods
+    verbs:
+    - create
+    - delete
+    - get
+    - list
+    - patch
+    - update
+    - watch
+  - apiGroups:
+    - ""
+    resources:
+    - pods/finalizers
+    verbs:
+    - update
+  - apiGroups:
+    - ""
+    resources:
+    - pods/status
+    verbs:
+    - get
+    - patch
+    - update
+  - apiGroups:
+    - dcr.enix.io
+    resources:
+    - cachedimages
+    verbs:
+    - create
+    - delete
+    - get
+    - list
+    - patch
+    - update
+    - watch
+  - apiGroups:
+    - dcr.enix.io
+    resources:
+    - cachedimages/finalizers
+    verbs:
+    - update
+  - apiGroups:
+    - dcr.enix.io
+    resources:
+    - cachedimages/status
+    verbs:
+    - get
+    - patch
+    - update
   {{- if .Values.psp.create }}
   - apiGroups:
     - policy
@@ -16,3 +66,42 @@ rules:
     resourceNames:
     - {{ include "cache-registry.fullname" . }}
   {{- end }}
+
+---
+# permissions to do leader election.
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ default (include "cache-registry.fullname" .) .Values.serviceAccount.name }}-leader-election
+rules:
+  - apiGroups:
+    - ""
+    resources:
+    - configmaps
+    verbs:
+    - get
+    - list
+    - watch
+    - create
+    - update
+    - patch
+    - delete
+  - apiGroups:
+    - coordination.k8s.io
+    resources:
+    - leases
+    verbs:
+    - get
+    - list
+    - watch
+    - create
+    - update
+    - patch
+    - delete
+  - apiGroups:
+    - ""
+    resources:
+    - events
+    verbs:
+    - create
+    - patch
