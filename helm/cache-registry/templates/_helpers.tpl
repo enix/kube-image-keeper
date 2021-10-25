@@ -63,6 +63,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "cache-registry.proxy-selectorLabels" -}}
 {{ include "cache-registry.selectorLabels" . }}
 app.kubernetes.io/component: proxy
+control-plane: controller-manager
 {{- end }}
 
 {{- define "cache-registry.registry-selectorLabels" -}}

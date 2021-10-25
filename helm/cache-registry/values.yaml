@@ -25,6 +25,11 @@ proxy:
   manager:
     securityContext: {}
     resources: {}
+  webhook:
+    createCertificateIssuer: true
+    certificateIssuerRef:
+      kind: Issuer
+      name: dcr-selfsigned-issuer
 
 registry:
   image:
@@ -46,15 +51,6 @@ registry:
   nodeSelector: {}
   tolerations: []
   affinity: {}
-
-tugger:
-  createMutatingWebhook: true
-  rules:
-    - pattern: ^jainishshah17/tugger(:.*)?
-    - pattern: ^enix/docker-cache-registry(:.*)?
-    - pattern: ^registry(:.*)?
-    - pattern: (.*)
-      replacement: localhost:7439/$1
 
 serviceAccount:
   annotations: {}

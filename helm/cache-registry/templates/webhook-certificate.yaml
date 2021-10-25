@@ -1,0 +1,20 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: dcr-serving-cert
+spec:
+  dnsNames:
+  - dcr-webhook-service.{{ .Release.Namespace }}.svc
+  - dcr-webhook-service.{{ .Release.Namespace }}.svc.cluster.local
+  secretName: webhook-server-cert
+  issuerRef:
+    {{- toYaml .Values.proxy.webhook.certificateIssuerRef | nindent 4 }}
+---
+{{- if .Values.proxy.webhook.createCertificateIssuer -}}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: dcr-selfsigned-issuer
+spec:
+  selfSigned: {}
+{{- end -}}
