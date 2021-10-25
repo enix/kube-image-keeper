@@ -59,3 +59,6 @@ tugger:
 serviceAccount:
   annotations: {}
   name: ""
+
+psp:
+  create: false
