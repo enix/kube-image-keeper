@@ -69,10 +69,21 @@ func (p *Proxy) v2Endpoint(c *gin.Context) {
 
 func (p *Proxy) routeProxy(c *gin.Context) {
 	image := p.getImage(c)
+	originRegistry := c.Request.Header.Get(headerOriginRegistryKey)
+
+	if originRegistry == "" {
+		originRegistry = "index.docker.io"
+	} else {
+		image = originRegistry + "/" + image
+	}
+
+	klog.InfoS("proxying request", "image", image, "originRegistry", originRegistry)
 	if err := proxyRegistry(c, registry.Protocol+registry.Endpoint, image, true); err != nil {
-		headerOriginRegistry := c.Request.Header.Get(headerOriginRegistryKey)
-		klog.InfoS("cached image not available yet, proxying origin", "registry", headerOriginRegistry)
-		proxyRegistry(c, "https://"+headerOriginRegistry, image, false)
+		if strings.HasSuffix(originRegistry, "docker.io") {
+			originRegistry = "index.docker.io"
+		}
+		klog.InfoS("cached image not available yet, proxying origin", "registry", originRegistry)
+		proxyRegistry(c, "https://"+originRegistry, image, false)
 	}
 }
 
@@ -98,14 +109,9 @@ func RewriteToInternalUrl(path string) (string, originRegistry string) {
 		return "", ""
 	} else if len(parts) > 4 {
 		originRegistry = strings.Join(parts[:len(parts)-4], "/")
-		if strings.HasSuffix(originRegistry, "docker.io") {
-			originRegistry = "index.docker.io"
-		}
 
 		parts = parts[len(parts)-4:]
 		path = "/" + strings.Join(parts, "/")
-	} else {
-		originRegistry = "index.docker.io"
 	}
 
 	path = "/internal/" + strings.Join(parts, "/")
