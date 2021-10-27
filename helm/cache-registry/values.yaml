@@ -53,6 +53,24 @@ registry:
   tolerations: []
   affinity: {}
 
+registryUI:
+  enabled: false
+  image:
+    repository: parabuzzle/craneoperator
+    pullPolicy: IfNotPresent
+    tag: "2.2.5"
+  auth:
+    username: "admin"
+    password: ""
+  resources: {}
+  imagePullSecrets: []
+  podAnnotations: {}
+  podSecurityContext: {}
+  securityContext: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
 serviceAccount:
   annotations: {}
   name: ""

@@ -52,6 +52,11 @@ app.kubernetes.io/component: proxy
 app.kubernetes.io/component: registry
 {{- end }}
 
+{{- define "cache-registry.registry-ui-labels" -}}
+{{ include "cache-registry.labels" . }}
+app.kubernetes.io/component: registry-ui
+{{- end }}
+
 {{/*
 Selector labels
 */}}
@@ -69,6 +74,11 @@ control-plane: controller-manager
 {{- define "cache-registry.registry-selectorLabels" -}}
 {{ include "cache-registry.selectorLabels" . }}
 app.kubernetes.io/component: registry
+{{- end }}
+
+{{- define "cache-registry.registry-ui-selectorLabels" -}}
+{{ include "cache-registry.selectorLabels" . }}
+app.kubernetes.io/component: registry-ui
 {{- end }}
 
 {{/*
