@@ -26,7 +26,7 @@ func parseWwwAuthenticate(wwwAuthenticate string) map[string]string {
 	return opts
 }
 
-func proxyRegistry(c *gin.Context, endpoint string, image string, httpToError bool) error {
+func proxyRegistry(c *gin.Context, endpoint string, image string, localCache bool) error {
 	klog.V(2).InfoS("proxying registry", "endpoint", endpoint, "image", image)
 
 	remote, err := url.Parse(endpoint)
@@ -36,7 +36,7 @@ func proxyRegistry(c *gin.Context, endpoint string, image string, httpToError bo
 
 	parts := strings.Split(image, "/")
 	originRegistry := ""
-	if len(parts) > 2 {
+	if localCache && len(parts) > 2 {
 		originRegistry = parts[0] + "/"
 		image = strings.Join(parts[1:], "/")
 	} else {
@@ -66,7 +66,7 @@ func proxyRegistry(c *gin.Context, endpoint string, image string, httpToError bo
 	}
 
 	proxy.ModifyResponse = func(resp *http.Response) error {
-		if httpToError && resp.StatusCode != http.StatusOK {
+		if localCache && resp.StatusCode != http.StatusOK {
 			return errors.New(resp.Status)
 		}
 		return nil
