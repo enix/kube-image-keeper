@@ -1,3 +1,25 @@
+# [1.1.0](https://gitlab.enix.io/products/docker-cache-registry/compare/v1.0.0...v1.1.0) (2021-11-24)
+
+
+### Bug Fixes
+
+* **helm:** RBAC templates ([c324e48](https://gitlab.enix.io/products/docker-cache-registry/commit/c324e48ede1c47393a02b48d76d740a51db48e7b))
+* **helm:** Templating syntax ([3715596](https://gitlab.enix.io/products/docker-cache-registry/commit/3715596b6abec0bd0aa649170062887500a1c6b3))
+* **helm:** Volume size ([f48300b](https://gitlab.enix.io/products/docker-cache-registry/commit/f48300bd9e580f8fe7a2f6a390b3bfb9bfc9ab8c))
+* **proxy:** fix HTTP 400 when proxying to origin registry ([a11111c](https://gitlab.enix.io/products/docker-cache-registry/commit/a11111cd40260f2fe88fcb83899f7818ea02a8e6))
+* **proxy:** fix image url for non-default repositories ([8ba6619](https://gitlab.enix.io/products/docker-cache-registry/commit/8ba6619def7c4202898fe8874de48f507fc2a850))
+* **proxy:** fix proxying non-default registries ([0a4dded](https://gitlab.enix.io/products/docker-cache-registry/commit/0a4dded3e0d902669003624f3e943cef349c1683))
+* **webhook:** ignore failures and filter out pods from cache registry ([77a2cd4](https://gitlab.enix.io/products/docker-cache-registry/commit/77a2cd411bdac0decb879d73cdb61363988dc01e)), closes [#15](https://gitlab.enix.io/products/docker-cache-registry/issues/15)
+
+
+### Features
+
+* **helm:** add optional registry UI ([5b37111](https://gitlab.enix.io/products/docker-cache-registry/commit/5b371117ddc38f0b84eaadd6f2f6a8b2cc6cdd4e))
+* **helm:** Add PSP support ([ebc1ca1](https://gitlab.enix.io/products/docker-cache-registry/commit/ebc1ca1b7e6cfb7833e9e9ff4dbfac7c7e0e9334))
+* **helm:** install CachedImage CRD by default ([364f8ad](https://gitlab.enix.io/products/docker-cache-registry/commit/364f8ad782af3114265f95c09ca469d21ed39ac7))
+* **helm:** Rework Helm chart ([9935146](https://gitlab.enix.io/products/docker-cache-registry/commit/9935146af7fd04f42c1c0c11c5d64c7ab9fdaf0a))
+* **image-rewriter:** rewrite images ([26e4b0c](https://gitlab.enix.io/products/docker-cache-registry/commit/26e4b0ca20675225f1a6cce7ed8b8e806a346f99))
+
 # 1.0.0 (2021-10-01)
 
 
