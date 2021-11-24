@@ -22,6 +22,20 @@ spec:
           - sleep
           - 1s
       containers:
+      - name: redis
+        image: redis
+        imagePullPolicy: Always
+        args:
+          - redis-server
+          - --port
+          - '6380'
+      - name: redis-6
+        image: redis:6
+        imagePullPolicy: Always
+        args:
+          - redis-server
+          - --port
+          - '6381'
       - name: nginx
         image: library/nginx
         imagePullPolicy: Always
@@ -63,13 +77,19 @@ spec:
         command:
           - sleep
           - 1d
-
       - name: dockerio-mariadb-r19
         image: docker.io/bitnami/mariadb:10.5.12-debian-10-r19
         imagePullPolicy: Always
         env:
         - name: ALLOW_EMPTY_PASSWORD
           value: 'yes'
-      - name: dockerio-wordpress-r26
+      - name: dockerio-redis-6-2
         image: index.docker.io/library/redis:6.2
         imagePullPolicy: Always
+      - name: dockerio-no-lib-redis-6-2
+        image: index.docker.io/redis:6.2
+        imagePullPolicy: Always
+        args:
+          - redis-server
+          - --port
+          - '6382'
