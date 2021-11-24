@@ -14,15 +14,62 @@ spec:
       labels:
         app: nginx
     spec:
-      containers:
-      - name: nginx
-        image: library/nginx
-        imagePullPolicy: Always
-        ports:
-        - containerPort: 80
-      - name: alpine
+      initContainers:
+      - name: init-alpine
         image: library/alpine
         imagePullPolicy: Always
         command:
           - sleep
+          - 1s
+      containers:
+      - name: nginx
+        image: library/nginx
+        imagePullPolicy: Always
+      - name: memcached-alpine
+        image: library/memcached:1.6-alpine
+        imagePullPolicy: Always
+
+      - name: mockserver
+        image: mockserver/mockserver
+        imagePullPolicy: Always
+      - name: mockserver-5-11-2
+        image: mockserver/mockserver:mockserver-5.11.2
+        imagePullPolicy: Always
+        args:
+        - -serverPort
+        - '9080'
+
+      - name: busybox
+        image: quay.io/prometheus/busybox
+        imagePullPolicy: Always
+        command:
+          - sleep
           - 1d
+      - name: quay-busybox-latest
+        image: quay.io/prometheus/busybox:latest
+        imagePullPolicy: Always
+        command:
+          - sleep
+          - 1d
+      - name: quay-busybox-glibc
+        image: quay.io/prometheus/busybox:glibc
+        imagePullPolicy: Always
+        command:
+          - sleep
+          - 1d
+      - name: quay-busybox-sha
+        image: quay.io/prometheus/busybox:glibc@sha256:9c2d6d09bbc625f07587d321f4b2aec88e44ae752804ba905b048c8bba1b3025
+        imagePullPolicy: Always
+        command:
+          - sleep
+          - 1d
+
+      - name: dockerio-mariadb-r19
+        image: docker.io/bitnami/mariadb:10.5.12-debian-10-r19
+        imagePullPolicy: Always
+        env:
+        - name: ALLOW_EMPTY_PASSWORD
+          value: 'yes'
+      - name: dockerio-wordpress-r26
+        image: index.docker.io/library/redis:6.2
+        imagePullPolicy: Always
