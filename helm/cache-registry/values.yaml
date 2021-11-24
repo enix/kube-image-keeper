@@ -31,6 +31,8 @@ proxy:
     certificateIssuerRef:
       kind: Issuer
       name: dcr-selfsigned-issuer
+    objectSelector:
+      matchExpressions: []
 
 registry:
   image:

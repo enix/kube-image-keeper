@@ -13,7 +13,14 @@ webhooks:
       name: dcr-webhook-service
       namespace: {{ .Release.Namespace }}
       path: /mutate-core-v1-pod
-  failurePolicy: Fail
+  failurePolicy: Ignore
+  objectSelector:
+    matchExpressions:
+    - key: cache-registry.enix.io/image-caching-policy
+      operator: NotIn
+      values:
+      - ignore
+    {{- .Values.proxy.webhook.objectSelector.matchExpressions | toYaml | nindent 4 }}
   name: mpod.kb.io
   rules:
   - apiGroups:

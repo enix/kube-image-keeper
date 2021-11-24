@@ -35,6 +35,7 @@ Common labels
 */}}
 {{- define "cache-registry.labels" -}}
 helm.sh/chart: {{ include "cache-registry.chart" . }}
+cache-registry.enix.io/image-caching-policy: ignore
 {{ include "cache-registry.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
