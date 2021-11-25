@@ -1,3 +1,10 @@
+## [1.1.1](https://gitlab.enix.io/products/docker-cache-registry/compare/v1.1.0...v1.1.1) (2021-11-25)
+
+
+### Bug Fixes
+
+* **webhook:** prefix images from standard library with "library/" ([ff44d1d](https://gitlab.enix.io/products/docker-cache-registry/commit/ff44d1d294055db2f150ba4e161537717150b5b4)), closes [#16](https://gitlab.enix.io/products/docker-cache-registry/issues/16)
+
 # [1.1.0](https://gitlab.enix.io/products/docker-cache-registry/compare/v1.0.0...v1.1.0) (2021-11-24)
 
 
