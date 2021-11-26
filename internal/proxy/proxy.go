@@ -5,22 +5,22 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"k8s.io/klog/v2"
 )
 
+var wwwAuthenticateRegexp = regexp.MustCompile(`(?P<key>\w+)="(?P<value>[^"]+)",?`)
+
 func parseWwwAuthenticate(wwwAuthenticate string) map[string]string {
-	parts := strings.SplitN(wwwAuthenticate, " ", 2)
-	parts = strings.Split(parts[1], ",")
+	challenge := strings.SplitN(wwwAuthenticate, " ", 2)[1]
+	parts := wwwAuthenticateRegexp.FindAllStringSubmatch(challenge, -1)
 
 	opts := map[string]string{}
 	for _, part := range parts {
-		vals := strings.SplitN(part, "=", 2)
-		key := vals[0]
-		val := strings.Trim(vals[1], "\",")
-		opts[key] = val
+		opts[part[1]] = part[2]
 	}
 
 	return opts
