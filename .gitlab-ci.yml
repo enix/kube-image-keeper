@@ -1,6 +1,17 @@
 stages:
+  - test
   - build
   - release
+
+run tests:
+  stage: test
+  image: golang:1.16-alpine3.14
+  variables:
+    CGO_ENABLED: '0'
+    GOOS: linux
+    GOARCH: amd64
+  script:
+    - go test -v ./internal/...
 
 build dirty docker image:
   stage: build
