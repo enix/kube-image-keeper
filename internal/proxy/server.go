@@ -71,17 +71,8 @@ func (p *Proxy) routeProxy(c *gin.Context) {
 	image := p.getImage(c)
 	originRegistry := c.Request.Header.Get(headerOriginRegistryKey)
 
-	if originRegistry == "" {
-		originRegistry = "index.docker.io"
-	} else {
-		image = originRegistry + "/" + image
-	}
-
 	klog.InfoS("proxying request", "image", image, "originRegistry", originRegistry)
 	if err := proxyRegistry(c, registry.Protocol+registry.Endpoint, image, true); err != nil {
-		if strings.HasSuffix(originRegistry, "docker.io") {
-			originRegistry = "index.docker.io"
-		}
 		klog.InfoS("cached image not available yet, proxying origin", "registry", originRegistry)
 		proxyRegistry(c, "https://"+originRegistry, image, false)
 	}
