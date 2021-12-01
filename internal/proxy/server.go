@@ -21,13 +21,17 @@ func New() *Proxy {
 	return &Proxy{engine: gin.Default()}
 }
 
-func (p *Proxy) Serve() chan struct{} {
+func NewWithEngine(engine *gin.Engine) *Proxy {
+	return &Proxy{engine: engine}
+}
+
+func (p *Proxy) Listen() *Proxy {
 	r := p.engine
 
 	{
 		v2 := r.Group("/v2")
 		v2.Use(p.RewriteToInternalUrlMiddleware())
-		v2.Any("*catch-all-for-rewrite", func(c *gin.Context) {})
+		v2.Any("*catch-all-for-rewrite")
 	}
 
 	internal := r.Group("/internal")
@@ -42,9 +46,13 @@ func (p *Proxy) Serve() chan struct{} {
 		}
 	}
 
+	return p
+}
+
+func (p *Proxy) Serve() chan struct{} {
 	finished := make(chan struct{})
 	go func() {
-		r.Run(":8082")
+		p.engine.Run(":8082")
 		finished <- struct{}{}
 	}()
 
