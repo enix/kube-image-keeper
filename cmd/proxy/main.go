@@ -20,5 +20,5 @@ func main() {
 
 	klog.Info("Starting")
 
-	<-proxy.New().Serve()
+	<-proxy.New().Listen().Serve()
 }
