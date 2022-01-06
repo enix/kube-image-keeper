@@ -20,7 +20,9 @@ webhooks:
       operator: NotIn
       values:
       - ignore
-    {{- .Values.proxy.webhook.objectSelector.matchExpressions | toYaml | nindent 4 }}
+    {{- range .Values.proxy.webhook.objectSelector.matchExpressions }}
+    - {{ . | toYaml | indent 6 | trim  }}
+    {{- end }}
   name: mpod.kb.io
   rules:
   - apiGroups:

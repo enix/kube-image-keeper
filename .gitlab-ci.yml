@@ -1,3 +1,6 @@
+include:
+  - template: 'Workflows/Branch-Pipelines.gitlab-ci.yml'
+
 stages:
   - test
   - build
@@ -12,6 +15,18 @@ run tests:
     GOARCH: amd64
   script:
     - go test -v ./internal/...
+
+helm template test:
+  stage: test
+  image: dtzar/helm-kubectl:$HELM_VERSION
+  rules:
+    - if: $CI_COMMIT_BRANCH
+      changes:
+        - helm/cache-registry
+  before_script:
+    - helm version
+  script:
+    - helm template helm/cache-registry
 
 build dirty docker image:
   stage: build
