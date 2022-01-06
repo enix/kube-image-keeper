@@ -1,3 +1,12 @@
+## [1.1.3](https://gitlab.enix.io/products/docker-cache-registry/compare/v1.1.2...v1.1.3) (2022-01-06)
+
+
+### Bug Fixes
+
+* **proxy:** fix calls without authentication ([da78ca8](https://gitlab.enix.io/products/docker-cache-registry/commit/da78ca8b17fdecc75fc0cb399ac507ed2bd080c4))
+* **proxy:** proxy requests to index.docker.io instead of docker.io ([4e0e24b](https://gitlab.enix.io/products/docker-cache-registry/commit/4e0e24b0b100a9ea767e78f0f28243bea2d6ca91))
+* **proxy:** register routes before starting the server ([0edd4d2](https://gitlab.enix.io/products/docker-cache-registry/commit/0edd4d2985f4722fe4b1a069691e1865f16cd1cc))
+
 ## [1.1.2](https://gitlab.enix.io/products/docker-cache-registry/compare/v1.1.1...v1.1.2) (2022-01-06)
 
 
