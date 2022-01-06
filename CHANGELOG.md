@@ -1,3 +1,11 @@
+## [1.1.2](https://gitlab.enix.io/products/docker-cache-registry/compare/v1.1.1...v1.1.2) (2022-01-06)
+
+
+### Bug Fixes
+
+* **ci:** Avoid duplicate pipeline on MR ([0f1e1b8](https://gitlab.enix.io/products/docker-cache-registry/commit/0f1e1b8bee62400b687597d313c5a63b0208eff2))
+* **helm:** fix templating when .matchExpressions array is empty ([7b6bae1](https://gitlab.enix.io/products/docker-cache-registry/commit/7b6bae1dd67796ec460d74b8ebd20b52ca0e4d99))
+
 ## [1.1.1](https://gitlab.enix.io/products/docker-cache-registry/compare/v1.1.0...v1.1.1) (2021-11-25)
 
 
