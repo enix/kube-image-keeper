@@ -43,8 +43,6 @@ func NewBearer(endpoint string, path string) (*Bearer, error) {
 		}
 
 		response.Body.Close()
-	} else {
-		return nil, fmt.Errorf("unexpected status code: %+v", response.Status)
 	}
 
 	return &bearer, nil

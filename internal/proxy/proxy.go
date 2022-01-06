@@ -31,7 +31,7 @@ func proxyRegistry(c *gin.Context, endpoint string, image string, localCache boo
 
 	remote, err := url.Parse(endpoint)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	parts := strings.Split(image, "/")

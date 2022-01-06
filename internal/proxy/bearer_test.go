@@ -35,7 +35,6 @@ func TestNewBearer(t *testing.T) {
 		{
 			name:          "First request returns HTTP 200",
 			firstHttpCode: http.StatusOK,
-			wantErr:       errors.New("unexpected status code: 200 OK"),
 			requestNb:     1,
 		},
 		{
@@ -67,10 +66,11 @@ func TestNewBearer(t *testing.T) {
 			}
 
 			issuedAt := time.Now().Format(time.RFC3339)
+			expiresIn := "3600"
 			bearerResponse := gh.RespondWithJSONEncoded(http.StatusOK, &Bearer{
 				Token:       tt.token,
 				AccessToken: tt.accessToken,
-				ExpiresIn:   "3600",
+				ExpiresIn:   expiresIn,
 				IssuedAt:    issuedAt,
 			})
 
@@ -100,6 +100,11 @@ func TestNewBearer(t *testing.T) {
 
 			bearer, err := NewBearer(server.URL(), "/")
 
+			if tt.firstHttpCode != http.StatusUnauthorized {
+				expiresIn = ""
+				issuedAt = ""
+			}
+
 			if tt.wantErr != nil {
 				g.Expect(err).To(Equal(tt.wantErr))
 				g.Expect(bearer).To(BeNil())
@@ -108,7 +113,7 @@ func TestNewBearer(t *testing.T) {
 				g.Expect(*bearer).To(gstruct.MatchAllFields(gstruct.Fields{
 					"Token":        Equal(tt.token),
 					"AccessToken":  Equal(tt.accessToken),
-					"ExpiresIn":    Equal("3600"),
+					"ExpiresIn":    Equal(expiresIn),
 					"IssuedAt":     Equal(issuedAt),
 					"RefreshToken": BeEmpty(),
 				}))
