@@ -56,6 +56,7 @@ func main() {
 	var enableLeaderElection bool
 	var probeAddr string
 	var expiryDelay uint
+	var proxyPort int
 	var ignoreNamespace string
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -63,6 +64,7 @@ func main() {
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.UintVar(&expiryDelay, "expiry-delay", 30, "The delay in days before deleting an unused CachedImage.")
+	flag.IntVar(&proxyPort, "proxy-port", 8082, "The port where the proxy is listening on this machine.")
 	flag.StringVar(&ignoreNamespace, "ignore-namespace", "dcr-system", "The address the probe endpoint binds to.")
 	opts := zap.Options{
 		Development: true,
@@ -100,7 +102,11 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "Pod")
 		os.Exit(1)
 	}
-	imageRewriter := dcrenixiov1.ImageRewriter{Client: mgr.GetClient(), IgnoreNamespace: ignoreNamespace}
+	imageRewriter := dcrenixiov1.ImageRewriter{
+		Client:          mgr.GetClient(),
+		IgnoreNamespace: ignoreNamespace,
+		ProxyPort:       proxyPort,
+	}
 	mgr.GetWebhookServer().Register("/mutate-core-v1-pod", &webhook.Admission{Handler: &imageRewriter})
 	//+kubebuilder:scaffold:builder
 

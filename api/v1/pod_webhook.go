@@ -21,6 +21,7 @@ import (
 type ImageRewriter struct {
 	Client          client.Client
 	IgnoreNamespace string
+	ProxyPort       int
 	decoder         *admission.Decoder
 }
 
@@ -66,7 +67,7 @@ func (a *ImageRewriter) RewriteImages(pod *corev1.Pod) error {
 	// Handle Containers
 	invalidImages := []string{}
 	for i := range pod.Spec.Containers {
-		err := handleContainer(pod, &pod.Spec.Containers[i], fmt.Sprintf("original-image-%d", i))
+		err := a.handleContainer(pod, &pod.Spec.Containers[i], fmt.Sprintf("original-image-%d", i))
 		if err != nil {
 			invalidImages = append(invalidImages, pod.Spec.Containers[i].Image)
 		}
@@ -74,7 +75,7 @@ func (a *ImageRewriter) RewriteImages(pod *corev1.Pod) error {
 
 	// Handle init containers
 	for i := range pod.Spec.InitContainers {
-		err := handleContainer(pod, &pod.Spec.InitContainers[i], fmt.Sprintf("original-init-image-%d", i))
+		err := a.handleContainer(pod, &pod.Spec.InitContainers[i], fmt.Sprintf("original-init-image-%d", i))
 		if err != nil {
 			invalidImages = append(invalidImages, pod.Spec.InitContainers[i].Image)
 		}
@@ -93,7 +94,7 @@ func (a *ImageRewriter) InjectDecoder(d *admission.Decoder) error {
 	return nil
 }
 
-func handleContainer(pod *corev1.Pod, container *v1.Container, annotationKey string) error {
+func (a *ImageRewriter) handleContainer(pod *corev1.Pod, container *v1.Container, annotationKey string) error {
 	pod.Annotations[annotationKey] = container.Image
 
 	ref, err := reference.ParseAnyReference(container.Image)
@@ -101,7 +102,7 @@ func handleContainer(pod *corev1.Pod, container *v1.Container, annotationKey str
 		return err
 	}
 
-	container.Image = "localhost:7439/" + ref.String()
+	container.Image = fmt.Sprintf("localhost:%d/%s", a.ProxyPort, ref.String())
 
 	return nil
 }

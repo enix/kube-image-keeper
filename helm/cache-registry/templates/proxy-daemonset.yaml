@@ -49,6 +49,7 @@ spec:
             - manager
             - -leader-elect
             - -expiry-delay={{ .Values.cache.expiryDelay }}
+            - -proxy-port={{ .Values.proxy.hostPort }}
             - -ignore-namespace={{ .Release.Namespace }}
           ports:
             - containerPort: 9443
