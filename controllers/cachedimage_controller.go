@@ -43,6 +43,7 @@ type CachedImageReconciler struct {
 //+kubebuilder:rbac:groups=dcr.enix.io,resources=cachedimages,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=dcr.enix.io,resources=cachedimages/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=dcr.enix.io,resources=cachedimages/finalizers,verbs=update
+//+kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -92,9 +93,11 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	}
 
+	keychain := registry.NewKubernetesKeychain(r.Client, cachedImage.Spec.PullSecretsNamespace, cachedImage.Spec.PullSecretNames)
+
 	image := cachedImage.Spec.Image
 	log.Info("caching image", "image", image)
-	if cacheUpdated, err := registry.CacheImage(image); err != nil {
+	if cacheUpdated, err := registry.CacheImage(image, keychain); err != nil {
 		log.Error(err, "failed to cache image", "image", image)
 		return ctrl.Result{}, err
 	} else if cacheUpdated {

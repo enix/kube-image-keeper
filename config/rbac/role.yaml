@@ -33,6 +33,13 @@ rules:
   - patch
   - update
 - apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+  - list
+- apiGroups:
   - dcr.enix.io
   resources:
   - cachedimages

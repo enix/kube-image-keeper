@@ -195,8 +195,13 @@ filter:
 }
 
 func desiredCachedImages(pod *corev1.Pod) ([]dcrenixiov1alpha1.CachedImage, error) {
-	containers := append(pod.Spec.Containers, pod.Spec.InitContainers...)
 	cachedImages := []dcrenixiov1alpha1.CachedImage{}
+	pullSecretNames := []string{}
+	containers := append(pod.Spec.Containers, pod.Spec.InitContainers...)
+
+	for _, pullSecret := range pod.Spec.ImagePullSecrets {
+		pullSecretNames = append(pullSecretNames, pullSecret.Name)
+	}
 
 	for i, container := range containers {
 		sourceImage, ok := pod.Annotations[fmt.Sprintf("original-image-%d", i)]
@@ -217,8 +222,10 @@ func desiredCachedImages(pod *corev1.Pod) ([]dcrenixiov1alpha1.CachedImage, erro
 				Name: sanitizedName,
 			},
 			Spec: dcrenixiov1alpha1.CachedImageSpec{
-				Image:       image,
-				SourceImage: sourceImage,
+				Image:                image,
+				SourceImage:          sourceImage,
+				PullSecretNames:      pullSecretNames,
+				PullSecretsNamespace: pod.Namespace,
 			},
 		}
 

@@ -3,6 +3,7 @@ package registry
 import (
 	"errors"
 
+	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 )
@@ -10,8 +11,8 @@ import (
 var Endpoint = "cache-registry-service:5000"
 var Protocol = "http://"
 
-func imageExists(ref name.Reference) bool {
-	_, err := remote.Head(ref)
+func imageExists(ref name.Reference, options ...remote.Option) bool {
+	_, err := remote.Head(ref, options...)
 	if err != nil {
 		return false
 	}
@@ -43,7 +44,7 @@ func DeleteImage(imageName string) error {
 	return remote.Delete(digest)
 }
 
-func CacheImage(imageName string) (bool, error) {
+func CacheImage(imageName string, keychain authn.Keychain) (bool, error) {
 	destRef, err := name.ParseReference(Endpoint+"/"+imageName, name.Insecure)
 	if err != nil {
 		return false, err
@@ -56,11 +57,13 @@ func CacheImage(imageName string) (bool, error) {
 	if imageExists(destRef) {
 		return false, nil
 	}
-	if !imageExists(sourceRef) {
+
+	auth := remote.WithAuthFromKeychain(keychain)
+	if !imageExists(sourceRef, auth) {
 		return false, errors.New("could not find source image")
 	}
 
-	image, err := remote.Image(sourceRef)
+	image, err := remote.Image(sourceRef, auth)
 	if err != nil {
 		return false, err
 	}

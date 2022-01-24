@@ -46,6 +46,12 @@ spec:
                 type: string
               image:
                 type: string
+              pullSecretNames:
+                items:
+                  type: string
+                type: array
+              pullSecretsNamespace:
+                type: string
               sourceImage:
                 type: string
             required:
