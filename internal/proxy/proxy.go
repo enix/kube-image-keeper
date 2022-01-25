@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"gitlab.enix.io/products/docker-cache-registry/internal/registry"
 	"k8s.io/klog/v2"
 )
 
@@ -26,7 +27,11 @@ func parseWwwAuthenticate(wwwAuthenticate string) map[string]string {
 	return opts
 }
 
-func proxyRegistry(c *gin.Context, endpoint string, image string, localCache bool) error {
+func proxyOriginRegistry(c *gin.Context, endpoint string, image string) error {
+	return proxyRegistry(c, endpoint, image, "")
+}
+
+func proxyRegistry(c *gin.Context, endpoint string, image string, originRegistry string) error {
 	klog.V(2).InfoS("proxying registry", "endpoint", endpoint, "image", image)
 
 	remote, err := url.Parse(endpoint)
@@ -34,13 +39,8 @@ func proxyRegistry(c *gin.Context, endpoint string, image string, localCache boo
 		return err
 	}
 
-	parts := strings.Split(image, "/")
-	originRegistry := ""
-	if localCache && len(parts) > 2 {
-		originRegistry = parts[0] + "/"
-		image = strings.Join(parts[1:], "/")
-	} else {
-		image = strings.Join(parts, "/")
+	if originRegistry != "" {
+		originRegistry += "/"
 	}
 
 	proxy := httputil.NewSingleHostReverseProxy(remote)
@@ -66,7 +66,7 @@ func proxyRegistry(c *gin.Context, endpoint string, image string, localCache boo
 	}
 
 	proxy.ModifyResponse = func(resp *http.Response) error {
-		if localCache && resp.StatusCode != http.StatusOK {
+		if endpoint == registry.Protocol+registry.Endpoint && resp.StatusCode != http.StatusOK {
 			return errors.New(resp.Status)
 		}
 		return nil

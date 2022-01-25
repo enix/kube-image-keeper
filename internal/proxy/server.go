@@ -72,7 +72,7 @@ func (p *Proxy) RewriteToInternalUrlMiddleware() gin.HandlerFunc {
 }
 
 func (p *Proxy) v2Endpoint(c *gin.Context) {
-	proxyRegistry(c, registry.Protocol+registry.Endpoint, "", false)
+	proxyOriginRegistry(c, registry.Protocol+registry.Endpoint, "")
 }
 
 func (p *Proxy) routeProxy(c *gin.Context) {
@@ -80,12 +80,12 @@ func (p *Proxy) routeProxy(c *gin.Context) {
 	originRegistry := c.Request.Header.Get(headerOriginRegistryKey)
 
 	klog.InfoS("proxying request", "image", image, "originRegistry", originRegistry)
-	if err := proxyRegistry(c, registry.Protocol+registry.Endpoint, image, true); err != nil {
+	if err := proxyRegistry(c, registry.Protocol+registry.Endpoint, image, originRegistry); err != nil {
 		if strings.HasSuffix(originRegistry, "docker.io") {
 			originRegistry = "index.docker.io"
 		}
 		klog.InfoS("cached image not available yet, proxying origin", "registry", originRegistry)
-		proxyRegistry(c, "https://"+originRegistry, image, false)
+		proxyOriginRegistry(c, "https://"+originRegistry, image)
 	}
 }
 

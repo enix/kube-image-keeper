@@ -39,7 +39,7 @@ func TestRewriteToInternalUrlMiddleware(t *testing.T) {
 	defer server.Close()
 	server.AppendHandlers(
 		ghttp.CombineHandlers(
-			gh.VerifyRequest(http.MethodGet, "/v2/library/nginx/manifests/xxxxxx"),
+			gh.VerifyRequest(http.MethodGet, "/v2/"+server.Addr()+"/library/nginx/manifests/xxxxxx"),
 			gh.RespondWith(401, nil, http.Header{
 				"Www-Authenticate": []string{
 					"Bearer realm=\"" + server.URL() + "/token\",service=\"registry.docker.io\",scope=\"repository:samalba/my-app:pull,push\"",
@@ -54,7 +54,7 @@ func TestRewriteToInternalUrlMiddleware(t *testing.T) {
 			}),
 		),
 		ghttp.CombineHandlers(
-			gh.VerifyRequest(http.MethodGet, "/v2/library/nginx/manifests/xxxxxx"),
+			gh.VerifyRequest(http.MethodGet, "/v2/"+server.Addr()+"/library/nginx/manifests/xxxxxx"),
 			gh.RespondWith(200, "image manifest"),
 		),
 	)
