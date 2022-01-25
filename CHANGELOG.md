@@ -1,3 +1,16 @@
+# [1.2.0](https://gitlab.enix.io/products/docker-cache-registry/compare/v1.1.3...v1.2.0) (2022-01-25)
+
+
+### Bug Fixes
+
+* **cache:** use the right port when proxy.hostPort is set in values.yaml ([27f69b6](https://gitlab.enix.io/products/docker-cache-registry/commit/27f69b6b6796972fc338d68d0764b8686cc6c532)), closes [#18](https://gitlab.enix.io/products/docker-cache-registry/issues/18)
+* **proxy:** fix pull from cache ([d10d375](https://gitlab.enix.io/products/docker-cache-registry/commit/d10d37570d03c550bebbc108e1b0cbf1acd8572e))
+
+
+### Features
+
+* **cache:** authenticate requests to private registries ([00fcc48](https://gitlab.enix.io/products/docker-cache-registry/commit/00fcc4870d2c3c39a0911123002b410e69427bd5))
+
 ## [1.1.3](https://gitlab.enix.io/products/docker-cache-registry/compare/v1.1.2...v1.1.3) (2022-01-06)
 
 
