@@ -180,21 +180,19 @@ func (r *PodReconciler) podsWithDeletingCachedImages(obj client.Object) []ctrl.R
 	}
 
 	cachedImage := obj.(*dcrenixiov1alpha1.CachedImage)
-	res := make([]ctrl.Request, 1)
-
-filter:
 	for _, pod := range podList.Items {
 		for _, value := range pod.GetAnnotations() {
 			if cachedImage.Spec.SourceImage == value && !cachedImage.DeletionTimestamp.IsZero() {
 				log.Info("image in use", "pod", pod.Namespace+"/"+pod.Name)
+				res := make([]ctrl.Request, 1)
 				res[0].Name = pod.Name
 				res[0].Namespace = pod.Namespace
-				break filter
+				return res
 			}
 		}
 	}
 
-	return res
+	return make([]ctrl.Request, 0)
 }
 
 func desiredCachedImages(pod *corev1.Pod) ([]dcrenixiov1alpha1.CachedImage, error) {
