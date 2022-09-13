@@ -65,9 +65,7 @@ type PodReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.8.3/pkg/reconcile
 func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := log.
-		FromContext(ctx).
-		WithValues("pod", req.NamespacedName)
+	log := log.FromContext(ctx)
 
 	log.Info("reconciling pod")
 	var pod corev1.Pod
@@ -170,9 +168,14 @@ func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func (r *PodReconciler) podsWithDeletingCachedImages(obj client.Object) []ctrl.Request {
+	log := log.
+		FromContext(context.Background()).
+		WithName("controller-runtime.manager.controller.pod.deletingCachedImages").
+		WithValues("cachedImage", klog.KObj(obj))
+
 	var podList corev1.PodList
 	if err := r.List(context.Background(), &podList); err != nil {
-		log.Log.Error(err, "could not list pods")
+		log.Error(err, "could not list pods")
 		return nil
 	}
 
@@ -183,7 +186,7 @@ filter:
 	for _, pod := range podList.Items {
 		for _, value := range pod.GetAnnotations() {
 			if cachedImage.Spec.SourceImage == value && !cachedImage.DeletionTimestamp.IsZero() {
-				log.Log.Info("image in use", "pod", pod.Namespace+"/"+pod.Name)
+				log.Info("image in use", "pod", pod.Namespace+"/"+pod.Name)
 				res[0].Name = pod.Name
 				res[0].Namespace = pod.Namespace
 				break filter

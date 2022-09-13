@@ -56,8 +56,7 @@ type CachedImageReconciler struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.8.3/pkg/reconcile
 func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.
-		FromContext(ctx).
-		WithValues("cachedimage", req.NamespacedName)
+		FromContext(ctx)
 
 	log.Info("reconciling cachedimage")
 
