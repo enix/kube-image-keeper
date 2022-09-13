@@ -138,7 +138,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 func (r *CachedImageReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &corev1.Pod{}, cachedImageOwnerKey, func(rawObj client.Object) []string {
 		pod := rawObj.(*corev1.Pod)
-		cachedImages, err := desiredCachedImages(pod)
+		cachedImages, err := desiredCachedImages(context.Background(), pod)
 		if err != nil {
 			return []string{}
 		}

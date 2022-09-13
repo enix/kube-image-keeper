@@ -13,8 +13,12 @@ run tests:
     CGO_ENABLED: '0'
     GOOS: linux
     GOARCH: amd64
+  before_script:
+    - go get sigs.k8s.io/controller-tools/cmd/controller-gen@v0.4.1
+    - controller-gen object:headerFile="./hack/boilerplate.go.txt" paths="./..."
   script:
     - go test -v ./internal/...
+    - go test -v ./controllers/...
 
 helm template test:
   stage: test

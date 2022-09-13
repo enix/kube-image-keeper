@@ -73,7 +73,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	cachedImages, err := desiredCachedImages(&pod)
+	cachedImages, err := desiredCachedImages(ctx, &pod)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -195,45 +195,60 @@ func (r *PodReconciler) podsWithDeletingCachedImages(obj client.Object) []ctrl.R
 	return make([]ctrl.Request, 0)
 }
 
-func desiredCachedImages(pod *corev1.Pod) ([]dcrenixiov1alpha1.CachedImage, error) {
-	cachedImages := []dcrenixiov1alpha1.CachedImage{}
+func desiredCachedImages(ctx context.Context, pod *corev1.Pod) ([]dcrenixiov1alpha1.CachedImage, error) {
 	pullSecretNames := []string{}
-	containers := append(pod.Spec.Containers, pod.Spec.InitContainers...)
 
 	for _, pullSecret := range pod.Spec.ImagePullSecrets {
 		pullSecretNames = append(pullSecretNames, pullSecret.Name)
 	}
 
-	for i, container := range containers {
-		sourceImage, ok := pod.Annotations[fmt.Sprintf("original-image-%d", i)]
-		if !ok {
-			if sourceImage, ok = pod.Annotations[fmt.Sprintf("original-init-image-%d", i)]; !ok {
-				// klog.V(2).InfoS("missing source image, ignoring", "pod", klog.KObj(pod), "container", container.Name)
-				continue
-			}
-		}
+	cachedImages := desiredCachedImagesForContainers(ctx, pod.Spec.Containers, pod.Annotations, "original-image-%d")
+	cachedImages = append(cachedImages, desiredCachedImagesForContainers(ctx, pod.Spec.InitContainers, pod.Annotations, "original-init-image-%d")...)
 
-		re := regexp.MustCompile(`localhost:[0-9]+/`)
-		image := string(re.ReplaceAll([]byte(container.Image), []byte("")))
-		sanitizedName := sanitizeImageName(image)
-
-		cachedImage := dcrenixiov1alpha1.CachedImage{
-			TypeMeta: metav1.TypeMeta{APIVersion: dcrenixiov1alpha1.GroupVersion.String(), Kind: "CachedImage"},
-			ObjectMeta: metav1.ObjectMeta{
-				Name: sanitizedName,
-			},
-			Spec: dcrenixiov1alpha1.CachedImageSpec{
-				Image:                image,
-				SourceImage:          sourceImage,
-				PullSecretNames:      pullSecretNames,
-				PullSecretsNamespace: pod.Namespace,
-			},
-		}
-
-		cachedImages = append(cachedImages, cachedImage)
+	for i := range cachedImages {
+		cachedImages[i].Spec.PullSecretNames = pullSecretNames
+		cachedImages[i].Spec.PullSecretsNamespace = pod.Namespace
 	}
 
 	return cachedImages, nil
+}
+
+func desiredCachedImagesForContainers(ctx context.Context, containers []corev1.Container, annotations map[string]string, annotationKeyTemplate string) []dcrenixiov1alpha1.CachedImage {
+	log := log.FromContext(ctx)
+	cachedImages := []dcrenixiov1alpha1.CachedImage{}
+
+	for i, container := range containers {
+		annotationKey := fmt.Sprintf(annotationKeyTemplate, i)
+		sourceImage, ok := annotations[annotationKey]
+		if !ok {
+			log.Info("missing source image, ignoring", "container", container.Name, "annotationKey", annotationKey)
+			continue
+		}
+
+		cachedImage := desiredCachedImageForContainer(&container, sourceImage)
+		cachedImages = append(cachedImages, cachedImage)
+	}
+
+	return cachedImages
+}
+
+func desiredCachedImageForContainer(container *corev1.Container, sourceImage string) dcrenixiov1alpha1.CachedImage {
+	re := regexp.MustCompile(`localhost:[0-9]+/`)
+	image := string(re.ReplaceAll([]byte(container.Image), []byte("")))
+	sanitizedName := sanitizeImageName(image)
+
+	cachedImage := dcrenixiov1alpha1.CachedImage{
+		TypeMeta: metav1.TypeMeta{APIVersion: dcrenixiov1alpha1.GroupVersion.String(), Kind: "CachedImage"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: sanitizedName,
+		},
+		Spec: dcrenixiov1alpha1.CachedImageSpec{
+			Image:       image,
+			SourceImage: sourceImage,
+		},
+	}
+
+	return cachedImage
 }
 
 func sanitizeImageName(image string) string {
