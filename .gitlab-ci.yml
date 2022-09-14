@@ -14,11 +14,9 @@ run tests:
     GOOS: linux
     GOARCH: amd64
   before_script:
-    - go get sigs.k8s.io/controller-tools/cmd/controller-gen@v0.4.1
-    - controller-gen object:headerFile="./hack/boilerplate.go.txt" paths="./..."
+    - apk add bash make gcc musl-dev curl
   script:
-    - go test -v ./internal/...
-    - go test -v ./controllers/...
+    - make test
 
 helm template test:
   stage: test

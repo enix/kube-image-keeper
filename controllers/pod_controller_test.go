@@ -3,13 +3,48 @@ package controllers
 import (
 	"context"
 	"testing"
+	"time"
 
+	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"gitlab.enix.io/products/docker-cache-registry/api/v1alpha1"
 	dcrenixiov1alpha1 "gitlab.enix.io/products/docker-cache-registry/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
+
+var podStubKey = types.NamespacedName{
+	Name:      "test-pod",
+	Namespace: "default",
+}
+
+var imageMapping = map[string]string{
+	"original-init": "test-init",
+	"original":      "test",
+	"original-2":    "test-2",
+}
+
+var podStub = corev1.Pod{
+	ObjectMeta: metav1.ObjectMeta{
+		Name:      podStubKey.Name,
+		Namespace: podStubKey.Namespace,
+		Annotations: map[string]string{
+			"original-init-image-0": "original-init",
+			"original-image-0":      "original",
+			"original-image-1":      "original-2",
+		},
+	},
+	Spec: corev1.PodSpec{
+		InitContainers: []corev1.Container{
+			{Name: "a", Image: imageMapping["original-init"]},
+		},
+		Containers: []corev1.Container{
+			{Name: "b", Image: imageMapping["original"]},
+			{Name: "c", Image: imageMapping["original-2"]},
+		},
+	},
+}
 
 func TestDesiredCachedImages(t *testing.T) {
 	tests := []struct {
@@ -20,36 +55,18 @@ func TestDesiredCachedImages(t *testing.T) {
 	}{
 		{
 			name: "basic",
-			pod: corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Namespace: "default",
-					Annotations: map[string]string{
-						"original-init-image-0": "original-init",
-						"original-image-0":      "original",
-						"original-image-1":      "original-2",
-					},
-				},
-				Spec: corev1.PodSpec{
-					InitContainers: []corev1.Container{
-						{Image: "test-init"},
-					},
-					Containers: []corev1.Container{
-						{Image: "test"},
-						{Image: "test-2"},
-					},
-				},
-			},
+			pod:  podStub,
 			cachedImages: []v1alpha1.CachedImage{
 				{Spec: dcrenixiov1alpha1.CachedImageSpec{
-					Image:       "test",
+					Image:       imageMapping["original"],
 					SourceImage: "original",
 				}},
 				{Spec: dcrenixiov1alpha1.CachedImageSpec{
-					Image:       "test-2",
+					Image:       imageMapping["original-2"],
 					SourceImage: "original-2",
 				}},
 				{Spec: dcrenixiov1alpha1.CachedImageSpec{
-					Image:       "test-init",
+					Image:       imageMapping["original-init"],
 					SourceImage: "original-init",
 				}},
 			},
@@ -81,3 +98,50 @@ func TestDesiredCachedImages(t *testing.T) {
 		})
 	}
 }
+
+var _ = Describe("Pod Controller", func() {
+
+	const timeout = time.Second * 10
+	const interval = time.Second * 1
+
+	BeforeEach(func() {
+		// Add any setup steps that needs to be executed before each test
+	})
+
+	AfterEach(func() {
+		// Add any teardown steps that needs to be executed after each test
+	})
+
+	Context("Pod with containers and init containers", func() {
+		It("Should handle CachedImages creation and deletion", func() {
+			By("Creating a pod")
+			Expect(k8sClient.Create(context.Background(), &podStub)).Should(Succeed())
+
+			fetched := &dcrenixiov1alpha1.CachedImageList{}
+			Eventually(func() []dcrenixiov1alpha1.CachedImage {
+				k8sClient.List(context.Background(), fetched)
+				return fetched.Items
+			}, timeout, interval).Should(HaveLen(len(podStub.Spec.Containers) + len(podStub.Spec.InitContainers)))
+
+			for _, cachedImage := range fetched.Items {
+				Expect(imageMapping).To(HaveKey(cachedImage.Spec.SourceImage))
+				expectedImage := imageMapping[cachedImage.Spec.SourceImage]
+				Expect(cachedImage.Spec.Image).To(Equal(expectedImage))
+			}
+
+			By("Deleting previously created pod")
+			Expect(k8sClient.Delete(context.Background(), &podStub)).Should(Succeed())
+
+			Eventually(func() []dcrenixiov1alpha1.CachedImage {
+				notExpiringCachedImages := []dcrenixiov1alpha1.CachedImage{}
+				k8sClient.List(context.Background(), fetched)
+				for _, cachedImage := range fetched.Items {
+					if cachedImage.Spec.ExpiresAt == nil {
+						notExpiringCachedImages = append(notExpiringCachedImages, cachedImage)
+					}
+				}
+				return notExpiringCachedImages
+			}, timeout, interval).Should(HaveLen(0))
+		})
+	})
+})
