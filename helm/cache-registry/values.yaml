@@ -5,6 +5,7 @@
 cache:
   expiryDelay: 30
   installCRD: true
+  verbosity: INFO
 
 proxy:
   image:

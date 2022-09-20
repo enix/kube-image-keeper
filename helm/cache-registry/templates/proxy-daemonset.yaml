@@ -51,6 +51,7 @@ spec:
             - -expiry-delay={{ .Values.cache.expiryDelay }}
             - -proxy-port={{ .Values.proxy.hostPort }}
             - -ignore-namespace={{ .Release.Namespace }}
+            - -zap-log-level={{ .Values.cache.verbosity }}
           ports:
             - containerPort: 9443
               name: webhook-server

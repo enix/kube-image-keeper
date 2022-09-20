@@ -24,7 +24,6 @@ import (
 	"strings"
 	"time"
 
-	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
 	dcrenixiov1alpha1 "gitlab.enix.io/products/docker-cache-registry/api/v1alpha1"
@@ -135,7 +134,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			ci.Spec = cachedImage.Spec
 			err = r.Update(ctx, &ci)
 			if err != nil {
-				if statusErr, ok := err.(*errors.StatusError); ok && statusErr.Status().Code == http.StatusConflict {
+				if statusErr, ok := err.(*apierrors.StatusError); ok && statusErr.Status().Code == http.StatusConflict {
 					return ctrl.Result{Requeue: true}, nil
 				}
 				return ctrl.Result{}, err
@@ -219,14 +218,18 @@ func desiredCachedImagesForContainers(ctx context.Context, containers []corev1.C
 
 	for i, container := range containers {
 		annotationKey := fmt.Sprintf(annotationKeyTemplate, i)
+		containerLog := log.WithValues("container", container.Name, "annotationKey", annotationKey)
+
 		sourceImage, ok := annotations[annotationKey]
 		if !ok {
-			log.Info("missing source image, ignoring", "container", container.Name, "annotationKey", annotationKey)
+			containerLog.V(-1).Info("missing source image, ignoring", "error", "annotation not found")
 			continue
 		}
 
 		cachedImage := desiredCachedImageForContainer(&container, sourceImage)
 		cachedImages = append(cachedImages, cachedImage)
+
+		containerLog.V(1).Info("enque CachedImage for creation", "image", cachedImage.Spec.Image, "sourceImage", cachedImage.Spec.SourceImage)
 	}
 
 	return cachedImages
