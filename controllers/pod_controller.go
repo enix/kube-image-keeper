@@ -25,6 +25,8 @@ import (
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
 
 	dcrenixiov1alpha1 "gitlab.enix.io/products/docker-cache-registry/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
@@ -125,7 +127,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		}
 
 		if !ci.DeletionTimestamp.IsZero() {
-			// CachedImage is already scheduled for deletion, thus we don't have to handle it
+			// CachedImage is already scheduled for deletion, thus we don't have to handle it here and will enqueue it back later
 			log.Info("cachedimage is already being deleted, skipping", "cachedImage", klog.KObj(&cachedImage))
 			continue
 		}
@@ -182,7 +184,12 @@ func (r *PodReconciler) podsWithDeletingCachedImages(obj client.Object) []ctrl.R
 		WithValues("cachedImage", klog.KObj(obj))
 
 	var podList corev1.PodList
-	if err := r.List(context.Background(), &podList); err != nil {
+	podRequirements, _ := labels.NewRequirement("dcr-images-rewritten", selection.Equals, []string{"true"})
+	selector := labels.NewSelector()
+	selector = selector.Add(*podRequirements)
+	if err := r.List(context.Background(), &podList, &client.ListOptions{
+		LabelSelector: selector,
+	}); err != nil {
 		log.Error(err, "could not list pods")
 		return nil
 	}
@@ -190,6 +197,7 @@ func (r *PodReconciler) podsWithDeletingCachedImages(obj client.Object) []ctrl.R
 	cachedImage := obj.(*dcrenixiov1alpha1.CachedImage)
 	for _, pod := range podList.Items {
 		for _, value := range pod.GetAnnotations() {
+			// TODO check key format is "original-image-%d" or "original-init-image-%d"
 			if cachedImage.Spec.SourceImage == value && !cachedImage.DeletionTimestamp.IsZero() {
 				log.Info("image in use", "pod", pod.Namespace+"/"+pod.Name)
 				res := make([]ctrl.Request, 1)

@@ -69,6 +69,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	// https://book.kubebuilder.io/reference/using-finalizers.html
 	finalizerName := "cachedimage.dcr.enix.io/finalizer"
+	// Remove image from registry when CachedImage is beeing deleted, finalizer is removed after it
 	if !cachedImage.ObjectMeta.DeletionTimestamp.IsZero() {
 		if containsString(cachedImage.GetFinalizers(), finalizerName) {
 			log.Info("deleting image cache")
@@ -86,6 +87,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, nil
 	}
 
+	// Add finalizer to keep the CachedImage during image removal from registry on deletion
 	if !containsString(cachedImage.GetFinalizers(), finalizerName) {
 		log.Info("adding finalizer")
 		controllerutil.AddFinalizer(&cachedImage, finalizerName)
@@ -94,35 +96,14 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	}
 
-	keychain := registry.NewKubernetesKeychain(r.Client, cachedImage.Spec.PullSecretsNamespace, cachedImage.Spec.PullSecretNames)
-
 	image := cachedImage.Spec.Image
-	log.Info("caching image", "image", image)
-	if cacheUpdated, err := registry.CacheImage(image, keychain); err != nil {
-		log.Error(err, "failed to cache image", "image", image)
-		return ctrl.Result{}, err
-	} else if cacheUpdated {
-		log.Info("image cached", "image", image)
-		if err := r.Get(ctx, req.NamespacedName, &cachedImage); err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
-	} else {
-		log.Info("image already cached, cache not updated", "image", image)
-	}
+	log = log.WithValues("image", image)
 
-	cachedImage.Status.IsCached = true
-	err := r.Status().Update(context.Background(), &cachedImage)
-	if err != nil {
-		if statusErr, ok := err.(*errors.StatusError); ok && statusErr.Status().Code == http.StatusConflict {
-			return ctrl.Result{Requeue: true}, nil
-		}
-		return ctrl.Result{}, err
-	}
-
+	// Delete expired CachedImage and schedule deletion for expiring ones
 	expiresAt := cachedImage.Spec.ExpiresAt
 	if !expiresAt.IsZero() {
 		if time.Now().After(expiresAt.Time) {
-			log.Info("cachedimage expired, deleting it", "image", image, "now", time.Now(), "expiresAt", expiresAt)
+			log.Info("cachedimage expired, deleting it", "now", time.Now(), "expiresAt", expiresAt)
 			err := r.Delete(ctx, &cachedImage)
 			if err != nil {
 				return ctrl.Result{}, err
@@ -130,6 +111,31 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		} else {
 			return ctrl.Result{RequeueAfter: expiresAt.Sub(time.Now())}, nil
 		}
+	}
+
+	// Adding image to registry
+	log.Info("caching image")
+	keychain := registry.NewKubernetesKeychain(r.Client, cachedImage.Spec.PullSecretsNamespace, cachedImage.Spec.PullSecretNames)
+	if cacheUpdated, err := registry.CacheImage(image, keychain); err != nil {
+		log.Error(err, "failed to cache image")
+		return ctrl.Result{}, err
+	} else if cacheUpdated {
+		log.Info("image cached")
+		if err := r.Get(ctx, req.NamespacedName, &cachedImage); err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+	} else {
+		log.Info("image already cached, cache not updated")
+	}
+
+	// Update CachedImage status
+	cachedImage.Status.IsCached = true
+	err := r.Status().Update(context.Background(), &cachedImage)
+	if err != nil {
+		if statusErr, ok := err.(*errors.StatusError); ok && statusErr.Status().Code == http.StatusConflict {
+			return ctrl.Result{Requeue: true}, nil
+		}
+		return ctrl.Result{}, err
 	}
 
 	log.Info("reconciled cachedimage")
