@@ -24,9 +24,9 @@ var podStub = corev1.Pod{
 		Name:      "test-pod",
 		Namespace: "default",
 		Annotations: map[string]string{
-			"original-init-image-0": "original-init",
-			"original-image-0":      "original",
-			"original-image-1":      "original-2",
+			"original-init-image-a": "original-init",
+			"original-image-b":      "original",
+			"original-image-c":      "original-2",
 		},
 		Labels: map[string]string{
 			"dcr-images-rewritten": "true",

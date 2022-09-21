@@ -197,7 +197,7 @@ func (r *PodReconciler) podsWithDeletingCachedImages(obj client.Object) []ctrl.R
 	cachedImage := obj.(*dcrenixiov1alpha1.CachedImage)
 	for _, pod := range podList.Items {
 		for _, value := range pod.GetAnnotations() {
-			// TODO check key format is "original-image-%d" or "original-init-image-%d"
+			// TODO check key format is "original-image-%s" or "original-init-image-%s"
 			if cachedImage.Spec.SourceImage == value && !cachedImage.DeletionTimestamp.IsZero() {
 				log.Info("image in use", "pod", pod.Namespace+"/"+pod.Name)
 				res := make([]ctrl.Request, 1)
@@ -218,8 +218,8 @@ func desiredCachedImages(ctx context.Context, pod *corev1.Pod) ([]dcrenixiov1alp
 		pullSecretNames = append(pullSecretNames, pullSecret.Name)
 	}
 
-	cachedImages := desiredCachedImagesForContainers(ctx, pod.Spec.Containers, pod.Annotations, "original-image-%d")
-	cachedImages = append(cachedImages, desiredCachedImagesForContainers(ctx, pod.Spec.InitContainers, pod.Annotations, "original-init-image-%d")...)
+	cachedImages := desiredCachedImagesForContainers(ctx, pod.Spec.Containers, pod.Annotations, "original-image-%s")
+	cachedImages = append(cachedImages, desiredCachedImagesForContainers(ctx, pod.Spec.InitContainers, pod.Annotations, "original-init-image-%s")...)
 
 	for i := range cachedImages {
 		cachedImages[i].Spec.PullSecretNames = pullSecretNames
@@ -233,8 +233,8 @@ func desiredCachedImagesForContainers(ctx context.Context, containers []corev1.C
 	log := log.FromContext(ctx)
 	cachedImages := []dcrenixiov1alpha1.CachedImage{}
 
-	for i, container := range containers {
-		annotationKey := fmt.Sprintf(annotationKeyTemplate, i)
+	for _, container := range containers {
+		annotationKey := fmt.Sprintf(annotationKeyTemplate, container.Name)
 		containerLog := log.WithValues("container", container.Name, "annotationKey", annotationKey)
 
 		sourceImage, ok := annotations[annotationKey]

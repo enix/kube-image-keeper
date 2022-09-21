@@ -67,7 +67,8 @@ func (a *ImageRewriter) RewriteImages(pod *corev1.Pod) error {
 	// Handle Containers
 	invalidImages := []string{}
 	for i := range pod.Spec.Containers {
-		err := a.handleContainer(pod, &pod.Spec.Containers[i], fmt.Sprintf("original-image-%d", i))
+		container := &pod.Spec.Containers[i]
+		err := a.handleContainer(pod, container, fmt.Sprintf("original-image-%s", container.Name))
 		if err != nil {
 			invalidImages = append(invalidImages, pod.Spec.Containers[i].Image)
 		}
@@ -75,7 +76,8 @@ func (a *ImageRewriter) RewriteImages(pod *corev1.Pod) error {
 
 	// Handle init containers
 	for i := range pod.Spec.InitContainers {
-		err := a.handleContainer(pod, &pod.Spec.InitContainers[i], fmt.Sprintf("original-init-image-%d", i))
+		container := &pod.Spec.InitContainers[i]
+		err := a.handleContainer(pod, container, fmt.Sprintf("original-init-image-%s", container.Name))
 		if err != nil {
 			invalidImages = append(invalidImages, pod.Spec.InitContainers[i].Image)
 		}
