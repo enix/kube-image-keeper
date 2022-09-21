@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -24,12 +25,12 @@ var podStub = corev1.Pod{
 		Name:      "test-pod",
 		Namespace: "default",
 		Annotations: map[string]string{
-			"original-init-image-a": "original-init",
-			"original-image-b":      "original",
-			"original-image-c":      "original-2",
+			fmt.Sprintf(AnnotationOriginalInitImageTemplate, "a"): "original-init",
+			fmt.Sprintf(AnnotationOriginalImageTemplate, "b"):     "original",
+			fmt.Sprintf(AnnotationOriginalImageTemplate, "c"):     "original-2",
 		},
 		Labels: map[string]string{
-			"dcr-images-rewritten": "true",
+			LabelImageRewrittenName: "true",
 		},
 	},
 	Spec: corev1.PodSpec{

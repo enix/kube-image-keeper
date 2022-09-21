@@ -9,6 +9,7 @@ import (
 	_ "crypto/sha256"
 
 	"github.com/docker/distribution/reference"
+	"gitlab.enix.io/products/docker-cache-registry/controllers"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -62,13 +63,13 @@ func (a *ImageRewriter) RewriteImages(pod *corev1.Pod) error {
 		pod.Labels = map[string]string{}
 	}
 
-	pod.Labels["dcr-images-rewritten"] = "true"
+	pod.Labels[controllers.LabelImageRewrittenName] = "true"
 
 	// Handle Containers
 	invalidImages := []string{}
 	for i := range pod.Spec.Containers {
 		container := &pod.Spec.Containers[i]
-		err := a.handleContainer(pod, container, fmt.Sprintf("original-image-%s", container.Name))
+		err := a.handleContainer(pod, container, fmt.Sprintf(controllers.AnnotationOriginalImageTemplate, container.Name))
 		if err != nil {
 			invalidImages = append(invalidImages, pod.Spec.Containers[i].Image)
 		}
@@ -77,7 +78,7 @@ func (a *ImageRewriter) RewriteImages(pod *corev1.Pod) error {
 	// Handle init containers
 	for i := range pod.Spec.InitContainers {
 		container := &pod.Spec.InitContainers[i]
-		err := a.handleContainer(pod, container, fmt.Sprintf("original-init-image-%s", container.Name))
+		err := a.handleContainer(pod, container, fmt.Sprintf(controllers.AnnotationOriginalInitImageTemplate, container.Name))
 		if err != nil {
 			invalidImages = append(invalidImages, pod.Spec.InitContainers[i].Image)
 		}

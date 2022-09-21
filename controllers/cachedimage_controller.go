@@ -147,7 +147,7 @@ func (r *CachedImageReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// Create an index to list Pods by CachedImage
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &corev1.Pod{}, cachedImageOwnerKey, func(rawObj client.Object) []string {
 		pod := rawObj.(*corev1.Pod)
-		if _, ok := pod.Labels["dcr-images-rewritten"]; !ok {
+		if _, ok := pod.Labels[LabelImageRewrittenName]; !ok {
 			return []string{}
 		}
 

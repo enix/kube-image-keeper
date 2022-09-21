@@ -44,6 +44,9 @@ import (
 )
 
 const cachedImageOwnerKey = ".metadata.podOwner"
+const LabelImageRewrittenName = "dcr-images-rewritten"
+const AnnotationOriginalImageTemplate = "original-image-%s"
+const AnnotationOriginalInitImageTemplate = "original-init-image-%s"
 
 // PodReconciler reconciles a Pod object
 type PodReconciler struct {
@@ -166,7 +169,7 @@ func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1.Pod{}, builder.WithPredicates(predicate.NewPredicateFuncs(func(object client.Object) bool {
-			_, ok := object.GetLabels()["dcr-images-rewritten"]
+			_, ok := object.GetLabels()[LabelImageRewrittenName]
 			return ok
 		}))).
 		Watches(
@@ -184,7 +187,7 @@ func (r *PodReconciler) podsWithDeletingCachedImages(obj client.Object) []ctrl.R
 		WithValues("cachedImage", klog.KObj(obj))
 
 	var podList corev1.PodList
-	podRequirements, _ := labels.NewRequirement("dcr-images-rewritten", selection.Equals, []string{"true"})
+	podRequirements, _ := labels.NewRequirement(LabelImageRewrittenName, selection.Equals, []string{"true"})
 	selector := labels.NewSelector()
 	selector = selector.Add(*podRequirements)
 	if err := r.List(context.Background(), &podList, &client.ListOptions{
@@ -218,8 +221,8 @@ func desiredCachedImages(ctx context.Context, pod *corev1.Pod) ([]dcrenixiov1alp
 		pullSecretNames = append(pullSecretNames, pullSecret.Name)
 	}
 
-	cachedImages := desiredCachedImagesForContainers(ctx, pod.Spec.Containers, pod.Annotations, "original-image-%s")
-	cachedImages = append(cachedImages, desiredCachedImagesForContainers(ctx, pod.Spec.InitContainers, pod.Annotations, "original-init-image-%s")...)
+	cachedImages := desiredCachedImagesForContainers(ctx, pod.Spec.Containers, pod.Annotations, AnnotationOriginalImageTemplate)
+	cachedImages = append(cachedImages, desiredCachedImagesForContainers(ctx, pod.Spec.InitContainers, pod.Annotations, AnnotationOriginalInitImageTemplate)...)
 
 	for i := range cachedImages {
 		cachedImages[i].Spec.PullSecretNames = pullSecretNames
