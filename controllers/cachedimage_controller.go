@@ -21,10 +21,12 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -136,12 +138,19 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *CachedImageReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// Create an index to list Pods by CachedImage
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &corev1.Pod{}, cachedImageOwnerKey, func(rawObj client.Object) []string {
 		pod := rawObj.(*corev1.Pod)
 		if _, ok := pod.Labels["dcr-images-rewritten"]; !ok {
 			return []string{}
 		}
-		cachedImages, err := desiredCachedImages(context.Background(), pod)
+
+		logger := mgr.GetLogger().
+			WithName("indexer.cachedimage.pods").
+			WithValues("pod", klog.KObj(pod))
+		ctx := logr.NewContext(context.Background(), logger)
+
+		cachedImages, err := desiredCachedImages(ctx, pod)
 		if err != nil {
 			return []string{}
 		}

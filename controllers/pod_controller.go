@@ -77,25 +77,28 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		return ctrl.Result{}, err
 	}
 
+	// On pod deletion
 	if !pod.DeletionTimestamp.IsZero() {
 		log.Info("pod is deleting")
 		for _, cachedImage := range cachedImages {
 			if !cachedImage.Spec.ExpiresAt.IsZero() {
-				continue
+				continue // Ignore already expiring CachedImages
 			}
 
+			// Check if this CachedImage is in use by other pods
 			var podsList corev1.PodList
 			if err := r.List(ctx, &podsList, client.MatchingFields{cachedImageOwnerKey: cachedImage.Name}); err != nil {
 				return ctrl.Result{}, err
 			}
-
 			cachedImageInUse := false
 			for _, p := range podsList.Items {
 				cachedImageInUse = cachedImageInUse || p.DeletionTimestamp.IsZero()
 			}
+
+			// Set an expiration date for unused CachedImage
 			if !cachedImageInUse {
 				expiresAt := metav1.NewTime(time.Now().Add(r.ExpiryDelay))
-				log.Info("cachedimage not is use anymore, setting an expiry date", "expiresAt", expiresAt)
+				log.Info("cachedimage not is use anymore, setting an expiry date", "cachedImage", klog.KObj(&cachedImage), "expiresAt", expiresAt)
 
 				applyOpts := []client.PatchOption{
 					client.FieldOwner("pod-controller"),
@@ -113,6 +116,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		return ctrl.Result{}, nil
 	}
 
+	// On pod creation and update
 	for _, cachedImage := range cachedImages {
 		var ci dcrenixiov1alpha1.CachedImage
 		err = r.Get(ctx, client.ObjectKeyFromObject(&cachedImage), &ci)
@@ -121,10 +125,12 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		}
 
 		if !ci.DeletionTimestamp.IsZero() {
+			// CachedImage is already scheduled for deletion, thus we don't have to handle it
 			log.Info("cachedimage is already being deleted, skipping", "cachedImage", klog.KObj(&cachedImage))
 			continue
 		}
 
+		// Create or update CachedImage depending on weather it already exists or not
 		if apierrors.IsNotFound(err) {
 			err = r.Create(ctx, &cachedImage)
 			if err != nil {
@@ -141,7 +147,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			}
 		}
 
-		log.Info("cachedimage patched", "cachedImage", klog.KObj(&cachedImage))
+		log.Info("cachedimage patched", "cachedImage", klog.KObj(&cachedImage), "image", cachedImage.Spec.Image, "sourceImage", cachedImage.Spec.SourceImage)
 	}
 
 	log.Info("reconciled pod")
@@ -225,14 +231,14 @@ func desiredCachedImagesForContainers(ctx context.Context, containers []corev1.C
 
 		sourceImage, ok := annotations[annotationKey]
 		if !ok {
-			containerLog.V(-1).Info("missing source image, ignoring", "error", "annotation not found")
+			containerLog.V(1).Info("missing source image, ignoring: annotation not found")
 			continue
 		}
 
 		cachedImage := desiredCachedImageForContainer(&container, sourceImage)
 		cachedImages = append(cachedImages, cachedImage)
 
-		containerLog.V(1).Info("enque CachedImage for creation", "image", cachedImage.Spec.Image, "sourceImage", cachedImage.Spec.SourceImage)
+		containerLog.V(1).Info("desired CachedImage for container", "image", cachedImage.Spec.Image, "sourceImage", cachedImage.Spec.SourceImage)
 	}
 
 	return cachedImages

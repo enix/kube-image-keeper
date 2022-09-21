@@ -6,6 +6,7 @@ require (
 	github.com/docker/cli v20.10.12+incompatible
 	github.com/docker/distribution v2.7.1+incompatible
 	github.com/gin-gonic/gin v1.7.3
+	github.com/go-logr/logr v0.3.0 // indirect
 	github.com/google/go-containerregistry v0.6.0
 	github.com/onsi/ginkgo v1.14.1
 	github.com/onsi/gomega v1.10.3
