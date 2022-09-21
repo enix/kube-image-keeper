@@ -11,13 +11,7 @@ import (
 	dcrenixiov1alpha1 "gitlab.enix.io/products/docker-cache-registry/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 )
-
-var podStubKey = types.NamespacedName{
-	Name:      "test-pod",
-	Namespace: "default",
-}
 
 var imageMapping = map[string]string{
 	"original-init": "test-init",
@@ -27,12 +21,15 @@ var imageMapping = map[string]string{
 
 var podStub = corev1.Pod{
 	ObjectMeta: metav1.ObjectMeta{
-		Name:      podStubKey.Name,
-		Namespace: podStubKey.Namespace,
+		Name:      "test-pod",
+		Namespace: "default",
 		Annotations: map[string]string{
 			"original-init-image-0": "original-init",
 			"original-image-0":      "original",
 			"original-image-1":      "original-2",
+		},
+		Labels: map[string]string{
+			"dcr-images-rewritten": "true",
 		},
 	},
 	Spec: corev1.PodSpec{
@@ -42,6 +39,22 @@ var podStub = corev1.Pod{
 		Containers: []corev1.Container{
 			{Name: "b", Image: imageMapping["original"]},
 			{Name: "c", Image: imageMapping["original-2"]},
+		},
+	},
+}
+
+var podStubNotRewritten = corev1.Pod{
+	ObjectMeta: metav1.ObjectMeta{
+		Name:      "test-pod",
+		Namespace: "default",
+	},
+	Spec: corev1.PodSpec{
+		InitContainers: []corev1.Container{
+			{Name: "a", Image: "original-init"},
+		},
+		Containers: []corev1.Container{
+			{Name: "b", Image: "original"},
+			{Name: "c", Image: "original-2"},
 		},
 	},
 }
@@ -133,15 +146,31 @@ var _ = Describe("Pod Controller", func() {
 			Expect(k8sClient.Delete(context.Background(), &podStub)).Should(Succeed())
 
 			Eventually(func() []dcrenixiov1alpha1.CachedImage {
-				notExpiringCachedImages := []dcrenixiov1alpha1.CachedImage{}
+				expiringCachedImages := []dcrenixiov1alpha1.CachedImage{}
 				k8sClient.List(context.Background(), fetched)
 				for _, cachedImage := range fetched.Items {
-					if cachedImage.Spec.ExpiresAt == nil {
-						notExpiringCachedImages = append(notExpiringCachedImages, cachedImage)
+					if cachedImage.Spec.ExpiresAt != nil {
+						expiringCachedImages = append(expiringCachedImages, cachedImage)
 					}
 				}
-				return notExpiringCachedImages
+				return expiringCachedImages
+			}, timeout, interval).Should(HaveLen(len(podStub.Spec.Containers) + len(podStub.Spec.InitContainers)))
+
+			By("Deleting all cached images")
+			Expect(k8sClient.DeleteAllOf(context.Background(), &dcrenixiov1alpha1.CachedImage{})).Should(Succeed())
+		})
+		It("Should not create CachedImages", func() {
+			By("Creating a pod without rewriting images")
+			Expect(k8sClient.Create(context.Background(), &podStubNotRewritten)).Should(Succeed())
+
+			fetched := &dcrenixiov1alpha1.CachedImageList{}
+			Eventually(func() []dcrenixiov1alpha1.CachedImage {
+				k8sClient.List(context.Background(), fetched)
+				return fetched.Items
 			}, timeout, interval).Should(HaveLen(0))
+
+			By("Deleting previously created pod")
+			Expect(k8sClient.Delete(context.Background(), &podStubNotRewritten)).Should(Succeed())
 		})
 	})
 })

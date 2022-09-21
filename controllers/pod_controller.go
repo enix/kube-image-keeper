@@ -157,7 +157,10 @@ func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&corev1.Pod{}).
+		For(&corev1.Pod{}, builder.WithPredicates(predicate.NewPredicateFuncs(func(object client.Object) bool {
+			_, ok := object.GetLabels()["dcr-images-rewritten"]
+			return ok
+		}))).
 		Watches(
 			&source.Kind{Type: &dcrenixiov1alpha1.CachedImage{}},
 			handler.EnqueueRequestsFromMapFunc(r.podsWithDeletingCachedImages),
