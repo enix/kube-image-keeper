@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	_ "crypto/sha256"
 
@@ -105,7 +106,12 @@ func (a *ImageRewriter) handleContainer(pod *corev1.Pod, container *v1.Container
 		return err
 	}
 
-	container.Image = fmt.Sprintf("localhost:%d/%s", a.ProxyPort, ref.String())
+	prefix := fmt.Sprintf("localhost:%d/", a.ProxyPort)
+	if strings.HasPrefix(ref.String(), prefix) {
+		return nil
+	}
+
+	container.Image = prefix + ref.String()
 
 	return nil
 }
