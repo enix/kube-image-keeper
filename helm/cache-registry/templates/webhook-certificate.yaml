@@ -8,9 +8,9 @@ spec:
   - dcr-webhook-service.{{ .Release.Namespace }}.svc.cluster.local
   secretName: webhook-server-cert
   issuerRef:
-    {{- toYaml .Values.proxy.webhook.certificateIssuerRef | nindent 4 }}
+    {{- toYaml .Values.controllers.webhook.certificateIssuerRef | nindent 4 }}
 ---
-{{- if .Values.proxy.webhook.createCertificateIssuer -}}
+{{- if .Values.controllers.webhook.createCertificateIssuer -}}
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:

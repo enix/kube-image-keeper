@@ -43,6 +43,11 @@ app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
+{{- define "cache-registry.controllers-labels" -}}
+{{ include "cache-registry.labels" . }}
+app.kubernetes.io/component: controllers
+{{- end }}
+
 {{- define "cache-registry.proxy-labels" -}}
 {{ include "cache-registry.labels" . }}
 app.kubernetes.io/component: proxy
@@ -64,6 +69,12 @@ Selector labels
 {{- define "cache-registry.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "cache-registry.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{- define "cache-registry.controllers-selectorLabels" -}}
+{{ include "cache-registry.selectorLabels" . }}
+app.kubernetes.io/component: controllers
+control-plane: controller-manager
 {{- end }}
 
 {{- define "cache-registry.proxy-selectorLabels" -}}

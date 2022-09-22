@@ -27,7 +27,7 @@ spec:
       containers:
         - name: cache-proxy
           securityContext:
-            {{- toYaml .Values.proxy.proxy.securityContext | nindent 12 }}
+            {{- toYaml .Values.proxy.securityContext | nindent 12 }}
           image: "{{ .Values.proxy.image.repository }}:{{ .Values.proxy.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.proxy.image.pullPolicy }}
           ports:
@@ -40,26 +40,6 @@ spec:
             - -v={{ .Values.proxy.verbosity }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-        - name: cache-manager
-          securityContext:
-            {{- toYaml .Values.proxy.manager.securityContext | nindent 12 }}
-          image: "{{ .Values.proxy.image.repository }}:{{ .Values.proxy.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.proxy.image.pullPolicy }}
-          command:
-            - manager
-            - -leader-elect
-            - -expiry-delay={{ .Values.cache.expiryDelay }}
-            - -proxy-port={{ .Values.proxy.hostPort }}
-            - -ignore-namespace={{ .Release.Namespace }}
-            - -zap-log-level={{ .Values.cache.verbosity }}
-          ports:
-            - containerPort: 9443
-              name: webhook-server
-              protocol: TCP
-          volumeMounts:
-            - mountPath: /tmp/k8s-webhook-server/serving-certs
-              name: cert
-              readOnly: true
       {{- with .Values.proxy.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -72,8 +52,3 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      volumes:
-      - name: cert
-        secret:
-          defaultMode: 420
-          secretName: webhook-server-cert

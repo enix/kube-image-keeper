@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cache-registry.fullname" . }}-controllers
+  labels:
+    {{- include "cache-registry.controllers-labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "cache-registry.controllers-selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.controllers.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "cache-registry.controllers-selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.controllers.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "cache-registry.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.controllers.podSecurityContext | nindent 8 }}
+      containers:
+        - name: cache-manager
+          securityContext:
+            {{- toYaml .Values.controllers.securityContext | nindent 12 }}
+          image: "{{ .Values.controllers.image.repository }}:{{ .Values.controllers.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.controllers.image.pullPolicy }}
+          command:
+            - manager
+            - -leader-elect
+            - -expiry-delay={{ .Values.cachedImagesExpiryDelay }}
+            - -proxy-port={{ .Values.proxy.hostPort }}
+            - -ignore-namespace={{ .Release.Namespace }}
+            - -zap-log-level={{ .Values.controllers.verbosity }}
+          ports:
+            - containerPort: 9443
+              name: webhook-server
+              protocol: TCP
+          volumeMounts:
+            - mountPath: /tmp/k8s-webhook-server/serving-certs
+              name: cert
+              readOnly: true
+      {{- with .Values.controllers.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controllers.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controllers.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+      - name: cert
+        secret:
+          defaultMode: 420
+          secretName: webhook-server-cert

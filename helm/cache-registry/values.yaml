@@ -2,10 +2,31 @@
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
-cache:
-  expiryDelay: 30
-  installCRD: true
+cachedImagesExpiryDelay: 30
+installCRD: true
+
+controllers:
+  image:
+    repository: enix/docker-cache-registry
+    pullPolicy: IfNotPresent
+    # Overrides the image tag whose default is the chart appVersion.
+    tag: ""
   verbosity: INFO
+  imagePullSecrets: []
+  podAnnotations: {}
+  podSecurityContext: {}
+  securityContext: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  resources: {}
+  webhook:
+    createCertificateIssuer: true
+    certificateIssuerRef:
+      kind: Issuer
+      name: dcr-selfsigned-issuer
+    objectSelector:
+      matchExpressions: []
 
 proxy:
   image:
@@ -18,22 +39,11 @@ proxy:
   imagePullSecrets: []
   podAnnotations: {}
   podSecurityContext: {}
+  securityContext: {}
   nodeSelector: {}
   tolerations: []
   affinity: {}
-  proxy:
-    securityContext: {}
-    resources: {}
-  manager:
-    securityContext: {}
-    resources: {}
-  webhook:
-    createCertificateIssuer: true
-    certificateIssuerRef:
-      kind: Issuer
-      name: dcr-selfsigned-issuer
-    objectSelector:
-      matchExpressions: []
+  resources: {}
 
 registry:
   image:
