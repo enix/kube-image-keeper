@@ -21,7 +21,7 @@ webhooks:
       operator: NotIn
       values:
       - ignore
-    {{- range .Values.proxy.webhook.objectSelector.matchExpressions }}
+    {{- range .Values.controllers.webhook.objectSelector.matchExpressions }}
     - {{ . | toYaml | indent 6 | trim  }}
     {{- end }}
   name: mpod.kb.io
