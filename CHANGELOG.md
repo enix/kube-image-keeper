@@ -1,3 +1,14 @@
+## [1.2.1](https://gitlab.enix.io/products/docker-cache-registry/compare/v1.2.0...v1.2.1) (2022-09-27)
+
+
+### Bug Fixes
+
+* **controller:** filter out non-rewritten pods in controllers ([20e0552](https://gitlab.enix.io/products/docker-cache-registry/commit/20e0552ecab687766b129d95cd9f71eb41b9b4f3))
+* **controller:** fix missing init containers in CachedImages + tests ([582ded8](https://gitlab.enix.io/products/docker-cache-registry/commit/582ded8c8b1d5ef868099d77abcf246b19f11928))
+* **controller:** prevent update "empty" Pods on CachedImage deleted ([070be56](https://gitlab.enix.io/products/docker-cache-registry/commit/070be56f4a88bb8b6643152ad308bcef686b326e))
+* **webhook:** enable reinvocationPolicy to handle added containers too ([6c45769](https://gitlab.enix.io/products/docker-cache-registry/commit/6c45769801d8344bb393fdfca8e099fff4889bd1))
+* **webhook:** map original images to containers based on container name ([6667d62](https://gitlab.enix.io/products/docker-cache-registry/commit/6667d62635f178aaa843e9036c240edf96160900))
+
 # [1.2.0](https://gitlab.enix.io/products/docker-cache-registry/compare/v1.1.3...v1.2.0) (2022-01-25)
 
 
