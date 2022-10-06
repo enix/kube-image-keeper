@@ -45,6 +45,8 @@ func proxyRegistry(c *gin.Context, endpoint string, image string, originRegistry
 
 	proxy := httputil.NewSingleHostReverseProxy(remote)
 
+	var proxyError error
+
 	proxy.Director = func(req *http.Request) {
 		req.Header = c.Request.Header
 		req.Host = remote.Host
@@ -57,7 +59,8 @@ func proxyRegistry(c *gin.Context, endpoint string, image string, originRegistry
 
 		bearer, err := NewBearer(endpoint, req.URL.Path)
 		if err != nil {
-			panic(err)
+			proxyError = err
+			return
 		}
 		token := bearer.GetToken()
 		if token != "" {
@@ -72,7 +75,6 @@ func proxyRegistry(c *gin.Context, endpoint string, image string, originRegistry
 		return nil
 	}
 
-	var proxyError error
 	proxy.ErrorHandler = func(rw http.ResponseWriter, req *http.Request, err error) {
 		proxyError = err
 	}
