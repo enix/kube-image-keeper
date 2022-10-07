@@ -1,5 +1,9 @@
 {{- if .Values.registry.garbageCollectionSchedule }}
+{{- if semverCompare ">=1.21-0" (default .Capabilities.KubeVersion.Version .Values.kubeVersion) -}}
 apiVersion: batch/v1
+{{- else -}}
+apiVersion: batch/v1beta1
+{{- end }}
 kind: CronJob
 metadata:
   name: {{ include "cache-registry.fullname" . }}-garbage-collection
