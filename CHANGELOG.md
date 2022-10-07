@@ -1,3 +1,17 @@
+# [1.3.0](https://gitlab.enix.io/products/docker-cache-registry/compare/v1.2.1...v1.3.0) (2022-10-07)
+
+
+### Bug Fixes
+
+* **ci:** Helm jobs trigger ([9880881](https://gitlab.enix.io/products/docker-cache-registry/commit/9880881dbcd624d82734e9d9bed21e1d7a0414d3))
+* **helm:** fix webhook object selector value usage ([70c12b5](https://gitlab.enix.io/products/docker-cache-registry/commit/70c12b5d5784f2ef0cf7fc420c80ab0b23968f20))
+* **proxy:** fallback to origin registry when cache registry is down ([b438cd1](https://gitlab.enix.io/products/docker-cache-registry/commit/b438cd185ae7b0bbf66b0a13de7a5bb5488e7761))
+
+
+### Features
+
+* **cache:** garbage collection ([1b5dfd9](https://gitlab.enix.io/products/docker-cache-registry/commit/1b5dfd9095a9dff480aae73db458fa4e0f258061)), closes [#12](https://gitlab.enix.io/products/docker-cache-registry/issues/12)
+
 ## [1.2.1](https://gitlab.enix.io/products/docker-cache-registry/compare/v1.2.0...v1.2.1) (2022-09-27)
 
 
