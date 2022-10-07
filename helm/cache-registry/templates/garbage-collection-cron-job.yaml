@@ -1,0 +1,28 @@
+{{- if .Values.registry.garbageCollectionSchedule }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "cache-registry.fullname" . }}-garbage-collection
+  labels:
+    {{- include "cache-registry.garbage-collection-labels" . | nindent 4 }}
+spec:
+  concurrencyPolicy: Forbid
+  schedule: "{{ .Values.registry.garbageCollectionSchedule }}"
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      activeDeadlineSeconds: 600
+      template:
+        spec:
+          serviceAccountName: registry-restart
+          restartPolicy: Never
+          containers:
+            - name: kubectl
+              image: bitnami/kubectl
+              command:
+                - bash
+                - -c
+                - >-
+                  kubectl rollout restart sts {{ include "cache-registry.fullname" . }} &&
+                  kubectl rollout status sts {{ include "cache-registry.fullname" . }}
+{{- end }}

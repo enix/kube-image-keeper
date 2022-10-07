@@ -63,6 +63,11 @@ app.kubernetes.io/component: registry
 app.kubernetes.io/component: registry-ui
 {{- end }}
 
+{{- define "cache-registry.garbage-collection-labels" -}}
+{{ include "cache-registry.labels" . }}
+app.kubernetes.io/component: garbage-collection
+{{- end }}
+
 {{/*
 Selector labels
 */}}
@@ -91,6 +96,11 @@ app.kubernetes.io/component: registry
 {{- define "cache-registry.registry-ui-selectorLabels" -}}
 {{ include "cache-registry.selectorLabels" . }}
 app.kubernetes.io/component: registry-ui
+{{- end }}
+
+{{- define "cache-registry.garbage-collection-selectorLabels" -}}
+{{ include "cache-registry.selectorLabels" . }}
+app.kubernetes.io/component: garbage-collection
 {{- end }}
 
 {{/*

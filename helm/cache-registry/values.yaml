@@ -54,6 +54,7 @@ registry:
     enabled: false
     storageClass: null
     size: 20Gi
+  garbageCollectionSchedule: "0 0 * * 0"
   service:
     type: ClusterIP
   env: []

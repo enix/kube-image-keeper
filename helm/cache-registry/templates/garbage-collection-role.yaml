@@ -1,0 +1,11 @@
+{{- if .Values.registry.garbageCollectionSchedule }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: registry-restart
+rules:
+  - apiGroups: ["apps", "extensions"]
+    resources: ["statefulsets"]
+    resourceNames: [{{ include "cache-registry.fullname" . }}]
+    verbs: ["get", "patch", "list", "watch"]
+{{- end }}
