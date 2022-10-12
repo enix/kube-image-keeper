@@ -27,20 +27,12 @@ func parseWwwAuthenticate(wwwAuthenticate string) map[string]string {
 	return opts
 }
 
-func proxyOriginRegistry(c *gin.Context, endpoint string, image string) error {
-	return proxyRegistry(c, endpoint, image, "")
-}
-
-func proxyRegistry(c *gin.Context, endpoint string, image string, originRegistry string) error {
-	klog.V(2).InfoS("proxying registry", "endpoint", endpoint, "image", image)
+func proxyRegistry(c *gin.Context, endpoint string, endpointIsOrigin bool) error {
+	klog.V(2).InfoS("proxying registry", "endpoint", endpoint)
 
 	remote, err := url.Parse(endpoint)
 	if err != nil {
 		return err
-	}
-
-	if originRegistry != "" {
-		originRegistry += "/"
 	}
 
 	proxy := httputil.NewSingleHostReverseProxy(remote)
@@ -52,7 +44,17 @@ func proxyRegistry(c *gin.Context, endpoint string, image string, originRegistry
 		req.Host = remote.Host
 		req.URL.Scheme = remote.Scheme
 		req.URL.Host = remote.Host
-		req.URL.Path = "/v2/" + originRegistry + strings.Join(strings.Split(req.URL.Path, "/")[2:], "/")
+
+		pathParts := strings.Split(req.URL.Path, "/")
+
+		// In the cache registry, images are prefixed with their origin registry.
+		// Thus, when proxying the cache, we need to keep the origin part, but we have to discard it when proxying the origin
+		takePathFromIndex := 2
+		if endpointIsOrigin && len(pathParts) > 2 {
+			takePathFromIndex = 3
+		}
+
+		req.URL.Path = "/v2/" + strings.Join(pathParts[takePathFromIndex:], "/")
 
 		// To prevent "X-Forwarded-For: 127.0.0.1, 127.0.0.1" which produce a HTTP 400 error
 		req.Header.Del("X-Forwarded-For")
