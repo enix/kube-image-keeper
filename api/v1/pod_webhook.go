@@ -12,7 +12,6 @@ import (
 	"github.com/docker/distribution/reference"
 	"gitlab.enix.io/products/docker-cache-registry/controllers"
 	corev1 "k8s.io/api/core/v1"
-	v1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -98,7 +97,7 @@ func (a *ImageRewriter) InjectDecoder(d *admission.Decoder) error {
 	return nil
 }
 
-func (a *ImageRewriter) handleContainer(pod *corev1.Pod, container *v1.Container, annotationKey string) error {
+func (a *ImageRewriter) handleContainer(pod *corev1.Pod, container *corev1.Container, annotationKey string) error {
 	pod.Annotations[annotationKey] = container.Image
 
 	ref, err := reference.ParseAnyReference(container.Image)

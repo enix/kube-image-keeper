@@ -7,8 +7,6 @@ import (
 	klog "k8s.io/klog/v2"
 )
 
-var kubeconfig *string
-
 func initFlags() {
 	klog.InitFlags(nil)
 	flag.Set("logtostderr", "true")

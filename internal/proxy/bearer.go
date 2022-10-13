@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
+	"strings"
 )
 
 type Bearer struct {
@@ -12,6 +14,20 @@ type Bearer struct {
 	ExpiresIn    string
 	IssuedAt     string
 	RefreshToken string
+}
+
+var wwwAuthenticateRegexp = regexp.MustCompile(`(?P<key>\w+)="(?P<value>[^"]+)",?`)
+
+func parseWwwAuthenticate(wwwAuthenticate string) map[string]string {
+	challenge := strings.SplitN(wwwAuthenticate, " ", 2)[1]
+	parts := wwwAuthenticateRegexp.FindAllStringSubmatch(challenge, -1)
+
+	opts := map[string]string{}
+	for _, part := range parts {
+		opts[part[1]] = part[2]
+	}
+
+	return opts
 }
 
 func (b *Bearer) GetToken() string {
