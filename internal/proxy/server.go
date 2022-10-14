@@ -167,6 +167,13 @@ func (p *Proxy) proxyRegistry(c *gin.Context, endpoint string, endpointIsOrigin 
 		proxyError = err
 	}
 
+	defer func() {
+		// See https://github.com/golang/go/issues/28239 and https://github.com/golang/go/issues/23643
+		if err := recover(); err != nil && err != http.ErrAbortHandler {
+			panic(err)
+		}
+	}()
+
 	proxy.ServeHTTP(c.Writer, c.Request)
 
 	return proxyError
