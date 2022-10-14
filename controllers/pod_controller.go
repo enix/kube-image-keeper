@@ -18,17 +18,19 @@ package controllers
 
 import (
 	"context"
+	_ "crypto/sha256"
 	"fmt"
 	"net/http"
 	"regexp"
-	"strings"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
 
+	"github.com/docker/distribution/reference"
 	dcrenixiov1alpha1 "gitlab.enix.io/products/docker-cache-registry/api/v1alpha1"
+	"gitlab.enix.io/products/docker-cache-registry/internal/registry"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -246,8 +248,12 @@ func desiredCachedImagesForContainers(ctx context.Context, containers []corev1.C
 			continue
 		}
 
-		cachedImage := desiredCachedImageForContainer(&container, sourceImage)
-		cachedImages = append(cachedImages, cachedImage)
+		cachedImage, err := desiredCachedImageForContainer(&container, sourceImage)
+		if err != nil {
+			containerLog.Error(err, "could not create cached image, ignoring")
+			continue
+		}
+		cachedImages = append(cachedImages, *cachedImage)
 
 		containerLog.V(1).Info("desired CachedImage for container", "image", cachedImage.Spec.Image, "sourceImage", cachedImage.Spec.SourceImage)
 	}
@@ -255,15 +261,22 @@ func desiredCachedImagesForContainers(ctx context.Context, containers []corev1.C
 	return cachedImages
 }
 
-func desiredCachedImageForContainer(container *corev1.Container, sourceImage string) dcrenixiov1alpha1.CachedImage {
+func desiredCachedImageForContainer(container *corev1.Container, sourceImage string) (*dcrenixiov1alpha1.CachedImage, error) {
 	re := regexp.MustCompile(`localhost:[0-9]+/`)
 	image := string(re.ReplaceAll([]byte(container.Image), []byte("")))
-	sanitizedName := sanitizeImageName(image)
+	sanitizedName := registry.SanitizeName(image)
+	named, err := reference.ParseNormalizedNamed(image)
+	if err != nil {
+		return nil, err
+	}
 
 	cachedImage := dcrenixiov1alpha1.CachedImage{
 		TypeMeta: metav1.TypeMeta{APIVersion: dcrenixiov1alpha1.GroupVersion.String(), Kind: "CachedImage"},
 		ObjectMeta: metav1.ObjectMeta{
 			Name: sanitizedName,
+			Labels: map[string]string{
+				dcrenixiov1alpha1.RepositoryLabelName: registry.SanitizeName(named.Name()),
+			},
 		},
 		Spec: dcrenixiov1alpha1.CachedImageSpec{
 			Image:       image,
@@ -271,10 +284,5 @@ func desiredCachedImageForContainer(container *corev1.Container, sourceImage str
 		},
 	}
 
-	return cachedImage
-}
-
-func sanitizeImageName(image string) string {
-	nameRegex := regexp.MustCompile(`[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*`)
-	return strings.Join(nameRegex.FindAllString(image, -1), "-")
+	return &cachedImage, nil
 }

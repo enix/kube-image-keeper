@@ -75,36 +75,36 @@ func Test_v2Endpoint(t *testing.T) {
 	g.Expect(recorder.Body.String()).To(Equal("v2 endpoint"))
 }
 
-func TestGetImage(t *testing.T) {
+func TestGetRepository(t *testing.T) {
 	tests := []struct {
 		name      string
 		library   string
 		imageName string
-		reference string
-		digest    string
 		expected  string
 	}{
 		{
-			name:      "Reference only",
+			name:      "Basic 1",
 			library:   "library",
 			imageName: "image",
-			reference: "reference",
-			expected:  "library/image:reference",
+			expected:  "library/image",
 		},
 		{
-			name:      "Digest only",
-			library:   "library",
-			imageName: "image",
-			digest:    "digest",
-			expected:  "library/image@digest",
+			name:      "Basic 2",
+			library:   "enix",
+			imageName: "cache-registry",
+			expected:  "enix/cache-registry",
 		},
 		{
-			name:      "Reference + digest",
+			name:      "Empty image",
 			library:   "library",
+			imageName: "",
+			expected:  "library/",
+		},
+		{
+			name:      "Empty library",
+			library:   "",
 			imageName: "image",
-			reference: "reference",
-			digest:    "digest",
-			expected:  "library/image:reference",
+			expected:  "/image",
 		},
 	}
 
@@ -123,18 +123,10 @@ func TestGetImage(t *testing.T) {
 						Key:   "name",
 						Value: tt.imageName,
 					},
-					gin.Param{
-						Key:   "reference",
-						Value: tt.reference,
-					},
-					gin.Param{
-						Key:   "digest",
-						Value: tt.digest,
-					},
 				},
 			}
 
-			image := proxy.getImage(ctx)
+			image := proxy.getRepository(ctx)
 			g.Expect(image).To(Equal(tt.expected))
 		})
 	}

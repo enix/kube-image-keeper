@@ -2,6 +2,8 @@ package registry
 
 import (
 	"errors"
+	"regexp"
+	"strings"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -77,4 +79,9 @@ func CacheImage(imageName string, keychain authn.Keychain) (bool, error) {
 	}
 
 	return true, nil
+}
+
+func SanitizeName(image string) string {
+	nameRegex := regexp.MustCompile(`[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*`)
+	return strings.Join(nameRegex.FindAllString(image, -1), "-")
 }
