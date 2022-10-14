@@ -9,7 +9,10 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/ghttp"
 	"gitlab.enix.io/products/docker-cache-registry/internal/registry"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+var dummyK8sClient client.Client
 
 type ResponseWriterPatched struct {
 	gin.ResponseWriter
@@ -25,7 +28,7 @@ func init() {
 
 func TestNew(t *testing.T) {
 	g := NewWithT(t)
-	proxy := New()
+	proxy := New(dummyK8sClient)
 	g.Expect(proxy).To(Not(BeNil()))
 	g.Expect(proxy.engine).To(Not(BeNil()))
 }
@@ -62,7 +65,7 @@ func Test_v2Endpoint(t *testing.T) {
 	// mock proxy server
 	recorder := httptest.NewRecorder()
 	ctx, r := gin.CreateTestContext(recorder)
-	proxy := NewWithEngine(r).Listen()
+	proxy := NewWithEngine(dummyK8sClient, r).Listen()
 
 	// mock request
 	registry.Endpoint = server.Addr()
@@ -108,7 +111,7 @@ func TestGetRepository(t *testing.T) {
 		},
 	}
 
-	proxy := New()
+	proxy := New(dummyK8sClient)
 	g := NewWithT(t)
 
 	for _, tt := range tests {

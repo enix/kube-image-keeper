@@ -4,19 +4,49 @@ import (
 	"flag"
 
 	"gitlab.enix.io/products/docker-cache-registry/internal/proxy"
+	"gitlab.enix.io/products/docker-cache-registry/internal/scheme"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 	klog "k8s.io/klog/v2"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+var (
+	kubeconfig string
 )
 
 func initFlags() {
 	klog.InitFlags(nil)
 	flag.Set("logtostderr", "true")
+	flag.StringVar(&kubeconfig, "kubeconfig", "", "absolute path to the kubeconfig file")
+
 	flag.Parse()
 }
 
 func main() {
 	initFlags()
 
-	klog.Info("Starting")
+	var config *rest.Config
+	var err error
 
-	<-proxy.New().Listen().Serve()
+	if kubeconfig == "" {
+		klog.Info("using in-cluster configuration")
+		config, err = rest.InClusterConfig()
+	} else {
+		klog.Info("using configuration from '%s'", kubeconfig)
+		config, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
+	}
+
+	klog.Info("starting")
+
+	if err != nil {
+		panic(err)
+	}
+
+	k8sClient, err := client.New(config, client.Options{Scheme: scheme.NewScheme()})
+	if err != nil {
+		panic(err)
+	}
+
+	<-proxy.New(k8sClient).Listen().Serve()
 }

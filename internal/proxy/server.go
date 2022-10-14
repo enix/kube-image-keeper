@@ -13,39 +13,28 @@ import (
 	"github.com/gin-gonic/gin"
 	dcrenixiov1alpha1 "gitlab.enix.io/products/docker-cache-registry/api/v1alpha1"
 	"gitlab.enix.io/products/docker-cache-registry/internal/registry"
-	"gitlab.enix.io/products/docker-cache-registry/internal/scheme"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type Proxy struct {
-	engine *gin.Engine
-}
-
-var (
+	engine    *gin.Engine
 	k8sClient client.Client
-)
+}
 
-func init() {
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		panic(err)
-	}
-
-	k8sClient, err = client.New(config, client.Options{Scheme: scheme.NewScheme()})
-	if err != nil {
-		panic(err)
+func New(k8sClient client.Client) *Proxy {
+	return &Proxy{
+		k8sClient: k8sClient,
+		engine:    gin.Default(),
 	}
 }
 
-func New() *Proxy {
-	return &Proxy{engine: gin.Default()}
-}
-
-func NewWithEngine(engine *gin.Engine) *Proxy {
-	return &Proxy{engine: engine}
+func NewWithEngine(k8sClient client.Client, engine *gin.Engine) *Proxy {
+	return &Proxy{
+		k8sClient: k8sClient,
+		engine:    engine,
+	}
 }
 
 func (p *Proxy) Listen() *Proxy {
@@ -89,7 +78,7 @@ func (p *Proxy) routeProxy(c *gin.Context) {
 	if err := p.proxyRegistry(c, registry.Protocol+registry.Endpoint, false, ""); err != nil {
 		klog.InfoS("cached image is not available, proxying origin", "originRegistry", originRegistry, "error", err)
 
-		basicAuth, err := getBasicAuth(originRegistry, repository)
+		basicAuth, err := p.getBasicAuth(originRegistry, repository)
 		if err != nil {
 			c.AbortWithError(http.StatusUnauthorized, err)
 			return
@@ -179,13 +168,13 @@ func (p *Proxy) proxyRegistry(c *gin.Context, endpoint string, endpointIsOrigin 
 	return proxyError
 }
 
-func getBasicAuth(registryDomain string, repository string) (string, error) {
+func (p *Proxy) getBasicAuth(registryDomain string, repository string) (string, error) {
 	repositoryLabel := registry.SanitizeName(registryDomain + "/" + repository)
 	cachedImages := &dcrenixiov1alpha1.CachedImageList{}
 	secret := &corev1.Secret{}
 
 	klog.InfoS("listing CachedImages", "repositoryLabel", repositoryLabel)
-	if err := k8sClient.List(context.Background(), cachedImages, client.MatchingLabels{
+	if err := p.k8sClient.List(context.Background(), cachedImages, client.MatchingLabels{
 		dcrenixiov1alpha1.RepositoryLabelName: repositoryLabel,
 	}, client.Limit(1)); err != nil {
 		return "", err
@@ -202,7 +191,7 @@ func getBasicAuth(registryDomain string, repository string) (string, error) {
 
 	// TODO: support multiple pull secrets
 	objectKey := client.ObjectKey{Name: cachedImage.Spec.PullSecretNames[0], Namespace: cachedImage.Spec.PullSecretsNamespace}
-	if err := k8sClient.Get(context.Background(), objectKey, secret); err != nil {
+	if err := p.k8sClient.Get(context.Background(), objectKey, secret); err != nil {
 		return "", err
 	}
 
