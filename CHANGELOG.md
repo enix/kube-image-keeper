@@ -1,3 +1,12 @@
+## [1.3.1](https://gitlab.enix.io/products/docker-cache-registry/compare/v1.3.0...v1.3.1) (2022-10-19)
+
+
+### Bug Fixes
+
+* **helm:** support for k8s 1.20 ([2afa898](https://gitlab.enix.io/products/docker-cache-registry/commit/2afa89836468814231a6db4d59e1ba9581d561ea))
+* **proxy:** handle authentication when proxying registry ([dec04ea](https://gitlab.enix.io/products/docker-cache-registry/commit/dec04ea9d57630b9852caf5fe214b114c5305dd5)), closes [#23](https://gitlab.enix.io/products/docker-cache-registry/issues/23)
+* **proxy:** suppress errors on cancel pull ([73bb2a8](https://gitlab.enix.io/products/docker-cache-registry/commit/73bb2a8d620b9db27655cf87f022f87d23427581))
+
 # [1.3.0](https://gitlab.enix.io/products/docker-cache-registry/compare/v1.2.1...v1.3.0) (2022-10-07)
 
 
