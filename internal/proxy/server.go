@@ -23,6 +23,8 @@ type Proxy struct {
 	k8sClient client.Client
 }
 
+var errorMissingDockerConfigJsonInPullSecret = errors.New("pull secret is missing key .dockerconfigjson")
+
 func New(k8sClient client.Client) *Proxy {
 	return &Proxy{
 		k8sClient: k8sClient,
@@ -195,9 +197,13 @@ func (p *Proxy) getBasicAuth(registryDomain string, repository string) (string, 
 		return "", err
 	}
 
+	return getBasicAuthFromSecret(registryDomain, secret)
+}
+
+func getBasicAuthFromSecret(registryDomain string, secret *corev1.Secret) (string, error) {
 	dockerConfigJson, exists := secret.Data[".dockerconfigjson"]
 	if !exists {
-		return "", errors.New("pull secret is missing key .dockerconfigjson")
+		return "", errorMissingDockerConfigJsonInPullSecret
 	}
 
 	dockerConfig := struct {

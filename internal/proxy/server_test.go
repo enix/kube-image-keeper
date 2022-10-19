@@ -9,6 +9,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/ghttp"
 	"gitlab.enix.io/products/docker-cache-registry/internal/registry"
+	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -131,6 +132,59 @@ func TestGetRepository(t *testing.T) {
 
 			image := proxy.getRepository(ctx)
 			g.Expect(image).To(Equal(tt.expected))
+		})
+	}
+}
+
+func Test_getBasicAuthFromSecret(t *testing.T) {
+	tests := []struct {
+		name           string
+		registryDomain string
+		basicAuth      string
+		secret         corev1.Secret
+		wantErr        error
+	}{
+		{
+			name:           "Basic",
+			registryDomain: "harbor.enix.io",
+			basicAuth:      "base64-basic-auth",
+			secret: corev1.Secret{
+				Data: map[string][]byte{
+					".dockerconfigjson": []byte("{\"auths\": {\"harbor.enix.io\": {\"auth\": \"base64-basic-auth\"}}}"),
+				},
+			},
+		},
+		{
+			name:           "Missing registry auth",
+			registryDomain: "harbor.enix.io",
+			secret: corev1.Secret{
+				Data: map[string][]byte{
+					".dockerconfigjson": []byte("{\"auths\": {}}"),
+				},
+			},
+		},
+		{
+			name:           "Missing .dockerconfigjson key",
+			registryDomain: "harbor.enix.io",
+			secret: corev1.Secret{
+				Data: map[string][]byte{},
+			},
+			wantErr: errorMissingDockerConfigJsonInPullSecret,
+		},
+	}
+
+	g := NewWithT(t)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			basicAuth, err := getBasicAuthFromSecret(tt.registryDomain, &tt.secret)
+			if tt.wantErr != nil {
+				g.Expect(basicAuth).To(BeEmpty())
+				g.Expect(err).To(Equal(tt.wantErr))
+			} else {
+				g.Expect(basicAuth).To(Equal(tt.basicAuth))
+				g.Expect(err).To(BeNil())
+			}
 		})
 	}
 }
