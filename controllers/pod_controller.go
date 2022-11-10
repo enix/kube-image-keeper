@@ -154,7 +154,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			}
 		}
 
-		log.Info("cachedimage patched", "cachedImage", klog.KObj(&cachedImage), "image", cachedImage.Spec.Image, "sourceImage", cachedImage.Spec.SourceImage)
+		log.Info("cachedimage patched", "cachedImage", klog.KObj(&cachedImage), "sourceImage", cachedImage.Spec.SourceImage)
 	}
 
 	log.Info("reconciled pod")
@@ -255,7 +255,7 @@ func desiredCachedImagesForContainers(ctx context.Context, containers []corev1.C
 		}
 		cachedImages = append(cachedImages, *cachedImage)
 
-		containerLog.V(1).Info("desired CachedImage for container", "image", cachedImage.Spec.Image, "sourceImage", cachedImage.Spec.SourceImage)
+		containerLog.V(1).Info("desired CachedImage for container", "sourceImage", cachedImage.Spec.SourceImage)
 	}
 
 	return cachedImages
@@ -279,7 +279,6 @@ func desiredCachedImageForContainer(container *corev1.Container, sourceImage str
 			},
 		},
 		Spec: dcrenixiov1alpha1.CachedImageSpec{
-			Image:       image,
 			SourceImage: sourceImage,
 		},
 	}

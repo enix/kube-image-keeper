@@ -24,7 +24,6 @@ var RepositoryLabelName = "cache-registry.enix.io/repository"
 
 // CachedImageSpec defines the desired state of CachedImage
 type CachedImageSpec struct {
-	Image       string `json:"image"`
 	SourceImage string `json:"sourceImage"`
 	// +optional
 	ExpiresAt            *metav1.Time `json:"expiresAt,omitempty"`

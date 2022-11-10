@@ -96,8 +96,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	}
 
-	image := cachedImage.Spec.Image
-	log = log.WithValues("image", image)
+	log = log.WithValues("sourceImage", cachedImage.Spec.SourceImage)
 
 	// Delete expired CachedImage and schedule deletion for expiring ones
 	expiresAt := cachedImage.Spec.ExpiresAt
@@ -116,7 +115,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Adding image to registry
 	log.Info("caching image")
 	keychain := registry.NewKubernetesKeychain(r.Client, cachedImage.Spec.PullSecretsNamespace, cachedImage.Spec.PullSecretNames)
-	if cacheUpdated, err := registry.CacheImage(image, keychain); err != nil {
+	if cacheUpdated, err := registry.CacheImage(cachedImage.Spec.SourceImage, keychain); err != nil {
 		log.Error(err, "failed to cache image")
 		return ctrl.Result{}, err
 	} else if cacheUpdated {
@@ -177,7 +176,7 @@ func (r *CachedImageReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func (r *CachedImageReconciler) deleteExternalResources(cachedImage *dcrenixiov1alpha1.CachedImage) error {
-	err := registry.DeleteImage(cachedImage.Spec.Image)
+	err := registry.DeleteImage(cachedImage.Spec.SourceImage)
 	if err, ok := err.(*transport.Error); ok {
 		if err.StatusCode == http.StatusNotFound {
 			return nil

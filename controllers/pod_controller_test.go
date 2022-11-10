@@ -14,12 +14,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-var imageMapping = map[string]string{
-	"original-init": "test-init",
-	"original":      "test",
-	"original-2":    "test-2",
-}
-
 var podStub = corev1.Pod{
 	ObjectMeta: metav1.ObjectMeta{
 		Name:      "test-pod",
@@ -35,11 +29,11 @@ var podStub = corev1.Pod{
 	},
 	Spec: corev1.PodSpec{
 		InitContainers: []corev1.Container{
-			{Name: "a", Image: imageMapping["original-init"]},
+			{Name: "a", Image: "rewritten-init"},
 		},
 		Containers: []corev1.Container{
-			{Name: "b", Image: imageMapping["original"]},
-			{Name: "c", Image: imageMapping["original-2"]},
+			{Name: "b", Image: "rewritten-1"},
+			{Name: "c", Image: "rewritten-2"},
 		},
 	},
 }
@@ -72,15 +66,12 @@ func TestDesiredCachedImages(t *testing.T) {
 			pod:  podStub,
 			cachedImages: []v1alpha1.CachedImage{
 				{Spec: dcrenixiov1alpha1.CachedImageSpec{
-					Image:       imageMapping["original"],
 					SourceImage: "original",
 				}},
 				{Spec: dcrenixiov1alpha1.CachedImageSpec{
-					Image:       imageMapping["original-2"],
 					SourceImage: "original-2",
 				}},
 				{Spec: dcrenixiov1alpha1.CachedImageSpec{
-					Image:       imageMapping["original-init"],
 					SourceImage: "original-init",
 				}},
 			},
@@ -97,7 +88,6 @@ func TestDesiredCachedImages(t *testing.T) {
 				g.Expect(err).To(BeNil())
 				g.Expect(cachedImages).To(HaveLen(len(tt.cachedImages)))
 				for i, cachedImage := range cachedImages {
-					g.Expect(cachedImage.Spec.Image).To(Equal(tt.cachedImages[i].Spec.Image))
 					g.Expect(cachedImage.Spec.SourceImage).To(Equal(tt.cachedImages[i].Spec.SourceImage))
 					g.Expect(cachedImage.Spec.PullSecretsNamespace).To(Equal(tt.pod.Namespace))
 
@@ -123,7 +113,11 @@ var _ = Describe("Pod Controller", func() {
 	})
 
 	AfterEach(func() {
-		// Add any teardown steps that needs to be executed after each test
+		k8sClient.Delete(context.Background(), &podStub)
+		k8sClient.Delete(context.Background(), &podStubNotRewritten)
+
+		By("Deleting all cached images")
+		Expect(k8sClient.DeleteAllOf(context.Background(), &dcrenixiov1alpha1.CachedImage{})).Should(Succeed())
 	})
 
 	Context("Pod with containers and init containers", func() {
@@ -137,11 +131,15 @@ var _ = Describe("Pod Controller", func() {
 				return fetched.Items
 			}, timeout, interval).Should(HaveLen(len(podStub.Spec.Containers) + len(podStub.Spec.InitContainers)))
 
-			for _, cachedImage := range fetched.Items {
-				Expect(imageMapping).To(HaveKey(cachedImage.Spec.SourceImage))
-				expectedImage := imageMapping[cachedImage.Spec.SourceImage]
-				Expect(cachedImage.Spec.Image).To(Equal(expectedImage))
+			annotationsImages := []string{}
+			for _, annotation := range podStub.ObjectMeta.Annotations {
+				annotationsImages = append(annotationsImages, annotation)
 			}
+			cachedImages := []string{}
+			for _, cachedImage := range fetched.Items {
+				cachedImages = append(cachedImages, cachedImage.Spec.SourceImage)
+			}
+			Expect(cachedImages).To(ConsistOf(annotationsImages))
 
 			By("Deleting previously created pod")
 			Expect(k8sClient.Delete(context.Background(), &podStub)).Should(Succeed())
@@ -156,9 +154,6 @@ var _ = Describe("Pod Controller", func() {
 				}
 				return expiringCachedImages
 			}, timeout, interval).Should(HaveLen(len(podStub.Spec.Containers) + len(podStub.Spec.InitContainers)))
-
-			By("Deleting all cached images")
-			Expect(k8sClient.DeleteAllOf(context.Background(), &dcrenixiov1alpha1.CachedImage{})).Should(Succeed())
 		})
 		It("Should not create CachedImages", func() {
 			By("Creating a pod without rewriting images")
@@ -169,9 +164,6 @@ var _ = Describe("Pod Controller", func() {
 				k8sClient.List(context.Background(), fetched)
 				return fetched.Items
 			}, timeout, interval).Should(HaveLen(0))
-
-			By("Deleting previously created pod")
-			Expect(k8sClient.Delete(context.Background(), &podStubNotRewritten)).Should(Succeed())
 		})
 	})
 })

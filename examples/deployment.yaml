@@ -42,7 +42,6 @@ spec:
       - name: memcached-alpine
         image: library/memcached:1.6-alpine
         imagePullPolicy: Always
-
       - name: mockserver
         image: mockserver/mockserver
         imagePullPolicy: Always
@@ -52,7 +51,6 @@ spec:
         args:
         - -serverPort
         - '9080'
-
       - name: busybox
         image: quay.io/prometheus/busybox
         imagePullPolicy: Always

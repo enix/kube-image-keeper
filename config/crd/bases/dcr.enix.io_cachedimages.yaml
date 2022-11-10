@@ -51,8 +51,6 @@ spec:
               expiresAt:
                 format: date-time
                 type: string
-              image:
-                type: string
               pullSecretNames:
                 items:
                   type: string
@@ -62,7 +60,6 @@ spec:
               sourceImage:
                 type: string
             required:
-            - image
             - sourceImage
             type: object
           status:

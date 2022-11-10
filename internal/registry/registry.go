@@ -22,8 +22,21 @@ func imageExists(ref name.Reference, options ...remote.Option) bool {
 	return true
 }
 
+func getDestinationName(sourceName string) (string, error) {
+	sourceRef, err := name.ParseReference(sourceName, name.Insecure)
+	if err != nil {
+		return "", err
+	}
+	fullname := strings.ReplaceAll(sourceRef.Name(), "index.docker.io", "docker.io")
+	return Endpoint + "/" + fullname, nil
+}
+
 func DeleteImage(imageName string) error {
-	ref, err := name.ParseReference(Endpoint+"/"+imageName, name.Insecure)
+	destName, err := getDestinationName(imageName)
+	if err != nil {
+		return err
+	}
+	ref, err := name.ParseReference(destName, name.Insecure)
 	if err != nil {
 		return err
 	}
@@ -37,7 +50,7 @@ func DeleteImage(imageName string) error {
 		return err
 	}
 
-	digest, err := name.NewDigest(Endpoint+"/"+imageName+"@"+descriptor.Digest.String(), name.Insecure)
+	digest, err := name.NewDigest(destName+"@"+descriptor.Digest.String(), name.Insecure)
 
 	if err != nil {
 		return err
@@ -47,7 +60,11 @@ func DeleteImage(imageName string) error {
 }
 
 func CacheImage(imageName string, keychain authn.Keychain) (bool, error) {
-	destRef, err := name.ParseReference(Endpoint+"/"+imageName, name.Insecure)
+	destName, err := getDestinationName(imageName)
+	if err != nil {
+		return false, err
+	}
+	destRef, err := name.ParseReference(destName, name.Insecure)
 	if err != nil {
 		return false, err
 	}
