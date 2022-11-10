@@ -42,6 +42,7 @@ type CachedImageStatus struct {
 //+kubebuilder:resource:scope=Cluster,shortName=ci
 //+kubebuilder:printcolumn:name="Source image",type="string",JSONPath=".spec.sourceImage"
 //+kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
+//+kubebuilder:printcolumn:name="Cached",type="boolean",JSONPath=".status.isCached"
 
 // CachedImage is the Schema for the cachedimages API
 type CachedImage struct {
