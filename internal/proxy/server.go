@@ -42,6 +42,8 @@ func NewWithEngine(k8sClient client.Client, engine *gin.Engine) *Proxy {
 func (p *Proxy) Listen() *Proxy {
 	r := p.engine
 
+	r.Use(recoveryMiddleware())
+
 	v2 := r.Group("/v2")
 	{
 		v2.GET("/", p.v2Endpoint)
@@ -158,13 +160,6 @@ func (p *Proxy) proxyRegistry(c *gin.Context, endpoint string, endpointIsOrigin 
 		proxyError = err
 	}
 
-	defer func() {
-		// See https://github.com/golang/go/issues/28239 and https://github.com/golang/go/issues/23643
-		if err := recover(); err != nil && err != http.ErrAbortHandler {
-			panic(err)
-		}
-	}()
-
 	proxy.ServeHTTP(c.Writer, c.Request)
 
 	return proxyError
@@ -220,4 +215,21 @@ func getBasicAuthFromSecret(registryDomain string, secret *corev1.Secret) (strin
 	}
 
 	return auth.Auth, nil
+}
+
+// See https://github.com/golang/go/issues/28239, https://github.com/golang/go/issues/23643 and https://github.com/golang/go/issues/56228
+func recoveryMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		defer func() {
+			if p := recover(); p != nil {
+				if err, ok := p.(error); ok {
+					if errors.Is(err, http.ErrAbortHandler) {
+						return
+					}
+				}
+				c.AbortWithStatus(http.StatusInternalServerError)
+			}
+		}()
+		c.Next()
+	}
 }
