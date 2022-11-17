@@ -155,10 +155,7 @@ func (r *CachedImageReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			WithValues("pod", klog.KObj(pod))
 		ctx := logr.NewContext(context.Background(), logger)
 
-		cachedImages, err := desiredCachedImages(ctx, pod)
-		if err != nil {
-			return []string{}
-		}
+		cachedImages := desiredCachedImages(ctx, pod)
 
 		cachedImageNames := make([]string, len(cachedImages))
 		for _, cachedImage := range cachedImages {

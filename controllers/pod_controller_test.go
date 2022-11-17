@@ -59,7 +59,6 @@ func TestDesiredCachedImages(t *testing.T) {
 		name         string
 		pod          corev1.Pod
 		cachedImages []v1alpha1.CachedImage
-		wantErr      error
 	}{
 		{
 			name: "basic",
@@ -81,23 +80,18 @@ func TestDesiredCachedImages(t *testing.T) {
 	g := NewWithT(t)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cachedImages, err := desiredCachedImages(context.Background(), &tt.pod)
-			if tt.wantErr != nil {
-				g.Expect(err).To(Equal(tt.wantErr))
-			} else {
-				g.Expect(err).To(BeNil())
-				g.Expect(cachedImages).To(HaveLen(len(tt.cachedImages)))
-				for i, cachedImage := range cachedImages {
-					g.Expect(cachedImage.Spec.SourceImage).To(Equal(tt.cachedImages[i].Spec.SourceImage))
-					g.Expect(cachedImage.Spec.PullSecretsNamespace).To(Equal(tt.pod.Namespace))
+			cachedImages := desiredCachedImages(context.Background(), &tt.pod)
+			g.Expect(cachedImages).To(HaveLen(len(tt.cachedImages)))
+			for i, cachedImage := range cachedImages {
+				g.Expect(cachedImage.Spec.SourceImage).To(Equal(tt.cachedImages[i].Spec.SourceImage))
+				g.Expect(cachedImage.Spec.PullSecretsNamespace).To(Equal(tt.pod.Namespace))
 
-					pullSecretNames := []string{}
-					for _, pullSecret := range tt.pod.Spec.ImagePullSecrets {
-						pullSecretNames = append(pullSecretNames, pullSecret.Name)
-					}
-					g.Expect(cachedImage.Spec.PullSecretNames).To(ConsistOf(pullSecretNames))
-
+				pullSecretNames := []string{}
+				for _, pullSecret := range tt.pod.Spec.ImagePullSecrets {
+					pullSecretNames = append(pullSecretNames, pullSecret.Name)
 				}
+				g.Expect(cachedImage.Spec.PullSecretNames).To(ConsistOf(pullSecretNames))
+
 			}
 		})
 	}

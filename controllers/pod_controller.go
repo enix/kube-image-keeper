@@ -79,10 +79,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	cachedImages, err := desiredCachedImages(ctx, &pod)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
+	cachedImages := desiredCachedImages(ctx, &pod)
 
 	// On pod deletion
 	if !pod.DeletionTimestamp.IsZero() {
@@ -113,7 +110,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 				}
 
 				cachedImage.Spec.ExpiresAt = &expiresAt
-				err = r.Patch(ctx, &cachedImage, client.Apply, applyOpts...)
+				err := r.Patch(ctx, &cachedImage, client.Apply, applyOpts...)
 				if err != nil && !apierrors.IsNotFound(err) {
 					return ctrl.Result{}, err
 				}
@@ -126,7 +123,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	// On pod creation and update
 	for _, cachedImage := range cachedImages {
 		var ci dcrenixiov1alpha1.CachedImage
-		err = r.Get(ctx, client.ObjectKeyFromObject(&cachedImage), &ci)
+		err := r.Get(ctx, client.ObjectKeyFromObject(&cachedImage), &ci)
 		if err != nil && !apierrors.IsNotFound(err) {
 			return ctrl.Result{}, err
 		}
@@ -216,7 +213,7 @@ func (r *PodReconciler) podsWithDeletingCachedImages(obj client.Object) []ctrl.R
 	return make([]ctrl.Request, 0)
 }
 
-func desiredCachedImages(ctx context.Context, pod *corev1.Pod) ([]dcrenixiov1alpha1.CachedImage, error) {
+func desiredCachedImages(ctx context.Context, pod *corev1.Pod) []dcrenixiov1alpha1.CachedImage {
 	pullSecretNames := []string{}
 
 	for _, pullSecret := range pod.Spec.ImagePullSecrets {
@@ -231,7 +228,7 @@ func desiredCachedImages(ctx context.Context, pod *corev1.Pod) ([]dcrenixiov1alp
 		cachedImages[i].Spec.PullSecretsNamespace = pod.Namespace
 	}
 
-	return cachedImages, nil
+	return cachedImages
 }
 
 func desiredCachedImagesForContainers(ctx context.Context, containers []corev1.Container, annotations map[string]string, annotationKeyTemplate string) []dcrenixiov1alpha1.CachedImage {
