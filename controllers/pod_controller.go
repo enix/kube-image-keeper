@@ -85,10 +85,6 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	if !pod.DeletionTimestamp.IsZero() {
 		log.Info("pod is deleting")
 		for _, cachedImage := range cachedImages {
-			if !cachedImage.Spec.ExpiresAt.IsZero() {
-				continue // Ignore already expiring CachedImages
-			}
-
 			// Check if this CachedImage is in use by other pods
 			var podsList corev1.PodList
 			if err := r.List(ctx, &podsList, client.MatchingFields{cachedImageOwnerKey: cachedImage.Name}); err != nil {
@@ -103,17 +99,12 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			if !cachedImageInUse {
 				expiresAt := metav1.NewTime(time.Now().Add(r.ExpiryDelay))
 				log.Info("cachedimage not is use anymore, setting an expiry date", "cachedImage", klog.KObj(&cachedImage), "expiresAt", expiresAt)
-
-				applyOpts := []client.PatchOption{
-					client.FieldOwner("pod-controller"),
-					client.ForceOwnership,
-				}
-
 				cachedImage.Spec.ExpiresAt = &expiresAt
-				err := r.Patch(ctx, &cachedImage, client.Apply, applyOpts...)
-				if err != nil && !apierrors.IsNotFound(err) {
-					return ctrl.Result{}, err
-				}
+			}
+
+			err := r.Patch(ctx, &cachedImage, client.Apply, client.FieldOwner("pod-controller"), client.ForceOwnership)
+			if err != nil && !apierrors.IsNotFound(err) {
+				return ctrl.Result{}, err
 			}
 		}
 		log.Info("reconciled deleting pod")

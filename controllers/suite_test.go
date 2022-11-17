@@ -19,6 +19,7 @@ package controllers
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -89,8 +90,9 @@ var _ = BeforeSuite(func(done Done) {
 	Expect(err).ToNot(HaveOccurred())
 
 	err = (&PodReconciler{
-		Client: k8sManager.GetClient(),
-		Scheme: k8sManager.GetScheme(),
+		Client:      k8sManager.GetClient(),
+		Scheme:      k8sManager.GetScheme(),
+		ExpiryDelay: 1 * time.Hour,
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 

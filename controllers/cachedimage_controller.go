@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	"gitlab.enix.io/products/docker-cache-registry/api/v1alpha1"
 	dcrenixiov1alpha1 "gitlab.enix.io/products/docker-cache-registry/api/v1alpha1"
 	"gitlab.enix.io/products/docker-cache-registry/internal/registry"
 )
@@ -96,6 +97,30 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	}
 
+	// Update CachedImage UsedBy status
+	var podsList corev1.PodList
+	if err := r.List(ctx, &podsList, client.MatchingFields{cachedImageOwnerKey: cachedImage.Name}); err != nil {
+		return ctrl.Result{}, err
+	}
+	pods := []v1alpha1.PodReference{}
+	for _, pod := range podsList.Items {
+		if !pod.DeletionTimestamp.IsZero() {
+			continue
+		}
+		pods = append(pods, v1alpha1.PodReference{NamespacedName: pod.Namespace + "/" + pod.Name})
+	}
+	cachedImage.Status.UsedBy = v1alpha1.UsedBy{
+		Pods:  pods,
+		Count: len(pods),
+	}
+	err := r.Status().Update(context.Background(), &cachedImage)
+	if err != nil {
+		if statusErr, ok := err.(*errors.StatusError); ok && statusErr.Status().Code == http.StatusConflict {
+			return ctrl.Result{Requeue: true}, nil
+		}
+		return ctrl.Result{}, err
+	}
+
 	log = log.WithValues("sourceImage", cachedImage.Spec.SourceImage)
 
 	// Delete expired CachedImage and schedule deletion for expiring ones
@@ -127,9 +152,9 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		log.Info("image already cached, cache not updated")
 	}
 
-	// Update CachedImage status
+	// Update CachedImage IsCached status
 	cachedImage.Status.IsCached = true
-	err := r.Status().Update(context.Background(), &cachedImage)
+	err = r.Status().Update(context.Background(), &cachedImage)
 	if err != nil {
 		if statusErr, ok := err.(*errors.StatusError); ok && statusErr.Status().Code == http.StatusConflict {
 			return ctrl.Result{Requeue: true}, nil

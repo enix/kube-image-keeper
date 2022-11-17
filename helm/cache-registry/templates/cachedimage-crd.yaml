@@ -15,15 +15,18 @@ spec:
   scope: Cluster
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.sourceImage
-      name: Source image
-      type: string
-    - jsonPath: .metadata.creationTimestamp
-      name: Age
-      type: date
     - jsonPath: .status.isCached
       name: Cached
       type: boolean
+    - jsonPath: .spec.expiresAt
+      name: Expires at
+      type: string
+    - jsonPath: .status.usedBy.count
+      name: Pods count
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
     name: v1alpha1
     schema:
       openAPIV3Schema:
@@ -63,6 +66,21 @@ spec:
             properties:
               isCached:
                 type: boolean
+              usedBy:
+                properties:
+                  count:
+                    description: jsonpath function .length() is not implemented, so
+                      the count field is required to display pods count in additionalPrinterColumns
+                      see https://github.com/kubernetes-sigs/controller-tools/issues/447
+                    type: integer
+                  pods:
+                    items:
+                      properties:
+                        namespacedName:
+                          type: string
+                      type: object
+                    type: array
+                type: object
             type: object
         type: object
     served: true
