@@ -13,7 +13,7 @@ webhooks:
       name: dcr-webhook-service
       namespace: {{ .Release.Namespace }}
       path: /mutate-core-v1-pod
-  failurePolicy: Ignore
+  failurePolicy: Fail
   reinvocationPolicy: IfNeeded
   objectSelector:
     matchExpressions:
