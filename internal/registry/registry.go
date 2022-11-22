@@ -38,12 +38,25 @@ func getDestinationName(sourceName string) (string, error) {
 	return Endpoint + "/" + fullname, nil
 }
 
-func DeleteImage(imageName string) error {
+func parseLocalReference(imageName string) (name.Reference, error) {
 	destName, err := getDestinationName(imageName)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	ref, err := name.ParseReference(destName, name.Insecure)
+	return name.ParseReference(destName, name.Insecure)
+}
+
+func ImageIsCached(imageName string) (bool, error) {
+	reference, err := parseLocalReference(imageName)
+	if err != nil {
+		return false, err
+	}
+
+	return imageExists(reference)
+}
+
+func DeleteImage(imageName string) error {
+	ref, err := parseLocalReference(imageName)
 	if err != nil {
 		return err
 	}
@@ -57,7 +70,7 @@ func DeleteImage(imageName string) error {
 		return err
 	}
 
-	digest, err := name.NewDigest(destName+"@"+descriptor.Digest.String(), name.Insecure)
+	digest, err := name.NewDigest(ref.Name()+"@"+descriptor.Digest.String(), name.Insecure)
 
 	if err != nil {
 		return err
@@ -66,51 +79,39 @@ func DeleteImage(imageName string) error {
 	return remote.Delete(digest)
 }
 
-func CacheImage(imageName string, keychain authn.Keychain) (bool, error) {
-	destName, err := getDestinationName(imageName)
+func CacheImage(imageName string, keychain authn.Keychain) error {
+	destRef, err := parseLocalReference(imageName)
 	if err != nil {
-		return false, err
-	}
-	destRef, err := name.ParseReference(destName, name.Insecure)
-	if err != nil {
-		return false, err
+		return err
 	}
 	sourceRef, err := name.ParseReference(imageName, name.Insecure)
 	if err != nil {
-		return false, err
-	}
-
-	exists, err := imageExists(destRef)
-	if err != nil {
-		return false, err
-	}
-	if exists {
-		return false, nil
+		return err
 	}
 
 	auth := remote.WithAuthFromKeychain(keychain)
-	exists, err = imageExists(sourceRef, auth)
+	exists, err := imageExists(sourceRef, auth)
 	if err != nil {
-		return false, err
+		return err
 	}
 	if !exists {
-		return false, errors.New("could not find source image")
+		return errors.New("could not find source image")
 	}
 
 	image, err := remote.Image(sourceRef, auth)
 	if err != nil {
-		return false, err
+		return err
 	}
 
 	if err := remote.Write(destRef, image); err != nil {
-		return false, err
+		return err
 	}
 
 	if err := remote.Put(destRef, image); err != nil {
-		return false, err
+		return err
 	}
 
-	return true, nil
+	return nil
 }
 
 func SanitizeName(image string) string {

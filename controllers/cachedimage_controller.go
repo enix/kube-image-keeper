@@ -25,6 +25,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -39,13 +40,15 @@ import (
 // CachedImageReconciler reconciles a CachedImage object
 type CachedImageReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
 }
 
 //+kubebuilder:rbac:groups=dcr.enix.io,resources=cachedimages,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=dcr.enix.io,resources=cachedimages/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=dcr.enix.io,resources=cachedimages/finalizers,verbs=update
 //+kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list
+//+kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -72,10 +75,13 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Remove image from registry when CachedImage is beeing deleted, finalizer is removed after it
 	if !cachedImage.ObjectMeta.DeletionTimestamp.IsZero() {
 		if containsString(cachedImage.GetFinalizers(), finalizerName) {
-			log.Info("deleting image cache")
+			log.Info("deleting image from cache")
+			r.Recorder.Eventf(&cachedImage, "Normal", "CleaningUp", "Removing image %s from cache", cachedImage.Spec.SourceImage)
 			if err := registry.DeleteImage(cachedImage.Spec.SourceImage); err != nil {
+				r.Recorder.Eventf(&cachedImage, "Warning", "CleanupFailed", "Image %s could not be removed from cache: %s", cachedImage.Spec.SourceImage, err)
 				return ctrl.Result{}, err
 			}
+			r.Recorder.Eventf(&cachedImage, "Normal", "CleanedUp", "Image %s successfully removed from cache", cachedImage.Spec.SourceImage)
 
 			log.Info("removing finalizer")
 			controllerutil.RemoveFinalizer(&cachedImage, finalizerName)
@@ -127,10 +133,13 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if !expiresAt.IsZero() {
 		if time.Now().After(expiresAt.Time) {
 			log.Info("cachedimage expired, deleting it", "now", time.Now(), "expiresAt", expiresAt)
+			r.Recorder.Eventf(&cachedImage, "Normal", "Expiring", "Image %s has expired, deleting it", cachedImage.Spec.SourceImage)
 			err := r.Delete(ctx, &cachedImage)
 			if err != nil {
+				r.Recorder.Eventf(&cachedImage, "Warning", "ExpiringFailed", "Image %s could not expire: %s", cachedImage.Spec.SourceImage, err)
 				return ctrl.Result{}, err
 			}
+			r.Recorder.Eventf(&cachedImage, "Normal", "Expired", "Image %s successfully expired", cachedImage.Spec.SourceImage)
 			return ctrl.Result{}, nil
 		} else {
 			return ctrl.Result{RequeueAfter: expiresAt.Sub(time.Now())}, nil
@@ -139,17 +148,28 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	// Adding image to registry
 	log.Info("caching image")
-	keychain := registry.NewKubernetesKeychain(r.Client, cachedImage.Spec.PullSecretsNamespace, cachedImage.Spec.PullSecretNames)
-	if cacheUpdated, err := registry.CacheImage(cachedImage.Spec.SourceImage, keychain); err != nil {
-		log.Error(err, "failed to cache image")
+	isCached, err := registry.ImageIsCached(cachedImage.Spec.SourceImage)
+	if err != nil {
+		log.Error(err, "could not determine if the image present in cache")
 		return ctrl.Result{}, err
-	} else if cacheUpdated {
-		log.Info("image cached")
-		if err := r.Get(ctx, req.NamespacedName, &cachedImage); err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	if !isCached {
+		r.Recorder.Eventf(&cachedImage, "Normal", "Caching", "Start caching image %s", cachedImage.Spec.SourceImage)
+		keychain := registry.NewKubernetesKeychain(r.Client, cachedImage.Spec.PullSecretsNamespace, cachedImage.Spec.PullSecretNames)
+		if err := registry.CacheImage(cachedImage.Spec.SourceImage, keychain); err != nil {
+			log.Error(err, "failed to cache image")
+			r.Recorder.Eventf(&cachedImage, "Warning", "CacheFailed", "Failed to cache image %s, reason: %s", cachedImage.Spec.SourceImage, err)
+			return ctrl.Result{}, err
+		} else {
+			log.Info("image cached")
+			r.Recorder.Eventf(&cachedImage, "Normal", "Cached", "Successfully cached image %s", cachedImage.Spec.SourceImage)
+			if err := r.Get(ctx, req.NamespacedName, &cachedImage); err != nil {
+				return ctrl.Result{}, client.IgnoreNotFound(err)
+			}
 		}
 	} else {
-		log.Info("image already cached, cache not updated")
+		log.Info("image already present in cache, ignoring")
 	}
 
 	// Update CachedImage IsCached status
