@@ -132,6 +132,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			if err != nil {
 				return ctrl.Result{}, err
 			}
+			return ctrl.Result{}, nil
 		} else {
 			return ctrl.Result{RequeueAfter: expiresAt.Sub(time.Now())}, nil
 		}
