@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -74,7 +73,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if !cachedImage.ObjectMeta.DeletionTimestamp.IsZero() {
 		if containsString(cachedImage.GetFinalizers(), finalizerName) {
 			log.Info("deleting image cache")
-			if err := r.deleteExternalResources(&cachedImage); err != nil {
+			if err := registry.DeleteImage(cachedImage.Spec.SourceImage); err != nil {
 				return ctrl.Result{}, err
 			}
 
@@ -196,16 +195,6 @@ func (r *CachedImageReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&dcrenixiov1alpha1.CachedImage{}).
 		Complete(r)
-}
-
-func (r *CachedImageReconciler) deleteExternalResources(cachedImage *dcrenixiov1alpha1.CachedImage) error {
-	err := registry.DeleteImage(cachedImage.Spec.SourceImage)
-	if err, ok := err.(*transport.Error); ok {
-		if err.StatusCode == http.StatusNotFound {
-			return nil
-		}
-	}
-	return err
 }
 
 // Helper functions to check and remove string from a slice of strings.

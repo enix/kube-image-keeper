@@ -17,10 +17,17 @@ limitations under the License.
 package controllers
 
 import (
+	"context"
+	"io"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
+	dockerClient "github.com/docker/docker/client"
+	"github.com/docker/go-connections/nat"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -35,6 +42,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	dcrenixiov1alpha1 "gitlab.enix.io/products/docker-cache-registry/api/v1alpha1"
+	"gitlab.enix.io/products/docker-cache-registry/internal/registry"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -44,6 +52,7 @@ import (
 var cfg *rest.Config
 var k8sClient client.Client
 var testEnv *envtest.Environment
+var registryContainerId string
 
 func TestAPIs(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -51,6 +60,58 @@ func TestAPIs(t *testing.T) {
 	RunSpecsWithDefaultAndCustomReporters(t,
 		"Controller Suite",
 		[]Reporter{printer.NewlineReporter{}})
+}
+
+func setupRegistry() {
+	client, err := dockerClient.NewEnvClient()
+	Expect(err).NotTo(HaveOccurred())
+
+	// Pull image
+	ctx := context.Background()
+	reader, err := client.ImagePull(ctx, "registry", types.ImagePullOptions{})
+	Expect(err).NotTo(HaveOccurred())
+	io.Copy(os.Stdout, reader)
+	err = reader.Close()
+	Expect(err).NotTo(HaveOccurred())
+
+	// Create container
+	resp, err := client.ContainerCreate(ctx, &container.Config{
+		Image:        "registry",
+		ExposedPorts: nat.PortSet{"5000": struct{}{}},
+	}, &container.HostConfig{
+		PublishAllPorts: true,
+	}, nil, nil, "")
+	Expect(err).NotTo(HaveOccurred())
+	registryContainerId = resp.ID
+
+	// Start container
+	err = client.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{})
+	Expect(err).NotTo(HaveOccurred())
+
+	// Configure registry endpoint
+	containerJson, err := client.ContainerInspect(ctx, registryContainerId)
+	Expect(err).NotTo(HaveOccurred())
+
+	portMap := containerJson.NetworkSettings.Ports["5000/tcp"]
+	Expect(portMap).NotTo(BeNil())
+	Expect(portMap).NotTo(HaveLen(0))
+
+	dockerHostname := os.Getenv("DOCKER_HOSTNAME")
+	if dockerHostname == "" {
+		dockerHostname = "localhost"
+	}
+
+	registry.Endpoint = dockerHostname + ":" + portMap[0].HostPort
+}
+
+func removeRegistry() {
+	client, err := dockerClient.NewEnvClient()
+	Expect(err).NotTo(HaveOccurred())
+
+	client.ContainerRemove(context.Background(), registryContainerId, types.ContainerRemoveOptions{
+		Force: true,
+	})
+	Expect(err).NotTo(HaveOccurred())
 }
 
 var _ = BeforeSuite(func(done Done) {
@@ -73,6 +134,8 @@ var _ = BeforeSuite(func(done Done) {
 	Expect(err).NotTo(HaveOccurred())
 
 	//+kubebuilder:scaffold:scheme
+
+	setupRegistry()
 
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	Expect(err).NotTo(HaveOccurred())
@@ -109,4 +172,6 @@ var _ = AfterSuite(func() {
 	By("tearing down the test environment")
 	err := testEnv.Stop()
 	Expect(err).NotTo(HaveOccurred())
+
+	removeRegistry()
 })

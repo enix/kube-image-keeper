@@ -9,14 +9,21 @@ stages:
 run tests:
   stage: test
   image: golang:1.16-alpine3.14
+  services:
+    - docker:dind
   variables:
+    DOCKER_HOST: "tcp://docker:2375"
+    DOCKER_TLS_CERTDIR: ""
+    DOCKER_HOSTNAME: docker
     CGO_ENABLED: '0'
     GOOS: linux
     GOARCH: amd64
   before_script:
-    - apk add bash make gcc musl-dev curl
+    - apk add bash make gcc musl-dev curl docker
   script:
     - make test
+  tags:
+    - docker-dind
 
 helm template test:
   stage: test

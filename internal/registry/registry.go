@@ -2,24 +2,31 @@ package registry
 
 import (
 	"errors"
+	"net/http"
 	"regexp"
 	"strings"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 )
 
 var Endpoint = "cache-registry-service:5000"
 var Protocol = "http://"
 
-func imageExists(ref name.Reference, options ...remote.Option) bool {
+func imageExists(ref name.Reference, options ...remote.Option) (bool, error) {
 	_, err := remote.Head(ref, options...)
 	if err != nil {
-		return false
+		if err, ok := err.(*transport.Error); ok {
+			if err.StatusCode == http.StatusNotFound {
+				return false, nil
+			}
+		}
+		return false, err
 	}
 
-	return true
+	return true, nil
 }
 
 func getDestinationName(sourceName string) (string, error) {
@@ -41,8 +48,8 @@ func DeleteImage(imageName string) error {
 		return err
 	}
 
-	if !imageExists(ref) {
-		return nil
+	if exists, err := imageExists(ref); !exists || err != nil {
+		return err
 	}
 
 	descriptor, err := remote.Head(ref)
@@ -73,12 +80,20 @@ func CacheImage(imageName string, keychain authn.Keychain) (bool, error) {
 		return false, err
 	}
 
-	if imageExists(destRef) {
+	exists, err := imageExists(destRef)
+	if err != nil {
+		return false, err
+	}
+	if exists {
 		return false, nil
 	}
 
 	auth := remote.WithAuthFromKeychain(keychain)
-	if !imageExists(sourceRef, auth) {
+	exists, err = imageExists(sourceRef, auth)
+	if err != nil {
+		return false, err
+	}
+	if !exists {
 		return false, errors.New("could not find source image")
 	}
 
