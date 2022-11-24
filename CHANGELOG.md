@@ -1,3 +1,19 @@
+# [1.4.0](https://gitlab.enix.io/products/docker-cache-registry/compare/v1.3.1...v1.4.0) (2022-11-24)
+
+
+### Bug Fixes
+
+* **controllers:** check for 404 when checking image existence ([db9b3ee](https://gitlab.enix.io/products/docker-cache-registry/commit/db9b3ee201964fcf0f05a88d32f01ad1bdb5e71c))
+* **controllers:** don't trigger image caching again after deleting it ([dd90834](https://gitlab.enix.io/products/docker-cache-registry/commit/dd90834482d6db15166d4887cbde989375663fa2))
+* **webhook:** prevent pod creation if webhook fails ([f2e3e02](https://gitlab.enix.io/products/docker-cache-registry/commit/f2e3e02eed55166447f31b36e37392061daa9a3a))
+
+
+### Features
+
+* **controllers:** CachedImage events ([e3b5e12](https://gitlab.enix.io/products/docker-cache-registry/commit/e3b5e127711cf3be4d4a27e98f074eb4cf57978f)), closes [#28](https://gitlab.enix.io/products/docker-cache-registry/issues/28)
+* **crd:** add isCached in CachedImage additionalPrinterColumns ([032b527](https://gitlab.enix.io/products/docker-cache-registry/commit/032b527b52944a2dc6c0c824ea5f0df67426976e))
+* **crd:** improve CachedImage status and columns ([f6d82a4](https://gitlab.enix.io/products/docker-cache-registry/commit/f6d82a4f278897a0b55b16dd34b0f5bcf46cfb52)), closes [#29](https://gitlab.enix.io/products/docker-cache-registry/issues/29)
+
 ## [1.3.1](https://gitlab.enix.io/products/docker-cache-registry/compare/v1.3.0...v1.3.1) (2022-10-19)
 
 
