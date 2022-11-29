@@ -11,7 +11,7 @@ Cert-manager is used to issue TLS certificate for the mutating webhook. It is th
 
 There are 2 ways to filter pods from which images should be cached.
 
-- The first and most basic way is to add the annotation `cache-registry.enix.io/image-caching-policy: ignore` on pods that should be ignored.
+- The first and most basic way is to add the label `cache-registry.enix.io/image-caching-policy: ignore` on pods that should be ignored.
 - The second way is to define the value `controllers.webhook.objectSelector.matchExpressions` in helm `values.yaml` configuration file.
 
 Those parameters are used by the `MutatingWebhookConfiguration` to filter pods that needs to be updated. Once images from those pods are rewritten, a label will be added to them so the Pod controller will create CachedImages custom resources. The CachedImages controller will then cache those images.
