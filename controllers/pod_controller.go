@@ -21,7 +21,6 @@ import (
 	_ "crypto/sha256"
 	"fmt"
 	"net/http"
-	"regexp"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -236,7 +235,7 @@ func desiredCachedImagesForContainers(ctx context.Context, containers []corev1.C
 			continue
 		}
 
-		cachedImage, err := desiredCachedImageForContainer(&container, sourceImage)
+		cachedImage, err := cachedImageFromSourceImage(sourceImage)
 		if err != nil {
 			containerLog.Error(err, "could not create cached image, ignoring")
 			continue
@@ -249,11 +248,14 @@ func desiredCachedImagesForContainers(ctx context.Context, containers []corev1.C
 	return cachedImages
 }
 
-func desiredCachedImageForContainer(container *corev1.Container, sourceImage string) (*dcrenixiov1alpha1.CachedImage, error) {
-	re := regexp.MustCompile(`localhost:[0-9]+/`)
-	image := string(re.ReplaceAll([]byte(container.Image), []byte("")))
-	sanitizedName := registry.SanitizeName(image)
-	named, err := reference.ParseNormalizedNamed(image)
+func cachedImageFromSourceImage(sourceImage string) (*dcrenixiov1alpha1.CachedImage, error) {
+	ref, err := reference.ParseAnyReference(sourceImage)
+	if err != nil {
+		return nil, err
+	}
+
+	sanitizedName := registry.SanitizeName(ref.String())
+	named, err := reference.ParseNormalizedNamed(ref.String())
 	if err != nil {
 		return nil, err
 	}

@@ -97,6 +97,51 @@ func TestDesiredCachedImages(t *testing.T) {
 	}
 }
 
+func Test_cachedImageFromSourceImage(t *testing.T) {
+	tests := []struct {
+		name               string
+		sourceImage        string
+		expectedRepository string
+		expectedName       string
+	}{
+		{
+			name:               "basic",
+			sourceImage:        "alpine",
+			expectedRepository: "docker.io-library-alpine",
+			expectedName:       "docker.io-library-alpine",
+		},
+		{
+			name:               "with latest tag",
+			sourceImage:        "alpine:latest",
+			expectedRepository: "docker.io-library-alpine",
+			expectedName:       "docker.io-library-alpine-latest",
+		},
+		{
+			name:               "with another tag",
+			sourceImage:        "alpine:3.16.3",
+			expectedRepository: "docker.io-library-alpine",
+			expectedName:       "docker.io-library-alpine-3.16.3",
+		},
+	}
+
+	g := NewWithT(t)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cachedImage, err := cachedImageFromSourceImage(tt.sourceImage)
+			g.Expect(err).ToNot(HaveOccurred())
+
+			g.Expect(cachedImage.Name).To(Equal(tt.expectedName))
+			g.Expect(cachedImage.Spec.SourceImage).To(Equal(tt.sourceImage))
+			g.Expect(cachedImage.Spec.ExpiresAt).To(BeNil())
+			g.Expect(cachedImage.Spec.PullSecretNames).To(BeEmpty())
+			g.Expect(cachedImage.Spec.PullSecretsNamespace).To(BeEmpty())
+			g.Expect(cachedImage.Labels).To(Equal(map[string]string{
+				dcrenixiov1alpha1.RepositoryLabelName: tt.expectedRepository,
+			}))
+		})
+	}
+}
+
 var _ = Describe("Pod Controller", func() {
 
 	const timeout = time.Second * 20
