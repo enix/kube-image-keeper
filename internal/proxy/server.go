@@ -8,8 +8,10 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"regexp"
 	"strings"
 
+	"github.com/docker/distribution/reference"
 	"github.com/gin-gonic/gin"
 	dcrenixiov1alpha1 "gitlab.enix.io/products/docker-cache-registry/api/v1alpha1"
 	"gitlab.enix.io/products/docker-cache-registry/internal/registry"
@@ -46,14 +48,42 @@ func (p *Proxy) Listen() *Proxy {
 
 	v2 := r.Group("/v2")
 	{
-		v2.GET("/", p.v2Endpoint)
+		pathRegex := regexp.MustCompile("/(.+)/((manifests|blobs)/.+)")
 
-		name := v2.Group("/:originRegistry/:library/:name")
-		{
-			name.GET("/manifests/:reference", p.routeProxy)
-			name.HEAD("/manifests/:reference", p.routeProxy)
-			name.GET("/blobs/:digest", p.routeProxy)
-		}
+		v2.Any("*catch-all", func(c *gin.Context) {
+			subPath := c.Request.URL.Path[len("/v2"):]
+			if c.Request.Method == http.MethodGet && subPath == "/" {
+				p.v2Endpoint(c)
+				return
+			}
+
+			subMatches := pathRegex.FindStringSubmatch(subPath)
+			if subMatches == nil {
+				c.Status(404)
+				return
+			}
+
+			ref, err := reference.ParseAnyReference(subMatches[1])
+			if err != nil {
+				c.Error(err)
+				return
+			}
+			image := ref.String()
+
+			c.Request.URL.Path = fmt.Sprintf("/v2/%s/%s", image, subMatches[2])
+
+			imageParts := strings.Split(image, "/")
+			c.Params = append(c.Params, gin.Param{
+				Key:   "originRegistry",
+				Value: imageParts[0],
+			})
+			c.Params = append(c.Params, gin.Param{
+				Key:   "repository",
+				Value: strings.Join(imageParts[1:], "/"),
+			})
+
+			p.routeProxy(c)
+		})
 	}
 
 	return p
@@ -74,7 +104,7 @@ func (p *Proxy) v2Endpoint(c *gin.Context) {
 }
 
 func (p *Proxy) routeProxy(c *gin.Context) {
-	repository := p.getRepository(c)
+	repository := c.Param("repository")
 	originRegistry := c.Param("originRegistry")
 
 	klog.InfoS("proxying request", "repository", repository, "originRegistry", originRegistry)
@@ -93,12 +123,6 @@ func (p *Proxy) routeProxy(c *gin.Context) {
 		}
 		p.proxyRegistry(c, "https://"+originRegistry, true, basicAuth)
 	}
-}
-
-func (p *Proxy) getRepository(c *gin.Context) string {
-	library := c.Param("library")
-	name := c.Param("name")
-	return fmt.Sprintf("%s/%s", library, name)
 }
 
 func (p *Proxy) proxyRegistry(c *gin.Context, endpoint string, endpointIsOrigin bool, basicAuth string) error {
