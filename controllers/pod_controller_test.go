@@ -108,7 +108,7 @@ func Test_cachedImageFromSourceImage(t *testing.T) {
 			name:               "basic",
 			sourceImage:        "alpine",
 			expectedRepository: "docker.io-library-alpine",
-			expectedName:       "docker.io-library-alpine",
+			expectedName:       "docker.io-library-alpine-latest",
 		},
 		{
 			name:               "with latest tag",

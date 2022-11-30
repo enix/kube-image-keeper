@@ -21,6 +21,7 @@ import (
 	_ "crypto/sha256"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -255,6 +256,9 @@ func cachedImageFromSourceImage(sourceImage string) (*dcrenixiov1alpha1.CachedIm
 	}
 
 	sanitizedName := registry.SanitizeName(ref.String())
+	if !strings.Contains(sourceImage, ":") {
+		sanitizedName += "-latest"
+	}
 	named, err := reference.ParseNormalizedNamed(ref.String())
 	if err != nil {
 		return nil, err
