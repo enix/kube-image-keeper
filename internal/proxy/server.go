@@ -119,16 +119,12 @@ func (p *Proxy) proxyRegistry(c *gin.Context, endpoint string, endpointIsOrigin 
 		req.URL.Scheme = remote.Scheme
 		req.URL.Host = remote.Host
 
-		pathParts := strings.Split(req.URL.Path, "/")
-
 		// In the cache registry, images are prefixed with their origin registry.
 		// Thus, when proxying the cache, we need to keep the origin part, but we have to discard it when proxying the origin
-		takePathFromIndex := 2
+		pathParts := strings.Split(req.URL.Path, "/")
 		if endpointIsOrigin && len(pathParts) > 2 {
-			takePathFromIndex = 3
+			req.URL.Path = "/v2/" + strings.Join(pathParts[3:], "/")
 		}
-
-		req.URL.Path = "/v2/" + strings.Join(pathParts[takePathFromIndex:], "/")
 
 		// To prevent "X-Forwarded-For: 127.0.0.1, 127.0.0.1" which produce a HTTP 400 error
 		req.Header.Del("X-Forwarded-For")
