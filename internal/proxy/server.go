@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -13,9 +12,10 @@ import (
 
 	"github.com/docker/distribution/reference"
 	"github.com/gin-gonic/gin"
+	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	dcrenixiov1alpha1 "gitlab.enix.io/products/docker-cache-registry/api/v1alpha1"
 	"gitlab.enix.io/products/docker-cache-registry/internal/registry"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -100,7 +100,7 @@ func (p *Proxy) Serve() chan struct{} {
 }
 
 func (p *Proxy) v2Endpoint(c *gin.Context) {
-	p.proxyRegistry(c, registry.Protocol+registry.Endpoint, false, "")
+	p.proxyRegistry(c, registry.Protocol+registry.Endpoint, false, nil)
 }
 
 func (p *Proxy) routeProxy(c *gin.Context) {
@@ -109,10 +109,10 @@ func (p *Proxy) routeProxy(c *gin.Context) {
 
 	klog.InfoS("proxying request", "repository", repository, "originRegistry", originRegistry)
 
-	if err := p.proxyRegistry(c, registry.Protocol+registry.Endpoint, false, ""); err != nil {
+	if err := p.proxyRegistry(c, registry.Protocol+registry.Endpoint, false, nil); err != nil {
 		klog.InfoS("cached image is not available, proxying origin", "originRegistry", originRegistry, "error", err)
 
-		basicAuth, err := p.getBasicAuth(originRegistry, repository)
+		transport, err := p.getAuthentifiedTransport(originRegistry, repository)
 		if err != nil {
 			c.AbortWithError(http.StatusUnauthorized, err)
 			return
@@ -121,11 +121,11 @@ func (p *Proxy) routeProxy(c *gin.Context) {
 		if strings.HasSuffix(originRegistry, "docker.io") {
 			originRegistry = "index.docker.io"
 		}
-		p.proxyRegistry(c, "https://"+originRegistry, true, basicAuth)
+		p.proxyRegistry(c, "https://"+originRegistry, true, transport)
 	}
 }
 
-func (p *Proxy) proxyRegistry(c *gin.Context, endpoint string, endpointIsOrigin bool, basicAuth string) error {
+func (p *Proxy) proxyRegistry(c *gin.Context, endpoint string, endpointIsOrigin bool, transport http.RoundTripper) error {
 	klog.V(2).InfoS("proxying registry", "endpoint", endpoint)
 
 	remote, err := url.Parse(endpoint)
@@ -136,6 +136,10 @@ func (p *Proxy) proxyRegistry(c *gin.Context, endpoint string, endpointIsOrigin 
 	proxy := httputil.NewSingleHostReverseProxy(remote)
 
 	var proxyError error
+
+	if transport != nil {
+		proxy.Transport = transport
+	}
 
 	proxy.Director = func(req *http.Request) {
 		req.Header = c.Request.Header
@@ -153,19 +157,16 @@ func (p *Proxy) proxyRegistry(c *gin.Context, endpoint string, endpointIsOrigin 
 		// To prevent "X-Forwarded-For: 127.0.0.1, 127.0.0.1" which produce a HTTP 400 error
 		req.Header.Del("X-Forwarded-For")
 
-		if basicAuth != "" {
-			req.Header.Set("Authorization", "Basic "+basicAuth)
-			return
-		}
-
-		bearer, err := NewBearer(endpoint, req.URL.Path)
-		if err != nil {
-			proxyError = err
-			return
-		}
-		token := bearer.GetToken()
-		if token != "" {
-			req.Header.Set("Authorization", "Bearer "+token)
+		if transport == nil {
+			bearer, err := NewBearer(endpoint, req.URL.Path)
+			if err != nil {
+				proxyError = err
+				return
+			}
+			token := bearer.GetToken()
+			if token != "" {
+				req.Header.Set("Authorization", "Bearer "+token)
+			}
 		}
 	}
 
@@ -185,56 +186,39 @@ func (p *Proxy) proxyRegistry(c *gin.Context, endpoint string, endpointIsOrigin 
 	return proxyError
 }
 
-func (p *Proxy) getBasicAuth(registryDomain string, repository string) (string, error) {
+func (p *Proxy) getAuthentifiedTransport(registryDomain string, repository string) (http.RoundTripper, error) {
 	repositoryLabel := registry.RepositoryLabel(registryDomain + "/" + repository)
 	cachedImages := &dcrenixiov1alpha1.CachedImageList{}
-	secret := &corev1.Secret{}
 
 	klog.InfoS("listing CachedImages", "repositoryLabel", repositoryLabel)
 	if err := p.k8sClient.List(context.Background(), cachedImages, client.MatchingLabels{
 		dcrenixiov1alpha1.RepositoryLabelName: repositoryLabel,
 	}, client.Limit(1)); err != nil {
-		return "", err
+		return nil, err
 	}
 
 	if len(cachedImages.Items) == 0 {
-		return "", errors.New("no CachedImage found for this repository")
+		return nil, errors.New("no CachedImage found for this repository")
 	}
 
 	cachedImage := cachedImages.Items[0] // Images from the same repository should need the same pull-secret
 	if len(cachedImage.Spec.PullSecretNames) == 0 {
-		return "", nil // Not an error since not all images requires authentication to be pulled
+		return nil, nil // Not an error since not all images requires authentication to be pulled
 	}
 
-	// TODO: support multiple pull secrets
-	objectKey := client.ObjectKey{Name: cachedImage.Spec.PullSecretNames[0], Namespace: cachedImage.Spec.PullSecretsNamespace}
-	if err := p.k8sClient.Get(context.Background(), objectKey, secret); err != nil {
-		return "", err
+	keychain := registry.NewKubernetesKeychain(p.k8sClient, cachedImage.Spec.PullSecretsNamespace, cachedImage.Spec.PullSecretNames)
+
+	ref, err := name.ParseReference(cachedImage.Spec.SourceImage)
+	if err != nil {
+		return nil, err
 	}
 
-	return getBasicAuthFromSecret(registryDomain, secret)
-}
-
-func getBasicAuthFromSecret(registryDomain string, secret *corev1.Secret) (string, error) {
-	dockerConfigJson, exists := secret.Data[".dockerconfigjson"]
-	if !exists {
-		return "", errorMissingDockerConfigJsonInPullSecret
+	auth, err := keychain.Resolve(ref.Context())
+	if err != nil {
+		return nil, err
 	}
 
-	dockerConfig := struct {
-		Auths map[string]struct {
-			Auth string `json:"auth"`
-		} `json:"auths"`
-	}{}
-
-	json.Unmarshal(dockerConfigJson, &dockerConfig)
-
-	auth, ok := dockerConfig.Auths[registryDomain]
-	if !ok {
-		return "", nil
-	}
-
-	return auth.Auth, nil
+	return transport.NewWithContext(context.Background(), ref.Context().Registry, auth, http.DefaultTransport, []string{ref.Scope(transport.PullScope)})
 }
 
 // See https://github.com/golang/go/issues/28239, https://github.com/golang/go/issues/23643 and https://github.com/golang/go/issues/56228
