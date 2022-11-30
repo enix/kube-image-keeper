@@ -22,18 +22,22 @@ const (
 )
 
 type kubernetesKeychain struct {
-	client      client.Client
-	mu          sync.Mutex
-	namespace   string
-	pullSecrets []string
+	client     client.Client
+	mu         sync.Mutex
+	namespace  string
+	pullSecret string
 }
 
 func NewKubernetesKeychain(client client.Client, namespace string, pullSecrets []string) authn.Keychain {
-	return &kubernetesKeychain{
-		client:      client,
-		namespace:   namespace,
-		pullSecrets: pullSecrets,
+	keychains := []authn.Keychain{}
+	for _, pullSecret := range pullSecrets {
+		keychains = append(keychains, &kubernetesKeychain{
+			client:     client,
+			namespace:  namespace,
+			pullSecret: pullSecret,
+		})
 	}
+	return authn.NewMultiKeychain(keychains...)
 }
 
 // Resolve implements Keychain.
@@ -41,14 +45,10 @@ func (k *kubernetesKeychain) Resolve(target authn.Resource) (authn.Authenticator
 	k.mu.Lock()
 	defer k.mu.Unlock()
 
-	if len(k.pullSecrets) == 0 {
-		return authn.Anonymous, nil
-	}
-
 	var secret corev1.Secret
 	err := k.client.Get(context.TODO(), types.NamespacedName{
 		Namespace: k.namespace,
-		Name:      k.pullSecrets[0], // TODO: support multiple pull secrets
+		Name:      k.pullSecret,
 	}, &secret)
 	if err != nil {
 		return nil, err
@@ -80,6 +80,7 @@ func (k *kubernetesKeychain) Resolve(target authn.Resource) (authn.Authenticator
 	if cfg == empty {
 		return authn.Anonymous, nil
 	}
+
 	return authn.FromConfig(authn.AuthConfig{
 		Username:      cfg.Username,
 		Password:      cfg.Password,
