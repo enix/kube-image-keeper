@@ -186,7 +186,7 @@ func (p *Proxy) proxyRegistry(c *gin.Context, endpoint string, endpointIsOrigin 
 }
 
 func (p *Proxy) getBasicAuth(registryDomain string, repository string) (string, error) {
-	repositoryLabel := registry.SanitizeName(registryDomain + "/" + repository)
+	repositoryLabel := registry.RepositoryLabel(registryDomain + "/" + repository)
 	cachedImages := &dcrenixiov1alpha1.CachedImageList{}
 	secret := &corev1.Secret{}
 

@@ -269,7 +269,7 @@ func cachedImageFromSourceImage(sourceImage string) (*dcrenixiov1alpha1.CachedIm
 		ObjectMeta: metav1.ObjectMeta{
 			Name: sanitizedName,
 			Labels: map[string]string{
-				dcrenixiov1alpha1.RepositoryLabelName: registry.SanitizeName(named.Name()),
+				dcrenixiov1alpha1.RepositoryLabelName: registry.RepositoryLabel(named.Name()),
 			},
 		},
 		Spec: dcrenixiov1alpha1.CachedImageSpec{

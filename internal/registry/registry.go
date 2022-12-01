@@ -1,7 +1,9 @@
 package registry
 
 import (
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
@@ -117,4 +119,14 @@ func CacheImage(imageName string, keychain authn.Keychain) error {
 func SanitizeName(image string) string {
 	nameRegex := regexp.MustCompile(`[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*`)
 	return strings.Join(nameRegex.FindAllString(image, -1), "-")
+}
+
+func RepositoryLabel(repositoryName string) string {
+	sanitizedName := SanitizeName(repositoryName)
+
+	if len(sanitizedName) > 63 {
+		return fmt.Sprintf("%x", sha256.Sum224([]byte(sanitizedName)))
+	}
+
+	return sanitizedName
 }
