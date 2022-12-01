@@ -1,3 +1,13 @@
+## [1.4.1](https://gitlab.enix.io/products/docker-cache-registry/compare/v1.4.0...v1.4.1) (2022-12-01)
+
+
+### Bug Fixes
+
+* **controllers:** add -latest to CachedImage names when tag is missing ([0b9b9b4](https://gitlab.enix.io/products/docker-cache-registry/commit/0b9b9b43c0625936c9df3de5451b22bc071f1078))
+* **controllers:** hash repository labels longer than 63 chars ([d797e09](https://gitlab.enix.io/products/docker-cache-registry/commit/d797e091b3311a1bb8aa4cc6c60be2606a71924a)), closes [#33](https://gitlab.enix.io/products/docker-cache-registry/issues/33)
+* **proxy:** allow variadic components in images names ([611f29d](https://gitlab.enix.io/products/docker-cache-registry/commit/611f29d3ec83599e5176e4f5a14545a4cb722a8f)), closes [#32](https://gitlab.enix.io/products/docker-cache-registry/issues/32)
+* keep capital letters in sanitized names and make them lowercase ([212326b](https://gitlab.enix.io/products/docker-cache-registry/commit/212326b3d7945a094629600c6df4cdea3ce6790d))
+
 # [1.4.0](https://gitlab.enix.io/products/docker-cache-registry/compare/v1.3.1...v1.4.0) (2022-11-24)
 
 
