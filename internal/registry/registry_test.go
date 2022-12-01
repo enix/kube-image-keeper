@@ -24,9 +24,29 @@ func TestSanitizeName(t *testing.T) {
 			expectedSanitizedImage: "docker.io-library-alpine",
 		},
 		{
-			name:                   "Advanced",
+			name:                   "Many parts",
 			image:                  "some-gitlab-registry.com:5000/group/another-group/project/backend:v1.0.0",
 			expectedSanitizedImage: "some-gitlab-registry.com-5000-group-another-group-project-backend-v1.0.0",
+		},
+		{
+			name:                   "Special chars",
+			image:                  "abc123!@#$%*()_+[]{}\\|\".,></?-=",
+			expectedSanitizedImage: "abc123",
+		},
+		{
+			name:                   "Special chars 2",
+			image:                  "abc123++@++yx.z",
+			expectedSanitizedImage: "abc123-yx.z",
+		},
+		{
+			name:                   "Special chars 3",
+			image:                  "abc123++.++yxz",
+			expectedSanitizedImage: "abc123-yxz",
+		},
+		{
+			name:                   "Capital letters",
+			image:                  "abcEFG-foo#bar",
+			expectedSanitizedImage: "abcefg-foo-bar",
 		},
 	}
 

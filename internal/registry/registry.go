@@ -17,6 +17,9 @@ import (
 var Endpoint = "cache-registry-service:5000"
 var Protocol = "http://"
 
+// See https://github.com/kubernetes/apimachinery/blob/v0.20.6/pkg/util/validation/validation.go#L198
+var sanitizeNameRegex = regexp.MustCompile(`[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*`)
+
 func imageExists(ref name.Reference, options ...remote.Option) (bool, error) {
 	_, err := remote.Head(ref, options...)
 	if err != nil {
@@ -117,8 +120,7 @@ func CacheImage(imageName string, keychain authn.Keychain) error {
 }
 
 func SanitizeName(image string) string {
-	nameRegex := regexp.MustCompile(`[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*`)
-	return strings.Join(nameRegex.FindAllString(image, -1), "-")
+	return strings.Join(sanitizeNameRegex.FindAllString(strings.ToLower(image), -1), "-")
 }
 
 func RepositoryLabel(repositoryName string) string {
