@@ -20,7 +20,6 @@ import (
 	"context"
 	_ "crypto/sha256"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
@@ -29,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/selection"
 
 	"github.com/docker/distribution/reference"
+	"gitlab.enix.io/products/docker-cache-registry/api/v1alpha1"
 	dcrenixiov1alpha1 "gitlab.enix.io/products/docker-cache-registry/api/v1alpha1"
 	"gitlab.enix.io/products/docker-cache-registry/internal/registry"
 	corev1 "k8s.io/api/core/v1"
@@ -100,10 +100,25 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 				expiresAt := metav1.NewTime(time.Now().Add(r.ExpiryDelay))
 				log.Info("cachedimage not is use anymore, setting an expiry date", "cachedImage", klog.KObj(&cachedImage), "expiresAt", expiresAt)
 				cachedImage.Spec.ExpiresAt = &expiresAt
+
+				err := r.Patch(ctx, &cachedImage, client.Merge)
+				if err != nil && !apierrors.IsNotFound(err) {
+					return ctrl.Result{}, err
+				}
 			}
 
-			err := r.Patch(ctx, &cachedImage, client.Apply, client.FieldOwner("pod-controller"), client.ForceOwnership)
+			var ci dcrenixiov1alpha1.CachedImage
+			err := r.Get(ctx, client.ObjectKeyFromObject(&cachedImage), &ci)
 			if err != nil && !apierrors.IsNotFound(err) {
+				if apierrors.IsNotFound(err) {
+					continue
+				} else {
+					return ctrl.Result{}, err
+				}
+			}
+
+			err = r.updatePodCount(ctx, &ci)
+			if err != nil {
 				return ctrl.Result{}, err
 			}
 		}
@@ -132,12 +147,13 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 				return ctrl.Result{}, err
 			}
 		} else {
+			patch := client.MergeFrom(ci.DeepCopy())
 			ci.Spec = cachedImage.Spec
-			err = r.Update(ctx, &ci)
-			if err != nil {
-				if statusErr, ok := err.(*apierrors.StatusError); ok && statusErr.Status().Code == http.StatusConflict {
-					return ctrl.Result{Requeue: true}, nil
-				}
+
+			if err = r.Patch(ctx, &ci, patch); err != nil {
+				return ctrl.Result{}, err
+			}
+			if err = r.updatePodCount(ctx, &ci); err != nil {
 				return ctrl.Result{}, err
 			}
 		}
@@ -202,6 +218,34 @@ func (r *PodReconciler) podsWithDeletingCachedImages(obj client.Object) []ctrl.R
 	}
 
 	return make([]ctrl.Request, 0)
+}
+
+// updatePodCount update CachedImage UsedBy status
+func (r *PodReconciler) updatePodCount(ctx context.Context, cachedImage *dcrenixiov1alpha1.CachedImage) error {
+	var podsList corev1.PodList
+	if err := r.List(ctx, &podsList, client.MatchingFields{cachedImageOwnerKey: cachedImage.Name}); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+
+	pods := []v1alpha1.PodReference{}
+	for _, pod := range podsList.Items {
+		if !pod.DeletionTimestamp.IsZero() {
+			continue
+		}
+		pods = append(pods, v1alpha1.PodReference{NamespacedName: pod.Namespace + "/" + pod.Name})
+	}
+
+	patch := client.MergeFrom(cachedImage.DeepCopy())
+	cachedImage.Status.UsedBy = v1alpha1.UsedBy{
+		Pods:  pods,
+		Count: len(pods),
+	}
+
+	if err := r.Status().Patch(context.Background(), cachedImage, patch); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+
+	return nil
 }
 
 func desiredCachedImages(ctx context.Context, pod *corev1.Pod) []dcrenixiov1alpha1.CachedImage {
