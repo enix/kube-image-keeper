@@ -1,3 +1,12 @@
+## [1.4.2](https://gitlab.enix.io/products/docker-cache-registry/compare/v1.4.1...v1.4.2) (2022-12-06)
+
+
+### Bug Fixes
+
+* **controllers:** fix pod count ([b1c0d86](https://gitlab.enix.io/products/docker-cache-registry/commit/b1c0d8610d8a23eda487d1ba713ae00d10013a66)), closes [#35](https://gitlab.enix.io/products/docker-cache-registry/issues/35)
+* **helm:** Add default tolerations for proxy service ([a1b26b2](https://gitlab.enix.io/products/docker-cache-registry/commit/a1b26b264aba60ed9bded013e0bb30cf3eabea76))
+* **helm:** Use correct controller labels for service selector ([4c7479a](https://gitlab.enix.io/products/docker-cache-registry/commit/4c7479af4b496132ddf29bdd0a78d3d4de0175db))
+
 ## [1.4.1](https://gitlab.enix.io/products/docker-cache-registry/compare/v1.4.0...v1.4.1) (2022-12-01)
 
 
