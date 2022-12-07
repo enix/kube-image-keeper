@@ -1,4 +1,4 @@
-{{- if .Values.registry.garbageCollectionSchedule }}
+{{- if and .Values.registry.garbageCollectionSchedule .Values.registry.persistence.enabled }}
 {{- if semverCompare ">=1.21-0" (default .Capabilities.KubeVersion.Version .Values.kubeVersion) -}}
 apiVersion: batch/v1
 {{- else -}}
