@@ -22,6 +22,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "cache-registry.serviceAccountName" . }}
+      priorityClassName: system-node-critical
       securityContext:
         {{- toYaml .Values.proxy.podSecurityContext | nindent 8 }}
       containers:
