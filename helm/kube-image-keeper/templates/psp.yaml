@@ -2,9 +2,9 @@
 apiVersion: policy/v1beta1
 kind: PodSecurityPolicy
 metadata:
-  name: {{ include "cache-registry.fullname" . }}
+  name: {{ include "kube-image-keeper.fullname" . }}
   labels:
-    {{- include "cache-registry.proxy-labels" . | nindent 4 }}
+    {{- include "kube-image-keeper.proxy-labels" . | nindent 4 }}
 spec:
   privileged: false
   allowPrivilegeEscalation: false

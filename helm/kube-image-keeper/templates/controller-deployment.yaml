@@ -1,13 +1,13 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "cache-registry.fullname" . }}-controllers
+  name: {{ include "kube-image-keeper.fullname" . }}-controllers
   labels:
-    {{- include "cache-registry.controllers-labels" . | nindent 4 }}
+    {{- include "kube-image-keeper.controllers-labels" . | nindent 4 }}
 spec:
   selector:
     matchLabels:
-      {{- include "cache-registry.controllers-selectorLabels" . | nindent 6 }}
+      {{- include "kube-image-keeper.controllers-selectorLabels" . | nindent 6 }}
   template:
     metadata:
       {{- with .Values.controllers.podAnnotations }}
@@ -15,13 +15,13 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       labels:
-        {{- include "cache-registry.controllers-selectorLabels" . | nindent 8 }}
+        {{- include "kube-image-keeper.controllers-selectorLabels" . | nindent 8 }}
     spec:
       {{- with .Values.controllers.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "cache-registry.serviceAccountName" . }}
+      serviceAccountName: {{ include "kube-image-keeper.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.controllers.podSecurityContext | nindent 8 }}
       containers:

@@ -6,9 +6,9 @@ apiVersion: batch/v1beta1
 {{- end }}
 kind: CronJob
 metadata:
-  name: {{ include "cache-registry.fullname" . }}-garbage-collection
+  name: {{ include "kube-image-keeper.fullname" . }}-garbage-collection
   labels:
-    {{- include "cache-registry.garbage-collection-labels" . | nindent 4 }}
+    {{- include "kube-image-keeper.garbage-collection-labels" . | nindent 4 }}
 spec:
   concurrencyPolicy: Forbid
   schedule: "{{ .Values.registry.garbageCollectionSchedule }}"
@@ -27,6 +27,6 @@ spec:
                 - bash
                 - -c
                 - >-
-                  kubectl rollout restart sts {{ include "cache-registry.fullname" . }} &&
-                  kubectl rollout status sts {{ include "cache-registry.fullname" . }}
+                  kubectl rollout restart sts {{ include "kube-image-keeper.fullname" . }} &&
+                  kubectl rollout status sts {{ include "kube-image-keeper.fullname" . }}
 {{- end }}

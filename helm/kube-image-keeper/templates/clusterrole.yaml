@@ -2,7 +2,7 @@
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: {{ default (include "cache-registry.fullname" .) .Values.serviceAccount.name }}
+  name: {{ default (include "kube-image-keeper.fullname" .) .Values.serviceAccount.name }}
 rules:
   - apiGroups:
     - ""
@@ -78,7 +78,7 @@ rules:
     verbs:
     - use
     resourceNames:
-    - {{ include "cache-registry.fullname" . }}
+    - {{ include "kube-image-keeper.fullname" . }}
   {{- end }}
 
 ---
@@ -86,7 +86,7 @@ rules:
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: {{ default (include "cache-registry.fullname" .) .Values.serviceAccount.name }}-leader-election
+  name: {{ default (include "kube-image-keeper.fullname" .) .Values.serviceAccount.name }}-leader-election
 rules:
   - apiGroups:
     - ""

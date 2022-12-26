@@ -1,14 +1,14 @@
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: {{ include "cache-registry.fullname" . }}
+  name: {{ include "kube-image-keeper.fullname" . }}
   labels:
-    {{- include "cache-registry.registry-labels" . | nindent 4 }}
+    {{- include "kube-image-keeper.registry-labels" . | nindent 4 }}
 spec:
   serviceName: {{ .Release.Name }}
   selector:
     matchLabels:
-      {{- include "cache-registry.registry-selectorLabels" . | nindent 6 }}
+      {{- include "kube-image-keeper.registry-selectorLabels" . | nindent 6 }}
   template:
     metadata:
       {{- with .Values.registry.podAnnotations }}
@@ -16,7 +16,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       labels:
-        {{- include "cache-registry.registry-selectorLabels" . | nindent 8 }}
+        {{- include "kube-image-keeper.registry-selectorLabels" . | nindent 8 }}
     spec:
       {{- with .Values.registry.imagePullSecrets }}
       imagePullSecrets:
@@ -54,7 +54,7 @@ spec:
           {{- if .Values.registry.persistence.enabled }}
           volumeMounts:
             - mountPath: /var/lib/registry
-              name: {{ include "cache-registry.fullname" . }}-data
+              name: {{ include "kube-image-keeper.fullname" . }}-data
           {{- end }}
       {{- end }}
       containers:
@@ -78,7 +78,7 @@ spec:
           {{- if .Values.registry.persistence.enabled }}
           volumeMounts:
             - mountPath: /var/lib/registry
-              name: {{ include "cache-registry.fullname" . }}-data
+              name: {{ include "kube-image-keeper.fullname" . }}-data
           {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
@@ -95,7 +95,7 @@ spec:
 {{- if .Values.registry.persistence.enabled }}
   volumeClaimTemplates:
   - metadata:
-      name: {{ include "cache-registry.fullname" . }}-data
+      name: {{ include "kube-image-keeper.fullname" . }}-data
     spec:
       accessModes: [ "ReadWriteOnce" ]
       storageClassName: {{ .Values.registry.persistence.storageClass }}

@@ -17,7 +17,7 @@ webhooks:
   reinvocationPolicy: IfNeeded
   objectSelector:
     matchExpressions:
-    - key: cache-registry.enix.io/image-caching-policy
+    - key: kube-image-keeper.enix.io/image-caching-policy
       operator: NotIn
       values:
       - ignore
