@@ -1,5 +1,4 @@
 helm/cache-registry/charts/*.tgz
-values.yaml
 
 # Binaries for programs and plugins
 *.exe

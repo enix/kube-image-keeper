@@ -1,0 +1,120 @@
+# Default values for kube-image-keeper.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+cachedImagesExpiryDelay: 30
+installCRD: true
+
+controllers:
+  image:
+    repository: enix/kube-image-keeper
+    pullPolicy: IfNotPresent
+    # Overrides the image tag whose default is the chart appVersion.
+    tag: ""
+  verbosity: INFO
+  imagePullSecrets: []
+  podAnnotations: {}
+  podSecurityContext: {}
+  securityContext: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  resources: {}
+  webhook:
+    createCertificateIssuer: true
+    certificateIssuerRef:
+      kind: Issuer
+      name: dcr-selfsigned-issuer
+    objectSelector:
+      matchExpressions: []
+
+proxy:
+  image:
+    repository: enix/kube-image-keeper
+    pullPolicy: IfNotPresent
+    # Overrides the image tag whose default is the chart appVersion.
+    tag: ""
+  hostPort: 7439
+  verbosity: 1
+  imagePullSecrets: []
+  podAnnotations: {}
+  podSecurityContext: {}
+  securityContext: {}
+  nodeSelector: {}
+  tolerations:
+  - effect: NoSchedule
+    operator: Exists
+  - key: CriticalAddonsOnly
+    operator: Exists
+  - effect: NoExecute
+    operator: Exists
+  - effect: NoExecute
+    key: node.kubernetes.io/not-ready
+    operator: Exists
+  - effect: NoExecute
+    key: node.kubernetes.io/unreachable
+    operator: Exists
+  - effect: NoSchedule
+    key: node.kubernetes.io/disk-pressure
+    operator: Exists
+  - effect: NoSchedule
+    key: node.kubernetes.io/memory-pressure
+    operator: Exists
+  - effect: NoSchedule
+    key: node.kubernetes.io/pid-pressure
+    operator: Exists
+  - effect: NoSchedule
+    key: node.kubernetes.io/unschedulable
+    operator: Exists
+  - effect: NoSchedule
+    key: node.kubernetes.io/network-unavailable
+    operator: Exists
+  affinity: {}
+  resources: {}
+
+registry:
+  image:
+    repository: registry
+    pullPolicy: IfNotPresent
+    tag: "latest"
+  persistence:
+    enabled: false
+    storageClass: null
+    size: 20Gi
+  garbageCollectionSchedule: "0 0 * * 0"
+  service:
+    type: ClusterIP
+  env: []
+  resources: {}
+  imagePullSecrets: []
+  podAnnotations: {}
+  podSecurityContext: {}
+  securityContext: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+registryUI:
+  enabled: false
+  image:
+    repository: parabuzzle/craneoperator
+    pullPolicy: IfNotPresent
+    tag: "2.2.5"
+  auth:
+    username: "admin"
+    password: ""
+  resources: {}
+  imagePullSecrets: []
+  podAnnotations: {}
+  podSecurityContext: {}
+  securityContext: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+serviceAccount:
+  annotations: {}
+  name: ""
+
+psp:
+  create: false
