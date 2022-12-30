@@ -1,3 +1,17 @@
+# [1.5.0](https://gitlab.enix.io/products/docker-cache-registry/compare/v1.4.2...v1.5.0) (2022-12-30)
+
+
+### Bug Fixes
+
+* **helm:** don't trigger garbage collection if persistence isn't enabled ([f16d5a1](https://gitlab.enix.io/products/docker-cache-registry/commit/f16d5a1daa715979e74e5a75c2a9b862dcecc0ea))
+* **helm:** ensure registry directories before garbage collection ([049c7a1](https://gitlab.enix.io/products/docker-cache-registry/commit/049c7a1c243cf95225b11df49065c495ca7dec37))
+
+
+### Features
+
+* **controllers:** support multiple pull secrets when caching ([5acd51b](https://gitlab.enix.io/products/docker-cache-registry/commit/5acd51b5387e5420606e8693293300440acfd9fc))
+* **proxy:** support multiple pull secrets when proxying ([bde0dd6](https://gitlab.enix.io/products/docker-cache-registry/commit/bde0dd65965f464e088ec1f9a232308d44a684a8)), closes [#25](https://gitlab.enix.io/products/docker-cache-registry/issues/25)
+
 ## [1.4.2](https://gitlab.enix.io/products/docker-cache-registry/compare/v1.4.1...v1.4.2) (2022-12-06)
 
 
