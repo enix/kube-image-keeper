@@ -26,6 +26,21 @@ spec:
         {{- toYaml .Values.registry.podSecurityContext | nindent 8 }}
       {{- if .Values.registry.persistence.enabled }}
       initContainers:
+        - name: setup-dirs
+          image: "{{ .Values.registry.image.repository }}:{{ .Values.registry.image.tag }}"
+          imagePullPolicy: {{ .Values.registry.image.pullPolicy }}
+          command:
+            - mkdir
+            - -p
+            - /var/lib/registry/docker/registry/v2/repositories/
+            - /var/lib/registry/docker/registry/v2/blobs/
+          resources:
+            {{- toYaml .Values.registry.resources | nindent 12 }}
+          {{- if .Values.registry.persistence.enabled }}
+          volumeMounts:
+            - mountPath: /var/lib/registry
+              name: {{ include "cache-registry.fullname" . }}-data
+          {{- end }}
         - name: garbage-collector
           image: "{{ .Values.registry.image.repository }}:{{ .Values.registry.image.tag }}"
           imagePullPolicy: {{ .Values.registry.image.pullPolicy }}
