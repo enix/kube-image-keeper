@@ -41,8 +41,8 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
-	dcrenixiov1alpha1 "gitlab.enix.io/products/docker-cache-registry/api/v1alpha1"
-	"gitlab.enix.io/products/docker-cache-registry/internal/registry"
+	dcrenixiov1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
+	"github.com/enix/kube-image-keeper/internal/registry"
 	//+kubebuilder:scaffold:imports
 )
 

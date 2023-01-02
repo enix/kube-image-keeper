@@ -28,9 +28,9 @@ import (
 	"k8s.io/apimachinery/pkg/selection"
 
 	"github.com/docker/distribution/reference"
-	"gitlab.enix.io/products/docker-cache-registry/api/v1alpha1"
-	dcrenixiov1alpha1 "gitlab.enix.io/products/docker-cache-registry/api/v1alpha1"
-	"gitlab.enix.io/products/docker-cache-registry/internal/registry"
+	"github.com/enix/kube-image-keeper/api/v1alpha1"
+	dcrenixiov1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
+	"github.com/enix/kube-image-keeper/internal/registry"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"

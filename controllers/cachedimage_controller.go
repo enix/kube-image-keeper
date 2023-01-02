@@ -32,8 +32,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	dcrenixiov1alpha1 "gitlab.enix.io/products/docker-cache-registry/api/v1alpha1"
-	"gitlab.enix.io/products/docker-cache-registry/internal/registry"
+	dcrenixiov1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
+	"github.com/enix/kube-image-keeper/internal/registry"
 )
 
 // CachedImageReconciler reconciles a CachedImage object

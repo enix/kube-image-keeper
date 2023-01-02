@@ -30,9 +30,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	dcrenixiov1 "gitlab.enix.io/products/docker-cache-registry/api/v1"
-	"gitlab.enix.io/products/docker-cache-registry/controllers"
-	"gitlab.enix.io/products/docker-cache-registry/internal/scheme"
+	dcrenixiov1 "github.com/enix/kube-image-keeper/api/v1"
+	"github.com/enix/kube-image-keeper/controllers"
+	"github.com/enix/kube-image-keeper/internal/scheme"
 	//+kubebuilder:scaffold:imports
 )
 

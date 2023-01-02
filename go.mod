@@ -1,4 +1,4 @@
-module gitlab.enix.io/products/docker-cache-registry
+module github.com/enix/kube-image-keeper
 
 go 1.16
 

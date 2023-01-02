@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/enix/kube-image-keeper/controllers"
 	. "github.com/onsi/gomega"
-	"gitlab.enix.io/products/docker-cache-registry/controllers"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )

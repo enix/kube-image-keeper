@@ -5,10 +5,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/gin-gonic/gin"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/ghttp"
-	"gitlab.enix.io/products/docker-cache-registry/internal/registry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 

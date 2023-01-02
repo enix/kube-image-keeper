@@ -11,11 +11,11 @@ import (
 	"strings"
 
 	"github.com/docker/distribution/reference"
+	dcrenixiov1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
+	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/gin-gonic/gin"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
-	dcrenixiov1alpha1 "gitlab.enix.io/products/docker-cache-registry/api/v1alpha1"
-	"gitlab.enix.io/products/docker-cache-registry/internal/registry"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )

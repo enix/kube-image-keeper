@@ -3,8 +3,8 @@ package main
 import (
 	"flag"
 
-	"gitlab.enix.io/products/docker-cache-registry/internal/proxy"
-	"gitlab.enix.io/products/docker-cache-registry/internal/scheme"
+	"github.com/enix/kube-image-keeper/internal/proxy"
+	"github.com/enix/kube-image-keeper/internal/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	klog "k8s.io/klog/v2"

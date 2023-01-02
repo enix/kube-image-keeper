@@ -10,7 +10,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 
-	dcrenixiov1alpha1 "gitlab.enix.io/products/docker-cache-registry/api/v1alpha1"
+	dcrenixiov1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
 	//+kubebuilder:scaffold:imports
 )
 
