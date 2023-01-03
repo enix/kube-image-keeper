@@ -287,7 +287,6 @@ jobs:
       
       - name: Push container images tag (Release)
         uses: docker/build-push-action@v3.2.0
-        if: ${{ env.PRERELEASE != 'true' }}
         with:
           context: repository
           platforms: linux/amd64,linux/arm64
