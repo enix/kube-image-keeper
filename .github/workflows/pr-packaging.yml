@@ -3,7 +3,7 @@ name: Packaging
 on:
   pull_request:
     paths:
-      - deploy/charts/**
+      - helm/**
 
 jobs:
   chart-testing:
