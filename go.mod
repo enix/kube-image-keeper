@@ -10,7 +10,7 @@ require (
 	github.com/gin-gonic/gin v1.7.3
 	github.com/go-logr/logr v0.3.0
 	github.com/google/go-containerregistry v0.6.0
-	github.com/onsi/ginkgo v1.14.1
+	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/gomega v1.10.3
 	k8s.io/api v0.20.6
 	k8s.io/apimachinery v0.20.6
