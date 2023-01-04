@@ -41,7 +41,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
-	dcrenixiov1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
+	kuikenixiov1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	//+kubebuilder:scaffold:imports
 )
@@ -127,7 +127,7 @@ var _ = BeforeSuite(func(done Done) {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
 
-	err = dcrenixiov1alpha1.AddToScheme(scheme.Scheme)
+	err = kuikenixiov1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = corev1.AddToScheme(scheme.Scheme)

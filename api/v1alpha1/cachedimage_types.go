@@ -20,7 +20,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-var RepositoryLabelName = "cache-registry.enix.io/repository"
+var RepositoryLabelName = "kuik.enix.io/repository"
 
 // CachedImageSpec defines the desired state of CachedImage
 type CachedImageSpec struct {

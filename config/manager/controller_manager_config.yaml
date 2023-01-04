@@ -8,4 +8,4 @@ webhook:
   port: 9443
 leaderElection:
   leaderElect: true
-  resourceName: a046788b.dcr.enix.io
+  resourceName: a046788b.kuik.enix.io

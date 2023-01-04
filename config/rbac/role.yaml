@@ -47,7 +47,7 @@ rules:
   - get
   - list
 - apiGroups:
-  - dcr.enix.io
+  - kuik.enix.io
   resources:
   - cachedimages
   verbs:
@@ -59,13 +59,13 @@ rules:
   - update
   - watch
 - apiGroups:
-  - dcr.enix.io
+  - kuik.enix.io
   resources:
   - cachedimages/finalizers
   verbs:
   - update
 - apiGroups:
-  - dcr.enix.io
+  - kuik.enix.io
   resources:
   - cachedimages/status
   verbs:

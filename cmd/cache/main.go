@@ -30,7 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	dcrenixiov1 "github.com/enix/kube-image-keeper/api/v1"
+	kuikenixiov1 "github.com/enix/kube-image-keeper/api/v1"
 	"github.com/enix/kube-image-keeper/controllers"
 	"github.com/enix/kube-image-keeper/internal/scheme"
 	//+kubebuilder:scaffold:imports
@@ -54,7 +54,7 @@ func main() {
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.UintVar(&expiryDelay, "expiry-delay", 30, "The delay in days before deleting an unused CachedImage.")
 	flag.IntVar(&proxyPort, "proxy-port", 8082, "The port where the proxy is listening on this machine.")
-	flag.StringVar(&ignoreNamespace, "ignore-namespace", "dcr-system", "The address the probe endpoint binds to.")
+	flag.StringVar(&ignoreNamespace, "ignore-namespace", "kuik-system", "The address the probe endpoint binds to.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -69,7 +69,7 @@ func main() {
 		Port:                   9443,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "a046788b.dcr.enix.io",
+		LeaderElectionID:       "a046788b.kuik.enix.io",
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
@@ -92,7 +92,7 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "Pod")
 		os.Exit(1)
 	}
-	imageRewriter := dcrenixiov1.ImageRewriter{
+	imageRewriter := kuikenixiov1.ImageRewriter{
 		Client:          mgr.GetClient(),
 		IgnoreNamespace: ignoreNamespace,
 		ProxyPort:       proxyPort,

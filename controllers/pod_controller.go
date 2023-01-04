@@ -29,7 +29,7 @@ import (
 
 	"github.com/docker/distribution/reference"
 	"github.com/enix/kube-image-keeper/api/v1alpha1"
-	dcrenixiov1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
+	kuikenixiov1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -46,7 +46,7 @@ import (
 )
 
 const cachedImageOwnerKey = ".metadata.podOwner"
-const LabelImageRewrittenName = "dcr-images-rewritten"
+const LabelImageRewrittenName = "kuik.enix.io/images-rewritten"
 const AnnotationOriginalImageTemplate = "original-image-%s"
 const AnnotationOriginalInitImageTemplate = "original-init-image-%s"
 
@@ -107,7 +107,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 				}
 			}
 
-			var ci dcrenixiov1alpha1.CachedImage
+			var ci kuikenixiov1alpha1.CachedImage
 			err := r.Get(ctx, client.ObjectKeyFromObject(&cachedImage), &ci)
 			if err != nil && !apierrors.IsNotFound(err) {
 				if apierrors.IsNotFound(err) {
@@ -128,7 +128,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 
 	// On pod creation and update
 	for _, cachedImage := range cachedImages {
-		var ci dcrenixiov1alpha1.CachedImage
+		var ci kuikenixiov1alpha1.CachedImage
 		err := r.Get(ctx, client.ObjectKeyFromObject(&cachedImage), &ci)
 		if err != nil && !apierrors.IsNotFound(err) {
 			return ctrl.Result{}, err
@@ -179,7 +179,7 @@ func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			return ok
 		}))).
 		Watches(
-			&source.Kind{Type: &dcrenixiov1alpha1.CachedImage{}},
+			&source.Kind{Type: &kuikenixiov1alpha1.CachedImage{}},
 			handler.EnqueueRequestsFromMapFunc(r.podsWithDeletingCachedImages),
 			builder.WithPredicates(p),
 		).
@@ -203,7 +203,7 @@ func (r *PodReconciler) podsWithDeletingCachedImages(obj client.Object) []ctrl.R
 		return nil
 	}
 
-	cachedImage := obj.(*dcrenixiov1alpha1.CachedImage)
+	cachedImage := obj.(*kuikenixiov1alpha1.CachedImage)
 	for _, pod := range podList.Items {
 		for _, value := range pod.GetAnnotations() {
 			// TODO check key format is "original-image-%s" or "original-init-image-%s"
@@ -221,7 +221,7 @@ func (r *PodReconciler) podsWithDeletingCachedImages(obj client.Object) []ctrl.R
 }
 
 // updatePodCount update CachedImage UsedBy status
-func (r *PodReconciler) updatePodCount(ctx context.Context, cachedImage *dcrenixiov1alpha1.CachedImage) error {
+func (r *PodReconciler) updatePodCount(ctx context.Context, cachedImage *kuikenixiov1alpha1.CachedImage) error {
 	var podsList corev1.PodList
 	if err := r.List(ctx, &podsList, client.MatchingFields{cachedImageOwnerKey: cachedImage.Name}); err != nil && !apierrors.IsNotFound(err) {
 		return err
@@ -248,7 +248,7 @@ func (r *PodReconciler) updatePodCount(ctx context.Context, cachedImage *dcrenix
 	return nil
 }
 
-func desiredCachedImages(ctx context.Context, pod *corev1.Pod) []dcrenixiov1alpha1.CachedImage {
+func desiredCachedImages(ctx context.Context, pod *corev1.Pod) []kuikenixiov1alpha1.CachedImage {
 	pullSecretNames := []string{}
 
 	for _, pullSecret := range pod.Spec.ImagePullSecrets {
@@ -266,9 +266,9 @@ func desiredCachedImages(ctx context.Context, pod *corev1.Pod) []dcrenixiov1alph
 	return cachedImages
 }
 
-func desiredCachedImagesForContainers(ctx context.Context, containers []corev1.Container, annotations map[string]string, annotationKeyTemplate string) []dcrenixiov1alpha1.CachedImage {
+func desiredCachedImagesForContainers(ctx context.Context, containers []corev1.Container, annotations map[string]string, annotationKeyTemplate string) []kuikenixiov1alpha1.CachedImage {
 	log := log.FromContext(ctx)
-	cachedImages := []dcrenixiov1alpha1.CachedImage{}
+	cachedImages := []kuikenixiov1alpha1.CachedImage{}
 
 	for _, container := range containers {
 		annotationKey := fmt.Sprintf(annotationKeyTemplate, container.Name)
@@ -293,7 +293,7 @@ func desiredCachedImagesForContainers(ctx context.Context, containers []corev1.C
 	return cachedImages
 }
 
-func cachedImageFromSourceImage(sourceImage string) (*dcrenixiov1alpha1.CachedImage, error) {
+func cachedImageFromSourceImage(sourceImage string) (*kuikenixiov1alpha1.CachedImage, error) {
 	ref, err := reference.ParseAnyReference(sourceImage)
 	if err != nil {
 		return nil, err
@@ -308,15 +308,15 @@ func cachedImageFromSourceImage(sourceImage string) (*dcrenixiov1alpha1.CachedIm
 		return nil, err
 	}
 
-	cachedImage := dcrenixiov1alpha1.CachedImage{
-		TypeMeta: metav1.TypeMeta{APIVersion: dcrenixiov1alpha1.GroupVersion.String(), Kind: "CachedImage"},
+	cachedImage := kuikenixiov1alpha1.CachedImage{
+		TypeMeta: metav1.TypeMeta{APIVersion: kuikenixiov1alpha1.GroupVersion.String(), Kind: "CachedImage"},
 		ObjectMeta: metav1.ObjectMeta{
 			Name: sanitizedName,
 			Labels: map[string]string{
-				dcrenixiov1alpha1.RepositoryLabelName: registry.RepositoryLabel(named.Name()),
+				kuikenixiov1alpha1.RepositoryLabelName: registry.RepositoryLabel(named.Name()),
 			},
 		},
-		Spec: dcrenixiov1alpha1.CachedImageSpec{
+		Spec: kuikenixiov1alpha1.CachedImageSpec{
 			SourceImage: sourceImage,
 		},
 	}

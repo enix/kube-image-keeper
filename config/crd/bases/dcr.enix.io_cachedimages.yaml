@@ -6,9 +6,9 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.4.1
   creationTimestamp: null
-  name: cachedimages.dcr.enix.io
+  name: cachedimages.kuik.enix.io
 spec:
-  group: dcr.enix.io
+  group: kuik.enix.io
   names:
     kind: CachedImage
     listKind: CachedImageList

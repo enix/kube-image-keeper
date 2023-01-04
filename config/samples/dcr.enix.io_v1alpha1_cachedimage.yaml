@@ -1,4 +1,4 @@
-apiVersion: dcr.enix.io/v1alpha1
+apiVersion: kuik.enix.io/v1alpha1
 kind: CachedImage
 metadata:
   name: cachedimage-sample

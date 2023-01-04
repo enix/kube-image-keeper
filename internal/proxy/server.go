@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/docker/distribution/reference"
-	dcrenixiov1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
+	kuikenixiov1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/gin-gonic/gin"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -188,11 +188,11 @@ func (p *Proxy) proxyRegistry(c *gin.Context, endpoint string, endpointIsOrigin 
 
 func (p *Proxy) getAuthentifiedTransport(registryDomain string, repository string) (http.RoundTripper, error) {
 	repositoryLabel := registry.RepositoryLabel(registryDomain + "/" + repository)
-	cachedImages := &dcrenixiov1alpha1.CachedImageList{}
+	cachedImages := &kuikenixiov1alpha1.CachedImageList{}
 
 	klog.InfoS("listing CachedImages", "repositoryLabel", repositoryLabel)
 	if err := p.k8sClient.List(context.Background(), cachedImages, client.MatchingLabels{
-		dcrenixiov1alpha1.RepositoryLabelName: repositoryLabel,
+		kuikenixiov1alpha1.RepositoryLabelName: repositoryLabel,
 	}, client.Limit(1)); err != nil {
 		return nil, err
 	}

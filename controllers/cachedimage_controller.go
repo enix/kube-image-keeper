@@ -32,7 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	dcrenixiov1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
+	kuikenixiov1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/registry"
 )
 
@@ -43,9 +43,9 @@ type CachedImageReconciler struct {
 	Recorder record.EventRecorder
 }
 
-//+kubebuilder:rbac:groups=dcr.enix.io,resources=cachedimages,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=dcr.enix.io,resources=cachedimages/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=dcr.enix.io,resources=cachedimages/finalizers,verbs=update
+//+kubebuilder:rbac:groups=kuik.enix.io,resources=cachedimages,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=kuik.enix.io,resources=cachedimages/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=kuik.enix.io,resources=cachedimages/finalizers,verbs=update
 //+kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list
 //+kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
@@ -64,13 +64,13 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	log.Info("reconciling cachedimage")
 
-	var cachedImage dcrenixiov1alpha1.CachedImage
+	var cachedImage kuikenixiov1alpha1.CachedImage
 	if err := r.Get(ctx, req.NamespacedName, &cachedImage); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	// https://book.kubebuilder.io/reference/using-finalizers.html
-	finalizerName := "cachedimage.dcr.enix.io/finalizer"
+	finalizerName := "cachedimage.kuik.enix.io/finalizer"
 	// Remove image from registry when CachedImage is beeing deleted, finalizer is removed after it
 	if !cachedImage.ObjectMeta.DeletionTimestamp.IsZero() {
 		if containsString(cachedImage.GetFinalizers(), finalizerName) {
@@ -188,7 +188,7 @@ func (r *CachedImageReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&dcrenixiov1alpha1.CachedImage{}).
+		For(&kuikenixiov1alpha1.CachedImage{}).
 		Complete(r)
 }
 
