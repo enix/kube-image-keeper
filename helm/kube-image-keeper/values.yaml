@@ -24,7 +24,7 @@ controllers:
     createCertificateIssuer: true
     certificateIssuerRef:
       kind: Issuer
-      name: dcr-selfsigned-issuer
+      name: kuik-selfsigned-issuer
     objectSelector:
       matchExpressions: []
 

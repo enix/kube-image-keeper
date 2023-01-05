@@ -14,7 +14,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 )
 
-var Endpoint = "cache-registry-service:5000"
+var Endpoint = "kube-image-keeper-service:5000"
 var Protocol = "http://"
 
 // See https://github.com/kubernetes/apimachinery/blob/v0.20.6/pkg/util/validation/validation.go#L198

@@ -1,11 +1,11 @@
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: dcr-serving-cert
+  name: kuik-serving-cert
 spec:
   dnsNames:
-  - dcr-webhook-service.{{ .Release.Namespace }}.svc
-  - dcr-webhook-service.{{ .Release.Namespace }}.svc.cluster.local
+  - kuik-webhook-service.{{ .Release.Namespace }}.svc
+  - kuik-webhook-service.{{ .Release.Namespace }}.svc.cluster.local
   secretName: webhook-server-cert
   issuerRef:
     {{- toYaml .Values.controllers.webhook.certificateIssuerRef | nindent 4 }}
@@ -14,7 +14,7 @@ spec:
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
-  name: dcr-selfsigned-issuer
+  name: kuik-selfsigned-issuer
 spec:
   selfSigned: {}
 {{- end -}}

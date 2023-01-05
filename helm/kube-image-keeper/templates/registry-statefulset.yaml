@@ -39,7 +39,7 @@ spec:
           {{- if .Values.registry.persistence.enabled }}
           volumeMounts:
             - mountPath: /var/lib/registry
-              name: {{ include "cache-registry.fullname" . }}-data
+              name: {{ include "kube-image-keeper.fullname" . }}-data
           {{- end }}
         - name: garbage-collector
           image: "{{ .Values.registry.image.repository }}:{{ .Values.registry.image.tag }}"
