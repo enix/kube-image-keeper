@@ -273,7 +273,7 @@ jobs:
             ${{ github.repository }}:${{ env.VERSION }}
             ${{ env.QUAY_REPOSITORY }}:${{ env.VERSION }}
 
-      - name: Push container images tag (PreRelease)
+      - name: Push container images tag (Latest)
         uses: docker/build-push-action@v3.2.0
         if: ${{ env.PRERELEASE != 'true' }}
         with:

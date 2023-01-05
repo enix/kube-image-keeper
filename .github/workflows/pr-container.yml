@@ -6,7 +6,8 @@ on:
       - Dockerfile
 
 permissions:
-  pull-requests: write
+  pull-requests: read
+  contents: read
 
 jobs:
   hadolint:
