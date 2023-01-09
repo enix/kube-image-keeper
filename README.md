@@ -1,17 +1,32 @@
-# docker-cache-registry
+# kube-image-keeper (KuIK)
 
 ## Installation
 
 Cert-manager is used to issue TLS certificate for the mutating webhook. It is thus required to install it first.
 
 1. [Install](https://cert-manager.io/docs/installation/) cert-manager.
-1. Install the helm chart `helm upgrade --install --namespace cache-registry-system cache-registry ./helm/cache-registry/ --values=./values.yaml`.
+1. Create a `values.yaml` file to configure the chart.
+1. Install the helm chart following one of the two below methods:
+
+**From source:**
+
+```bash
+helm install --create-namespace --namespace kuik-system kube-image-keeper --values=./values.yaml ./helm/kube-image-keeper/
+```
+
+**From [enix/helm-charts](https://github.com/enix/helm-charts) repository:**
+
+```bash
+helm repo add enix https://charts.enix.io/
+helm search repo enix
+helm install --create-namespace --namespace kuik-system kube-image-keeper --values=./values.yaml enix/kube-image-keeper
+```
 
 ## Pod filtering
 
 There are 2 ways to filter pods from which images should be cached.
 
-- The first and most basic way is to add the label `cache-registry.enix.io/image-caching-policy: ignore` on pods that should be ignored.
+- The first and most basic way is to add the label `kube-image-keeper.enix.io/image-caching-policy: ignore` on pods that should be ignored.
 - The second way is to define the value `controllers.webhook.objectSelector.matchExpressions` in helm `values.yaml` configuration file.
 
 Those parameters are used by the `MutatingWebhookConfiguration` to filter pods that needs to be updated. Once images from those pods are rewritten, a label will be added to them so the Pod controller will create CachedImages custom resources. The CachedImages controller will then cache those images.
