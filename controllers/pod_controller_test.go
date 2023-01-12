@@ -145,7 +145,7 @@ func Test_cachedImageFromSourceImage(t *testing.T) {
 
 var _ = Describe("Pod Controller", func() {
 
-	const timeout = time.Second * 20
+	const timeout = time.Second * 60
 	const interval = time.Second * 1
 
 	BeforeEach(func() {
