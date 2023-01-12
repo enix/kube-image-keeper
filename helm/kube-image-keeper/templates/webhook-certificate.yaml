@@ -10,7 +10,7 @@ spec:
   issuerRef:
     {{- toYaml .Values.controllers.webhook.certificateIssuerRef | nindent 4 }}
 ---
-{{- if .Values.controllers.webhook.createCertificateIssuer -}}
+{{- if .Values.controllers.webhook.createCertificateIssuer }}
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
