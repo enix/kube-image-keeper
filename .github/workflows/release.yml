@@ -202,10 +202,8 @@ jobs:
           is_prerelease = '-' in os.environ['SR_VERSION']
           info('pre-release = {}'.format(is_prerelease))
           output = '{}'.format(str(is_prerelease).lower())
-          with open(os.environ['GITHUB_ENV'], 'a') as outfile:
-              outfile.write('prerelease<<EOF\n')
-              outfile.write(output)
-              outfile.write('EOF\n')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as outfile:
+              print (f'prerelease={output}', file=outfile)
 
   containers:
     name: Containers
