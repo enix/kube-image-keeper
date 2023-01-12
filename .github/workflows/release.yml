@@ -127,6 +127,7 @@ jobs:
     name: Release
     needs:
       - semver
+      - tests
     runs-on: ubuntu-22.04
     outputs:
       last: ${{ steps.release.outputs.last_release_version }}
