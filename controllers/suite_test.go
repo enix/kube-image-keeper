@@ -61,6 +61,9 @@ func setupRegistry() {
 	resp, err := client.ContainerCreate(ctx, &container.Config{
 		Image:        "registry",
 		ExposedPorts: nat.PortSet{"5000": struct{}{}},
+		Env: []string{
+			"REGISTRY_STORAGE_DELETE_ENABLED=true",
+		},
 	}, &container.HostConfig{
 		PublishAllPorts: true,
 	}, nil, nil, "")

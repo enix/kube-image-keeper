@@ -20,9 +20,9 @@ var podStub = corev1.Pod{
 		Name:      "test-pod",
 		Namespace: "default",
 		Annotations: map[string]string{
-			fmt.Sprintf(AnnotationOriginalInitImageTemplate, "a"): "original-init",
-			fmt.Sprintf(AnnotationOriginalImageTemplate, "b"):     "original",
-			fmt.Sprintf(AnnotationOriginalImageTemplate, "c"):     "original-2",
+			fmt.Sprintf(AnnotationOriginalInitImageTemplate, "a"): "alpine",
+			fmt.Sprintf(AnnotationOriginalImageTemplate, "b"):     "nginx",
+			fmt.Sprintf(AnnotationOriginalImageTemplate, "c"):     "busybox",
 		},
 		Labels: map[string]string{
 			LabelImageRewrittenName: "true",
@@ -30,11 +30,11 @@ var podStub = corev1.Pod{
 	},
 	Spec: corev1.PodSpec{
 		InitContainers: []corev1.Container{
-			{Name: "a", Image: "rewritten-init"},
+			{Name: "a", Image: "alpine:3.14"},
 		},
 		Containers: []corev1.Container{
-			{Name: "b", Image: "rewritten-1"},
-			{Name: "c", Image: "rewritten-2"},
+			{Name: "b", Image: "nginx:1.22"},
+			{Name: "c", Image: "busybox:1.35"},
 		},
 	},
 }
@@ -46,11 +46,11 @@ var podStubNotRewritten = corev1.Pod{
 	},
 	Spec: corev1.PodSpec{
 		InitContainers: []corev1.Container{
-			{Name: "a", Image: "original-init"},
+			{Name: "a", Image: "alpine"},
 		},
 		Containers: []corev1.Container{
-			{Name: "b", Image: "original"},
-			{Name: "c", Image: "original-2"},
+			{Name: "b", Image: "nginx"},
+			{Name: "c", Image: "busybox"},
 		},
 	},
 }
@@ -66,13 +66,13 @@ func TestDesiredCachedImages(t *testing.T) {
 			pod:  podStub,
 			cachedImages: []v1alpha1.CachedImage{
 				{Spec: kuikenixiov1alpha1.CachedImageSpec{
-					SourceImage: "original",
+					SourceImage: "nginx",
 				}},
 				{Spec: kuikenixiov1alpha1.CachedImageSpec{
-					SourceImage: "original-2",
+					SourceImage: "busybox",
 				}},
 				{Spec: kuikenixiov1alpha1.CachedImageSpec{
-					SourceImage: "original-init",
+					SourceImage: "alpine",
 				}},
 			},
 		},
