@@ -22,11 +22,9 @@ COPY hack/ hack/
 
 ENV CGO_ENABLED=0 GOOS=linux GOARCH=amd64
 
-RUN controller-gen object:headerFile="./hack/boilerplate.go.txt" paths="./..."
-
-# Build
-RUN go build -a -o manager cmd/cache/main.go
-RUN go build -a -o registry-proxy cmd/proxy/main.go
+RUN controller-gen object:headerFile="./hack/boilerplate.go.txt" paths="./..." && \
+    go build -a -o manager cmd/cache/main.go && \
+    go build -a -o registry-proxy cmd/proxy/main.go
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details

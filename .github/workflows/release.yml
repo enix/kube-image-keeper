@@ -107,8 +107,6 @@ jobs:
       - name: Run hadolint
         id: hadolint
         uses: hadolint/hadolint-action@v3.0.0
-        with:
-          failure-threshold: error
 
       - name: Run chart-testing (lint)
         run: |
