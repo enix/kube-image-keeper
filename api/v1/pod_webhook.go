@@ -37,7 +37,7 @@ func (a *ImageRewriter) Handle(ctx context.Context, req admission.Request) admis
 	}
 
 	if req.Namespace != a.IgnoreNamespace {
-		err := a.RewriteImages(pod)
+		a.RewriteImages(pod)
 		if err != nil {
 			return admission.Errored(http.StatusUnprocessableEntity, err)
 		}
@@ -53,7 +53,7 @@ func (a *ImageRewriter) Handle(ctx context.Context, req admission.Request) admis
 	return admission.PatchResponseFromRaw(req.Object.Raw, marshaledPod)
 }
 
-func (a *ImageRewriter) RewriteImages(pod *corev1.Pod) error {
+func (a *ImageRewriter) RewriteImages(pod *corev1.Pod) {
 	if pod.Annotations == nil {
 		pod.Annotations = map[string]string{}
 	}
@@ -75,8 +75,6 @@ func (a *ImageRewriter) RewriteImages(pod *corev1.Pod) error {
 		container := &pod.Spec.InitContainers[i]
 		a.handleContainer(pod, container, fmt.Sprintf(controllers.AnnotationOriginalInitImageTemplate, container.Name))
 	}
-
-	return nil
 }
 
 // InjectDecoder injects the decoder

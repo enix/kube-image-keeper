@@ -101,7 +101,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			r.Recorder.Eventf(&cachedImage, "Normal", "Expired", "Image %s successfully expired", cachedImage.Spec.SourceImage)
 			return ctrl.Result{}, nil
 		} else {
-			return ctrl.Result{RequeueAfter: expiresAt.Sub(time.Now())}, nil
+			return ctrl.Result{RequeueAfter: time.Until(expiresAt.Time)}, nil
 		}
 	}
 

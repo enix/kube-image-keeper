@@ -2,6 +2,8 @@ package main
 
 import (
 	"flag"
+	"fmt"
+	"os"
 
 	"github.com/enix/kube-image-keeper/internal/proxy"
 	"github.com/enix/kube-image-keeper/internal/scheme"
@@ -17,7 +19,9 @@ var (
 
 func initFlags() {
 	klog.InitFlags(nil)
-	flag.Set("logtostderr", "true")
+	if err := flag.Set("logtostderr", "true"); err != nil {
+		fmt.Fprint(os.Stderr, "could not enable logging to stderr")
+	}
 	flag.StringVar(&kubeconfig, "kubeconfig", "", "absolute path to the kubeconfig file")
 
 	flag.Parse()

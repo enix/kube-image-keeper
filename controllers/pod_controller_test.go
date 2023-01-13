@@ -153,8 +153,9 @@ var _ = Describe("Pod Controller", func() {
 	})
 
 	AfterEach(func() {
-		k8sClient.Delete(context.Background(), &podStub)
-		k8sClient.Delete(context.Background(), &podStubNotRewritten)
+		suceedOrNotFound := Or(Succeed(), MatchError(ContainSubstring("not found")))
+		Expect(k8sClient.Delete(context.Background(), &podStub)).Should(suceedOrNotFound)
+		Expect(k8sClient.Delete(context.Background(), &podStubNotRewritten)).Should(suceedOrNotFound)
 
 		By("Deleting all cached images")
 		Expect(k8sClient.DeleteAllOf(context.Background(), &kuikenixiov1alpha1.CachedImage{})).Should(Succeed())
@@ -167,7 +168,7 @@ var _ = Describe("Pod Controller", func() {
 
 			fetched := &kuikenixiov1alpha1.CachedImageList{}
 			Eventually(func() []kuikenixiov1alpha1.CachedImage {
-				k8sClient.List(context.Background(), fetched)
+				_ = k8sClient.List(context.Background(), fetched)
 				return fetched.Items
 			}, timeout, interval).Should(HaveLen(len(podStub.Spec.Containers) + len(podStub.Spec.InitContainers)))
 
@@ -186,7 +187,7 @@ var _ = Describe("Pod Controller", func() {
 
 			Eventually(func() []kuikenixiov1alpha1.CachedImage {
 				expiringCachedImages := []kuikenixiov1alpha1.CachedImage{}
-				k8sClient.List(context.Background(), fetched)
+				_ = k8sClient.List(context.Background(), fetched)
 				for _, cachedImage := range fetched.Items {
 					if cachedImage.Spec.ExpiresAt != nil {
 						expiringCachedImages = append(expiringCachedImages, cachedImage)
@@ -201,7 +202,7 @@ var _ = Describe("Pod Controller", func() {
 
 			fetched := &kuikenixiov1alpha1.CachedImageList{}
 			Eventually(func() []kuikenixiov1alpha1.CachedImage {
-				k8sClient.List(context.Background(), fetched)
+				_ = k8sClient.List(context.Background(), fetched)
 				return fetched.Items
 			}, timeout, interval).Should(HaveLen(0))
 		})

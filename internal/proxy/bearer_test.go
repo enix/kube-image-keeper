@@ -79,7 +79,7 @@ func TestNewBearer(t *testing.T) {
 		{
 			name:        "Invalid JSON",
 			invalidJson: true,
-			wantErr:     json.Unmarshal([]byte("invalid json"), t),
+			wantErr:     json.Unmarshal([]byte("invalid json"), &[]struct{}{}),
 		},
 		{
 			name:         "Invalid realm",

@@ -15,7 +15,6 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -33,7 +32,6 @@ import (
 // These tests use Ginkgo (BDD-style Go testing framework). Refer to
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
-var cfg *rest.Config
 var k8sClient client.Client
 var testEnv *envtest.Environment
 var registryContainerId string
@@ -47,14 +45,15 @@ func TestAPIs(t *testing.T) {
 }
 
 func setupRegistry() {
-	client, err := dockerClient.NewEnvClient()
+	client, err := dockerClient.NewClientWithOpts(dockerClient.FromEnv)
 	Expect(err).NotTo(HaveOccurred())
 
 	// Pull image
 	ctx := context.Background()
 	reader, err := client.ImagePull(ctx, "registry", types.ImagePullOptions{})
 	Expect(err).NotTo(HaveOccurred())
-	io.Copy(os.Stdout, reader)
+	_, err = io.Copy(os.Stdout, reader)
+	Expect(err).NotTo(HaveOccurred())
 	err = reader.Close()
 	Expect(err).NotTo(HaveOccurred())
 
@@ -89,10 +88,10 @@ func setupRegistry() {
 }
 
 func removeRegistry() {
-	client, err := dockerClient.NewEnvClient()
+	client, err := dockerClient.NewClientWithOpts(dockerClient.FromEnv)
 	Expect(err).NotTo(HaveOccurred())
 
-	client.ContainerRemove(context.Background(), registryContainerId, types.ContainerRemoveOptions{
+	err = client.ContainerRemove(context.Background(), registryContainerId, types.ContainerRemoveOptions{
 		Force: true,
 	})
 	Expect(err).NotTo(HaveOccurred())

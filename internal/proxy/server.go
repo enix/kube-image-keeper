@@ -25,8 +25,6 @@ type Proxy struct {
 	k8sClient client.Client
 }
 
-var errorMissingDockerConfigJsonInPullSecret = errors.New("pull secret is missing key .dockerconfigjson")
-
 func New(k8sClient client.Client) *Proxy {
 	return &Proxy{
 		k8sClient: k8sClient,
@@ -65,7 +63,7 @@ func (p *Proxy) Listen() *Proxy {
 
 			ref, err := reference.ParseAnyReference(subMatches[1])
 			if err != nil {
-				c.Error(err)
+				_ = c.Error(err)
 				return
 			}
 			image := ref.String()
@@ -92,7 +90,9 @@ func (p *Proxy) Listen() *Proxy {
 func (p *Proxy) Serve() chan struct{} {
 	finished := make(chan struct{})
 	go func() {
-		p.engine.Run(":8082")
+		if err := p.engine.Run(":8082"); err != nil {
+			panic(err)
+		}
 		finished <- struct{}{}
 	}()
 
@@ -100,7 +100,10 @@ func (p *Proxy) Serve() chan struct{} {
 }
 
 func (p *Proxy) v2Endpoint(c *gin.Context) {
-	p.proxyRegistry(c, registry.Protocol+registry.Endpoint, false, nil)
+	err := p.proxyRegistry(c, registry.Protocol+registry.Endpoint, false, nil)
+	if err != nil {
+		klog.Error(err, "could not proxy registry")
+	}
 }
 
 func (p *Proxy) routeProxy(c *gin.Context) {
@@ -114,14 +117,18 @@ func (p *Proxy) routeProxy(c *gin.Context) {
 
 		transport, err := p.getAuthentifiedTransport(originRegistry, repository)
 		if err != nil {
-			c.AbortWithError(http.StatusUnauthorized, err)
+			_ = c.AbortWithError(http.StatusUnauthorized, err)
 			return
 		}
 
 		if strings.HasSuffix(originRegistry, "docker.io") {
 			originRegistry = "index.docker.io"
 		}
-		p.proxyRegistry(c, "https://"+originRegistry, true, transport)
+
+		err = p.proxyRegistry(c, "https://"+originRegistry, true, transport)
+		if err != nil {
+			klog.Error(err, "could not proxy registry")
+		}
 	}
 }
 
