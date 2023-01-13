@@ -95,7 +95,6 @@ jobs:
       - name: Run unit tests
         run: |
           set -euo pipefail
-          kubectl cluster-info
           make test
           go tool cover -html=cover.out -o coverage.html
 
