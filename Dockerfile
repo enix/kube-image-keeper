@@ -18,11 +18,10 @@ COPY api/ api/
 COPY controllers/ controllers/
 COPY cmd/ cmd/
 COPY internal/ internal/
-COPY hack/ hack/
 
 ENV CGO_ENABLED=0 GOOS=linux GOARCH=amd64
 
-RUN controller-gen object:headerFile="./hack/boilerplate.go.txt" paths="./..." && \
+RUN controller-gen object paths="./..." && \
     go build -a -o manager cmd/cache/main.go && \
     go build -a -o registry-proxy cmd/proxy/main.go
 
