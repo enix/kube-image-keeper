@@ -21,6 +21,9 @@ controllers:
   affinity: {}
   resources: {}
   webhook:
+    # Don't enable KuiK for pods scheduled into these namespaces
+    ignoredNamespaces:
+    - kube-system
     createCertificateIssuer: true
     certificateIssuerRef:
       kind: Issuer

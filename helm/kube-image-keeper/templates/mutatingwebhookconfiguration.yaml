@@ -15,6 +15,17 @@ webhooks:
       path: /mutate-core-v1-pod
   failurePolicy: Fail
   reinvocationPolicy: IfNeeded
+  namespaceSelector:
+    matchExpressions:
+    - key: kubernetes.io/metadata.name
+      operator: NotIn
+      values:
+      - {{ .Release.Namespace }}
+      {{- if .Values.controllers.webhook.ignoredNamespaces }}
+      {{- range .Values.controllers.webhook.ignoredNamespaces }}
+      - {{ . | toYaml | indent 8 | trim  }}
+      {{- end }}
+      {{- end }}
   objectSelector:
     matchExpressions:
     - key: kube-image-keeper.enix.io/image-caching-policy
