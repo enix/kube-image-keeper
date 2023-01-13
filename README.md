@@ -1,4 +1,4 @@
-# kube-image-keeper (KuIK)
+# kube-image-keeper (KuiK, pronouce [kwɪk]!)
 
 ## Installation
 
