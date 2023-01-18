@@ -3,12 +3,37 @@
 [![License MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Brought by Enix](https://img.shields.io/badge/Brought%20to%20you%20by-ENIX-%23377dff?labelColor=888&logo=data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAQAAAC1QeVaAAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JgAAgIQAAPoAAACA6AAAdTAAAOpgAAA6mAAAF3CculE8AAAAAmJLR0QA/4ePzL8AAAAHdElNRQfkBAkQIg/iouK/AAABZ0lEQVQY0yXBPU8TYQDA8f/zcu1RSDltKliD0BKNECYZmpjgIAOLiYtubn4EJxI/AImzg3E1+AGcYDIMJA7lxQQQQRAiSSFG2l457+655x4Gfz8B45zwipWJ8rPCQ0g3+p9Pj+AlHxHjnLHAbvPW2+GmLoBN+9/+vNlfGeU2Auokd8Y+VeYk/zk6O2fP9fcO8hGpN/TUbxpiUhJiEorTgy+6hUlU5N1flK+9oIJHiKNCkb5wMyOFw3V9o+zN69o0Exg6ePh4/GKr6s0H72Tc67YsdXbZ5gENNjmigaXbMj0tzEWrZNtqigva5NxjhFP6Wfw1N1pjqpFaZQ7FAY6An6zxTzHs0BGqY/NQSnxSBD6WkDRTf3O0wG2Ztl/7jaQEnGNxZMdy2yET/B2xfGlDagQE1OgRRvL93UOHqhLnesPKqJ4NxLLn2unJgVka/HBpbiIARlHFq1n/cWlMZMne1ZfyD5M/Aa4BiyGSwP4Jl3UAAAAldEVYdGRhdGU6Y3JlYXRlADIwMjAtMDQtMDlUMTQ6MzQ6MTUrMDI6MDDBq8/nAAAAJXRFWHRkYXRlOm1vZGlmeQAyMDIwLTA0LTA5VDE0OjM0OjE1KzAyOjAwsPZ3WwAAAABJRU5ErkJggg==)](https://enix.io)
 
+KuiK is your k8s image caching system designed for Kubernetes.  
+It secures your favorite container images availability, keeping a local copy within your k8s cluster.  
+Useful in any situation: when reaching your pull quota, in case the registry is unavailable, or when your MUST HAVE image is no more stored in the source registry!  
+
+## Prerequisities
+
+- Kubernetes cluster running with admin permissions
+- Helm >= 3.2.0
+- [Cert-manager](https://cert-manager.io/docs/installation/) installed
+- CNI plugin with [port-mapper](https://www.cni.dev/plugins/current/meta/portmap/) enabled
+
+## Supported Kubernetes versions
+
+Tested from v1.21 to v1.24 but should works on latest versions.
+
+## How it works
+
+Kuik is composed of three main components:
+
+- A mutating webhook responsible to rewrite pod's image name on the fly.
+- A controller watching pods, that create a custom resource `CachedImage`.
+- A controller watching `CachedImage` custom resources and store images. 
+
+In addition, we deploy:
+
+- A container [registry](https://docs.docker.com/registry/) to store downloaded images.
+- A proxy deployed as a DaemonSet reponsible to pull images from either the local or the source registry.
+
 ## Installation
 
-Cert-manager is used to issue TLS certificate for the mutating webhook. It is thus required to install it first.
-
-1. [Install](https://cert-manager.io/docs/installation/) cert-manager.
-1. Create a `values.yaml` file to configure the chart.
+1. Customize your `values.yaml` to configure the chart.
 1. Install the helm chart following one of the two below methods:
 
 **From source:**
@@ -21,11 +46,12 @@ helm install --create-namespace --namespace kuik-system kube-image-keeper --valu
 
 ```bash
 helm repo add enix https://charts.enix.io/
-helm search repo enix
 helm install --create-namespace --namespace kuik-system kube-image-keeper --values=./values.yaml enix/kube-image-keeper
 ```
 
-## Pod filtering
+## Usage 
+
+### Pod filtering
 
 There are 2 ways to filter pods from which images should be cached.
 
@@ -34,14 +60,14 @@ There are 2 ways to filter pods from which images should be cached.
 
 Those parameters are used by the `MutatingWebhookConfiguration` to filter pods that needs to be updated. Once images from those pods are rewritten, a label will be added to them so the Pod controller will create CachedImages custom resources. The CachedImages controller will then cache those images.
 
-## Cache persistance & garbage collecting
+### Cache persistance & garbage collecting
 
 Persistance is disabled by default. It requires a CSI plugin to be installed on the cluster to be enabled. It is then configured through the `values.yaml` helm release configuration file in `registry.persistance`.
 
 When a CachedImage expires because it is not used anymore by the cluster, the image is deleted from the registry. But it only delete **reference files** like tags, not blobs that accounts for the most storage usage. [Garbage collection](https://docs.docker.com/registry/garbage-collection/) allows to remove those blobs and free space. The garbage collecting job can be configured to run thanks to the `registry.garbageCollectionSchedule` configuration in a cron-like format. It is disabled by default as running garbage collection without persistency configured would just empty the cache registry as described in the below section.
 
-### ⚠️ Limitations
+## ⚠️  Limitations
 
-Garbage collection can only run when the registry is read-only or not running at all to prevent corrupted images as described in the [documentation](https://docs.docker.com/registry/garbage-collection/). Thus, when the garbage collection job runs, it first stops any running instance of the cache registry before doing garbage collection. During this period of time, all pulls are proxified to the upstream registry so operation can continue smoothly.
+Garbage collection can only run when the registry is read-only or not running at all to prevent corrupted images as described in the [documentation](https://docs.docker.com/registry/garbage-collection/). Thus, when the garbage collection job runs, it first stops any running instance of the cache registry before doing garbage collection. During this period of time, all pulls are proxified to the source registry so operation can continue smoothly.
 
 Be careful, running garbage collection while not having persistance configured would simply empty the cache registry since its pod is destroyed during the operation and it is thus not recommanded for production setups.
