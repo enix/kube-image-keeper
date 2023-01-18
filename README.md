@@ -3,13 +3,17 @@
 [![License MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Brought by Enix](https://img.shields.io/badge/Brought%20to%20you%20by-ENIX-%23377dff?labelColor=888&logo=data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAQAAAC1QeVaAAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JgAAgIQAAPoAAACA6AAAdTAAAOpgAAA6mAAAF3CculE8AAAAAmJLR0QA/4ePzL8AAAAHdElNRQfkBAkQIg/iouK/AAABZ0lEQVQY0yXBPU8TYQDA8f/zcu1RSDltKliD0BKNECYZmpjgIAOLiYtubn4EJxI/AImzg3E1+AGcYDIMJA7lxQQQQRAiSSFG2l457+655x4Gfz8B45zwipWJ8rPCQ0g3+p9Pj+AlHxHjnLHAbvPW2+GmLoBN+9/+vNlfGeU2Auokd8Y+VeYk/zk6O2fP9fcO8hGpN/TUbxpiUhJiEorTgy+6hUlU5N1flK+9oIJHiKNCkb5wMyOFw3V9o+zN69o0Exg6ePh4/GKr6s0H72Tc67YsdXbZ5gENNjmigaXbMj0tzEWrZNtqigva5NxjhFP6Wfw1N1pjqpFaZQ7FAY6An6zxTzHs0BGqY/NQSnxSBD6WkDRTf3O0wG2Ztl/7jaQEnGNxZMdy2yET/B2xfGlDagQE1OgRRvL93UOHqhLnesPKqJ4NxLLn2unJgVka/HBpbiIARlHFq1n/cWlMZMne1ZfyD5M/Aa4BiyGSwP4Jl3UAAAAldEVYdGRhdGU6Y3JlYXRlADIwMjAtMDQtMDlUMTQ6MzQ6MTUrMDI6MDDBq8/nAAAAJXRFWHRkYXRlOm1vZGlmeQAyMDIwLTA0LTA5VDE0OjM0OjE1KzAyOjAwsPZ3WwAAAABJRU5ErkJggg==)](https://enix.io)
 
-KuiK is your k8s image caching system designed for Kubernetes.  
-It secures your favorite container images availability, keeping a local copy within your k8s cluster.  
-Useful in any situation: when reaching your pull quota, in case the registry is unavailable, or when your MUST HAVE image is no more stored in the source registry!  
+Kube Image Keeper (a.k.a. *KuiK*) is a container image caching system designed for Kubernetes.
+It ensures the availability of your favorite container images by keeping a local copy within your k8s cluster.  
+
+This is useful in various situation: 
+- to avoid reaching your dockerhub (or any other rate-limited registry) pull quota
+- if the registry is unavailable for some reason
+- if your critical image is no longer available in the registry (deleted by mistake, inappropriate retention policy...)
 
 ## Prerequisities
 
-- Kubernetes cluster running with admin permissions
+- Kubernetes cluster up & running with admin permissions
 - Helm >= 3.2.0
 - [Cert-manager](https://cert-manager.io/docs/installation/) installed
 - CNI plugin with [port-mapper](https://www.cni.dev/plugins/current/meta/portmap/) enabled
@@ -20,11 +24,11 @@ Tested from v1.21 to v1.24 but should works on latest versions.
 
 ## How it works
 
-Kuik is composed of three main components:
+Kuik is composed of 3 main components:
 
 - A mutating webhook responsible to rewrite pod's image name on the fly.
 - A controller watching pods, that create a custom resource `CachedImage`.
-- A controller watching `CachedImage` custom resources and store images. 
+- A controller watching `CachedImage` custom resources and fetching images from source registry and storing them to the local one.
 
 In addition, we deploy:
 
