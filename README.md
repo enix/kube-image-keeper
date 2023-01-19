@@ -35,6 +35,11 @@ In addition, we deploy:
 - A container [registry](https://docs.docker.com/registry/) to store downloaded images.
 - A proxy deployed as a DaemonSet reponsible to pull images from either the local or the source registry.
 
+![Architecture](./docs/architecture.jpg)
+
+When a pod is scheduled, the mutating webhook will rewrite and prefix the image name with `localhost:{port}/` where `port` is configurable. 
+The proxy hostPort setting allows the container runtime to pull images though it on localhost. The proxy will determine if the image should be retrieve either from the local or the source registry.  
+
 ## Installation
 
 1. Customize your `values.yaml` to configure the chart.
