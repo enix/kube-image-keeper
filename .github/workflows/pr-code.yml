@@ -39,11 +39,6 @@ jobs:
     name: Unit Testing
     runs-on: ubuntu-22.04
     steps:
-      - name: Create KinD cluster
-        uses: engineerd/setup-kind@v0.5.0
-        with:
-          version: v0.15.0
-
       - name: Checkout Repository
         uses: actions/checkout@v3
 
@@ -66,7 +61,6 @@ jobs:
       - name: Run unit tests
         run: |
           set -euo pipefail
-          kubectl cluster-info
           make test
           go tool cover -html=cover.out -o coverage.html
 
