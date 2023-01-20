@@ -62,10 +62,11 @@ helm install --create-namespace --namespace kuik-system kube-image-keeper --valu
 
 ### Pod filtering
 
-There are 2 ways to filter pods from which images should be cached.
+There are 3 ways to filter pods from which images should be cached.
 
 - The first and most basic way is to add the label `kube-image-keeper.enix.io/image-caching-policy: ignore` on pods that should be ignored.
 - The second way is to define the value `controllers.webhook.objectSelector.matchExpressions` in helm `values.yaml` configuration file.
+- Last, you can ignore all pods scheduled in a specific namespace using the directive `controllers.webhook.ignoredNamespaces` (This feature needs [NamespaceDefaultLabelName](https://kubernetes.io/docs/concepts/services-networking/network-policies/#targeting-a-namespace-by-its-name) feature gate enabled to work).
 
 Those parameters are used by the `MutatingWebhookConfiguration` to filter pods that needs to be updated. Once images from those pods are rewritten, a label will be added to them so the Pod controller will create CachedImages custom resources. The CachedImages controller will then cache those images.
 
