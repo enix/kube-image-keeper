@@ -21,6 +21,8 @@ const (
 	DefaultAuthKey = "https://" + name.DefaultRegistry + "/v1/"
 )
 
+var missingDockerConfigJsonError = errors.New("invalid secret: missing .dockerconfigjson key")
+
 type kubernetesKeychain struct {
 	client     client.Client
 	mu         sync.Mutex
@@ -56,7 +58,7 @@ func (k *kubernetesKeychain) Resolve(target authn.Resource) (authn.Authenticator
 
 	dockerConfigJson, ok := secret.Data[".dockerconfigjson"]
 	if !ok {
-		return nil, errors.New("invalid secret: missing .dockerconfigjson key")
+		return nil, missingDockerConfigJsonError
 	}
 	cf, err := config.LoadFromReader(bytes.NewReader(dockerConfigJson))
 	if err != nil {
