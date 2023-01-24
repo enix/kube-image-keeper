@@ -22,6 +22,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -65,8 +66,14 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 
 	cachedImages := desiredCachedImages(ctx, &pod)
 
+	finalizerName := "pod.kuik.enix.io/finalizer"
+
 	// On pod deletion
 	if !pod.DeletionTimestamp.IsZero() {
+		if !containsString(pod.GetFinalizers(), finalizerName) {
+			return ctrl.Result{}, nil
+		}
+
 		log.Info("pod is deleting")
 		for _, cachedImage := range cachedImages {
 			// Check if this CachedImage is in use by other pods
@@ -106,8 +113,24 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 				return ctrl.Result{}, err
 			}
 		}
+
+		log.Info("removing finalizer")
+		controllerutil.RemoveFinalizer(&pod, finalizerName)
+		if err := r.Update(ctx, &pod); err != nil {
+			return ctrl.Result{}, err
+		}
+
 		log.Info("reconciled deleting pod")
 		return ctrl.Result{}, nil
+	}
+
+	// Add finalizer to keep the Pod during expiring of CachedImages
+	if !containsString(pod.GetFinalizers(), finalizerName) {
+		log.Info("adding finalizer")
+		controllerutil.AddFinalizer(&pod, finalizerName)
+		if err := r.Update(ctx, &pod); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
 	// On pod creation and update
