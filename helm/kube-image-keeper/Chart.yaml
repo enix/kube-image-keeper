@@ -1,6 +1,6 @@
 apiVersion: v2
 name: kube-image-keeper
-description: KuiK is a container image caching system for Kubernetes.
+description: kuik is a container image caching system for Kubernetes.
 type: application
 annotations:
   artifacthub.io/containsSecurityUpdates: 'false'
