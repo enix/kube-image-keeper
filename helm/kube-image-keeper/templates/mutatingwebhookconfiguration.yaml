@@ -13,7 +13,7 @@ webhooks:
       name: kuik-webhook-service
       namespace: {{ .Release.Namespace }}
       path: /mutate-core-v1-pod
-  failurePolicy: Fail
+  failurePolicy: Ignore
   reinvocationPolicy: IfNeeded
   namespaceSelector:
     matchExpressions:
