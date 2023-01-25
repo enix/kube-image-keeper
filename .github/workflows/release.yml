@@ -463,18 +463,18 @@ jobs:
           charts_repo = os.path.join(os.environ['WORKSPACE'], 'enix-charts')
           run('git', 'clone', 'https://github.com/enix/helm-charts', charts_repo)
 
-#          action('copy chart files')
-#          repo_chart_path = os.path.join(charts_repo, 'charts', os.environ['CHART_NAME'])
-#          shutil.copytree(chart_path, repo_chart_path, symlinks=True, dirs_exist_ok=False)
-#
-#          action('create the chart package')
-#          run(os.environ['CR_PATH'], 'package', repo_chart_path, cwd=charts_repo)
-#
-#          action('upload the chart')
-#          run(os.environ['CR_PATH'], 'upload', '--skip-existing', '--owner', 'enix', '--git-repo', 'helm-charts', cwd=charts_repo)
-#
-#          action('update repository index')
-#          run(os.environ['CR_PATH'], 'index', '--push', '-i', 'index.yaml', '--owner', 'enix', '--git-repo', 'helm-charts', cwd=charts_repo)
+          action('copy chart files')
+          repo_chart_path = os.path.join(charts_repo, 'charts', os.environ['CHART_NAME'])
+          shutil.copytree(chart_path, repo_chart_path, symlinks=True, dirs_exist_ok=False)
+
+          action('create the chart package')
+          run(os.environ['CR_PATH'], 'package', repo_chart_path, cwd=charts_repo)
+
+          action('upload the chart')
+          run(os.environ['CR_PATH'], 'upload', '--skip-existing', '--owner', 'enix', '--git-repo', 'helm-charts', cwd=charts_repo)
+
+          action('update repository index')
+          run(os.environ['CR_PATH'], 'index', '--push', '-i', 'index.yaml', '--owner', 'enix', '--git-repo', 'helm-charts', cwd=charts_repo)
 
   cleanup:
     name: Cleanup
