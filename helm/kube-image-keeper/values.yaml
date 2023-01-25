@@ -6,6 +6,7 @@ cachedImagesExpiryDelay: 30
 installCRD: true
 
 controllers:
+  replicas: 2
   image:
     repository: enix/kube-image-keeper
     pullPolicy: IfNotPresent

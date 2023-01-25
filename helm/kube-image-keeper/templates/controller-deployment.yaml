@@ -5,6 +5,9 @@ metadata:
   labels:
     {{- include "kube-image-keeper.controllers-labels" . | nindent 4 }}
 spec:
+  {{- with .Values.controllers.replicas }}
+  replicas: {{ . }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "kube-image-keeper.controllers-selectorLabels" . | nindent 6 }}
