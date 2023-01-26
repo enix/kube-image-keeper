@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strings"
 
 	_ "crypto/sha256"
 
 	"github.com/enix/kube-image-keeper/controllers"
+	"github.com/google/go-containerregistry/pkg/name"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -38,9 +40,6 @@ func (a *ImageRewriter) Handle(ctx context.Context, req admission.Request) admis
 
 	if req.Namespace != a.IgnoreNamespace {
 		a.RewriteImages(pod)
-		if err != nil {
-			return admission.Errored(http.StatusUnprocessableEntity, err)
-		}
 	} else {
 		log.Info("Ignoring pod from ignored namespace", "namespace", req.Namespace)
 	}
@@ -85,9 +84,17 @@ func (a *ImageRewriter) InjectDecoder(d *admission.Decoder) error {
 
 func (a *ImageRewriter) handleContainer(pod *corev1.Pod, container *corev1.Container, annotationKey string) {
 	re := regexp.MustCompile(`localhost:[0-9]+/`)
-	image := string(re.ReplaceAllString(container.Image, ""))
+	image := re.ReplaceAllString(container.Image, "")
+
+	sourceRef, err := name.ParseReference(image, name.Insecure)
+	if err != nil {
+		return // ignore rewriting invalid images
+	}
 
 	pod.Annotations[annotationKey] = image
+
+	sanitizedRegistryName := strings.ReplaceAll(sourceRef.Context().RegistryStr(), ":", "-")
+	image = strings.ReplaceAll(image, sourceRef.Context().RegistryStr(), sanitizedRegistryName)
 
 	container.Image = fmt.Sprintf("localhost:%d/%s", a.ProxyPort, image)
 }

@@ -73,7 +73,7 @@ func (p *Proxy) Listen() *Proxy {
 			imageParts := strings.Split(image, "/")
 			c.Params = append(c.Params, gin.Param{
 				Key:   "originRegistry",
-				Value: imageParts[0],
+				Value: handleOriginRegistryPort(imageParts[0]),
 			})
 			c.Params = append(c.Params, gin.Param{
 				Key:   "repository",
@@ -243,4 +243,15 @@ func recoveryMiddleware() gin.HandlerFunc {
 		}()
 		c.Next()
 	}
+}
+
+func handleOriginRegistryPort(originRegistry string) string {
+	re := regexp.MustCompile(`-([0-9]+)`)
+	parts := re.FindStringSubmatch(originRegistry)
+
+	if len(parts) == 2 {
+		originRegistry = strings.ReplaceAll(originRegistry, parts[0], ":"+parts[1])
+	}
+
+	return originRegistry
 }

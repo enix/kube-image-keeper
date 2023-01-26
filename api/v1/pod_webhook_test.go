@@ -23,6 +23,8 @@ var podStub = corev1.Pod{
 		Containers: []corev1.Container{
 			{Name: "b", Image: "original"},
 			{Name: "c", Image: "localhost:1313/original-2"},
+			{Name: "d", Image: "185.145.250.247:30042/alpine"},
+			{Name: "e", Image: "185.145.250.247:30042/alpine:latest"},
 		},
 	},
 }
@@ -42,6 +44,8 @@ func TestRewriteImages(t *testing.T) {
 		rewrittenContainers := []corev1.Container{
 			{Name: "b", Image: "localhost:4242/original"},
 			{Name: "c", Image: "localhost:4242/original-2"},
+			{Name: "d", Image: "localhost:4242/185.145.250.247-30042/alpine"},
+			{Name: "e", Image: "localhost:4242/185.145.250.247-30042/alpine:latest"},
 		}
 
 		g.Expect(podStub.Spec.InitContainers).To(Equal(rewrittenInitContainers))
@@ -52,5 +56,7 @@ func TestRewriteImages(t *testing.T) {
 		g.Expect(podStub.Annotations[fmt.Sprintf(controllers.AnnotationOriginalInitImageTemplate, "a")]).To(Equal("original-init"))
 		g.Expect(podStub.Annotations[fmt.Sprintf(controllers.AnnotationOriginalImageTemplate, "b")]).To(Equal("original"))
 		g.Expect(podStub.Annotations[fmt.Sprintf(controllers.AnnotationOriginalImageTemplate, "c")]).To(Equal("original-2"))
+		g.Expect(podStub.Annotations[fmt.Sprintf(controllers.AnnotationOriginalImageTemplate, "d")]).To(Equal("185.145.250.247:30042/alpine"))
+		g.Expect(podStub.Annotations[fmt.Sprintf(controllers.AnnotationOriginalImageTemplate, "e")]).To(Equal("185.145.250.247:30042/alpine:latest"))
 	})
 }
