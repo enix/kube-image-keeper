@@ -13,7 +13,7 @@ func sha224(str string) string {
 	return fmt.Sprintf("%x", sha256.Sum224([]byte(str)))
 }
 
-func Test_getDestinationName(t *testing.T) {
+func Test_parseLocalReference(t *testing.T) {
 	tests := []struct {
 		name                    string
 		image                   string
@@ -50,16 +50,15 @@ func Test_getDestinationName(t *testing.T) {
 	g := NewWithT(t)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			label, err := getDestinationName(tt.image)
+			reference, err := parseLocalReference(tt.image)
 
 			if tt.wantErr != nil {
 				g.Expect(err).To(MatchError(tt.wantErr))
 			} else {
 				g.Expect(err).ToNot(HaveOccurred())
+				g.Expect(reference).ToNot(BeNil())
+				g.Expect(reference.Name()).To(Equal(tt.expectedDestinationName))
 			}
-
-			g.Expect(label).To(Equal(tt.expectedDestinationName))
-
 		})
 	}
 }
