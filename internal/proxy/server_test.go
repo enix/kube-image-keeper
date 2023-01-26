@@ -77,3 +77,40 @@ func Test_v2Endpoint(t *testing.T) {
 	proxy.v2Endpoint(ctx)
 	g.Expect(recorder.Body.String()).To(Equal("v2 endpoint"))
 }
+
+func Test_handleOriginRegistryPort(t *testing.T) {
+	tests := []struct {
+		name           string
+		originRegistry string
+		expectedOutput string
+	}{
+		{
+			name:           "Ip address",
+			originRegistry: "127.0.0.1",
+			expectedOutput: "127.0.0.1",
+		},
+		{
+			name:           "Ip address + port",
+			originRegistry: "127.0.0.1-5000",
+			expectedOutput: "127.0.0.1:5000",
+		},
+		{
+			name:           "Domain name",
+			originRegistry: "enix.io",
+			expectedOutput: "enix.io",
+		},
+		{
+			name:           "Domain name + port",
+			originRegistry: "enix.io-5000",
+			expectedOutput: "enix.io:5000",
+		},
+	}
+
+	g := NewWithT(t)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			originRegistry := handleOriginRegistryPort(tt.originRegistry)
+			g.Expect(originRegistry).To(Equal(tt.expectedOutput))
+		})
+	}
+}

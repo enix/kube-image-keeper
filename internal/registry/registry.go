@@ -39,7 +39,11 @@ func getDestinationName(sourceName string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
+	sanitizedRegistryName := strings.ReplaceAll(sourceRef.Context().RegistryStr(), ":", "-")
 	fullname := strings.ReplaceAll(sourceRef.Name(), "index.docker.io", "docker.io")
+	fullname = strings.ReplaceAll(fullname, sourceRef.Context().RegistryStr(), sanitizedRegistryName)
+
 	return Endpoint + "/" + fullname, nil
 }
 
