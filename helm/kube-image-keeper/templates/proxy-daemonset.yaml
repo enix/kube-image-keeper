@@ -39,8 +39,10 @@ spec:
           command:
             - registry-proxy
             - -v={{ .Values.proxy.verbosity }}
+          {{- with .Values.proxy.resources }}
           resources:
-            {{- toYaml .Values.resources | nindent 12 }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
       {{- with .Values.proxy.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
