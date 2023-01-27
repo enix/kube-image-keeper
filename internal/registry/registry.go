@@ -80,7 +80,6 @@ func DeleteImage(imageName string) error {
 	}
 
 	digest, err := name.NewDigest(ref.Name()+"@"+descriptor.Digest.String(), name.Insecure)
-
 	if err != nil {
 		return err
 	}

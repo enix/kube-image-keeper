@@ -12,6 +12,18 @@ import (
 	"github.com/onsi/gomega/ghttp"
 )
 
+var mockedDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+var mockedHeadImageHeader = http.Header{
+	"Docker-Content-Digest": []string{mockedDigest},
+}
+
+func mockV2Endpoint(gh *ghttp.GHTTPWithGomega) http.HandlerFunc {
+	return ghttp.CombineHandlers(
+		gh.VerifyRequest(http.MethodGet, "/v2/"),
+		gh.RespondWith(http.StatusOK, ""),
+	)
+}
+
 func sha224(str string) string {
 	return fmt.Sprintf("%x", sha256.Sum224([]byte(str)))
 }
@@ -104,23 +116,16 @@ func Test_ImageIsCached(t *testing.T) {
 			server := ghttp.NewServer()
 			defer server.Close()
 
-			headResponse := "response"
+			headResponse := "..."
 			if tt.wantErr != nil {
 				headResponse = "" // trigger missing Content-Type header error
 			}
 
 			server.AppendHandlers(
-				ghttp.CombineHandlers(
-					gh.VerifyRequest(http.MethodGet, "/v2/"),
-					gh.RespondWith(http.StatusOK, ""),
-				),
+				mockV2Endpoint(gh),
 				ghttp.CombineHandlers(
 					gh.VerifyRequest(http.MethodHead, "/v2/docker.io/library/"+tt.image+"/manifests/latest"),
-					gh.RespondWith(tt.httpStatus, headResponse, http.Header{
-						"Docker-Content-Digest": []string{
-							"sha256:0000000000000000000000000000000000000000000000000000000000000000",
-						},
-					}),
+					gh.RespondWith(tt.httpStatus, headResponse, mockedHeadImageHeader),
 				),
 			)
 
@@ -133,6 +138,81 @@ func Test_ImageIsCached(t *testing.T) {
 				g.Expect(err).ToNot(HaveOccurred())
 			}
 			g.Expect(isCached).To(Equal(tt.httpStatus == http.StatusOK && tt.wantErr == nil))
+		})
+	}
+}
+
+func Test_DeleteImage(t *testing.T) {
+	tests := []struct {
+		name              string
+		image             string
+		httpStatus        int
+		headRandomlyFails bool
+		wantErr           error
+	}{
+		{
+			name:       "Exists",
+			image:      "alpine",
+			httpStatus: http.StatusOK,
+		},
+		{
+			name:       "Invalid reference",
+			image:      "alpine:alpine:latest",
+			httpStatus: http.StatusOK,
+			wantErr:    name.NewErrBadName("could not parse reference"),
+		},
+		{
+			name:       "Don't exists",
+			image:      "alpine",
+			httpStatus: http.StatusNotFound,
+		},
+		{
+			name:              "Second head randomly fails",
+			image:             "alpine",
+			headRandomlyFails: true,
+			httpStatus:        http.StatusOK,
+			wantErr:           errors.New("response did not include Content-Type header"),
+		},
+	}
+
+	g := NewWithT(t)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gh := ghttp.NewGHTTPWithGomega(g)
+			server := ghttp.NewServer()
+			defer server.Close()
+
+			secondHeadResponse := "..."
+			if tt.headRandomlyFails {
+				secondHeadResponse = "" // trigger missing Content-Type header error
+			}
+
+			server.AppendHandlers(
+				mockV2Endpoint(gh),
+				ghttp.CombineHandlers(
+					gh.VerifyRequest(http.MethodHead, "/v2/docker.io/library/"+tt.image+"/manifests/latest"),
+					gh.RespondWith(tt.httpStatus, "...", mockedHeadImageHeader),
+				),
+				mockV2Endpoint(gh),
+				ghttp.CombineHandlers(
+					gh.VerifyRequest(http.MethodHead, "/v2/docker.io/library/"+tt.image+"/manifests/latest"),
+					gh.RespondWith(tt.httpStatus, secondHeadResponse, mockedHeadImageHeader),
+				),
+				mockV2Endpoint(gh),
+				ghttp.CombineHandlers(
+					gh.VerifyRequest(http.MethodDelete, "/v2/docker.io/library/"+tt.image+"/manifests/"+mockedDigest),
+					gh.RespondWith(http.StatusOK, ""),
+				),
+			)
+
+			Endpoint = server.Addr()
+			err := DeleteImage(tt.image)
+			if tt.wantErr != nil {
+				g.Expect(err).To(BeAssignableToTypeOf(tt.wantErr))
+				g.Expect(err).To(MatchError(ContainSubstring(tt.wantErr.Error())))
+			} else {
+				g.Expect(err).ToNot(HaveOccurred())
+			}
 		})
 	}
 }
