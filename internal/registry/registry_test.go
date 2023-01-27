@@ -2,11 +2,14 @@ package registry
 
 import (
 	"crypto/sha256"
+	"errors"
 	"fmt"
+	"net/http"
 	"testing"
 
 	"github.com/google/go-containerregistry/pkg/name"
 	. "github.com/onsi/gomega"
+	"github.com/onsi/gomega/ghttp"
 )
 
 func sha224(str string) string {
@@ -23,22 +26,22 @@ func Test_parseLocalReference(t *testing.T) {
 		{
 			name:                    "Basic",
 			image:                   "alpine",
-			expectedDestinationName: "kube-image-keeper-service:5000/docker.io/library/alpine:latest",
+			expectedDestinationName: Endpoint + "/docker.io/library/alpine:latest",
 		},
 		{
 			name:                    "docker.io",
 			image:                   "docker.io/library/alpine",
-			expectedDestinationName: "kube-image-keeper-service:5000/docker.io/library/alpine:latest",
+			expectedDestinationName: Endpoint + "/docker.io/library/alpine:latest",
 		},
 		{
 			name:                    "index.docker.io",
 			image:                   "index.docker.io/library/alpine:3.14",
-			expectedDestinationName: "kube-image-keeper-service:5000/docker.io/library/alpine:3.14",
+			expectedDestinationName: Endpoint + "/docker.io/library/alpine:3.14",
 		},
 		{
 			name:                    "Non default registry with port",
 			image:                   "some-gitlab-registry.com:5000/group/another-group/project/backend",
-			expectedDestinationName: "kube-image-keeper-service:5000/some-gitlab-registry.com-5000/group/another-group/project/backend:latest",
+			expectedDestinationName: Endpoint + "/some-gitlab-registry.com-5000/group/another-group/project/backend:latest",
 		},
 		{
 			name:    "Invalid source name",
@@ -59,6 +62,77 @@ func Test_parseLocalReference(t *testing.T) {
 				g.Expect(reference).ToNot(BeNil())
 				g.Expect(reference.Name()).To(Equal(tt.expectedDestinationName))
 			}
+		})
+	}
+}
+
+func Test_ImageIsCached(t *testing.T) {
+	tests := []struct {
+		name       string
+		image      string
+		httpStatus int
+		wantErr    error
+	}{
+		{
+			name:       "Exists",
+			image:      "alpine",
+			httpStatus: http.StatusOK,
+		},
+		{
+			name:       "Don't exists",
+			image:      "alpine",
+			httpStatus: http.StatusNotFound,
+		},
+		{
+			name:       "Missing header",
+			image:      "alpine",
+			httpStatus: http.StatusOK,
+			wantErr:    errors.New("response did not include Content-Type header"),
+		},
+		{
+			name:       "Invalid reference",
+			image:      "alpine:alpine:latest",
+			httpStatus: http.StatusOK,
+			wantErr:    name.NewErrBadName("could not parse reference"),
+		},
+	}
+
+	g := NewWithT(t)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gh := ghttp.NewGHTTPWithGomega(g)
+			server := ghttp.NewServer()
+			defer server.Close()
+
+			headResponse := "response"
+			if tt.wantErr != nil {
+				headResponse = "" // trigger missing Content-Type header error
+			}
+
+			server.AppendHandlers(
+				ghttp.CombineHandlers(
+					gh.VerifyRequest(http.MethodGet, "/v2/"),
+					gh.RespondWith(http.StatusOK, ""),
+				),
+				ghttp.CombineHandlers(
+					gh.VerifyRequest(http.MethodHead, "/v2/docker.io/library/"+tt.image+"/manifests/latest"),
+					gh.RespondWith(tt.httpStatus, headResponse, http.Header{
+						"Docker-Content-Digest": []string{
+							"sha256:0000000000000000000000000000000000000000000000000000000000000000",
+						},
+					}),
+				),
+			)
+
+			Endpoint = server.Addr()
+			isCached, err := ImageIsCached(tt.image)
+			if tt.wantErr != nil {
+				g.Expect(err).To(BeAssignableToTypeOf(tt.wantErr))
+				g.Expect(err).To(MatchError(ContainSubstring(tt.wantErr.Error())))
+			} else {
+				g.Expect(err).ToNot(HaveOccurred())
+			}
+			g.Expect(isCached).To(Equal(tt.httpStatus == http.StatusOK && tt.wantErr == nil))
 		})
 	}
 }
