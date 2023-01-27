@@ -57,99 +57,81 @@ helm install --create-namespace --namespace kuik-system kube-image-keeper enix/k
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| cachedImagesExpiryDelay | int | `30` |  |
-| controllers.affinity | object | `{}` |  |
-| controllers.image.pullPolicy | string | `"IfNotPresent"` |  |
-| controllers.image.repository | string | `"enix/kube-image-keeper"` |  |
-| controllers.image.tag | string | `""` |  |
-| controllers.imagePullSecrets | list | `[]` |  |
-| controllers.nodeSelector | object | `{}` |  |
-| controllers.podAnnotations | object | `{}` |  |
-| controllers.podSecurityContext | object | `{}` |  |
-| controllers.replicas | int | `2` |  |
-| controllers.resources | object | `{}` |  |
-| controllers.securityContext | object | `{}` |  |
-| controllers.tolerations | list | `[]` |  |
-| controllers.verbosity | string | `"INFO"` |  |
-| controllers.webhook.certificateIssuerRef.kind | string | `"Issuer"` |  |
-| controllers.webhook.certificateIssuerRef.name | string | `"kuik-selfsigned-issuer"` |  |
-| controllers.webhook.createCertificateIssuer | bool | `true` |  |
-| controllers.webhook.ignoredNamespaces[0] | string | `"kube-system"` |  |
-| controllers.webhook.objectSelector.matchExpressions | list | `[]` |  |
-| installCRD | bool | `true` |  |
-| proxy.affinity | object | `{}` |  |
-| proxy.hostPort | int | `7439` |  |
-| proxy.image.pullPolicy | string | `"IfNotPresent"` |  |
-| proxy.image.repository | string | `"enix/kube-image-keeper"` |  |
-| proxy.image.tag | string | `""` |  |
-| proxy.imagePullSecrets | list | `[]` |  |
-| proxy.nodeSelector | object | `{}` |  |
-| proxy.podAnnotations | object | `{}` |  |
-| proxy.podSecurityContext | object | `{}` |  |
-| proxy.resources | object | `{}` |  |
-| proxy.securityContext | object | `{}` |  |
-| proxy.tolerations[0].effect | string | `"NoSchedule"` |  |
-| proxy.tolerations[0].operator | string | `"Exists"` |  |
-| proxy.tolerations[1].key | string | `"CriticalAddonsOnly"` |  |
-| proxy.tolerations[1].operator | string | `"Exists"` |  |
-| proxy.tolerations[2].effect | string | `"NoExecute"` |  |
-| proxy.tolerations[2].operator | string | `"Exists"` |  |
-| proxy.tolerations[3].effect | string | `"NoExecute"` |  |
-| proxy.tolerations[3].key | string | `"node.kubernetes.io/not-ready"` |  |
-| proxy.tolerations[3].operator | string | `"Exists"` |  |
-| proxy.tolerations[4].effect | string | `"NoExecute"` |  |
-| proxy.tolerations[4].key | string | `"node.kubernetes.io/unreachable"` |  |
-| proxy.tolerations[4].operator | string | `"Exists"` |  |
-| proxy.tolerations[5].effect | string | `"NoSchedule"` |  |
-| proxy.tolerations[5].key | string | `"node.kubernetes.io/disk-pressure"` |  |
-| proxy.tolerations[5].operator | string | `"Exists"` |  |
-| proxy.tolerations[6].effect | string | `"NoSchedule"` |  |
-| proxy.tolerations[6].key | string | `"node.kubernetes.io/memory-pressure"` |  |
-| proxy.tolerations[6].operator | string | `"Exists"` |  |
-| proxy.tolerations[7].effect | string | `"NoSchedule"` |  |
-| proxy.tolerations[7].key | string | `"node.kubernetes.io/pid-pressure"` |  |
-| proxy.tolerations[7].operator | string | `"Exists"` |  |
-| proxy.tolerations[8].effect | string | `"NoSchedule"` |  |
-| proxy.tolerations[8].key | string | `"node.kubernetes.io/unschedulable"` |  |
-| proxy.tolerations[8].operator | string | `"Exists"` |  |
-| proxy.tolerations[9].effect | string | `"NoSchedule"` |  |
-| proxy.tolerations[9].key | string | `"node.kubernetes.io/network-unavailable"` |  |
-| proxy.tolerations[9].operator | string | `"Exists"` |  |
-| proxy.verbosity | int | `1` |  |
-| psp.create | bool | `false` |  |
-| registry.affinity | object | `{}` |  |
-| registry.env | list | `[]` |  |
-| registry.garbageCollectionSchedule | string | `"0 0 * * 0"` |  |
-| registry.image.pullPolicy | string | `"IfNotPresent"` |  |
-| registry.image.repository | string | `"registry"` |  |
-| registry.image.tag | string | `"latest"` |  |
-| registry.imagePullSecrets | list | `[]` |  |
-| registry.nodeSelector | object | `{}` |  |
-| registry.persistence.enabled | bool | `false` |  |
-| registry.persistence.size | string | `"20Gi"` |  |
-| registry.persistence.storageClass | string | `nil` |  |
-| registry.podAnnotations | object | `{}` |  |
-| registry.podSecurityContext | object | `{}` |  |
-| registry.resources | object | `{}` |  |
-| registry.securityContext | object | `{}` |  |
-| registry.service.type | string | `"ClusterIP"` |  |
-| registry.tolerations | list | `[]` |  |
-| registryUI.affinity | object | `{}` |  |
-| registryUI.auth.password | string | `""` |  |
-| registryUI.auth.username | string | `"admin"` |  |
-| registryUI.enabled | bool | `false` |  |
-| registryUI.image.pullPolicy | string | `"IfNotPresent"` |  |
-| registryUI.image.repository | string | `"parabuzzle/craneoperator"` |  |
-| registryUI.image.tag | string | `"2.2.5"` |  |
-| registryUI.imagePullSecrets | list | `[]` |  |
-| registryUI.nodeSelector | object | `{}` |  |
-| registryUI.podAnnotations | object | `{}` |  |
-| registryUI.podSecurityContext | object | `{}` |  |
-| registryUI.resources | object | `{}` |  |
-| registryUI.securityContext | object | `{}` |  |
-| registryUI.tolerations | list | `[]` |  |
-| serviceAccount.annotations | object | `{}` |  |
-| serviceAccount.name | string | `""` |  |
+| cachedImagesExpiryDelay | int | `30` | Delay in days before deleting an unused CachedImage |
+| controllers.affinity | object | `{}` | Affinity for the controller pod |
+| controllers.image.pullPolicy | string | `"IfNotPresent"` | Controller image pull policy |
+| controllers.image.repository | string | `"enix/kube-image-keeper"` | Controller image repository |
+| controllers.image.tag | string | `""` | Controller image tag. Default chart appVersion |
+| controllers.imagePullSecrets | list | `[]` | Specify secrets to be used when pulling controller image |
+| controllers.nodeSelector | object | `{}` | Node selector for the controller pod |
+| controllers.podAnnotations | object | `{}` | Annotations to add to the controller pod |
+| controllers.podSecurityContext | object | `{}` | Security context for the controller pod |
+| controllers.replicas | int | `2` | Number of controllers |
+| controllers.resources.limits.cpu | string | `"1"` | Cpu limits for the controller pod |
+| controllers.resources.limits.memory | string | `"512Mi"` | Memory limits for the controller pod |
+| controllers.resources.requests.cpu | string | `"50m"` | Cpu requests for the controller pod |
+| controllers.resources.requests.memory | string | `"50Mi"` | Memory requests for the controller pod |
+| controllers.securityContext | object | `{}` | Security context for containers of the controller pod |
+| controllers.tolerations | list | `[]` | Toleration for the controller pod |
+| controllers.verbosity | string | `"INFO"` | Controller logging verbosity |
+| controllers.webhook.certificateIssuerRef | object | `{"kind":"Issuer","name":"kuik-selfsigned-issuer"}` | Issuer reference to issue the webhook certificate |
+| controllers.webhook.createCertificateIssuer | bool | `true` | If true, create the issuer used to issue the webhook certificate  |
+| controllers.webhook.ignoredNamespaces | list | `["kube-system"]` | Don't enable image caching for pods scheduled into these namespaces |
+| controllers.webhook.objectSelector.matchExpressions | list | `[]` | Run the webhook if the object has matching labels. (See https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.21/#labelselectorrequirement-v1-meta)  |
+| installCRD | bool | `true` | If true, install the CRD |
+| proxy.affinity | object | `{}` | Affinity for the proxy pod |
+| proxy.hostPort | int | `7439` | hostPort used for the proxy pod  |
+| proxy.image.pullPolicy | string | `"IfNotPresent"` | Proxy image pull policy |
+| proxy.image.repository | string | `"enix/kube-image-keeper"` | Proxy image repository |
+| proxy.image.tag | string | `""` | Proxy image tag. Default chart appVersion |
+| proxy.imagePullSecrets | list | `[]` | Specify secrets to be used when pulling proxy image |
+| proxy.nodeSelector | object | `{}` | Node selector for the proxy pod |
+| proxy.podAnnotations | object | `{}` | Annotations to add to the proxy pod |
+| proxy.podSecurityContext | object | `{}` | Security context for the proxy pod |
+| proxy.resources.limits.cpu | string | `"1"` | Cpu limits for the proxy pod |
+| proxy.resources.limits.memory | string | `"512Mi"` | Memory limits for the proxy pod |
+| proxy.resources.requests.cpu | string | `"50m"` | Cpu requests for the proxy pod |
+| proxy.resources.requests.memory | string | `"50Mi"` | Memory requests for the proxy pod |
+| proxy.securityContext | object | `{}` | Security context for containers of the proxy pod |
+| proxy.tolerations | list | `[{"effect":"NoSchedule","operator":"Exists"},{"key":"CriticalAddonsOnly","operator":"Exists"},{"effect":"NoExecute","operator":"Exists"},{"effect":"NoExecute","key":"node.kubernetes.io/not-ready","operator":"Exists"},{"effect":"NoExecute","key":"node.kubernetes.io/unreachable","operator":"Exists"},{"effect":"NoSchedule","key":"node.kubernetes.io/disk-pressure","operator":"Exists"},{"effect":"NoSchedule","key":"node.kubernetes.io/memory-pressure","operator":"Exists"},{"effect":"NoSchedule","key":"node.kubernetes.io/pid-pressure","operator":"Exists"},{"effect":"NoSchedule","key":"node.kubernetes.io/unschedulable","operator":"Exists"},{"effect":"NoSchedule","key":"node.kubernetes.io/network-unavailable","operator":"Exists"}]` | Toleration for the proxy pod |
+| proxy.verbosity | int | `1` | Verbosity level for the proxy pod |
+| psp.create | bool | `false` | If True, create the PodSecurityPolicy |
+| registry.affinity | object | `{}` | Affinity for the proxy pod |
+| registry.env | list | `[]` | Extra env variables for the registry pod |
+| registry.garbageCollectionSchedule | string | `"0 0 * * 0"` | Garbage collector cron schedule. Use standard crontab format. |
+| registry.image.pullPolicy | string | `"IfNotPresent"` | Registry image pull policy |
+| registry.image.repository | string | `"registry"` | Registry image repository |
+| registry.image.tag | string | `"2.8.1"` | Registry image tag |
+| registry.imagePullSecrets | list | `[]` | Specify secrets to be used when pulling proxy image |
+| registry.nodeSelector | object | `{}` | Node selector for the proxy pod |
+| registry.persistence.enabled | bool | `false` | If true, enable persitent storage |
+| registry.persistence.size | string | `"20Gi"` | Registry persistent volume size |
+| registry.persistence.storageClass | string | `nil` | StorageClass for persistent volume |
+| registry.podAnnotations | object | `{}` | Annotations to add to the proxy pod |
+| registry.podSecurityContext | object | `{}` | Security context for the proxy pod |
+| registry.resources.limits.cpu | string | `"1"` | Cpu limits for the registry pod |
+| registry.resources.limits.memory | string | `"1Gi"` | Memory limits for the registry pod |
+| registry.resources.requests.cpu | string | `"50m"` | Cpu requests for the registry pod |
+| registry.resources.requests.memory | string | `"256Mi"` | Memory requests for the registry pod |
+| registry.securityContext | object | `{}` | Security context for containers of the proxy pod |
+| registry.service.type | string | `"ClusterIP"` | Registry service type |
+| registry.tolerations | list | `[]` | Toleration for the proxy pod |
+| registryUI.affinity | object | `{}` | Affinity for the registry UI pod |
+| registryUI.auth.password | string | `""` | Registry UI password |
+| registryUI.auth.username | string | `"admin"` | Registry UI username |
+| registryUI.enabled | bool | `false` | If true, enable the registry user interface |
+| registryUI.image.pullPolicy | string | `"IfNotPresent"` | Registry UI image pull policy |
+| registryUI.image.repository | string | `"parabuzzle/craneoperator"` | Registry UI image repository |
+| registryUI.image.tag | string | `"2.2.5"` | Registry UI image tag |
+| registryUI.imagePullSecrets | list | `[]` | Specify secrets to be used when pulling registry UI image |
+| registryUI.nodeSelector | object | `{}` | Node selector for the registry UI pod |
+| registryUI.podAnnotations | object | `{}` | Annotations to add to the registry UI pod |
+| registryUI.podSecurityContext | object | `{}` | Security context for the registry UI pod |
+| registryUI.resources | object | `{}` | CPU / Memory resources requests / limits for the registry UI pod |
+| registryUI.securityContext | object | `{}` | Security context for containers of the registry UI pod |
+| registryUI.tolerations | list | `[]` | Toleration for the registry UI pod |
+| serviceAccount.annotations | object | `{}` | Annotations to add to the servicateAccount |
+| serviceAccount.name | string | `""` | Name of the serviceAccount |
 
 ## Usage
 
