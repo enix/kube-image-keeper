@@ -8,7 +8,12 @@
 kube-image-keeper (a.k.a. *kuik*) is a container image caching system designed for Kubernetes.
 It ensures the availability of your favorite container images by keeping a local copy within your k8s cluster.  
 
-This is useful in various situations: 
+💡:
+- This tool was built to overcome specific limitations/challenges we faced in production, and not already alredy answered by existing projects.  
+- It DOES NOT conflict with the regular k8s "out-of-the-box" node image caching mechanism (depicted here : https://kubernetes.io/docs/concepts/containers/images/#image-pull-policy), BUT works nicely in conjunction with it and provides extra features!
+
+
+It is useful in various situations: 
 - to avoid reaching your Docker Hub (or any other rate-limited registry) pull quota
 - if the registry is unavailable for some reason
 - if your critical image is no longer available in the registry (deleted by mistake, inappropriate retention policy...)
