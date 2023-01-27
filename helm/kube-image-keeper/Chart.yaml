@@ -7,5 +7,22 @@ annotations:
   artifacthub.io/prerelease: 'false'
   artifacthub.io/license: MIT
   artifacthub.io/changes: ''
+  artifacthub.io/links: |
+    - name: Chart Sources
+      url: https://github.com/enix/kube-image-keeper/tree/main/helm/kube-image-keeper
+    - name: Helm Repository
+      url: https://charts.enix.io
 version: 0.0.0
 appVersion: 0.0.0
+home: https://github.com/enix/kube-image-keeper
+sources:
+  - https://github.com/enix/kube-image-keeper
+maintainers:
+  - name: Enix
+    email: contact@enix.fr
+    url: https://github.com/enixsas
+  - name: Paul Laffitte
+    email: paul.laffitte@enix.fr
+  - name: David Donchez
+    email: david.donchez@enix.fr
+    url: https://github.com/donch
