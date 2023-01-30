@@ -4,7 +4,7 @@ go 1.16
 
 require (
 	github.com/docker/cli v20.10.12+incompatible
-	github.com/docker/distribution v2.7.1+incompatible
+	github.com/docker/distribution v2.8.1+incompatible
 	github.com/docker/docker v20.10.23+incompatible
 	github.com/docker/go-connections v0.4.0
 	github.com/gin-gonic/gin v1.7.3
