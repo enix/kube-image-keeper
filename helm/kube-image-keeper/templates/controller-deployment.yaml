@@ -48,6 +48,10 @@ spec:
             - mountPath: /tmp/k8s-webhook-server/serving-certs
               name: cert
               readOnly: true
+          {{- with .Values.controllers.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
       {{- with .Values.controllers.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

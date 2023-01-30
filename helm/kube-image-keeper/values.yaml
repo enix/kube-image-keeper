@@ -2,49 +2,86 @@
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
+
+# -- Delay in days before deleting an unused CachedImage
 cachedImagesExpiryDelay: 30
+# -- If true, install the CRD
 installCRD: true
 
 controllers:
+  # -- Number of controllers
   replicas: 2
   image:
+    # -- Controller image repository
     repository: enix/kube-image-keeper
+    # -- Controller image pull policy
     pullPolicy: IfNotPresent
-    # Overrides the image tag whose default is the chart appVersion.
+    # -- Controller image tag. Default chart appVersion
     tag: ""
+  # -- Controller logging verbosity
   verbosity: INFO
+  # -- Specify secrets to be used when pulling controller image
   imagePullSecrets: []
+  # -- Annotations to add to the controller pod
   podAnnotations: {}
+  # -- Security context for the controller pod
   podSecurityContext: {}
+  # -- Security context for containers of the controller pod
   securityContext: {}
+  # -- Node selector for the controller pod
   nodeSelector: {}
+  # -- Toleration for the controller pod
   tolerations: []
+  # -- Affinity for the controller pod
   affinity: {}
-  resources: {}
+  resources:
+    requests:
+      # -- Cpu requests for the controller pod
+      cpu: "50m"
+      # -- Memory requests for the controller pod
+      memory: "50Mi"
+    limits:
+      # -- Cpu limits for the controller pod
+      cpu: "1"
+      # -- Memory limits for the controller pod
+      memory: "512Mi"
   webhook:
-    # Don't enable KuiK for pods scheduled into these namespaces
+    # -- Don't enable image caching for pods scheduled into these namespaces
     ignoredNamespaces:
     - kube-system
+    # -- If true, create the issuer used to issue the webhook certificate 
     createCertificateIssuer: true
+    # -- Issuer reference to issue the webhook certificate
     certificateIssuerRef:
       kind: Issuer
       name: kuik-selfsigned-issuer
     objectSelector:
+      # -- Run the webhook if the object has matching labels. (See https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.21/#labelselectorrequirement-v1-meta) 
       matchExpressions: []
 
 proxy:
   image:
+    # -- Proxy image repository
     repository: enix/kube-image-keeper
+    # -- Proxy image pull policy
     pullPolicy: IfNotPresent
-    # Overrides the image tag whose default is the chart appVersion.
+    # -- Proxy image tag. Default chart appVersion
     tag: ""
+  # -- hostPort used for the proxy pod 
   hostPort: 7439
+  # -- Verbosity level for the proxy pod
   verbosity: 1
+  # -- Specify secrets to be used when pulling proxy image
   imagePullSecrets: []
+  # -- Annotations to add to the proxy pod
   podAnnotations: {}
+  # -- Security context for the proxy pod
   podSecurityContext: {}
+  # -- Security context for containers of the proxy pod
   securityContext: {}
+  # -- Node selector for the proxy pod
   nodeSelector: {}
+  # -- Toleration for the proxy pod
   tolerations:
   - effect: NoSchedule
     operator: Exists
@@ -73,52 +110,106 @@ proxy:
   - effect: NoSchedule
     key: node.kubernetes.io/network-unavailable
     operator: Exists
+  # -- Affinity for the proxy pod
   affinity: {}
-  resources: {}
+  resources:
+    requests:
+      # -- Cpu requests for the proxy pod
+      cpu: "50m"
+      # -- Memory requests for the proxy pod
+      memory: "50Mi"
+    limits:
+      # -- Cpu limits for the proxy pod
+      cpu: "1"
+      # -- Memory limits for the proxy pod
+      memory: "512Mi"
 
 registry:
   image:
+    # -- Registry image repository
     repository: registry
+    # -- Registry image pull policy
     pullPolicy: IfNotPresent
-    tag: "latest"
+    # -- Registry image tag
+    tag: "2.8.1"
   persistence:
+    # -- If true, enable persitent storage
     enabled: false
+    # -- StorageClass for persistent volume
     storageClass: null
+    # -- Registry persistent volume size
     size: 20Gi
+  # -- Garbage collector cron schedule. Use standard crontab format.
   garbageCollectionSchedule: "0 0 * * 0"
   service:
+    # -- Registry service type
     type: ClusterIP
+  # -- Extra env variables for the registry pod
   env: []
-  resources: {}
+  resources:
+    requests:
+      # -- Cpu requests for the registry pod
+      cpu: "50m"
+      # -- Memory requests for the registry pod
+      memory: "256Mi"
+    limits:
+      # -- Cpu limits for the registry pod
+      cpu: "1"
+      # -- Memory limits for the registry pod
+      memory: "1Gi"
+  # -- Specify secrets to be used when pulling proxy image
   imagePullSecrets: []
+  # -- Annotations to add to the proxy pod
   podAnnotations: {}
+  # -- Security context for the proxy pod
   podSecurityContext: {}
+  # -- Security context for containers of the proxy pod
   securityContext: {}
+  # -- Node selector for the proxy pod
   nodeSelector: {}
+  # -- Toleration for the proxy pod
   tolerations: []
+  # -- Affinity for the proxy pod
   affinity: {}
 
 registryUI:
+  # -- If true, enable the registry user interface
   enabled: false
   image:
+    # -- Registry UI image repository
     repository: parabuzzle/craneoperator
+    # -- Registry UI image pull policy
     pullPolicy: IfNotPresent
+    # -- Registry UI image tag
     tag: "2.2.5"
   auth:
+    # -- Registry UI username
     username: "admin"
+    # -- Registry UI password
     password: ""
+  # -- CPU / Memory resources requests / limits for the registry UI pod
   resources: {}
+  # -- Specify secrets to be used when pulling registry UI image
   imagePullSecrets: []
+  # -- Annotations to add to the registry UI pod
   podAnnotations: {}
+  # -- Security context for the registry UI pod
   podSecurityContext: {}
+  # -- Security context for containers of the registry UI pod
   securityContext: {}
+  # -- Node selector for the registry UI pod
   nodeSelector: {}
+  # -- Toleration for the registry UI pod
   tolerations: []
+  # -- Affinity for the registry UI pod
   affinity: {}
 
 serviceAccount:
+  # -- Annotations to add to the servicateAccount
   annotations: {}
+  # -- Name of the serviceAccount
   name: ""
 
 psp:
+  # -- If True, create the PodSecurityPolicy
   create: false
