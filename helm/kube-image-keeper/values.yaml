@@ -49,14 +49,14 @@ controllers:
     # -- Don't enable image caching for pods scheduled into these namespaces
     ignoredNamespaces:
     - kube-system
-    # -- If true, create the issuer used to issue the webhook certificate 
+    # -- If true, create the issuer used to issue the webhook certificate
     createCertificateIssuer: true
     # -- Issuer reference to issue the webhook certificate
     certificateIssuerRef:
       kind: Issuer
       name: kuik-selfsigned-issuer
     objectSelector:
-      # -- Run the webhook if the object has matching labels. (See https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.21/#labelselectorrequirement-v1-meta) 
+      # -- Run the webhook if the object has matching labels. (See https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.21/#labelselectorrequirement-v1-meta)
       matchExpressions: []
 
 proxy:
@@ -67,7 +67,7 @@ proxy:
     pullPolicy: IfNotPresent
     # -- Proxy image tag. Default chart appVersion
     tag: ""
-  # -- hostPort used for the proxy pod 
+  # -- hostPort used for the proxy pod
   hostPort: 7439
   # -- Verbosity level for the proxy pod
   verbosity: 1
