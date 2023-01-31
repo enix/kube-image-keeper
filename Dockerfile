@@ -3,7 +3,7 @@ FROM golang:1.17-alpine3.14 AS builder
 
 WORKDIR /workspace
 
-RUN go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.9.0
+RUN go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.6.2
 
 # Copy the Go Modules manifests
 COPY go.mod go.mod
