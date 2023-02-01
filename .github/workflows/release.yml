@@ -253,14 +253,14 @@ jobs:
 
       - name: Generate image metadata
         id: meta
-        uses: docker/metadata-action@v4.3.0
+        uses: docker/metadata-action@v4
         with:
           images: |
             ${{ github.repository }}
             ${{ env.QUAY_REPOSITORY }}
 
       - name: Build container images
-        uses: docker/build-push-action@v4.0.0
+        uses: docker/build-push-action@v4
         with:
           context: repository
           platforms: linux/amd64,linux/arm64
@@ -271,7 +271,7 @@ jobs:
             ${{ env.QUAY_REPOSITORY }}:${{ env.VERSION }}
 
       - name: Push container images tag (Latest)
-        uses: docker/build-push-action@v4.0.0
+        uses: docker/build-push-action@v4
         if: ${{ env.PRERELEASE != 'true' }}
         with:
           context: repository
@@ -283,7 +283,7 @@ jobs:
             ${{ env.QUAY_REPOSITORY }}:latest
       
       - name: Push container images tag (Release)
-        uses: docker/build-push-action@v4.0.0
+        uses: docker/build-push-action@v4
         with:
           context: repository
           platforms: linux/amd64,linux/arm64
