@@ -3,8 +3,6 @@ FROM golang:1.17-alpine3.14 AS builder
 
 WORKDIR /workspace
 
-RUN go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.6.2
-
 # Copy the Go Modules manifests
 COPY go.mod go.mod
 COPY go.sum go.sum
@@ -21,8 +19,7 @@ COPY internal/ internal/
 
 ENV CGO_ENABLED=0 GOOS=linux GOARCH=amd64
 
-RUN controller-gen object paths="./..." && \
-    go build -a -o manager cmd/cache/main.go && \
+RUN go build -a -o manager cmd/cache/main.go && \
     go build -a -o registry-proxy cmd/proxy/main.go
 
 # Use distroless as minimal base image to package the manager binary

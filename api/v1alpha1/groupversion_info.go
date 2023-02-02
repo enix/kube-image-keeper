@@ -1,6 +1,6 @@
 // Package v1alpha1 contains API Schema definitions for the kuik.enix.io v1alpha1 API group
-//+kubebuilder:object:generate=true
-//+groupName=kuik.enix.io
+// +kubebuilder:object:generate=true
+// +groupName=kuik.enix.io
 package v1alpha1
 
 import (
