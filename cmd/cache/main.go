@@ -39,8 +39,8 @@ func main() {
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.UintVar(&expiryDelay, "expiry-delay", 30, "The delay in days before deleting an unused CachedImage.")
-	flag.IntVar(&proxyPort, "proxy-port", 8082, "The port where the proxy is listening on this machine.")
-	flag.StringVar(&ignoreNamespace, "ignore-namespace", "kuik-system", "The address the probe endpoint binds to.")
+	flag.IntVar(&proxyPort, "proxy-port", 8082, "The port on which the registry proxy accepts connections on each host.")
+	flag.StringVar(&ignoreNamespace, "ignore-namespace", "kuik-system", "The namespace where kuik is running (pods in that namespace will be ignored).")
 	opts := zap.Options{
 		Development: true,
 		TimeEncoder: zapcore.ISO8601TimeEncoder,
