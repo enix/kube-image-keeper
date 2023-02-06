@@ -10,7 +10,7 @@ webhooks:
   - v1beta1
   clientConfig:
     service:
-      name: kuik-webhook-service
+      name: kuik-webhook
       namespace: {{ .Release.Namespace }}
       path: /mutate-core-v1-pod
   failurePolicy: Ignore
