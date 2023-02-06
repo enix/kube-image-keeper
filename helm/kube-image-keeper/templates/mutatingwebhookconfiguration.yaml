@@ -3,7 +3,7 @@ kind: MutatingWebhookConfiguration
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/kuik-serving-cert
-  name: kuik-mutating-webhook-configuration
+  name: kuik-mutating-webhook
 webhooks:
 - admissionReviewVersions:
   - v1
