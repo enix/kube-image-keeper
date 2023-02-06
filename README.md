@@ -165,6 +165,8 @@ There are 3 ways to tell kuik which pods it should manage (or, conversely, which
 
 This logic isn't implemented by the kuik controllers or webhook directly, but through Kubernetes' standard webhook object selectors. In other words, these parameters end up in the `MutatingWebhookConfiguration` template to filter which pods get presented to kuik's webhook. When the webhook rewrites the images for a pod, it adds a label to that pod, and the kuik controllers then rely on that label to know which `CachedImages` resources to create.
 
+Keep in mind that kuik will ignore pods scheduled into its own namespace (This mechanism is configured by the command line parameter `ignore-namespace`).
+
 ### Cache persistence & garbage collection
 
 Persistence is disabled by default. You can enable it by setting the Helm value `registry.persistence.enabled=true` and setting `registry.persistence.size` to the desired size (20 GiB by default).
