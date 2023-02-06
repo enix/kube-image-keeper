@@ -4,8 +4,8 @@ metadata:
   name: kuik-serving-cert
 spec:
   dnsNames:
-  - kuik-webhook-service.{{ .Release.Namespace }}.svc
-  - kuik-webhook-service.{{ .Release.Namespace }}.svc.cluster.local
+  - kuik-webhook.{{ .Release.Namespace }}.svc
+  - kuik-webhook.{{ .Release.Namespace }}.svc.cluster.local
   secretName: webhook-server-cert
   issuerRef:
     {{- toYaml .Values.controllers.webhook.certificateIssuerRef | nindent 4 }}
