@@ -64,7 +64,7 @@ Another **controller** watches these `CachedImage` custom resources, and copies 
 
 Here is what our images look like when using kuik:
 ```bash
-$ kubectl get pods -o custom-columns=NAME:metadata.name,IMAGES:spec.containers[*].image 
+$ kubectl get pods -o custom-columns=NAME:metadata.name,IMAGES:spec.containers[*].image
 NAME                   IMAGES
 debugger               localhost:7439/registrish.s3.amazonaws.com/alpine
 factori-0              localhost:7439/factoriotools/factorio:1.1
@@ -101,11 +101,11 @@ The image cache will obviously require a bit of disk space to run (see [Garbage 
 
 ```bash
 $ kubectl top pods
-NAME                                             CPU(cores)   MEMORY(bytes)   
-kube-image-keeper-0                              1m           86Mi            
-kube-image-keeper-controllers-5b5cc9fcc6-bv6cp   1m           16Mi            
-kube-image-keeper-controllers-5b5cc9fcc6-tjl7t   3m           24Mi            
-kube-image-keeper-proxy-54lzk                    1m           19Mi            
+NAME                                             CPU(cores)   MEMORY(bytes)
+kube-image-keeper-0                              1m           86Mi
+kube-image-keeper-controllers-5b5cc9fcc6-bv6cp   1m           16Mi
+kube-image-keeper-controllers-5b5cc9fcc6-tjl7t   3m           24Mi
+kube-image-keeper-proxy-54lzk                    1m           19Mi
 ```
 
 ![Architecture](./docs/architecture.jpg)
@@ -158,7 +158,7 @@ helm upgrade --install \
      --set cachedImagesExpiryDelay=90
 ```
 
-## Advanced usage 
+## Advanced usage
 
 ### Pod filtering
 
@@ -169,6 +169,8 @@ There are 3 ways to tell kuik which pods it should manage (or, conversely, which
 - Finally, kuik will only work on pods matching a specific selector. By default, the selector is empty, which means "match all the pods". The selector can be set with the Helm value `controllers.webhook.objectSelector.matchExpressions`.
 
 This logic isn't implemented by the kuik controllers or webhook directly, but through Kubernetes' standard webhook object selectors. In other words, these parameters end up in the `MutatingWebhookConfiguration` template to filter which pods get presented to kuik's webhook. When the webhook rewrites the images for a pod, it adds a label to that pod, and the kuik controllers then rely on that label to know which `CachedImages` resources to create.
+
+Keep in mind that kuik will ignore pods scheduled into its own namespace.
 
 ### Cache persistence & garbage collection
 
