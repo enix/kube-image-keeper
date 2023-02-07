@@ -6,6 +6,6 @@ metadata:
 rules:
   - apiGroups: ["apps", "extensions"]
     resources: ["statefulsets"]
-    resourceNames: [{{ include "kube-image-keeper.fullname" . }}]
+    resourceNames: ["registry"]
     verbs: ["get", "patch", "list", "watch"]
 {{- end }}

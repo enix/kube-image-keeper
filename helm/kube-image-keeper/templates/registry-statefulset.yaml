@@ -1,11 +1,11 @@
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: {{ include "kube-image-keeper.fullname" . }}
+  name: registry
   labels:
     {{- include "kube-image-keeper.registry-labels" . | nindent 4 }}
 spec:
-  serviceName: {{ .Release.Name }}
+  serviceName: registry
   selector:
     matchLabels:
       {{- include "kube-image-keeper.registry-selectorLabels" . | nindent 6 }}
@@ -39,7 +39,7 @@ spec:
           {{- if .Values.registry.persistence.enabled }}
           volumeMounts:
             - mountPath: /var/lib/registry
-              name: {{ include "kube-image-keeper.fullname" . }}-data
+              name: data
           {{- end }}
         - name: garbage-collector
           image: "{{ .Values.registry.image.repository }}:{{ .Values.registry.image.tag }}"
@@ -54,7 +54,7 @@ spec:
           {{- if .Values.registry.persistence.enabled }}
           volumeMounts:
             - mountPath: /var/lib/registry
-              name: {{ include "kube-image-keeper.fullname" . }}-data
+              name: data
           {{- end }}
       {{- end }}
       containers:
@@ -78,7 +78,7 @@ spec:
           {{- if .Values.registry.persistence.enabled }}
           volumeMounts:
             - mountPath: /var/lib/registry
-              name: {{ include "kube-image-keeper.fullname" . }}-data
+              name: data
           {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
@@ -95,7 +95,7 @@ spec:
 {{- if .Values.registry.persistence.enabled }}
   volumeClaimTemplates:
   - metadata:
-      name: {{ include "kube-image-keeper.fullname" . }}-data
+      name: data
     spec:
       accessModes: [ "ReadWriteOnce" ]
       storageClassName: {{ .Values.registry.persistence.storageClass }}

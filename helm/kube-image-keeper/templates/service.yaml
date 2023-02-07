@@ -1,8 +1,7 @@
 apiVersion: v1
 kind: Service
 metadata:
-  # name: {{ include "kube-image-keeper.fullname" . }}
-  name: kube-image-keeper-service
+  name: registry
   labels:
     {{- include "kube-image-keeper.registry-labels" . | nindent 4 }}
 spec:
