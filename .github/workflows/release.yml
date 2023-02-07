@@ -203,6 +203,7 @@ jobs:
       - release
     runs-on: ubuntu-22.04
     env:
+      HELM_DOCS_VERSION: "1.11.0"
       CR_VERSION: "1.4.1"
       VERSION: ${{ needs.release.outputs.version }}
       PRERELEASE: ${{ needs.release.outputs.prerelease }}
@@ -236,6 +237,21 @@ jobs:
           [ -d bin ] || mkdir bin
           URL='https://github.com/helm/chart-releaser/releases/download/v${{ env.CR_VERSION }}/chart-releaser_${{ env.CR_VERSION }}_linux_amd64.tar.gz'
           curl -sSL "${URL}" | tar xz -C bin cr
+
+      - name: Cache for helm-docs
+        id: cache-helm-docs
+        uses: actions/cache@v3
+        with:
+          path: bin/helm-docs
+          key: ${{ runner.os }}-helm-docs-${{ env.HELM_DOCS_VERSION }}
+
+      - name: Set up helm-docs
+        if: steps.cache-helm-docs.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          [ -d bin ] || mkdir bin
+          URL='https://github.com/norwoodj/helm-docs/releases/download/v${{ env.HELM_DOCS_VERSION }}/helm-docs_${{ env.HELM_DOCS_VERSION }}_Linux_x86_64.tar.gz'
+          curl -sSL "${URL}" | tar xz -C bin helm-docs
 
       - name: Login to Docker Hub
         uses: docker/login-action@v2
@@ -404,6 +420,7 @@ jobs:
         env:
           WORKSPACE: ${{ github.workspace }}
           PYTHONPATH: ${{ github.workspace }}/repository/.github
+          HELM_DOCS_PATH: ${{ github.workspace }}/bin/helm-docs
           CR_PATH: ${{ github.workspace }}/bin/cr
           CR_TOKEN: ${{ secrets.CHARTSREPO_GITHUB_TOKEN }}
           CHART_NAME: kube-image-keeper
@@ -416,6 +433,11 @@ jobs:
           
           chart_path = os.path.join(os.environ['WORKSPACE'], 'repository', 'helm', 'kube-image-keeper')
           os.chdir(chart_path)
+
+          header('generate chart readme')
+
+          run(os.environ['HELM_DOCS_PATH'], '--dry-run')
+          run(os.environ['HELM_DOCS_PATH'])
 
           header('prepare chart manifest')
 
