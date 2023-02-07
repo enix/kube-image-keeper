@@ -17,7 +17,7 @@ controllers:
     # -- Controller image pull policy
     pullPolicy: IfNotPresent
     # -- Controller image tag. Default chart appVersion
-    tag: ""
+    tag: "1.0.1"
   # -- Controller logging verbosity
   verbosity: INFO
   # -- Specify secrets to be used when pulling controller image
@@ -66,9 +66,9 @@ proxy:
     # -- Proxy image pull policy
     pullPolicy: IfNotPresent
     # -- Proxy image tag. Default chart appVersion
-    tag: ""
+    tag: "1.0.1"
   # -- hostPort used for the proxy pod
-  hostPort: 7439
+  hostPort: 8082
   # -- Verbosity level for the proxy pod
   verbosity: 1
   # -- Specify secrets to be used when pulling proxy image
