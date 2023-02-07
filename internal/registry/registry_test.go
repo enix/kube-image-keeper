@@ -33,7 +33,7 @@ func Test_parseLocalReference(t *testing.T) {
 		name                    string
 		image                   string
 		expectedDestinationName string
-		wantErr                 error
+		wantErr                 string
 	}{
 		{
 			name:                    "Basic",
@@ -58,7 +58,7 @@ func Test_parseLocalReference(t *testing.T) {
 		{
 			name:    "Invalid source name",
 			image:   "alpine:tag:another-tag",
-			wantErr: name.NewErrBadName("could not parse reference: alpine:tag:another-tag"),
+			wantErr: "could not parse reference: alpine:tag:another-tag",
 		},
 	}
 
@@ -67,7 +67,7 @@ func Test_parseLocalReference(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			reference, err := parseLocalReference(tt.image)
 
-			if tt.wantErr != nil {
+			if tt.wantErr != "" {
 				g.Expect(err).To(MatchError(tt.wantErr))
 			} else {
 				g.Expect(err).ToNot(HaveOccurred())
@@ -83,7 +83,8 @@ func Test_ImageIsCached(t *testing.T) {
 		name       string
 		image      string
 		httpStatus int
-		wantErr    error
+		wantErr    string
+		errType    error
 	}{
 		{
 			name:       "Exists",
@@ -99,13 +100,15 @@ func Test_ImageIsCached(t *testing.T) {
 			name:       "Missing header",
 			image:      "alpine",
 			httpStatus: http.StatusOK,
-			wantErr:    errors.New("response did not include Content-Type header"),
+			wantErr:    "response did not include Content-Type header",
+			errType:    errors.New(""),
 		},
 		{
 			name:       "Invalid reference",
 			image:      "alpine:alpine:latest",
 			httpStatus: http.StatusOK,
-			wantErr:    name.NewErrBadName("could not parse reference"),
+			wantErr:    "could not parse reference",
+			errType:    &name.ErrBadName{},
 		},
 	}
 
@@ -117,7 +120,7 @@ func Test_ImageIsCached(t *testing.T) {
 			defer server.Close()
 
 			headResponse := "..."
-			if tt.wantErr != nil {
+			if tt.wantErr != "" {
 				headResponse = "" // trigger missing Content-Type header error
 			}
 
@@ -131,13 +134,13 @@ func Test_ImageIsCached(t *testing.T) {
 
 			Endpoint = server.Addr()
 			isCached, err := ImageIsCached(tt.image)
-			if tt.wantErr != nil {
-				g.Expect(err).To(BeAssignableToTypeOf(tt.wantErr))
-				g.Expect(err).To(MatchError(ContainSubstring(tt.wantErr.Error())))
+			if tt.wantErr != "" {
+				g.Expect(err).To(BeAssignableToTypeOf(tt.errType))
+				g.Expect(err).To(MatchError(ContainSubstring(tt.wantErr)))
 			} else {
 				g.Expect(err).ToNot(HaveOccurred())
 			}
-			g.Expect(isCached).To(Equal(tt.httpStatus == http.StatusOK && tt.wantErr == nil))
+			g.Expect(isCached).To(Equal(tt.httpStatus == http.StatusOK && tt.wantErr == ""))
 		})
 	}
 }
@@ -148,7 +151,8 @@ func Test_DeleteImage(t *testing.T) {
 		image             string
 		httpStatus        int
 		headRandomlyFails bool
-		wantErr           error
+		wantErr           string
+		errType           error
 	}{
 		{
 			name:       "Exists",
@@ -159,7 +163,8 @@ func Test_DeleteImage(t *testing.T) {
 			name:       "Invalid reference",
 			image:      "alpine:alpine:latest",
 			httpStatus: http.StatusOK,
-			wantErr:    name.NewErrBadName("could not parse reference"),
+			wantErr:    "could not parse reference",
+			errType:    &name.ErrBadName{},
 		},
 		{
 			name:       "Don't exists",
@@ -171,7 +176,8 @@ func Test_DeleteImage(t *testing.T) {
 			image:             "alpine",
 			headRandomlyFails: true,
 			httpStatus:        http.StatusOK,
-			wantErr:           errors.New("response did not include Content-Type header"),
+			wantErr:           "response did not include Content-Type header",
+			errType:           errors.New(""),
 		},
 	}
 
@@ -207,9 +213,9 @@ func Test_DeleteImage(t *testing.T) {
 
 			Endpoint = server.Addr()
 			err := DeleteImage(tt.image)
-			if tt.wantErr != nil {
-				g.Expect(err).To(BeAssignableToTypeOf(tt.wantErr))
-				g.Expect(err).To(MatchError(ContainSubstring(tt.wantErr.Error())))
+			if tt.wantErr != "" {
+				g.Expect(err).To(BeAssignableToTypeOf(tt.errType))
+				g.Expect(err).To(MatchError(ContainSubstring(tt.wantErr)))
 			} else {
 				g.Expect(err).ToNot(HaveOccurred())
 			}
