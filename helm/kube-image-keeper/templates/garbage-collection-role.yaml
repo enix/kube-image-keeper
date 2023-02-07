@@ -2,10 +2,10 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: registry-restart
+  name: {{ include "kube-image-keeper.fullname" . }}-registry-restart
 rules:
   - apiGroups: ["apps", "extensions"]
     resources: ["statefulsets"]
-    resourceNames: ["registry"]
+    resourceNames: ["{{ include "kube-image-keeper.fullname" . }}-registry"]
     verbs: ["get", "patch", "list", "watch"]
 {{- end }}

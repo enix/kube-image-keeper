@@ -37,7 +37,7 @@ spec:
             {{- toYaml .Values.registryUI.resources | nindent 12 }}
           env:
             - name: REGISTRY_HOST
-              value: registry
+              value: {{ include "kube-image-keeper.fullname" . }}-registry
             - name: REGISTRY_PORT
               value: "5000"
             - name: REGISTRY_PROTOCOL
