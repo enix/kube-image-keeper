@@ -18,3 +18,27 @@ jobs:
 
       - name: Dependency Review
         uses: actions/dependency-review-action@v3
+
+  vulnerability-scanner:
+    name: Vulnerability Scanner
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@0.9.0
+        with:
+          scan-type: 'fs'
+          ignore-unfixed: true
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: 'trivy-results.sarif'
