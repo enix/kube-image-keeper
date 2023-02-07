@@ -1,11 +1,11 @@
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: registry
+  name: {{ include "kube-image-keeper.fullname" . }}-registry
   labels:
     {{- include "kube-image-keeper.registry-labels" . | nindent 4 }}
 spec:
-  serviceName: registry
+  serviceName: {{ include "kube-image-keeper.fullname" . }}-registry
   selector:
     matchLabels:
       {{- include "kube-image-keeper.registry-selectorLabels" . | nindent 6 }}
