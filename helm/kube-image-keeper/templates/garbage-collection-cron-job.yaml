@@ -6,7 +6,7 @@ apiVersion: batch/v1beta1
 {{- end }}
 kind: CronJob
 metadata:
-  name: {{ include "kube-image-keeper.fullname" . }}-garbage-collection
+  name: registry-garbage-collection
   labels:
     {{- include "kube-image-keeper.garbage-collection-labels" . | nindent 4 }}
 spec:
@@ -27,6 +27,6 @@ spec:
                 - bash
                 - -c
                 - >-
-                  kubectl rollout restart sts {{ include "kube-image-keeper.fullname" . }} &&
-                  kubectl rollout status sts {{ include "kube-image-keeper.fullname" . }}
+                  kubectl rollout restart sts registry &&
+                  kubectl rollout status sts registry
 {{- end }}
