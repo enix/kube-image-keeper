@@ -108,5 +108,5 @@ app.kubernetes.io/component: garbage-collection
 Create the name of the service account to use
 */}}
 {{- define "kube-image-keeper.serviceAccountName" -}}
-{{- default (include "kube-image-keeper.fullname" .) .Values.serviceAccount.name }}
+{{- default (printf "%s-%s" (include "kube-image-keeper.fullname" .) "controllers") .Values.serviceAccount.name }}
 {{- end }}
