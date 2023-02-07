@@ -12,7 +12,7 @@ controllers:
   # -- Number of controllers
   replicas: 2
   image:
-    # -- Controller image repository
+    # -- Controller image repository. Also available: `quay.io/enix/kube-image-keeper`
     repository: enix/kube-image-keeper
     # -- Controller image pull policy
     pullPolicy: IfNotPresent
@@ -61,7 +61,7 @@ controllers:
 
 proxy:
   image:
-    # -- Proxy image repository
+    # -- Proxy image repository. Also available: `quay.io/enix/kube-image-keeper`
     repository: enix/kube-image-keeper
     # -- Proxy image pull policy
     pullPolicy: IfNotPresent

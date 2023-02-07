@@ -131,7 +131,7 @@ That's it!
 | cachedImagesExpiryDelay | int | `30` | Delay in days before deleting an unused CachedImage |
 | controllers.affinity | object | `{}` | Affinity for the controller pod |
 | controllers.image.pullPolicy | string | `"IfNotPresent"` | Controller image pull policy |
-| controllers.image.repository | string | `"enix/kube-image-keeper"` | Controller image repository |
+| controllers.image.repository | string | `"enix/kube-image-keeper"` | Controller image repository. Also available: `quay.io/enix/kube-image-keeper` |
 | controllers.image.tag | string | `""` | Controller image tag. Default chart appVersion |
 | controllers.imagePullSecrets | list | `[]` | Specify secrets to be used when pulling controller image |
 | controllers.nodeSelector | object | `{}` | Node selector for the controller pod |
@@ -153,7 +153,7 @@ That's it!
 | proxy.affinity | object | `{}` | Affinity for the proxy pod |
 | proxy.hostPort | int | `7439` | hostPort used for the proxy pod |
 | proxy.image.pullPolicy | string | `"IfNotPresent"` | Proxy image pull policy |
-| proxy.image.repository | string | `"enix/kube-image-keeper"` | Proxy image repository |
+| proxy.image.repository | string | `"enix/kube-image-keeper"` | Proxy image repository. Also available: `quay.io/enix/kube-image-keeper` |
 | proxy.image.tag | string | `""` | Proxy image tag. Default chart appVersion |
 | proxy.imagePullSecrets | list | `[]` | Specify secrets to be used when pulling proxy image |
 | proxy.nodeSelector | object | `{}` | Node selector for the proxy pod |
