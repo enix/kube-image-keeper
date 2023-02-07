@@ -2,15 +2,15 @@ apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
 metadata:
   annotations:
-    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/kuik-serving-cert
-  name: kuik-mutating-webhook
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kube-image-keeper.fullname" . }}-serving-cert
+  name: {{ include "kube-image-keeper.fullname" . }}-mutating-webhook
 webhooks:
 - admissionReviewVersions:
   - v1
   - v1beta1
   clientConfig:
     service:
-      name: kuik-webhook
+      name: {{ include "kube-image-keeper.fullname" . }}-webhook
       namespace: {{ .Release.Namespace }}
       path: /mutate-core-v1-pod
   failurePolicy: Ignore
