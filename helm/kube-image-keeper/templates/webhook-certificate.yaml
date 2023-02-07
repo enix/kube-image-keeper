@@ -1,12 +1,12 @@
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: kuik-serving-cert
+  name: {{ include "kube-image-keeper.fullname" . }}-serving-cert
 spec:
   dnsNames:
-  - kuik-webhook.{{ .Release.Namespace }}.svc
-  - kuik-webhook.{{ .Release.Namespace }}.svc.cluster.local
-  secretName: webhook-server-cert
+  - {{ include "kube-image-keeper.fullname" . }}-webhook.{{ .Release.Namespace }}.svc
+  - {{ include "kube-image-keeper.fullname" . }}-webhook.{{ .Release.Namespace }}.svc.cluster.local
+  secretName: {{ include "kube-image-keeper.fullname" . }}-webhook-server-cert
   issuerRef:
     {{- toYaml .Values.controllers.webhook.certificateIssuerRef | nindent 4 }}
 ---
@@ -14,7 +14,7 @@ spec:
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
-  name: kuik-selfsigned-issuer
+  name: {{ include "kube-image-keeper.fullname" . }}-selfsigned-issuer
 spec:
   selfSigned: {}
 {{- end -}}
