@@ -51,7 +51,7 @@ controllers:
     - kube-system
     # -- If true, create the issuer used to issue the webhook certificate
     createCertificateIssuer: true
-    # -- Issuer reference to issue the webhook certificate
+    # -- Issuer reference to issue the webhook certificate, ignored if createCertificateIssuer is true
     certificateIssuerRef:
       kind: Issuer
       name: kube-image-keeper-selfsigned-issuer
