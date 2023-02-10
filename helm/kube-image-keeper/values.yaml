@@ -54,7 +54,7 @@ controllers:
     # -- Issuer reference to issue the webhook certificate
     certificateIssuerRef:
       kind: Issuer
-      name: kuik-selfsigned-issuer
+      name: kube-image-keeper-selfsigned-issuer
     objectSelector:
       # -- Run the webhook if the object has matching labels. (See https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.21/#labelselectorrequirement-v1-meta)
       matchExpressions: []
@@ -203,6 +203,10 @@ registryUI:
   tolerations: []
   # -- Affinity for the registry UI pod
   affinity: {}
+
+minio:
+  # -- If true, install minio as a local storage backend for the registry
+  enabled: true
 
 serviceAccount:
   # -- Annotations to add to the servicateAccount
