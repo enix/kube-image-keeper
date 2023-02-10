@@ -55,7 +55,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	// https://book.kubebuilder.io/reference/using-finalizers.html
 	finalizerName := "cachedimage.kuik.enix.io/finalizer"
-	// Remove image from registry when CachedImage is beeing deleted, finalizer is removed after it
+	// Remove image from registry when CachedImage is being deleted, finalizer is removed after it
 	if !cachedImage.ObjectMeta.DeletionTimestamp.IsZero() {
 		if containsString(cachedImage.GetFinalizers(), finalizerName) {
 			log.Info("deleting image from cache")
