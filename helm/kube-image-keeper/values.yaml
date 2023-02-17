@@ -206,7 +206,41 @@ registryUI:
 
 minio:
   # -- If true, install minio as a local storage backend for the registry
-  enabled: true
+  enabled: false
+  mode: distributed
+  provisioning:
+    enabled: true
+    buckets:
+      - name: registry
+    usersExistingSecrets:
+      - kube-image-keeper-minio-registry-users
+    extraVolumes:
+      - name: registry-primary-keys
+        secret:
+          defaultMode: 420
+          secretName: kube-image-keeper-minio-registry-primary-keys
+      - name: registry-replica-keys
+        secret:
+          defaultMode: 420
+          secretName: kube-image-keeper-minio-registry-replica-keys
+    extraVolumeMounts:
+      - name: registry-primary-keys
+        mountPath: /opt/bitnami/minio/svcacct/primary/
+      - name: registry-replica-keys
+        mountPath: /opt/bitnami/minio/svcacct/replica/
+    extraCommands:
+      - |
+        (mc admin user svcacct info provisioning $(cat /opt/bitnami/minio/svcacct/primary/accessKey) 2> /dev/null ||
+        mc admin user svcacct add
+        --access-key "$(cat /opt/bitnami/minio/svcacct/primary/accessKey)"
+        --secret-key "$(cat /opt/bitnami/minio/svcacct/primary/secretKey)"
+        provisioning primary) > /dev/null
+      - |
+        (mc admin user svcacct info provisioning $(cat /opt/bitnami/minio/svcacct/replica/accessKey) 2> /dev/null ||
+        mc admin user svcacct add
+        --access-key "$(cat /opt/bitnami/minio/svcacct/replica/accessKey)"
+        --secret-key "$(cat /opt/bitnami/minio/svcacct/replica/secretKey)"
+        provisioning replica) > /dev/null
 
 serviceAccount:
   # -- Annotations to add to the servicateAccount
