@@ -1,0 +1,34 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: octavia
+data:
+  config.yaml: |
+    version: 0.1
+    log:
+      fields:
+        service: registry
+    storage:
+      cache:
+        blobdescriptor: inmemory
+      {{- if .Values.registry.replicas > 1 }}
+      filesystem:
+        rootdirectory: /var/lib/registry
+      {{- else }}
+      s3:
+        {{- if .Values.minio.enabled }}
+        accesskey:
+        secretkey:
+        {{- else }}
+          # .Values.registry.persistence.s3
+        {{- end }}
+      {{- end }}
+    http:
+      addr: :5000
+      headers:
+        X-Content-Type-Options: [nosniff]
+    health:
+      storagedriver:
+        enabled: true
+        interval: 10s
+        threshold: 3

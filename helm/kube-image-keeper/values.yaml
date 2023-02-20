@@ -132,13 +132,16 @@ registry:
     pullPolicy: IfNotPresent
     # -- Registry image tag
     tag: "2.8.1"
+  replicas: 1
   persistence:
-    # -- If true, enable persitent storage
+    # -- If true, enable persistent storage
     enabled: false
     # -- StorageClass for persistent volume
     storageClass: null
     # -- Registry persistent volume size
     size: 20Gi
+    # -- External S3 configuration (needed only if you don't enable minio) (see https://github.com/docker/docs/blob/main/registry/storage-drivers/s3.md)
+    s3:
   # -- Garbage collector cron schedule. Use standard crontab format.
   garbageCollectionSchedule: "0 0 * * 0"
   service:

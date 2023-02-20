@@ -1,0 +1,6 @@
+{{- if .Values.registry.replicas > 1 }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kube-image-keeper.fullname" . }}-registry-replica
+{{- end }}
