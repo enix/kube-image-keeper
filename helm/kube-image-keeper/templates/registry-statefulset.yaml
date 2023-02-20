@@ -58,7 +58,7 @@ spec:
           {{- end }}
       {{- end }}
       containers:
-        - name: {{ .Chart.Name }}
+        - name: registry
           securityContext:
             {{- toYaml .Values.registry.securityContext | nindent 12 }}
           image: "{{ .Values.registry.image.repository }}:{{ .Values.registry.image.tag }}"
@@ -80,15 +80,15 @@ spec:
             - mountPath: /var/lib/registry
               name: data
           {{- end }}
-      {{- with .Values.nodeSelector }}
+      {{- with .Values.registry.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.affinity }}
+      {{- with .Values.registry.affinity }}
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.tolerations }}
+      {{- with .Values.registry.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
