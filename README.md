@@ -112,7 +112,7 @@ kube-image-keeper-proxy-54lzk                    1m           19Mi
 
 ## Installation
 
-1. Make sure that you have cert-managed installed. If not, check its [installation page](https://cert-manager.io/docs/installation/) (it's fine to use the `kubectl apply` one-liner, and no further configuration is required).
+1. Make sure that you have cert-manager installed. If not, check its [installation page](https://cert-manager.io/docs/installation/) (it's fine to use the `kubectl apply` one-liner, and no further configuration is required).
 1. Install kuik's Helm chart from the [enix/helm-charts](https://github.com/enix/helm-charts) repository:
 
 ```bash
