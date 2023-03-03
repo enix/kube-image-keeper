@@ -115,10 +115,6 @@ func CacheImage(imageName string, keychain authn.Keychain) error {
 		return err
 	}
 
-	// if err := remote.Put(destRef, image); err != nil {
-	// 	return err
-	// }
-
 	return nil
 }
 
