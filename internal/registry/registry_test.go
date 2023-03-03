@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/ghttp"
 )
@@ -228,23 +229,24 @@ func Test_DeleteImage(t *testing.T) {
 
 func Test_CacheImage(t *testing.T) {
 	tests := []struct {
-		name       string
-		image      string
-		httpStatus int
-		wantErr    string
-		errType    error
+		name            string
+		image           string
+		httpStatus      int
+		httpResponse    string
+		putHttpStatus   int
+		putHttpResponse string
+		wantErr         string
+		errType         error
 	}{
 		{
-			name:       "Basic",
-			image:      "alpine",
-			httpStatus: http.StatusOK,
+			name:  "Basic",
+			image: "alpine",
 		},
 		{
-			name:       "Basic",
-			image:      "*****",
-			httpStatus: http.StatusOK,
-			wantErr:    "could not parse reference",
-			errType:    &name.ErrBadName{},
+			name:    "Basic",
+			image:   "*****",
+			wantErr: "could not parse reference",
+			errType: &name.ErrBadName{},
 		},
 		{
 			name:       "Image not found",
@@ -252,6 +254,22 @@ func Test_CacheImage(t *testing.T) {
 			httpStatus: http.StatusNotFound,
 			wantErr:    "could not find source image",
 			errType:    errors.New(""),
+		},
+		{
+			name:         "Unauthorized",
+			image:        "alpine",
+			httpStatus:   http.StatusUnauthorized,
+			httpResponse: "unauthorized",
+			wantErr:      "unauthorized",
+			errType:      &transport.Error{},
+		},
+		{
+			name:            "Could not write",
+			image:           "alpine",
+			putHttpStatus:   http.StatusUnauthorized,
+			putHttpResponse: "unauthorized",
+			wantErr:         "unauthorized",
+			errType:         &transport.Error{},
 		},
 	}
 
@@ -262,6 +280,15 @@ func Test_CacheImage(t *testing.T) {
 
 			digestSha := "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 			layerSha := "sha256:5d20c808ce198565ff70b3ed23a991dd49afac45dece63474b27ce6ed036adc6"
+			if tt.httpResponse == "" {
+				tt.httpResponse = "{\"config\":{\"digest\":\"" + digestSha + "\",\"mediaType\":\"application/vnd.docker.container.image.v1+json\",\"size\":0},\"layers\":[{\"digest\":\"" + layerSha + "\",\"mediaType\":\"application/vnd.docker.image.rootfs.diff.tar.gzip\",\"size\":2107098}],\"mediaType\":\"application/vnd.docker.distribution.manifest.v2+json\",\"schemaVersion\":2}"
+			}
+			if tt.httpStatus == 0 {
+				tt.httpStatus = http.StatusOK
+			}
+			if tt.putHttpStatus == 0 {
+				tt.putHttpStatus = http.StatusOK
+			}
 
 			originRegistry := ghttp.NewServer()
 			defer originRegistry.Close()
@@ -269,7 +296,7 @@ func Test_CacheImage(t *testing.T) {
 				mockV2Endpoint(gh),
 				ghttp.CombineHandlers(
 					gh.VerifyRequest(http.MethodGet, "/v2/"+tt.image+"/manifests/latest"),
-					gh.RespondWith(tt.httpStatus, "{\"config\":{\"digest\":\""+digestSha+"\",\"mediaType\":\"application/vnd.docker.container.image.v1+json\",\"size\":0},\"layers\":[{\"digest\":\""+layerSha+"\",\"mediaType\":\"application/vnd.docker.image.rootfs.diff.tar.gzip\",\"size\":2107098}],\"mediaType\":\"application/vnd.docker.distribution.manifest.v2+json\",\"schemaVersion\":2}", mockedHeadImageHeader),
+					gh.RespondWith(tt.httpStatus, tt.httpResponse, mockedHeadImageHeader),
 				),
 				ghttp.CombineHandlers(
 					gh.VerifyRequest(http.MethodGet, "/v2/"+tt.image+"/blobs/"+digestSha),
@@ -297,7 +324,7 @@ func Test_CacheImage(t *testing.T) {
 				),
 				ghttp.CombineHandlers(
 					gh.VerifyRequest(http.MethodPut, "/v2/"+originRegistryName+"/"+tt.image+"/manifests/latest"),
-					gh.RespondWith(http.StatusOK, ""),
+					gh.RespondWith(tt.putHttpStatus, tt.putHttpResponse),
 				),
 			)
 
