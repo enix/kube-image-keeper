@@ -77,12 +77,11 @@ func DeleteImage(imageName string) error {
 		return err
 	}
 
-	if exists, err := imageExists(ref); !exists || err != nil {
-		return err
-	}
-
 	descriptor, err := remote.Head(ref)
 	if err != nil {
+		if errIsImageNotFound(err) {
+			return nil
+		}
 		return err
 	}
 
