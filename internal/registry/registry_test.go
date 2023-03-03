@@ -228,16 +228,30 @@ func Test_DeleteImage(t *testing.T) {
 
 func Test_CacheImage(t *testing.T) {
 	tests := []struct {
-		name              string
-		image             string
-		httpStatus        int
-		headRandomlyFails bool
-		wantErr           error
+		name       string
+		image      string
+		httpStatus int
+		wantErr    string
+		errType    error
 	}{
 		{
-			name:       "Exists",
+			name:       "Basic",
 			image:      "alpine",
 			httpStatus: http.StatusOK,
+		},
+		{
+			name:       "Basic",
+			image:      "*****",
+			httpStatus: http.StatusOK,
+			wantErr:    "could not parse reference",
+			errType:    &name.ErrBadName{},
+		},
+		{
+			name:       "Image not found",
+			image:      "image-not-found",
+			httpStatus: http.StatusNotFound,
+			wantErr:    "could not find source image",
+			errType:    errors.New(""),
 		},
 	}
 
@@ -254,21 +268,16 @@ func Test_CacheImage(t *testing.T) {
 			originRegistry.AppendHandlers(
 				mockV2Endpoint(gh),
 				ghttp.CombineHandlers(
-					gh.VerifyRequest(http.MethodHead, "/v2/"+tt.image+"/manifests/latest"),
-					gh.RespondWith(tt.httpStatus, "...", mockedHeadImageHeader),
-				),
-				mockV2Endpoint(gh),
-				ghttp.CombineHandlers(
 					gh.VerifyRequest(http.MethodGet, "/v2/"+tt.image+"/manifests/latest"),
 					gh.RespondWith(tt.httpStatus, "{\"config\":{\"digest\":\""+digestSha+"\",\"mediaType\":\"application/vnd.docker.container.image.v1+json\",\"size\":0},\"layers\":[{\"digest\":\""+layerSha+"\",\"mediaType\":\"application/vnd.docker.image.rootfs.diff.tar.gzip\",\"size\":2107098}],\"mediaType\":\"application/vnd.docker.distribution.manifest.v2+json\",\"schemaVersion\":2}", mockedHeadImageHeader),
 				),
 				ghttp.CombineHandlers(
 					gh.VerifyRequest(http.MethodGet, "/v2/"+tt.image+"/blobs/"+digestSha),
-					gh.RespondWith(tt.httpStatus, "", mockedHeadImageHeader),
+					gh.RespondWith(http.StatusOK, "", mockedHeadImageHeader),
 				),
 				ghttp.CombineHandlers(
 					gh.VerifyRequest(http.MethodGet, "/v2/"+tt.image+"/blobs/"+digestSha),
-					gh.RespondWith(tt.httpStatus, "", mockedHeadImageHeader),
+					gh.RespondWith(http.StatusOK, "", mockedHeadImageHeader),
 				),
 			)
 
@@ -280,11 +289,11 @@ func Test_CacheImage(t *testing.T) {
 				mockV2Endpoint(gh),
 				ghttp.CombineHandlers(
 					gh.VerifyRequest(http.MethodHead, "/v2/"+originRegistryName+"/"+tt.image+"/blobs/"+layerSha),
-					gh.RespondWith(tt.httpStatus, "...", mockedHeadImageHeader),
+					gh.RespondWith(http.StatusOK, "...", mockedHeadImageHeader),
 				),
 				ghttp.CombineHandlers(
 					gh.VerifyRequest(http.MethodHead, "/v2/"+originRegistryName+"/"+tt.image+"/blobs/"+digestSha),
-					gh.RespondWith(tt.httpStatus, "...", mockedHeadImageHeader),
+					gh.RespondWith(http.StatusOK, "...", mockedHeadImageHeader),
 				),
 				ghttp.CombineHandlers(
 					gh.VerifyRequest(http.MethodPut, "/v2/"+originRegistryName+"/"+tt.image+"/manifests/latest"),
@@ -292,14 +301,12 @@ func Test_CacheImage(t *testing.T) {
 				),
 			)
 
-			fmt.Println(originRegistryName, cacheRegistry.Addr())
-
 			Endpoint = cacheRegistry.Addr()
 			keychain := NewKubernetesKeychain(nil, "default", []string{})
 			err := CacheImage(originRegistry.Addr()+"/"+tt.image, keychain)
-			if tt.wantErr != nil {
-				g.Expect(err).To(BeAssignableToTypeOf(tt.wantErr))
-				g.Expect(err).To(MatchError(ContainSubstring(tt.wantErr.Error())))
+			if tt.wantErr != "" {
+				g.Expect(err).To(BeAssignableToTypeOf(tt.errType))
+				g.Expect(err).To(MatchError(ContainSubstring(tt.wantErr)))
 			} else {
 				g.Expect(err).ToNot(HaveOccurred())
 			}
