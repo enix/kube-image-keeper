@@ -23,15 +23,22 @@ var sanitizeNameRegex = regexp.MustCompile(`[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z
 func imageExists(ref name.Reference, options ...remote.Option) (bool, error) {
 	_, err := remote.Head(ref, options...)
 	if err != nil {
-		if err, ok := err.(*transport.Error); ok {
-			if err.StatusCode == http.StatusNotFound {
-				return false, nil
-			}
+		if errIsImageNotFound(err) {
+			return false, nil
 		}
 		return false, err
 	}
 
 	return true, nil
+}
+
+func errIsImageNotFound(err error) bool {
+	if err, ok := err.(*transport.Error); ok {
+		if err.StatusCode == http.StatusNotFound {
+			return true
+		}
+	}
+	return false
 }
 
 func getDestinationName(sourceName string) (string, error) {
@@ -98,16 +105,12 @@ func CacheImage(imageName string, keychain authn.Keychain) error {
 	}
 
 	auth := remote.WithAuthFromKeychain(keychain)
-	exists, err := imageExists(sourceRef, auth)
-	if err != nil {
-		return err
-	}
-	if !exists {
-		return errors.New("could not find source image")
-	}
-
 	image, err := remote.Image(sourceRef, auth)
 	if err != nil {
+		if errIsImageNotFound(err) {
+
+			return errors.New("could not find source image")
+		}
 		return err
 	}
 
