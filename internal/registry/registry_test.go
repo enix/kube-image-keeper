@@ -171,17 +171,15 @@ func Test_DeleteImage(t *testing.T) {
 			errType:    &name.ErrBadName{},
 		},
 		{
-			name:       "Don't exists",
-			image:      "alpine",
+			name:       "Image not found",
+			image:      "image-not-found",
 			httpStatus: http.StatusNotFound,
 		},
 		{
-			name:              "Second head randomly fails",
-			image:             "alpine",
-			headRandomlyFails: true,
-			httpStatus:        http.StatusOK,
-			wantErr:           "response did not include Content-Type header",
-			errType:           errors.New(""),
+			name:       "Unauthorized",
+			image:      "alpine",
+			httpStatus: http.StatusUnauthorized,
+			errType:    &transport.Error{},
 		},
 	}
 
@@ -192,21 +190,11 @@ func Test_DeleteImage(t *testing.T) {
 			server := ghttp.NewServer()
 			defer server.Close()
 
-			secondHeadResponse := "..."
-			if tt.headRandomlyFails {
-				secondHeadResponse = "" // trigger missing Content-Type header error
-			}
-
 			server.AppendHandlers(
 				mockV2Endpoint(gh),
 				ghttp.CombineHandlers(
 					gh.VerifyRequest(http.MethodHead, "/v2/docker.io/library/"+tt.image+"/manifests/latest"),
 					gh.RespondWith(tt.httpStatus, "...", mockedHeadImageHeader),
-				),
-				mockV2Endpoint(gh),
-				ghttp.CombineHandlers(
-					gh.VerifyRequest(http.MethodHead, "/v2/docker.io/library/"+tt.image+"/manifests/latest"),
-					gh.RespondWith(tt.httpStatus, secondHeadResponse, mockedHeadImageHeader),
 				),
 				mockV2Endpoint(gh),
 				ghttp.CombineHandlers(
@@ -217,7 +205,7 @@ func Test_DeleteImage(t *testing.T) {
 
 			Endpoint = server.Addr()
 			err := DeleteImage(tt.image)
-			if tt.wantErr != "" {
+			if tt.errType != nil {
 				g.Expect(err).To(BeAssignableToTypeOf(tt.errType))
 				g.Expect(err).To(MatchError(ContainSubstring(tt.wantErr)))
 			} else {
