@@ -14,7 +14,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 )
 
-var Endpoint = "kuik-registry:5000"
+var Endpoint = ""
 var Protocol = "http://"
 
 // See https://github.com/kubernetes/apimachinery/blob/v0.20.6/pkg/util/validation/validation.go#L198
@@ -115,9 +115,9 @@ func CacheImage(imageName string, keychain authn.Keychain) error {
 		return err
 	}
 
-	if err := remote.Put(destRef, image); err != nil {
-		return err
-	}
+	// if err := remote.Put(destRef, image); err != nil {
+	// 	return err
+	// }
 
 	return nil
 }

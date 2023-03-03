@@ -39,6 +39,7 @@ spec:
           command:
             - registry-proxy
             - -v={{ .Values.proxy.verbosity }}
+            - -registry-endpoint={{ include "kube-image-keeper.fullname" . }}-registry:5000
           {{- with .Values.proxy.resources }}
           resources:
             {{- toYaml . | nindent 12 }}

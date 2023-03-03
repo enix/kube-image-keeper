@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/enix/kube-image-keeper/internal/proxy"
+	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/enix/kube-image-keeper/internal/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -23,6 +24,7 @@ func initFlags() {
 		fmt.Fprint(os.Stderr, "could not enable logging to stderr")
 	}
 	flag.StringVar(&kubeconfig, "kubeconfig", "", "absolute path to the kubeconfig file")
+	flag.StringVar(&registry.Endpoint, "registry-endpoint", "kube-image-keeper-registry:5000", "The address of the registry where cached images are stored.")
 
 	flag.Parse()
 }

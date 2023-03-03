@@ -29,6 +29,8 @@ func sha224(str string) string {
 }
 
 func Test_parseLocalReference(t *testing.T) {
+	Endpoint = "kube-image-keeper-registry:5000"
+
 	tests := []struct {
 		name                    string
 		image                   string
