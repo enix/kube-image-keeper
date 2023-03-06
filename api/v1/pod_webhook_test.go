@@ -9,6 +9,7 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 var podStub = corev1.Pod{
@@ -25,13 +26,14 @@ var podStub = corev1.Pod{
 			{Name: "c", Image: "localhost:1313/original-2"},
 			{Name: "d", Image: "185.145.250.247:30042/alpine"},
 			{Name: "e", Image: "185.145.250.247:30042/alpine:latest"},
+			{Name: "f", Image: "invalid:image:8080"},
 		},
 	},
 }
 
 func TestRewriteImages(t *testing.T) {
 	g := NewWithT(t)
-	t.Run("rewrite image", func(t *testing.T) {
+	t.Run("Rewrite image", func(t *testing.T) {
 		ir := ImageRewriter{
 			ProxyPort: 4242,
 		}
@@ -46,6 +48,7 @@ func TestRewriteImages(t *testing.T) {
 			{Name: "c", Image: "localhost:4242/original-2"},
 			{Name: "d", Image: "localhost:4242/185.145.250.247-30042/alpine"},
 			{Name: "e", Image: "localhost:4242/185.145.250.247-30042/alpine:latest"},
+			{Name: "f", Image: "invalid:image:8080"},
 		}
 
 		g.Expect(podStub.Spec.InitContainers).To(Equal(rewrittenInitContainers))
@@ -58,5 +61,20 @@ func TestRewriteImages(t *testing.T) {
 		g.Expect(podStub.Annotations[fmt.Sprintf(controllers.AnnotationOriginalImageTemplate, "c")]).To(Equal("original-2"))
 		g.Expect(podStub.Annotations[fmt.Sprintf(controllers.AnnotationOriginalImageTemplate, "d")]).To(Equal("185.145.250.247:30042/alpine"))
 		g.Expect(podStub.Annotations[fmt.Sprintf(controllers.AnnotationOriginalImageTemplate, "e")]).To(Equal("185.145.250.247:30042/alpine:latest"))
+		g.Expect(podStub.Annotations[fmt.Sprintf(controllers.AnnotationOriginalImageTemplate, "f")]).To(Equal(""))
+	})
+}
+
+func TestInjectDecoder(t *testing.T) {
+	g := NewWithT(t)
+	t.Run("Inject decoder", func(t *testing.T) {
+		ir := ImageRewriter{}
+		decoder := &admission.Decoder{}
+
+		g.Expect(ir.decoder).To(BeNil())
+		err := ir.InjectDecoder(decoder)
+		g.Expect(err).To(Not(HaveOccurred()))
+		g.Expect(ir.decoder).To(Not(BeNil()))
+		g.Expect(ir.decoder).To(Equal(decoder))
 	})
 }
