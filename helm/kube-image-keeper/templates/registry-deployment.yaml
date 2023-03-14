@@ -3,7 +3,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "kube-image-keeper.fullname" . }}-registry-primary
+  name: {{ include "kube-image-keeper.fullname" . }}-registry
   labels:
     {{- include "kube-image-keeper.registry-labels" . | nindent 4 }}
 spec:
