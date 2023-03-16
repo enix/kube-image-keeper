@@ -44,7 +44,7 @@ jobs:
         uses: docker/build-push-action@v4
         with:
           context: repository
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           labels: ${{ steps.meta.outputs.labels }}
           tags: |
@@ -90,7 +90,7 @@ jobs:
         run: |
           set -euo pipefail
           ct lint \
-            --charts helm/cache-registry \
+            --charts helm/kube-image-keeper \
             --validate-maintainers=false --check-version-increment=false
 
 # Need wait for the next release with flash --skip-clean-up
