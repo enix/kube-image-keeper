@@ -3,6 +3,8 @@ FROM golang:1.17-alpine3.14 AS builder
 
 WORKDIR /workspace
 
+RUN apk add make bash --no-cache
+
 # Copy the Go Modules manifests
 COPY go.mod go.mod
 COPY go.sum go.sum
@@ -17,9 +19,13 @@ COPY controllers/ controllers/
 COPY cmd/ cmd/
 COPY internal/ internal/
 
+# Copy the makefile
+COPY Makefile Makefile
+
 ENV CGO_ENABLED=0 GOOS=linux GOARCH=amd64
 
-RUN go build -a -o manager cmd/cache/main.go && \
+RUN make generate && \
+    go build -a -o manager cmd/cache/main.go && \
     go build -a -o registry-proxy cmd/proxy/main.go
 
 # Use distroless as minimal base image to package the manager binary
