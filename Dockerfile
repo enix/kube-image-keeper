@@ -1,9 +1,9 @@
 # Build the manager binary
-FROM golang:1.17-alpine3.14 AS builder
+FROM --platform=${BUILDPLATFORM} golang:1.17-alpine3.14 AS builder
 
 WORKDIR /workspace
 
-RUN apk add make bash --no-cache
+RUN go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.8.0
 
 # Copy the Go Modules manifests
 COPY go.mod go.mod
@@ -22,9 +22,11 @@ COPY internal/ internal/
 # Copy the makefile
 COPY Makefile Makefile
 
-ENV CGO_ENABLED=0 GOOS=linux GOARCH=amd64
+ARG TARGETOS
+ARG TARGETARCH
+ENV CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH}
 
-RUN make generate && \
+RUN controller-gen object paths="./..." && \
     go build -a -o manager cmd/cache/main.go && \
     go build -a -o registry-proxy cmd/proxy/main.go
 
