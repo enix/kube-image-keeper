@@ -32,7 +32,7 @@ jobs:
 
       - name: Run semantic-release (dry-run)
         id: dry-run
-        uses: cycjimmy/semantic-release-action@v3.3.0
+        uses: cycjimmy/semantic-release-action@v3.4.0
         with:
           dry_run: true
         env:
