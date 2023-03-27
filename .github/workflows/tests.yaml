@@ -79,7 +79,7 @@ jobs:
           kubectl wait pods -n cert-manager -l app.kubernetes.io/instance=cert-manager --for condition=Ready --timeout=30s
 
       - name: Set up chart-testing
-        uses: helm/chart-testing-action@v2.3.1
+        uses: helm/chart-testing-action@v2.4.0
 
       - name: Set up helm
         uses: azure/setup-helm@v3
