@@ -54,6 +54,7 @@ jobs:
     needs:
       - build
     runs-on: ubuntu-22.04
+    environment: 'Release'
     env:
       VERSION: ${{ github.run_id }}
       GHCR_IMAGE_NAME: "ghcr.io/enix/kube-image-keeper"
