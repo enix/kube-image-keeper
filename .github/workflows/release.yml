@@ -109,18 +109,141 @@ jobs:
             --charts helm/kube-image-keeper \
             --validate-maintainers=false --check-version-increment=false
 
-      # FIXME
-      #- name: Run chart-testing (install)
-      #  run: |
-      #    set -euo pipefail
-      #    ct install --chart-dirs deploy/charts
-
-  release:
-    name: Release
+  build:
+    name: Build test image
     needs:
       - semver
       - tests
     runs-on: ubuntu-22.04
+    env:
+      VERSION: ${{ github.run_id }}
+      GHCR_REGISTRY: "ghcr.io"
+      QUAY_IMAGE: "quay.io/enix/kube-image-keeper"
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+        with:
+          path: repository
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ env.GHCR_REGISTRY }}
+          username: ${{ env.COMMIT_NAME }}
+          password: ${{ secrets.RELEASE_GITHUB_TOKEN }}
+
+      - name: Generate image metadata
+        id: meta
+        uses: docker/metadata-action@v4
+        with:
+          images: |
+            ${{ env.GHCR_REGISTRY }}/${{ github.repository }}
+            ${{ github.repository }}
+            ${{ env.QUAY_IMAGE }}
+
+      - name: Build container images
+        uses: docker/build-push-action@v4
+        with:
+          context: repository
+          platforms: linux/amd64,linux/arm64
+          push: true
+          labels: ${{ steps.meta.outputs.labels }}
+          tags: |
+            ${{ env.GHCR_REGISTRY }}/${{ github.repository }}:${{ env.VERSION }}
+  e2e:
+    name: Tests End-to-End on K8s
+    needs:
+      - build
+    runs-on: ubuntu-22.04
+    env:
+      VERSION: ${{ github.run_id }}
+      GHCR_IMAGE_NAME: "ghcr.io/enix/kube-image-keeper"
+      GHCR_REGISTRY: "ghcr.io"
+    strategy:
+      max-parallel: 6
+      matrix:
+        k8sversion: ["v1.21.14", "v1.22.15", "v1.23.13", "v1.24.7", "v1.25.3", "v1.26.0"]
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Setup KinD
+        uses: engineerd/setup-kind@v0.5.0
+        with:
+          image: kindest/node:${{ matrix.k8sversion }}
+          version: v0.17.0
+
+      - name: Run cert-manager installation
+        run: |
+          kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.11.0/cert-manager.yaml
+          kubectl wait pods -n cert-manager -l app.kubernetes.io/instance=cert-manager --for condition=Ready --timeout=30s
+
+      - name: Set up chart-testing
+        uses: helm/chart-testing-action@v2.4.0
+
+      - name: Set up helm
+        uses: azure/setup-helm@v3
+        with:
+          version: '3.9.0'
+
+      - name: Run chart-testing (lint)
+        run: |
+          set -euo pipefail
+          ct lint \
+            --charts helm/kube-image-keeper \
+            --validate-maintainers=false --check-version-increment=false
+
+# Need wait for the next release with flag --skip-clean-up
+#      - name: Run chart-testing (install)
+#        run: |
+#          set -euo pipefail
+#          ct install \
+#            --charts helm/kube-image-keeper \
+#            --helm-extra-set-args "--set controllers.image.tag=latest --set proxy.image.tag=latest"
+
+      - name: Run helm (install)
+        run : |
+          set -euo pipefail
+          kubectl create namespace kuik-system
+          kubectl create secret docker-registry ghcr-secret -n kuik-system --docker-server=https://ghcr.io \
+            --docker-username=monkeynator --docker-password=${{ secrets.RELEASE_GITHUB_TOKEN }} \
+            --docker-email=${{ env.COMMIT_EMAIL }}
+          helm upgrade --install kube-image-keeper -n kuik-system --create-namespace ./helm/kube-image-keeper \
+            --set controllers.image.tag=${{ env.VERSION }} --set proxy.image.tag=${{ env.VERSION }} \
+            --set controllers.image.repository=${{ env.GHCR_IMAGE_NAME }} --set proxy.image.repository=${{ env.GHCR_IMAGE_NAME }} \
+            --set controllers.imagePullSecrets[0].name=ghcr-secret --set proxy.image.imagePullSecrets[0].name=ghcr-secret  --debug
+          kubectl wait pods -n kuik-system -l app.kubernetes.io/instance=kube-image-keeper --for condition=Ready --timeout=30s
+
+      - name: Run end-to-end tests
+        run: |
+          set -euo pipefail
+          kubectl create deploy nginx --image=nginx:stable-alpine --replicas=2
+          kubectl wait deployment nginx --for condition=Available=True --timeout=30s
+          echo "kubectl get cachedimages"
+          kubectl get cachedimages
+          if [ $(kubectl get cachedimages -o json | jq ".items[0].status.isCached") ];
+          then
+              if [ $(kubectl get cachedimages -o json | jq ".items[0].status.usedBy.count") -eq 2 ];
+              then
+                  echo "Found cached image used by 2 pods"
+              else
+                  echo "Error: pods count should be equal 2"
+                  exit 1
+              fi
+          else
+              echo "Error: image cached status is false"
+              exit 1
+          fi
+
+  release:
+    name: Release
+    needs:
+      - e2e
+    runs-on: ubuntu-22.04
+    environment: 'Release'
     outputs:
       last: ${{ steps.release.outputs.last_release_version }}
       published: ${{ steps.release.outputs.new_release_published }}
