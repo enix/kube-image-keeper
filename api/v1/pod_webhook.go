@@ -23,6 +23,7 @@ import (
 type ImageRewriter struct {
 	Client          client.Client
 	IgnoreNamespace string
+	ProxyAddress    string
 	ProxyPort       int
 	decoder         *admission.Decoder
 }
@@ -83,7 +84,7 @@ func (a *ImageRewriter) InjectDecoder(d *admission.Decoder) error {
 }
 
 func (a *ImageRewriter) handleContainer(pod *corev1.Pod, container *corev1.Container, annotationKey string) {
-	re := regexp.MustCompile(`localhost:[0-9]+/`)
+	re := regexp.MustCompile(regexp.QuoteMeta(a.ProxyAddress) + `:[0-9]+/`)
 	image := re.ReplaceAllString(container.Image, "")
 
 	sourceRef, err := name.ParseReference(image, name.Insecure)
@@ -96,5 +97,5 @@ func (a *ImageRewriter) handleContainer(pod *corev1.Pod, container *corev1.Conta
 	sanitizedRegistryName := strings.ReplaceAll(sourceRef.Context().RegistryStr(), ":", "-")
 	image = strings.ReplaceAll(image, sourceRef.Context().RegistryStr(), sanitizedRegistryName)
 
-	container.Image = fmt.Sprintf("localhost:%d/%s", a.ProxyPort, image)
+	container.Image = fmt.Sprintf("%s:%d/%s", a.ProxyAddress, a.ProxyPort, image)
 }

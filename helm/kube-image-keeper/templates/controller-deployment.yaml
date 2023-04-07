@@ -37,7 +37,8 @@ spec:
             - manager
             - -leader-elect
             - -expiry-delay={{ .Values.cachedImagesExpiryDelay }}
-            - -proxy-port={{ .Values.proxy.hostPort }}
+            - -proxy-address={{ .Values.controllers.proxyAddress }}
+            - -proxy-port={{ or .Values.controllers.proxyPort .Values.proxy.hostPort }}
             - -ignore-namespace={{ .Release.Namespace }}
             - -registry-endpoint={{ include "kube-image-keeper.fullname" . }}-registry:5000
             - -zap-log-level={{ .Values.controllers.verbosity }}

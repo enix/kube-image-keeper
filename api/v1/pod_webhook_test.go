@@ -33,7 +33,8 @@ func TestRewriteImages(t *testing.T) {
 	g := NewWithT(t)
 	t.Run("rewrite image", func(t *testing.T) {
 		ir := ImageRewriter{
-			ProxyPort: 4242,
+			ProxyAddress: "localhost",
+			ProxyPort:    4242,
 		}
 		ir.RewriteImages(&podStub)
 

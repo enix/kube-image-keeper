@@ -58,8 +58,14 @@ controllers:
     objectSelector:
       # -- Run the webhook if the object has matching labels. (See https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.21/#labelselectorrequirement-v1-meta)
       matchExpressions: []
+  # -- proxyAddress default to localhost, change it when using a clusterip
+  proxyAddress: localhost
+  # -- proxyPort defaults to proxy.hostPort
+  #proxyPort: ""
 
 proxy:
+  # -- kind of resource, could be DaemonSet (default), Deployment or StatefulSet
+  kind: DaemonSet
   image:
     # -- Proxy image repository. Also available: `quay.io/enix/kube-image-keeper`
     repository: enix/kube-image-keeper
