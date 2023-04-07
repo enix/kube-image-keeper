@@ -243,7 +243,6 @@ jobs:
     needs:
       - e2e
     runs-on: ubuntu-22.04
-    environment: 'Release'
     outputs:
       last: ${{ steps.release.outputs.last_release_version }}
       published: ${{ steps.release.outputs.new_release_published }}
