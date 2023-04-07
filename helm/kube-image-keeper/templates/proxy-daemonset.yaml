@@ -1,5 +1,5 @@
 apiVersion: apps/v1
-kind: DaemonSet
+kind: {{ .Values.proxy.kind }}
 metadata:
   name: {{ include "kube-image-keeper.fullname" . }}-proxy
   labels:

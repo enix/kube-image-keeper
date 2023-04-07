@@ -32,6 +32,7 @@ func main() {
 	var enableLeaderElection bool
 	var probeAddr string
 	var expiryDelay uint
+	var proxyAddress string
 	var proxyPort int
 	var ignoreNamespace string
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
@@ -40,7 +41,8 @@ func main() {
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.UintVar(&expiryDelay, "expiry-delay", 30, "The delay in days before deleting an unused CachedImage.")
-	flag.IntVar(&proxyPort, "proxy-port", 8082, "The port where the proxy is listening on this machine.")
+	flag.StringVar(&proxyAddress, "proxy-address", "localhost", "The address of the proxy.")
+	flag.IntVar(&proxyPort, "proxy-port", 8082, "The port of the proxy.")
 	flag.StringVar(&ignoreNamespace, "ignore-namespace", "kuik-system", "The address the probe endpoint binds to.")
 	flag.StringVar(&registry.Endpoint, "registry-endpoint", "kube-image-keeper-registry:5000", "The address of the registry where cached images are stored.")
 	opts := zap.Options{
@@ -85,6 +87,7 @@ func main() {
 	imageRewriter := kuikenixiov1.ImageRewriter{
 		Client:          mgr.GetClient(),
 		IgnoreNamespace: ignoreNamespace,
+		ProxyAddress:    proxyAddress,
 		ProxyPort:       proxyPort,
 	}
 	mgr.GetWebhookServer().Register("/mutate-core-v1-pod", &webhook.Admission{Handler: &imageRewriter})
