@@ -69,6 +69,8 @@ proxy:
     tag: ""
   # -- hostPort used for the proxy pod
   hostPort: 7439
+  # -- hostIp used for the proxy pod
+  hostIp: "127.0.0.1"
   # -- Verbosity level for the proxy pod
   verbosity: 1
   # -- Specify secrets to be used when pulling proxy image
