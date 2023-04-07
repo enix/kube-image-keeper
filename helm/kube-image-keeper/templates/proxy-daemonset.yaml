@@ -33,7 +33,7 @@ spec:
           imagePullPolicy: {{ .Values.proxy.image.pullPolicy }}
           ports:
             - containerPort: 8082
-              hostIP: 127.0.0.1
+              hostIP: {{ .Values.proxy.hostIp }}
               hostPort: {{ .Values.proxy.hostPort }}
               protocol: TCP
           command:
