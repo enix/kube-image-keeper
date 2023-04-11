@@ -153,6 +153,17 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           tags: |
             ${{ env.GHCR_REGISTRY }}/${{ github.repository }}:${{ env.VERSION }}
+
+      - name: Build alpine container images
+        uses: docker/build-push-action@v4
+        with:
+          context: repository
+          platforms: linux/amd64,linux/arm64
+          target: alpine
+          push: true
+          labels: ${{ steps.meta.outputs.labels }}
+          tags: |
+            ${{ env.GHCR_REGISTRY }}/${{ github.repository }}:${{ env.VERSION }}-alpine
   e2e:
     name: Tests End-to-End on K8s
     needs:
@@ -430,6 +441,18 @@ jobs:
           tags: |
             ${{ github.repository }}:${{ env.VERSION }}
             ${{ env.QUAY_REPOSITORY }}:${{ env.VERSION  }}
+
+      - name: Push alpine container images tag (Release)
+        uses: docker/build-push-action@v4
+        with:
+          context: repository
+          platforms: linux/amd64,linux/arm64
+          target: alpine
+          push: true
+          labels: ${{ steps.meta.outputs.labels }}
+          tags: |
+            ${{ github.repository }}:${{ env.VERSION }}-alpine
+            ${{ env.QUAY_REPOSITORY }}:${{ env.VERSION  }}-alpine
 
       - name: Convert Github changelog for Artifacthub
         shell: python
