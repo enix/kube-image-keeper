@@ -44,8 +44,9 @@ func main() {
 	flag.StringVar(&ignoreNamespace, "ignore-namespace", "kuik-system", "The address the probe endpoint binds to.")
 	flag.StringVar(&registry.Endpoint, "registry-endpoint", "kube-image-keeper-registry:5000", "The address of the registry where cached images are stored.")
 	opts := zap.Options{
-		Development: true,
-		TimeEncoder: zapcore.ISO8601TimeEncoder,
+		Development:     true,
+		TimeEncoder:     zapcore.ISO8601TimeEncoder,
+		StacktraceLevel: zapcore.DPanicLevel,
 	}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
