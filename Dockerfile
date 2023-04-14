@@ -30,6 +30,14 @@ RUN controller-gen object paths="./..." && \
     go build -a -o manager cmd/cache/main.go && \
     go build -a -o registry-proxy cmd/proxy/main.go
 
+FROM alpine:3.17 AS alpine
+
+COPY --from=builder /workspace/manager /usr/local/bin/
+COPY --from=builder /workspace/registry-proxy /usr/local/bin/
+USER 65532:65532
+
+ENTRYPOINT ["manager"]
+
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
 FROM gcr.io/distroless/static:nonroot
