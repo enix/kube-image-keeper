@@ -253,6 +253,7 @@ jobs:
     name: Release
     needs:
       - e2e
+      - semver
     runs-on: ubuntu-22.04
     outputs:
       last: ${{ steps.release.outputs.last_release_version }}
@@ -288,8 +289,8 @@ jobs:
         shell: python
         env:
           PYTHONPATH: ${{ github.workspace }}/repository/.github
-          SRDRY_CHANNEL: ${{ steps.semver.outputs.channel }}
-          SRDRY_VERSION: ${{ steps.semver.outputs.version }}
+          SRDRY_CHANNEL: ${{ needs.semver.outputs.channel }}
+          SRDRY_VERSION: ${{ needs.semver.outputs.version }}
           SR_LAST: ${{ steps.release.outputs.last_release_version }}
           SR_PUBLISHED: ${{ steps.release.outputs.new_release_published }}
           SR_CHANNEL: ${{ steps.release.outputs.new_release_channel }}
