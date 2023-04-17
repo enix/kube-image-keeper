@@ -23,3 +23,6 @@ zz_generated.*
 *.swp
 *.swo
 *~
+
+# helm dependencies
+helm/**/charts/*.tgz

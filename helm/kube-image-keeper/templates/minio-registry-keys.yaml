@@ -1,0 +1,17 @@
+{{- if and (eq (include "kube-image-keeper.registry-ha-mode" .) "true") .Values.minio.enabled }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "kube-image-keeper.fullname" . }}-minio-registry-keys
+  annotations:
+    "helm.sh/resource-policy": "keep"
+type: Opaque
+stringData:
+  {{- $secretName := printf "%s-%s" (include "kube-image-keeper.fullname" .) "minio-registry-keys" }}
+  {{- $secretData := (get (lookup "v1" "Secret" .Release.Namespace $secretName) "data") | default dict }}
+  # set $accessKey $secretKey to existing secret data or generate random ones when they do not exist
+  {{- $accessKey := (get $secretData "accessKey" | b64dec) | default (randAlphaNum 16) }}
+  {{- $secretKey := (get $secretData "secretKey" | b64dec) | default (randAlphaNum 32) }}
+  accessKey: {{ $accessKey }}
+  secretKey: {{ $secretKey }}
+{{- end }}
