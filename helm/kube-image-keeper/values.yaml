@@ -142,7 +142,7 @@ registry:
     storageClass: null
     # -- Registry persistent volume size
     size: 20Gi
-    # -- External S3 configuration (see https://github.com/docker/docs/blob/main/registry/storage-drivers/s3.md)
+    # -- External S3 configuration (needed only if you don't enable minio) (see https://github.com/docker/docs/blob/main/registry/storage-drivers/s3.md)
     s3: {}
   # -- Garbage collector cron schedule. Use standard crontab format.
   garbageCollectionSchedule: "0 0 * * 0"
@@ -210,6 +210,32 @@ registryUI:
   tolerations: []
   # -- Affinity for the registry UI pod
   affinity: {}
+
+minio:
+  # -- If true, install minio as a local storage backend for the registry
+  enabled: false
+  mode: distributed
+  provisioning:
+    enabled: true
+    buckets:
+      - name: registry
+    usersExistingSecrets:
+      - kube-image-keeper-minio-registry-users
+    extraVolumes:
+      - name: registry-keys
+        secret:
+          defaultMode: 420
+          secretName: kube-image-keeper-minio-registry-keys
+    extraVolumeMounts:
+      - name: registry-keys
+        mountPath: /opt/bitnami/minio/svcacct/registry/
+    extraCommands:
+      - |
+        (mc admin user svcacct info provisioning $(cat /opt/bitnami/minio/svcacct/registry/accessKey) 2> /dev/null ||
+        mc admin user svcacct add
+        --access-key "$(cat /opt/bitnami/minio/svcacct/registry/accessKey)"
+        --secret-key "$(cat /opt/bitnami/minio/svcacct/registry/secretKey)"
+        provisioning registry) > /dev/null
 
 serviceAccount:
   # -- Annotations to add to the servicateAccount

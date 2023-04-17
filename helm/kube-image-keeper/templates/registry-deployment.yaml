@@ -1,7 +1,7 @@
 {{- if eq (include "kube-image-keeper.registry-ha-mode" .) "true" }}
 
-{{- if and (eq (include "kube-image-keeper.registry-ha-mode" .) "true") (empty .Values.registry.persistence.s3) -}}
-{{ fail "registry needs a configured S3 endpoint to enable HA mode (>1 replicas), please configure an external S3 endpoint" }}
+{{- if and (eq (include "kube-image-keeper.registry-ha-mode" .) "true") (and (not .Values.minio.enabled) (empty .Values.registry.persistence.s3)) -}}
+{{ fail "registry needs a configured S3 endpoint to enable HA mode (>1 replicas), please enable minio or configure an external S3 endpoint" }}
 {{- end }}
 
 apiVersion: apps/v1
@@ -51,19 +51,29 @@ spec:
               value: "true"
             - name: REGISTRY_STORAGE
               value: s3
+            {{- if .Values.minio.enabled }}
+            - name: REGISTRY_STORAGE_S3_REGION
+              value: us-east-1
+            - name: REGISTRY_STORAGE_S3_BUCKET
+              value: registry
+            - name: REGISTRY_STORAGE_S3_REGIONENDPOINT
+              value: http://{{ include "kube-image-keeper.fullname" . }}-minio:9000
+            {{- else }}
             {{- range $k, $v := omit .Values.registry.persistence.s3 "accesskey" "secretkey" }}
             - name: {{ printf "%s_%s" "REGISTRY_STORAGE_S3" ($k | upper) }}
               value: {{ $v | quote }}
             {{- end }}
+            {{- end }}
+            {{ $keysSecretName := ternary "minio" "s3" .Values.minio.enabled }}
             - name: REGISTRY_STORAGE_S3_ACCESSKEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "kube-image-keeper.fullname" . }}-s3-registry-keys
+                  name: {{ include "kube-image-keeper.fullname" . }}-{{ $keysSecretName }}-registry-keys
                   key: accessKey
             - name: REGISTRY_STORAGE_S3_SECRETKEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "kube-image-keeper.fullname" . }}-s3-registry-keys
+                  name: {{ include "kube-image-keeper.fullname" . }}-{{ $keysSecretName }}-registry-keys
                   key: secretKey
             {{- range .Values.registry.env }}
             - name: {{ .name }}

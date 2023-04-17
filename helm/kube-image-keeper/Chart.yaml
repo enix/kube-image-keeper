@@ -26,3 +26,8 @@ maintainers:
   - name: David Donchez
     email: david.donchez@enix.fr
     url: https://github.com/donch
+dependencies:
+  - name: minio
+    version: "12.1.4"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: minio.enabled

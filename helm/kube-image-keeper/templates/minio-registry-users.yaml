@@ -1,0 +1,31 @@
+{{- if and (eq (include "kube-image-keeper.registry-ha-mode" .) "true") .Values.minio.enabled }}
+
+{{- $secretName := printf "%s-%s" (include "kube-image-keeper.fullname" .) "minio-passwords" }}
+{{- $secretData := (get (lookup "v1" "Secret" .Release.Namespace $secretName) "data") | default dict }}
+# set passwords to existing secret data or generate random ones when they do not exist
+{{- $password := (get $secretData "registry" | b64dec) | default (randAlphaNum 32) }}
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "kube-image-keeper.fullname" . }}-minio-registry-users
+  annotations:
+    "helm.sh/resource-policy": "keep"
+type: Opaque
+stringData:
+  registry: |
+    username=registry
+    password={{ $password }}
+    policies=readwrite
+    setPolicies=true
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "kube-image-keeper.fullname" . }}-minio-registry-passwords
+  annotations:
+    "helm.sh/resource-policy": "keep"
+type: Opaque
+stringData:
+  registry: {{ $password }}
+{{- end }}
