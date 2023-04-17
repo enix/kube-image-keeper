@@ -1,3 +1,4 @@
+{{- if eq (include "kube-image-keeper.registry-ha-mode" .) "false" }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -92,7 +93,7 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-{{- if .Values.registry.persistence.enabled }}
+  {{- if .Values.registry.persistence.enabled }}
   volumeClaimTemplates:
   - metadata:
       name: data
@@ -102,4 +103,5 @@ spec:
       resources:
         requests:
           storage: {{ .Values.registry.persistence.size }}
+  {{- end }}
 {{- end }}
