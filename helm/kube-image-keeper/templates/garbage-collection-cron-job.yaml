@@ -1,4 +1,4 @@
-{{- if and .Values.registry.garbageCollectionSchedule .Values.registry.persistence.enabled }}
+{{- if and .Values.registry.garbageCollectionSchedule (or .Values.registry.persistence.enabled (eq (include "kube-image-keeper.registry-ha-mode" .) "true")) }}
 {{- if semverCompare ">=1.21-0" (default .Capabilities.KubeVersion.Version .Values.kubeVersion) -}}
 apiVersion: batch/v1
 {{- else -}}
@@ -26,7 +26,23 @@ spec:
               command:
                 - bash
                 - -c
-                - >-
-                  kubectl rollout restart sts {{ include "kube-image-keeper.fullname" . }}-registry &&
+                - |
+                  set -e
+                  {{- if eq (include "kube-image-keeper.registry-ha-mode" .) "true" }}
+                  kubectl set env deploy {{ include "kube-image-keeper.fullname" . }}-registry REGISTRY_STORAGE_MAINTENANCE_READONLY="{\"enabled\":true}"
+
+                  # wait for deployment to berolled out and terminated pods to be deleted to prevent exec’ing into a terminating pod (see https://binx.io/2022/01/18/how-to-run-a-post-deployment-script-on-kubernetes/)
+                  kubectl rollout status deploy {{ include "kube-image-keeper.fullname" . }}-registry
+                  SELECTOR=$(kubectl get deploy {{ include "kube-image-keeper.fullname" . }}-registry -o wide --no-headers | awk '{print $NF}')
+                  while [[ $(kubectl get pods --selector ${SELECTOR} --no-headers | awk '{print $3}' | uniq) != "Running" ]]; do
+                    echo "waiting for terminating pods to be deleted"
+                    sleep 1
+                  done
+
+                  kubectl exec deploy/kube-image-keeper-registry -- bin/registry garbage-collect /etc/docker/registry/config.yml --delete-untagged=true
+                  kubectl set env deploy {{ include "kube-image-keeper.fullname" . }}-registry REGISTRY_STORAGE_MAINTENANCE_READONLY-
+                  {{- else }}
+                  kubectl rollout restart sts {{ include "kube-image-keeper.fullname" . }}-registry
                   kubectl rollout status sts {{ include "kube-image-keeper.fullname" . }}-registry
+                  {{- end }}
 {{- end }}

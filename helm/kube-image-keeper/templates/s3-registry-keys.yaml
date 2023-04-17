@@ -1,0 +1,12 @@
+{{- if (eq (include "kube-image-keeper.registry-ha-mode" .) "true") }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "kube-image-keeper.fullname" . }}-s3-registry-keys
+  annotations:
+    "helm.sh/resource-policy": "keep"
+type: Opaque
+stringData:
+  accessKey: {{ .Values.registry.persistence.s3.accesskey }}
+  secretKey: {{ .Values.registry.persistence.s3.secretkey }}
+{{- end }}

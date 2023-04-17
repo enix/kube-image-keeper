@@ -5,7 +5,13 @@ metadata:
   name: {{ include "kube-image-keeper.fullname" . }}-registry-restart
 rules:
   - apiGroups: ["apps", "extensions"]
-    resources: ["statefulsets"]
+    resources: ["statefulsets", "deployments"]
     resourceNames: ["{{ include "kube-image-keeper.fullname" . }}-registry"]
     verbs: ["get", "patch", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
 {{- end }}
