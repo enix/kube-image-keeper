@@ -1,9 +1,4 @@
-{{- if eq (include "kube-image-keeper.registry-ha-mode" .) "true" }}
-
-{{- if and (eq (include "kube-image-keeper.registry-ha-mode" .) "true") (and (not .Values.minio.enabled) (empty .Values.registry.persistence.s3)) -}}
-{{ fail "registry needs a configured S3 endpoint to enable HA mode (>1 replicas), please enable minio or configure an external S3 endpoint" }}
-{{- end }}
-
+{{- if eq (include "kube-image-keeper.registry-stateless-mode" .) "true" }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:

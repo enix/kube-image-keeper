@@ -110,6 +110,6 @@ Create the name of the service account to use
 {{- default (printf "%s-%s" (include "kube-image-keeper.fullname" .) "controllers") .Values.serviceAccount.name }}
 {{- end }}
 
-{{- define "kube-image-keeper.registry-ha-mode" -}}
-{{- ternary "true" "false" (gt (int .Values.registry.replicas) 1) }}
+{{- define "kube-image-keeper.registry-stateless-mode" -}}
+{{- ternary "true" "false" (or .Values.minio.enabled (not (empty .Values.registry.persistence.s3))) }}
 {{- end }}

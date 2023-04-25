@@ -1,4 +1,4 @@
-{{- if and .Values.registry.garbageCollectionSchedule (or .Values.registry.persistence.enabled (eq (include "kube-image-keeper.registry-ha-mode" .) "true")) }}
+{{- if and .Values.registry.garbageCollectionSchedule (or .Values.registry.persistence.enabled (eq (include "kube-image-keeper.registry-stateless-mode" .) "true")) }}
 {{- if semverCompare ">=1.21-0" (default .Capabilities.KubeVersion.Version .Values.kubeVersion) -}}
 apiVersion: batch/v1
 {{- else -}}
@@ -28,7 +28,7 @@ spec:
                 - -c
                 - |
                   set -e
-                  {{- if eq (include "kube-image-keeper.registry-ha-mode" .) "true" }}
+                  {{- if eq (include "kube-image-keeper.registry-stateless-mode" .) "true" }}
                   kubectl set env deploy {{ include "kube-image-keeper.fullname" . }}-registry REGISTRY_STORAGE_MAINTENANCE_READONLY="{\"enabled\":true}"
 
                   # wait for deployment to berolled out and terminated pods to be deleted to prevent exec’ing into a terminating pod (see https://binx.io/2022/01/18/how-to-run-a-post-deployment-script-on-kubernetes/)
