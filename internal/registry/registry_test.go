@@ -300,14 +300,16 @@ func Test_CacheImage(t *testing.T) {
 
 			cacheRegistry := ghttp.NewServer()
 			defer cacheRegistry.Close()
+			// those paths can be called in any order
+			pathMatcher := Or(Equal("/v2/"+originRegistryName+"/"+tt.image+"/blobs/"+layerSha), Equal("/v2/"+originRegistryName+"/"+tt.image+"/blobs/"+digestSha))
 			cacheRegistry.AppendHandlers(
 				mockV2Endpoint(gh),
 				ghttp.CombineHandlers(
-					gh.VerifyRequest(http.MethodHead, "/v2/"+originRegistryName+"/"+tt.image+"/blobs/"+layerSha),
+					gh.VerifyRequest(http.MethodHead, pathMatcher),
 					gh.RespondWith(http.StatusOK, "...", mockedHeadImageHeader),
 				),
 				ghttp.CombineHandlers(
-					gh.VerifyRequest(http.MethodHead, "/v2/"+originRegistryName+"/"+tt.image+"/blobs/"+digestSha),
+					gh.VerifyRequest(http.MethodHead, pathMatcher),
 					gh.RespondWith(http.StatusOK, "...", mockedHeadImageHeader),
 				),
 				ghttp.CombineHandlers(
