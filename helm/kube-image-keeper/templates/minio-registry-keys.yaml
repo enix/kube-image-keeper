@@ -1,4 +1,4 @@
-{{- if and (eq (include "kube-image-keeper.registry-ha-mode" .) "true") .Values.minio.enabled }}
+{{- if .Values.minio.enabled }}
 apiVersion: v1
 kind: Secret
 metadata:

@@ -1,4 +1,4 @@
-{{- if and (eq (include "kube-image-keeper.registry-ha-mode" .) "true") .Values.minio.enabled }}
+{{- if .Values.minio.enabled }}
 
 {{- $secretName := printf "%s-%s" (include "kube-image-keeper.fullname" .) "minio-passwords" }}
 {{- $secretData := (get (lookup "v1" "Secret" .Release.Namespace $secretName) "data") | default dict }}
