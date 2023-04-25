@@ -1,5 +1,5 @@
 # Build the manager binary
-FROM --platform=${BUILDPLATFORM} golang:1.17-alpine3.14 AS builder
+FROM --platform=${BUILDPLATFORM} golang:1.20-alpine3.17 AS builder
 
 WORKDIR /workspace
 
