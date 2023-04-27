@@ -225,7 +225,7 @@ minio:
       - name: registry-keys
         secret:
           defaultMode: 420
-          secretName: kube-image-keeper-minio-registry-keys
+          secretName: kube-image-keeper-s3-registry-keys
     extraVolumeMounts:
       - name: registry-keys
         mountPath: /opt/bitnami/minio/svcacct/registry/
