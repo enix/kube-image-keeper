@@ -65,7 +65,7 @@ func Test_v2Endpoint(t *testing.T) {
 	// mock proxy server
 	recorder := httptest.NewRecorder()
 	ctx, r := gin.CreateTestContext(recorder)
-	proxy := NewWithEngine(dummyK8sClient, r).Listen()
+	proxy := NewWithEngine(dummyK8sClient, r).Serve()
 
 	// mock request
 	registry.Endpoint = server.Addr()

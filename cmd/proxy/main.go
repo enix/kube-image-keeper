@@ -54,5 +54,5 @@ func main() {
 		panic(err)
 	}
 
-	<-proxy.New(k8sClient).Listen().Serve()
+	<-proxy.New(k8sClient).Run()
 }

@@ -39,7 +39,7 @@ func NewWithEngine(k8sClient client.Client, engine *gin.Engine) *Proxy {
 	}
 }
 
-func (p *Proxy) Listen() *Proxy {
+func (p *Proxy) Serve() *Proxy {
 	r := p.engine
 
 	r.Use(recoveryMiddleware())
@@ -87,7 +87,8 @@ func (p *Proxy) Listen() *Proxy {
 	return p
 }
 
-func (p *Proxy) Serve() chan struct{} {
+func (p *Proxy) Run() chan struct{} {
+	p.Serve()
 	finished := make(chan struct{})
 	go func() {
 		if err := p.engine.Run(":8082"); err != nil {
