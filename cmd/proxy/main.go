@@ -15,7 +15,8 @@ import (
 )
 
 var (
-	kubeconfig string
+	kubeconfig  string
+	metricsAddr string
 )
 
 func initFlags() {
@@ -23,7 +24,8 @@ func initFlags() {
 	if err := flag.Set("logtostderr", "true"); err != nil {
 		fmt.Fprint(os.Stderr, "could not enable logging to stderr")
 	}
-	flag.StringVar(&kubeconfig, "kubeconfig", "", "absolute path to the kubeconfig file")
+	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
+	flag.StringVar(&kubeconfig, "kubeconfig", "", "Absolute path to the kubeconfig file")
 	flag.StringVar(&registry.Endpoint, "registry-endpoint", "kube-image-keeper-registry:5000", "The address of the registry where cached images are stored.")
 
 	flag.Parse()
@@ -54,5 +56,5 @@ func main() {
 		panic(err)
 	}
 
-	<-proxy.New(k8sClient).Run()
+	<-proxy.New(k8sClient, metricsAddr).Run()
 }
