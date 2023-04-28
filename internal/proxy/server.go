@@ -12,6 +12,7 @@ import (
 
 	"github.com/docker/distribution/reference"
 	kuikenixiov1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
+	"github.com/enix/kube-image-keeper/internal/exporter"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/gin-gonic/gin"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -23,12 +24,17 @@ import (
 type Proxy struct {
 	engine    *gin.Engine
 	k8sClient client.Client
+	collector *Collector
+	exporter  *exporter.Exporter
 }
 
-func New(k8sClient client.Client) *Proxy {
+func New(k8sClient client.Client, metricsAddr string) *Proxy {
+	collector := NewCollector()
 	return &Proxy{
 		k8sClient: k8sClient,
 		engine:    gin.Default(),
+		collector: collector,
+		exporter:  exporter.New(collector, metricsAddr),
 	}
 }
 
@@ -43,6 +49,10 @@ func (p *Proxy) Serve() *Proxy {
 	r := p.engine
 
 	r.Use(recoveryMiddleware())
+	r.Use(func(c *gin.Context) {
+		c.Next()
+		p.collector.IncHTTPCall(c.Request, c.Writer.Status(), c.GetBool("cacheHit"))
+	})
 
 	v2 := r.Group("/v2")
 	{
@@ -95,12 +105,20 @@ func (p *Proxy) Run() chan struct{} {
 			panic(err)
 		}
 		finished <- struct{}{}
+		p.exporter.Shutdown()
+	}()
+
+	go func() {
+		if err := p.exporter.ListenAndServe(); err != nil {
+			panic(err)
+		}
 	}()
 
 	return finished
 }
 
 func (p *Proxy) v2Endpoint(c *gin.Context) {
+	c.Set("cacheHit", true)
 	err := p.proxyRegistry(c, registry.Protocol+registry.Endpoint, false, nil)
 	if err != nil {
 		klog.Errorf("could not proxy registry: %s", err)
@@ -134,7 +152,10 @@ func (p *Proxy) routeProxy(c *gin.Context) {
 			_ = c.AbortWithError(http.StatusInternalServerError, err)
 			return
 		}
+		return
 	}
+
+	c.Set("cacheHit", true)
 }
 
 func (p *Proxy) proxyRegistry(c *gin.Context, endpoint string, endpointIsOrigin bool, transport http.RoundTripper) error {
