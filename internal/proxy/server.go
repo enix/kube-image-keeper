@@ -102,7 +102,9 @@ func (p *Proxy) Serve() chan struct{} {
 func (p *Proxy) v2Endpoint(c *gin.Context) {
 	err := p.proxyRegistry(c, registry.Protocol+registry.Endpoint, false, nil)
 	if err != nil {
-		klog.Error(err, "could not proxy registry")
+		klog.Errorf("could not proxy registry: %s", err)
+		_ = c.AbortWithError(http.StatusInternalServerError, err)
+		return
 	}
 }
 
@@ -127,7 +129,9 @@ func (p *Proxy) routeProxy(c *gin.Context) {
 
 		err = p.proxyRegistry(c, "https://"+originRegistry, true, transport)
 		if err != nil {
-			klog.Error(err, "could not proxy registry")
+			klog.Errorf("could not proxy registry: %s", err)
+			_ = c.AbortWithError(http.StatusInternalServerError, err)
+			return
 		}
 	}
 }
