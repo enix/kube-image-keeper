@@ -1,0 +1,23 @@
+{{- if .Values.prometheusPodMonitor.create }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "kube-image-keeper.fullname" . }}
+  labels:
+    {{- include "kube-image-keeper.labels" . | nindent 4 }}
+    {{- with .Values.prometheusPodMonitor.extraLabels }}
+    {{- . | toYaml | trim | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "kube-image-keeper.selectorLabels" . | nindent 6 }}
+  podMetricsEndpoints:
+  - port: metrics
+    interval: {{ .Values.prometheusPodMonitor.scrapeInterval }}
+    scrapeTimeout: {{ .Values.prometheusPodMonitor.scrapeTimeout }}
+    {{- with .Values.prometheusPodMonitor.relabelings }}
+    relabelings:
+    {{- . | toYaml | nindent 4 }}
+    {{- end }}
+{{- end }}

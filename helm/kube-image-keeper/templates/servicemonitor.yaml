@@ -1,0 +1,23 @@
+{{- if .Values.prometheusServiceMonitor.create }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "kube-image-keeper.fullname" . }}
+  labels:
+    {{- include "kube-image-keeper.labels" . | nindent 4 }}
+    {{- with .Values.prometheusServiceMonitor.extraLabels }}
+    {{- . | toYaml | trim | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "kube-image-keeper.selectorLabels" . | nindent 6 }}
+  endpoints:
+  - port: metrics
+    interval: {{ .Values.prometheusServiceMonitor.scrapeInterval }}
+    scrapeTimeout: {{ .Values.prometheusServiceMonitor.scrapeTimeout }}
+    {{- with .Values.prometheusServiceMonitor.relabelings }}
+    relabelings:
+    {{- . | toYaml | nindent 4 }}
+    {{- end }}
+{{- end }}
