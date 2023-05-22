@@ -1,4 +1,4 @@
-package exporter
+package metrics
 
 import (
 	"context"

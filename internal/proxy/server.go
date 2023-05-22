@@ -12,7 +12,7 @@ import (
 
 	"github.com/docker/distribution/reference"
 	kuikenixiov1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
-	"github.com/enix/kube-image-keeper/internal/exporter"
+	"github.com/enix/kube-image-keeper/internal/metrics"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/gin-gonic/gin"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -25,7 +25,7 @@ type Proxy struct {
 	engine    *gin.Engine
 	k8sClient client.Client
 	collector *Collector
-	exporter  *exporter.Exporter
+	exporter  *metrics.Exporter
 }
 
 func New(k8sClient client.Client, metricsAddr string) *Proxy {
@@ -34,7 +34,7 @@ func New(k8sClient client.Client, metricsAddr string) *Proxy {
 		k8sClient: k8sClient,
 		engine:    gin.Default(),
 		collector: collector,
-		exporter:  exporter.New(collector, metricsAddr),
+		exporter:  metrics.New(collector, metricsAddr),
 	}
 }
 
