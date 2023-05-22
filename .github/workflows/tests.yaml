@@ -45,6 +45,9 @@ jobs:
         with:
           context: repository
           platforms: linux/amd64,linux/arm64
+          build-args: |
+            "VERSION=${{ env.VERSION }}"
+            "REVISION=${{ github.sha }}"
           push: true
           labels: ${{ steps.meta.outputs.labels }}
           tags: |
@@ -55,6 +58,9 @@ jobs:
         with:
           context: repository
           platforms: linux/amd64,linux/arm64
+          build-args: |
+            "VERSION=${{ env.VERSION }}"
+            "REVISION=${{ github.sha }}"
           target: alpine
           push: true
           labels: ${{ steps.meta.outputs.labels }}

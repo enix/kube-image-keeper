@@ -26,9 +26,18 @@ ARG TARGETOS
 ARG TARGETARCH
 ENV CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH}
 
-RUN controller-gen object paths="./..." && \
-    go build -a -o manager cmd/cache/main.go && \
-    go build -a -o registry-proxy cmd/proxy/main.go
+ARG VERSION
+ARG REVISION
+ENV LD_FLAGS="\
+    -X 'github.com/enix/kube-image-keeper/internal/metrics.Version=${VERSION}' \
+    -X 'github.com/enix/kube-image-keeper/internal/metrics.Revision=${REVISION}' \
+    -X 'github.com/enix/kube-image-keeper/internal/metrics.BuildDateTime=BUILD_DATE_TIME'"
+
+RUN BUILD_DATE_TIME=$(date -u +"%Y-%m-%dT%H:%M:%S") && \
+    LD_FLAGS=$(/bin/ash -c "set -o pipefail && echo $LD_FLAGS | sed -e \"s/BUILD_DATE_TIME/$BUILD_DATE_TIME/g\"") && \
+    controller-gen object paths="./..." && \
+    go build -a -ldflags="$LD_FLAGS" -o manager cmd/cache/main.go && \
+    go build -a -ldflags="$LD_FLAGS" -o registry-proxy cmd/proxy/main.go
 
 FROM alpine:3.17 AS alpine
 
