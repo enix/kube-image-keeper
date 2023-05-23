@@ -1,0 +1,23 @@
+{{- if .Values.registry.serviceMonitor.create }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "kube-image-keeper.fullname" . }}-registry
+  labels:
+    {{- include "kube-image-keeper.registry-labels" . | nindent 4 }}
+    {{- with .Values.registry.serviceMonitor.extraLabels }}
+    {{- . | toYaml | trim | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "kube-image-keeper.registry-selectorLabels" . | nindent 6 }}
+  endpoints:
+  - port: registry-metrics
+    interval: {{ .Values.registry.serviceMonitor.scrapeInterval }}
+    scrapeTimeout: {{ .Values.registry.serviceMonitor.scrapeTimeout }}
+    {{- with .Values.registry.serviceMonitor.relabelings }}
+    relabelings:
+    {{- . | toYaml | nindent 4 }}
+    {{- end }}
+{{- end }}
