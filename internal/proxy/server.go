@@ -51,7 +51,11 @@ func (p *Proxy) Serve() *Proxy {
 	r.Use(recoveryMiddleware())
 	r.Use(func(c *gin.Context) {
 		c.Next()
-		p.collector.IncHTTPCall(c.Request, c.Writer.Status(), c.GetBool("cacheHit"))
+		registry := c.Param("originRegistry")
+		if registry == "" {
+			return
+		}
+		p.collector.IncHTTPCall(registry, c.Writer.Status(), c.GetBool("cacheHit"))
 	})
 
 	v2 := r.Group("/v2")
