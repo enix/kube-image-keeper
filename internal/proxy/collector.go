@@ -20,7 +20,7 @@ func NewCollector() *Collector {
 			prometheus.CounterOpts{
 				Namespace: metrics.Namespace,
 				Subsystem: subsystem,
-				Name:      "http_call",
+				Name:      "http_requests_total",
 				Help:      "How many HTTP calls have been handled",
 			},
 			[]string{"registry", "statusCode", "cacheHit"},
