@@ -65,7 +65,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				return ctrl.Result{}, err
 			}
 			r.Recorder.Eventf(&cachedImage, "Normal", "CleanedUp", "Image %s successfully removed from cache", cachedImage.Spec.SourceImage)
-			IncImageRemovedFromCache()
+			imageRemovedFromCache.Inc()
 
 			log.Info("removing finalizer")
 			controllerutil.RemoveFinalizer(&cachedImage, finalizerName)
@@ -124,7 +124,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		} else {
 			log.Info("image cached")
 			r.Recorder.Eventf(&cachedImage, "Normal", "Cached", "Successfully cached image %s", cachedImage.Spec.SourceImage)
-			IncImagePutInCache()
+			imagePutInCache.Inc()
 			if err := r.Get(ctx, req.NamespacedName, &cachedImage); err != nil {
 				return ctrl.Result{}, client.IgnoreNotFound(err)
 			}

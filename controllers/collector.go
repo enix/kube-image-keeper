@@ -13,7 +13,7 @@ var (
 		prometheus.CounterOpts{
 			Namespace: kuikMetrics.Namespace,
 			Subsystem: subsystem,
-			Name:      "image_put_in_cache",
+			Name:      "image_put_in_cache_total",
 			Help:      "Number of images put in cache successfully",
 		},
 	)
@@ -21,7 +21,7 @@ var (
 		prometheus.CounterOpts{
 			Namespace: kuikMetrics.Namespace,
 			Subsystem: subsystem,
-			Name:      "image_removed_from_cache",
+			Name:      "image_removed_from_cache_total",
 			Help:      "Number of images removed from cache successfully",
 		},
 	)
@@ -34,12 +34,4 @@ func init() {
 		imageRemovedFromCache,
 		kuikMetrics.NewInfo(subsystem),
 	)
-}
-
-func IncImagePutInCache() {
-	imagePutInCache.Inc()
-}
-
-func IncImageRemovedFromCache() {
-	imageRemovedFromCache.Inc()
 }
