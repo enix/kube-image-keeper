@@ -58,6 +58,17 @@ controllers:
     objectSelector:
       # -- Run the webhook if the object has matching labels. (See https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.21/#labelselectorrequirement-v1-meta)
       matchExpressions: []
+  podMonitor:
+    # -- Should a ServiceMonitor object be installed to scrape this exporter. For prometheus-operator (kube-prometheus) users.
+    create: false
+    # -- Target scrape interval set in the ServiceMonitor
+    scrapeInterval: 60s
+    # -- Target scrape timeout set in the ServiceMonitor
+    scrapeTimeout: 30s
+    # -- Additional labels to add to ServiceMonitor objects
+    extraLabels: {}
+    # -- Relabel config for the ServiceMonitor, see: https://coreos.com/operators/prometheus/docs/latest/api.html#relabelconfig
+    relabelings: []
 
 proxy:
   image:
@@ -125,6 +136,17 @@ proxy:
       cpu: "1"
       # -- Memory limits for the proxy pod
       memory: "512Mi"
+  podMonitor:
+    # -- Should a ServiceMonitor object be installed to scrape this exporter. For prometheus-operator (kube-prometheus) users.
+    create: false
+    # -- Target scrape interval set in the ServiceMonitor
+    scrapeInterval: 60s
+    # -- Target scrape timeout set in the ServiceMonitor
+    scrapeTimeout: 30s
+    # -- Additional labels to add to ServiceMonitor objects
+    extraLabels: {}
+    # -- Relabel config for the ServiceMonitor, see: https://coreos.com/operators/prometheus/docs/latest/api.html#relabelconfig
+    relabelings: []
 
 registry:
   image:
@@ -247,37 +269,3 @@ serviceAccount:
 psp:
   # -- If True, create the PodSecurityPolicy
   create: false
-
-metricsService:
-  # -- Should a metrics Service be installed, targets all kube-image-keeper pods (required for ServiceMonitor)
-  create: false
-  # -- TCP port to expose the Service on
-  port: 8080
-  # -- Annotations to add to the Service
-  annotations: {}
-  # -- Additional labels to add to the Service
-  extraLabels: {}
-
-prometheusServiceMonitor:
-  # -- Should a ServiceMonitor object be installed to scrape this exporter. For prometheus-operator (kube-prometheus) users.
-  create: false
-  # -- Target scrape interval set in the ServiceMonitor
-  scrapeInterval: 60s
-  # -- Target scrape timeout set in the ServiceMonitor
-  scrapeTimeout: 30s
-  # -- Additional labels to add to ServiceMonitor objects
-  extraLabels: {}
-  # -- Relabel config for the ServiceMonitor, see: https://coreos.com/operators/prometheus/docs/latest/api.html#relabelconfig
-  relabelings: []
-
-prometheusPodMonitor:
-  # -- Should a PodMonitor object be installed to scrape this exporter. For prometheus-operator (kube-prometheus) users.
-  create: false
-  # -- Target scrape interval set in the PodMonitor
-  scrapeInterval: 60s
-  # -- Target scrape timeout set in the PodMonitor
-  scrapeTimeout: 30s
-  # -- Additional labels to add to PodMonitor objects
-  extraLabels: {}
-  # -- Relabel config for the PodMonitor, see: https://coreos.com/operators/prometheus/docs/latest/api.html#relabelconfig
-  relabelings: []
