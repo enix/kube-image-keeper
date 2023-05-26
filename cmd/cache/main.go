@@ -99,6 +99,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	controllers.SetLeader(false)
+	go func() {
+		<-mgr.Elected()
+		controllers.SetLeader(true)
+	}()
+
 	controllers.RegisterMetrics(mgr.GetClient())
 
 	setupLog.Info("starting manager")
