@@ -31,6 +31,13 @@ var (
 			Help:      "Number of images removed from cache successfully",
 		},
 	)
+	isLeader = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: kuikMetrics.Namespace,
+		Subsystem: subsystem,
+		Name:      "is_leader",
+		Help:      "Whether or not this replica is a leader. 1 if it is, 0 otherwise.",
+	})
+
 	cachedImagesMetric = prometheus.BuildFQName(kuikMetrics.Namespace, subsystem, "cached_images")
 	cachedImagesHelp   = "Number of images expected to be cached"
 	cachedImagesDesc   = prometheus.NewDesc(cachedImagesMetric, cachedImagesHelp, []string{"cached", "expiring"}, nil)
@@ -42,6 +49,7 @@ func RegisterMetrics(client client.Client) {
 		imagePutInCache,
 		imageRemovedFromCache,
 		kuikMetrics.NewInfo(subsystem),
+		isLeader,
 		&ControllerCollector{
 			Client: client,
 		},
@@ -76,5 +84,13 @@ func (c *ControllerCollector) Collect(ch chan<- prometheus.Metric) {
 		cachedImageGaugeVec.Collect(ch)
 	} else {
 		log.FromContext(context.TODO()).Error(err, "could not collect "+cachedImagesMetric+" metric")
+	}
+}
+
+func SetLeader(leader bool) {
+	if leader {
+		isLeader.Set(1)
+	} else {
+		isLeader.Set(0)
 	}
 }
