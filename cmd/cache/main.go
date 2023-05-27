@@ -105,6 +105,7 @@ func main() {
 		controllers.SetLeader(true)
 	}()
 
+	controllers.ProbeAddr = probeAddr
 	controllers.RegisterMetrics(mgr.GetClient())
 
 	setupLog.Info("starting manager")

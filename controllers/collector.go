@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"net/http"
 	"strconv"
 
 	kuikenixiov1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
@@ -13,6 +14,8 @@ import (
 )
 
 const subsystem = "controller"
+
+var ProbeAddr = ""
 
 var (
 	imagePutInCache = prometheus.NewCounter(
@@ -37,6 +40,17 @@ var (
 		Name:      "is_leader",
 		Help:      "Whether or not this replica is a leader. 1 if it is, 0 otherwise.",
 	})
+	up = prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Namespace: kuikMetrics.Namespace,
+		Subsystem: subsystem,
+		Name:      "up",
+		Help:      "Whether or not this replica is healthy.",
+	}, func() float64 {
+		if resp, err := http.Get("http://" + ProbeAddr + "/healthz"); err != nil || (resp != nil && resp.StatusCode != http.StatusOK) {
+			return 0
+		}
+		return 1
+	})
 
 	cachedImagesMetric = prometheus.BuildFQName(kuikMetrics.Namespace, subsystem, "cached_images")
 	cachedImagesHelp   = "Number of images expected to be cached"
@@ -50,6 +64,7 @@ func RegisterMetrics(client client.Client) {
 		imageRemovedFromCache,
 		kuikMetrics.NewInfo(subsystem),
 		isLeader,
+		up,
 		&ControllerCollector{
 			Client: client,
 		},
