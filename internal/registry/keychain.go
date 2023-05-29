@@ -3,7 +3,7 @@ package registry
 import (
 	"bytes"
 	"context"
-	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/docker/cli/cli/config"
@@ -20,8 +20,6 @@ const (
 	// is hardcoded for historical reasons.
 	DefaultAuthKey = "https://" + name.DefaultRegistry + "/v1/"
 )
-
-var missingDockerConfigJsonError = errors.New("invalid secret: missing .dockerconfigjson key")
 
 type kubernetesKeychain struct {
 	client     client.Client
@@ -56,9 +54,17 @@ func (k *kubernetesKeychain) Resolve(target authn.Resource) (authn.Authenticator
 		return nil, err
 	}
 
-	dockerConfigJson, ok := secret.Data[".dockerconfigjson"]
+	secretKey := ""
+	if secret.Type == corev1.SecretTypeDockerConfigJson {
+		secretKey = corev1.DockerConfigJsonKey
+	} else if secret.Type == corev1.SecretTypeDockercfg {
+		secretKey = corev1.DockerConfigKey
+	} else {
+		return nil, fmt.Errorf("invalid secret type (%s)", secret.Type)
+	}
+	dockerConfigJson, ok := secret.Data[secretKey]
 	if !ok {
-		return nil, missingDockerConfigJsonError
+		return nil, fmt.Errorf("invalid secret: missing %s key", secretKey)
 	}
 	cf, err := config.LoadFromReader(bytes.NewReader(dockerConfigJson))
 	if err != nil {
@@ -68,12 +74,12 @@ func (k *kubernetesKeychain) Resolve(target authn.Resource) (authn.Authenticator
 	// See:
 	// https://github.com/google/ko/issues/90
 	// https://github.com/moby/moby/blob/fc01c2b481097a6057bec3cd1ab2d7b4488c50c4/registry/config.go#L397-L404
-	key := target.RegistryStr()
-	if key == name.DefaultRegistry {
-		key = DefaultAuthKey
+	authKey := target.RegistryStr()
+	if authKey == name.DefaultRegistry {
+		authKey = DefaultAuthKey
 	}
 
-	cfg, err := cf.GetAuthConfig(key)
+	cfg, err := cf.GetAuthConfig(authKey)
 	if err != nil {
 		return nil, err
 	}

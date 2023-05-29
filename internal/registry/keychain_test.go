@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/docker/cli/cli/config"
@@ -20,31 +21,51 @@ type mockClient struct {
 
 var pullSecrets = map[string]corev1.Secret{
 	"missing_.dockerconfigjson": {
+		Type: corev1.SecretTypeDockerConfigJson,
+		Data: map[string][]byte{},
+	},
+	"missing_.dockercfg": {
+		Type: corev1.SecretTypeDockercfg,
+		Data: map[string][]byte{},
+	},
+	"invalidSecretType": {
+		Type: corev1.SecretTypeBasicAuth,
 		Data: map[string][]byte{},
 	},
 	"invalidJson": {
+		Type: corev1.SecretTypeDockerConfigJson,
 		Data: map[string][]byte{
 			".dockerconfigjson": []byte("invalid"),
 		},
 	},
 	"invalidConfigurationFile": {
+		Type: corev1.SecretTypeDockerConfigJson,
 		Data: map[string][]byte{
 			".dockerconfigjson": []byte("{\"auths\":{\"https://index.docker.io/v1/\":{\"auth\":\"00000000\"}}}"),
 		},
 	},
 	"foo": {
+		Type: corev1.SecretTypeDockerConfigJson,
 		Data: map[string][]byte{
 			".dockerconfigjson": []byte("{\"auths\":{\"https://index.docker.io/v1/\":{\"auth\":\"bG9naW46cGFzc3dvcmQ=\"}}}"),
 		},
 	},
 	"bar": {
+		Type: corev1.SecretTypeDockerConfigJson,
 		Data: map[string][]byte{
 			".dockerconfigjson": []byte("{\"auths\":{\"localhost:5000\":{\"auth\":\"bG9jYWxsb2dpbjpsb2NhbHBhc3N3b3Jk\"}}}"),
 		},
 	},
 	"foobar": {
+		Type: corev1.SecretTypeDockerConfigJson,
 		Data: map[string][]byte{
 			".dockerconfigjson": []byte("{\"auths\":{\"https://index.docker.io/v1/\":{\"auth\":\"bG9naW46cGFzc3dvcmQ=\"},\"localhost:5000\":{\"auth\":\"bG9jYWxsb2dpbjpsb2NhbHBhc3N3b3Jk\"}}}"),
+		},
+	},
+	"dockercfg": {
+		Type: corev1.SecretTypeDockercfg,
+		Data: map[string][]byte{
+			".dockercfg": []byte("{\"auths\":{\"https://index.docker.io/v1/\":{\"username\":\"login\",\"password\":\"password\"}}}"),
 		},
 	},
 }
@@ -94,7 +115,21 @@ func TestResolve(t *testing.T) {
 			pullSecrets: []string{
 				"missing_.dockerconfigjson",
 			},
-			wantErr: missingDockerConfigJsonError,
+			wantErr: errors.New("invalid secret: missing .dockerconfigjson key"),
+		},
+		{
+			name: "Missing .dockercfg",
+			pullSecrets: []string{
+				"missing_.dockercfg",
+			},
+			wantErr: errors.New("invalid secret: missing .dockercfg key"),
+		},
+		{
+			name: "Invalid secret type",
+			pullSecrets: []string{
+				"invalidSecretType",
+			},
+			wantErr: fmt.Errorf("invalid secret type (%s)", corev1.SecretTypeBasicAuth),
 		},
 		{
 			name: "Invalid json",
@@ -139,6 +174,13 @@ func TestResolve(t *testing.T) {
 			name: "Multiple secrets in one .dockerconfigjson",
 			pullSecrets: []string{
 				"foobar",
+			},
+			expectedAuthenticator: defaultAuthenticator,
+		},
+		{
+			name: ".dockercfg format",
+			pullSecrets: []string{
+				"dockercfg",
 			},
 			expectedAuthenticator: defaultAuthenticator,
 		},
