@@ -107,6 +107,7 @@ jobs:
           set -euo pipefail
           ct lint \
             --charts helm/kube-image-keeper \
+            --chart-repos bitnami=https://charts.bitnami.com/bitnami \
             --validate-maintainers=false --check-version-increment=false
 
   build:
@@ -211,6 +212,7 @@ jobs:
           set -euo pipefail
           ct lint \
             --charts helm/kube-image-keeper \
+            --chart-repos bitnami=https://charts.bitnami.com/bitnami \
             --validate-maintainers=false --check-version-increment=false
 
 # Need wait for the next release with flag --skip-clean-up
