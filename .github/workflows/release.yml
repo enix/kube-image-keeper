@@ -362,6 +362,15 @@ jobs:
         with:
           path: repository
 
+      - name: Set up helm
+        uses: azure/setup-helm@v3
+        with:
+          version: '3.9.0'
+
+      - name: Helm repository deps
+        run: |
+          helm repo add bitnami https://charts.bitnami.com/bitnami
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
       
