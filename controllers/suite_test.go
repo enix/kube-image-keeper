@@ -141,7 +141,7 @@ var _ = BeforeSuite(func() {
 		Client:   k8sManager.GetClient(),
 		Scheme:   k8sManager.GetScheme(),
 		Recorder: k8sManager.GetEventRecorderFor("cachedimage-controller"),
-	}).SetupWithManager(k8sManager)
+	}).SetupWithManager(k8sManager, 3)
 	Expect(err).ToNot(HaveOccurred())
 
 	err = (&PodReconciler{

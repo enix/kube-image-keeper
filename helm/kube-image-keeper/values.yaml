@@ -9,6 +9,8 @@ cachedImagesExpiryDelay: 30
 installCRD: true
 
 controllers:
+  # Maximum number of CachedImages that can be handled and reconciled at the same time (put or remove from cache)
+  maxConcurrentCachedImageReconciles: 3
   # -- Number of controllers
   replicas: 2
   image:

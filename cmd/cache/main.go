@@ -34,6 +34,7 @@ func main() {
 	var expiryDelay uint
 	var proxyPort int
 	var ignoreNamespace string
+	var maxConcurrentCachedImageReconciles int
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
@@ -43,6 +44,8 @@ func main() {
 	flag.IntVar(&proxyPort, "proxy-port", 8082, "The port where the proxy is listening on this machine.")
 	flag.StringVar(&ignoreNamespace, "ignore-namespace", "kuik-system", "The address the probe endpoint binds to.")
 	flag.StringVar(&registry.Endpoint, "registry-endpoint", "kube-image-keeper-registry:5000", "The address of the registry where cached images are stored.")
+	flag.IntVar(&maxConcurrentCachedImageReconciles, "max-concurrent-cached-image-reconciles", 3, "Maximum number of CachedImages that can be handled and reconciled at the same time (put or removed from cache).")
+
 	opts := zap.Options{
 		Development:     true,
 		TimeEncoder:     zapcore.ISO8601TimeEncoder,
@@ -70,7 +73,7 @@ func main() {
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorderFor("cachedimage-controller"),
-	}).SetupWithManager(mgr); err != nil {
+	}).SetupWithManager(mgr, maxConcurrentCachedImageReconciles); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "CachedImage")
 		os.Exit(1)
 	}
