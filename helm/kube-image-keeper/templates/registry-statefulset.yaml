@@ -45,11 +45,9 @@ spec:
             - /var/lib/registry/docker/registry/v2/blobs/
           resources:
             {{- toYaml .Values.registry.resources | nindent 12 }}
-          {{- if .Values.registry.persistence.enabled }}
           volumeMounts:
             - mountPath: /var/lib/registry
               name: data
-          {{- end }}
         - name: garbage-collector
           image: "{{ .Values.registry.image.repository }}:{{ .Values.registry.image.tag }}"
           imagePullPolicy: {{ .Values.registry.image.pullPolicy }}
@@ -60,11 +58,9 @@ spec:
             - --delete-untagged=true
           resources:
             {{- toYaml .Values.registry.resources | nindent 12 }}
-          {{- if .Values.registry.persistence.enabled }}
           volumeMounts:
             - mountPath: /var/lib/registry
               name: data
-          {{- end }}
       {{- end }}
       containers:
         - name: registry
