@@ -170,7 +170,7 @@ registry:
   # -- Number of replicas for the registry pod
   replicas: 1
   persistence:
-    # -- If true, enable persistent storage
+    # -- If true, enable persistent storage (ignored when using minio or S3)
     enabled: false
     # -- StorageClass for persistent volume
     storageClass: null
