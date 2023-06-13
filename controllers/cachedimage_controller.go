@@ -13,6 +13,7 @@ import (
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -148,7 +149,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *CachedImageReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *CachedImageReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrentReconciles int) error {
 	// Create an index to list Pods by CachedImage
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &corev1.Pod{}, cachedImageOwnerKey, func(rawObj client.Object) []string {
 		pod := rawObj.(*corev1.Pod)
@@ -175,6 +176,9 @@ func (r *CachedImageReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kuikenixiov1alpha1.CachedImage{}).
+		WithOptions(controller.Options{
+			MaxConcurrentReconciles: maxConcurrentReconciles,
+		}).
 		Complete(r)
 }
 
