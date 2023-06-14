@@ -12,11 +12,14 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type mockClient struct {
 	client.Client
+	produceError bool
 }
 
 var pullSecrets = map[string]corev1.Secret{
@@ -70,7 +73,7 @@ var pullSecrets = map[string]corev1.Secret{
 	},
 }
 
-var notFoundError = errors.New("not found")
+var clientError = errors.New("an error occurred")
 var _, invalidJsonError = config.LoadFromReader(bytes.NewReader([]byte("invalid")))
 var defaultAuthenticator = authn.FromConfig(authn.AuthConfig{
 	Username: "login",
@@ -82,10 +85,14 @@ var localAuthenticator = authn.FromConfig(authn.AuthConfig{
 })
 
 func (m mockClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object) error {
+	if m.produceError {
+		return clientError
+	}
+
 	secret := obj.(*corev1.Secret)
 	s, ok := pullSecrets[key.Name]
 	if !ok {
-		return notFoundError
+		return apierrors.NewNotFound(schema.GroupResource{}, key.Name)
 	}
 	*secret = s
 	return nil
@@ -97,6 +104,7 @@ func TestResolve(t *testing.T) {
 		pullSecrets           []string
 		imageName             string
 		expectedAuthenticator authn.Authenticator
+		clientProduceError    bool
 		wantErr               error
 	}{
 		{
@@ -108,7 +116,14 @@ func TestResolve(t *testing.T) {
 			pullSecrets: []string{
 				"missing",
 			},
-			wantErr: notFoundError,
+		},
+		{
+			name: "Client returns an error",
+			pullSecrets: []string{
+				"foo",
+			},
+			clientProduceError: true,
+			wantErr:            clientError,
 		},
 		{
 			name: "Missing .dockerconfigjson",
@@ -189,7 +204,7 @@ func TestResolve(t *testing.T) {
 	g := NewWithT(t)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			keychain := NewKubernetesKeychain(mockClient{}, "namespace", tt.pullSecrets)
+			keychain := NewKubernetesKeychain(mockClient{produceError: tt.clientProduceError}, "namespace", tt.pullSecrets)
 			if tt.imageName == "" {
 				tt.imageName = "alpine"
 			}

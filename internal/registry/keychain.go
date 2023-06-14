@@ -12,6 +12,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -55,8 +56,13 @@ func (k *kubernetesKeychain) Resolve(target authn.Resource) (authn.Authenticator
 		Namespace: k.namespace,
 		Name:      k.pullSecret,
 	}, &secret)
+
 	if err != nil {
-		return nil, err
+		if apierrors.IsNotFound(err) {
+			return authn.Anonymous, nil
+		} else {
+			return nil, err
+		}
 	}
 
 	secretKey := ""
