@@ -161,6 +161,10 @@ proxy:
     extraLabels: {}
     # -- Relabel config for the PodMonitor, see: https://coreos.com/operators/prometheus/docs/latest/api.html#relabelconfig
     relabelings: []
+  kubeApiRateLimits: {}
+    # -- Try higher values if there's a lot of CRDs installed in the cluster and proxy start takes a long time because of throttling
+    # qps: 5
+    # burst: 10
 
 registry:
   image:
