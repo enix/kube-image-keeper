@@ -10,6 +10,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/docker/distribution/reference"
 	"github.com/enix/kube-image-keeper/api/v1alpha1"
@@ -200,6 +201,13 @@ func (r *PodReconciler) podsWithDeletingCachedImages(obj client.Object) []ctrl.R
 		WithName("controller-runtime.manager.controller.pod.deletingCachedImages").
 		WithValues("cachedImage", klog.KObj(obj))
 
+	cachedImage := obj.(*kuikenixiov1alpha1.CachedImage)
+	var currentCachedImage kuikenixiov1alpha1.CachedImage
+	// wait for the CachedImage to be really deleted
+	if err := r.Get(context.Background(), types.NamespacedName{Name: cachedImage.Name}, &currentCachedImage); err == nil || !apierrors.IsNotFound(err) {
+		return make([]ctrl.Request, 0)
+	}
+
 	var podList corev1.PodList
 	podRequirements, _ := labels.NewRequirement(LabelImageRewrittenName, selection.Equals, []string{"true"})
 	selector := labels.NewSelector()
@@ -211,11 +219,10 @@ func (r *PodReconciler) podsWithDeletingCachedImages(obj client.Object) []ctrl.R
 		return nil
 	}
 
-	cachedImage := obj.(*kuikenixiov1alpha1.CachedImage)
 	for _, pod := range podList.Items {
 		for _, value := range pod.GetAnnotations() {
 			// TODO check key format is "original-image-%s" or "original-init-image-%s"
-			if cachedImage.Spec.SourceImage == value && !cachedImage.DeletionTimestamp.IsZero() {
+			if cachedImage.Spec.SourceImage == value {
 				log.Info("image in use", "pod", pod.Namespace+"/"+pod.Name)
 				res := make([]ctrl.Request, 1)
 				res[0].Name = pod.Name
