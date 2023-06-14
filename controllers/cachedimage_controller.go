@@ -8,6 +8,7 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
@@ -16,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	"github.com/enix/kube-image-keeper/api/v1alpha1"
 	kuikenixiov1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/registry"
 )
@@ -135,12 +137,20 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	// Update CachedImage IsCached status
+	log.Info("updating CachedImage status")
 	cachedImage.Status.IsCached = true
 	err = r.Status().Update(context.Background(), &cachedImage)
 	if err != nil {
 		if statusErr, ok := err.(*errors.StatusError); ok && statusErr.Status().Code == http.StatusConflict {
 			return ctrl.Result{Requeue: true}, nil
 		}
+		return ctrl.Result{}, err
+	}
+
+	// Update CachedImage UsedBy status
+	if requeue, err := r.updatePodCount(ctx, &cachedImage); requeue {
+		return ctrl.Result{Requeue: true}, nil
+	} else if err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -177,6 +187,37 @@ func (r *CachedImageReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kuikenixiov1alpha1.CachedImage{}).
 		Complete(r)
+}
+
+// updatePodCount update CachedImage UsedBy status
+func (r *CachedImageReconciler) updatePodCount(ctx context.Context, cachedImage *kuikenixiov1alpha1.CachedImage) (requeue bool, err error) {
+	var podsList corev1.PodList
+	if err = r.List(ctx, &podsList, client.MatchingFields{cachedImageOwnerKey: cachedImage.Name}); err != nil && !apierrors.IsNotFound(err) {
+		return
+	}
+
+	pods := []v1alpha1.PodReference{}
+	for _, pod := range podsList.Items {
+		if !pod.DeletionTimestamp.IsZero() {
+			continue
+		}
+		pods = append(pods, v1alpha1.PodReference{NamespacedName: pod.Namespace + "/" + pod.Name})
+	}
+
+	cachedImage.Status.UsedBy = v1alpha1.UsedBy{
+		Pods:  pods,
+		Count: len(pods),
+	}
+
+	err = r.Status().Update(context.Background(), cachedImage)
+	if err != nil {
+		if statusErr, ok := err.(*errors.StatusError); ok && statusErr.Status().Code == http.StatusConflict {
+			requeue = true
+		}
+		return
+	}
+
+	return
 }
 
 // Helper functions to check and remove string from a slice of strings.

@@ -13,7 +13,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/docker/distribution/reference"
-	"github.com/enix/kube-image-keeper/api/v1alpha1"
 	kuikenixiov1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	corev1 "k8s.io/api/core/v1"
@@ -109,11 +108,6 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 					return ctrl.Result{}, err
 				}
 			}
-
-			err = r.updatePodCount(ctx, &ci)
-			if err != nil {
-				return ctrl.Result{}, err
-			}
 		}
 
 		log.Info("removing finalizer")
@@ -160,9 +154,6 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			ci.Spec = cachedImage.Spec
 
 			if err = r.Patch(ctx, &ci, patch); err != nil {
-				return ctrl.Result{}, err
-			}
-			if err = r.updatePodCount(ctx, &ci); err != nil {
 				return ctrl.Result{}, err
 			}
 		}
@@ -233,34 +224,6 @@ func (r *PodReconciler) podsWithDeletingCachedImages(obj client.Object) []ctrl.R
 	}
 
 	return make([]ctrl.Request, 0)
-}
-
-// updatePodCount update CachedImage UsedBy status
-func (r *PodReconciler) updatePodCount(ctx context.Context, cachedImage *kuikenixiov1alpha1.CachedImage) error {
-	var podsList corev1.PodList
-	if err := r.List(ctx, &podsList, client.MatchingFields{cachedImageOwnerKey: cachedImage.Name}); err != nil && !apierrors.IsNotFound(err) {
-		return err
-	}
-
-	pods := []v1alpha1.PodReference{}
-	for _, pod := range podsList.Items {
-		if !pod.DeletionTimestamp.IsZero() {
-			continue
-		}
-		pods = append(pods, v1alpha1.PodReference{NamespacedName: pod.Namespace + "/" + pod.Name})
-	}
-
-	patch := client.MergeFrom(cachedImage.DeepCopy())
-	cachedImage.Status.UsedBy = v1alpha1.UsedBy{
-		Pods:  pods,
-		Count: len(pods),
-	}
-
-	if err := r.Status().Patch(context.Background(), cachedImage, patch); err != nil {
-		return client.IgnoreNotFound(err)
-	}
-
-	return nil
 }
 
 func desiredCachedImages(ctx context.Context, pod *corev1.Pod) []kuikenixiov1alpha1.CachedImage {
