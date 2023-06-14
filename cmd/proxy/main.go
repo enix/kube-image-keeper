@@ -12,14 +12,17 @@ import (
 	"github.com/enix/kube-image-keeper/internal/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/util/flowcontrol"
 	klog "k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 )
 
 var (
-	kubeconfig  string
-	metricsAddr string
+	kubeconfig     string
+	metricsAddr    string
+	rateLimitQPS   int
+	rateLimitBurst int
 )
 
 func initFlags() {
@@ -30,6 +33,8 @@ func initFlags() {
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&kubeconfig, "kubeconfig", "", "Absolute path to the kubeconfig file")
 	flag.StringVar(&registry.Endpoint, "registry-endpoint", "kube-image-keeper-registry:5000", "The address of the registry where cached images are stored.")
+	flag.IntVar(&rateLimitQPS, "kube-api-rate-limit-qps", 0, "Kubernetes API request rate limit")
+	flag.IntVar(&rateLimitBurst, "kube-api-rate-limit-burst", 0, "Kubernetes API request burst")
 
 	flag.Parse()
 }
@@ -54,6 +59,11 @@ func main() {
 		panic(err)
 	}
 
+	// Set rate limiter only if both QPS and burst are set
+	if rateLimitQPS > 0 && rateLimitBurst > 0 {
+		klog.Infof("setting Kubernetes API rate limiter to %d QPS and %d burst", rateLimitQPS, rateLimitBurst)
+		config.RateLimiter = flowcontrol.NewTokenBucketRateLimiter(float32(rateLimitQPS), rateLimitBurst)
+	}
 	restMapper, err := apiutil.NewDynamicRESTMapper(config, apiutil.WithLazyDiscovery)
 	if err != nil {
 		panic(err)
