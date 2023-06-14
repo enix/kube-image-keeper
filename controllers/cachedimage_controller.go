@@ -46,15 +46,13 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	log := log.
 		FromContext(ctx)
 
-	log.Info("reconciling cachedimage")
-
 	var cachedImage kuikenixiov1alpha1.CachedImage
 	if err := r.Get(ctx, req.NamespacedName, &cachedImage); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// https://book.kubebuilder.io/reference/using-finalizers.html
-	finalizerName := "cachedimage.kuik.enix.io/finalizer"
+	log.Info("reconciling cachedimage")
+
 	// Remove image from registry when CachedImage is being deleted, finalizer is removed after it
 	if !cachedImage.ObjectMeta.DeletionTimestamp.IsZero() {
 		if containsString(cachedImage.GetFinalizers(), finalizerName) {
