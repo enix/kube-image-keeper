@@ -20,6 +20,9 @@ import (
 	"github.com/enix/kube-image-keeper/internal/registry"
 )
 
+// https://book.kubebuilder.io/reference/using-finalizers.html
+const cachedImageFinalizerName = "cachedimage.kuik.enix.io/finalizer"
+
 // CachedImageReconciler reconciles a CachedImage object
 type CachedImageReconciler struct {
 	client.Client
@@ -55,7 +58,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	// Remove image from registry when CachedImage is being deleted, finalizer is removed after it
 	if !cachedImage.ObjectMeta.DeletionTimestamp.IsZero() {
-		if containsString(cachedImage.GetFinalizers(), finalizerName) {
+		if containsString(cachedImage.GetFinalizers(), cachedImageFinalizerName) {
 			log.Info("deleting image from cache")
 			r.Recorder.Eventf(&cachedImage, "Normal", "CleaningUp", "Removing image %s from cache", cachedImage.Spec.SourceImage)
 			if err := registry.DeleteImage(cachedImage.Spec.SourceImage); err != nil {
@@ -66,7 +69,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			imageRemovedFromCache.Inc()
 
 			log.Info("removing finalizer")
-			controllerutil.RemoveFinalizer(&cachedImage, finalizerName)
+			controllerutil.RemoveFinalizer(&cachedImage, cachedImageFinalizerName)
 			if err := r.Update(ctx, &cachedImage); err != nil {
 				return ctrl.Result{}, err
 			}
@@ -76,9 +79,9 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	// Add finalizer to keep the CachedImage during image removal from registry on deletion
-	if !containsString(cachedImage.GetFinalizers(), finalizerName) {
+	if !containsString(cachedImage.GetFinalizers(), cachedImageFinalizerName) {
 		log.Info("adding finalizer")
-		controllerutil.AddFinalizer(&cachedImage, finalizerName)
+		controllerutil.AddFinalizer(&cachedImage, cachedImageFinalizerName)
 		if err := r.Update(ctx, &cachedImage); err != nil {
 			return ctrl.Result{}, err
 		}
