@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 
+	ecrLogin "github.com/awslabs/amazon-ecr-credential-helper/ecr-login"
 	"github.com/docker/cli/cli/config"
 	dockerCliTypes "github.com/docker/cli/cli/config/types"
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -37,6 +38,10 @@ func NewKubernetesKeychain(client client.Client, namespace string, pullSecrets [
 			pullSecret: pullSecret,
 		})
 	}
+
+	// Add ECR Login Helper
+	keychains = append(keychains, authn.NewKeychainFromHelper(ecrLogin.NewECRHelper()))
+
 	return authn.NewMultiKeychain(keychains...)
 }
 
