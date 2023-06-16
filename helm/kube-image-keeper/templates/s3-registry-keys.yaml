@@ -1,4 +1,4 @@
-{{- if or .Values.minio.enabled (not (empty .Values.registry.persistence.s3)) }}
+{{- if or .Values.minio.enabled (and (not (empty .Values.registry.persistence.s3)) (empty .Values.registry.persistence.s3ExistingSecret)) }}
 apiVersion: v1
 kind: Secret
 metadata:
