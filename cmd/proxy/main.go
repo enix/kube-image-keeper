@@ -59,14 +59,15 @@ func main() {
 		panic(err)
 	}
 
+	restMapper, err := apiutil.NewDynamicRESTMapper(config, apiutil.WithLazyDiscovery)
+	if err != nil {
+		panic(err)
+	}
+
 	// Set rate limiter only if both QPS and burst are set
 	if rateLimitQPS > 0 && rateLimitBurst > 0 {
 		klog.Infof("setting Kubernetes API rate limiter to %d QPS and %d burst", rateLimitQPS, rateLimitBurst)
 		config.RateLimiter = flowcontrol.NewTokenBucketRateLimiter(float32(rateLimitQPS), rateLimitBurst)
-	}
-	restMapper, err := apiutil.NewDynamicRESTMapper(config, apiutil.WithLazyDiscovery)
-	if err != nil {
-		panic(err)
 	}
 
 	k8sClient, err := client.New(config, client.Options{
