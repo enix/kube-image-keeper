@@ -12,6 +12,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	klog "k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 )
 
 var (
@@ -51,7 +52,15 @@ func main() {
 		panic(err)
 	}
 
-	k8sClient, err := client.New(config, client.Options{Scheme: scheme.NewScheme()})
+	restMapper, err := apiutil.NewDynamicRESTMapper(config, apiutil.WithLazyDiscovery)
+	if err != nil {
+		panic(err)
+	}
+
+	k8sClient, err := client.New(config, client.Options{
+		Scheme: scheme.NewScheme(),
+		Mapper: restMapper,
+	})
 	if err != nil {
 		panic(err)
 	}
