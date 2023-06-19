@@ -4,7 +4,9 @@ To assist with operations and provide a visualization of kube-image-keeper activ
 
 If you are deploying kube-image-keeper with Helm, both PodMonitor and ServiceMonitor can be configured through the following values `controllers.podMonitor.create=true`, `proxy.podMonitor.create=true` and `registry.serviceMonitor.create=true`.
 
-## Exported Metrics
+If you use minio as a S3 compatible storage for the registry, you should be able to get metrics by enabling a serviceMonitor for minio `minio.metrics.serviceMonitor.enabled=true`
+
+## Exposed Metrics
 
 ### Controller
 
@@ -33,3 +35,8 @@ If you are deploying kube-image-keeper with Helm, both PodMonitor and ServiceMon
 | registry_storage_* | Provide information about storage operations |
 
 
+## Grafana Dashboard
+
+We provide a Grafana dashboard available here : 
+
+![Dashboard](./grafana_dashboard.png)
