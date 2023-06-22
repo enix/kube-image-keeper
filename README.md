@@ -110,6 +110,11 @@ kube-image-keeper-proxy-54lzk                    1m           19Mi
 
 ![Architecture](./docs/architecture.jpg)
 
+### Metrics
+
+Refer to the [dedicated documentation](./docs/metrics.md).
+
+
 ## Installation
 
 1. Make sure that you have cert-manager installed. If not, check its [installation page](https://cert-manager.io/docs/installation/) (it's fine to use the `kubectl apply` one-liner, and no further configuration is required).
@@ -170,10 +175,6 @@ This logic isn't implemented by the kuik controllers or webhook directly, but th
 Persistence is disabled by default. You can enable it by setting the Helm value `registry.persistence.enabled=true` and setting `registry.persistence.size` to the desired size (20 GiB by default). Be aware that this don't allow for high availability of the registry, to enable HA please refer to our related guide [./docs/high-availability.md](./docs/high-availability.md).
 
 Note that persistence requires that you have Persistent Volumes available on your cluster; otherwise, kuik's registry pod will remain `Pending` and your images won't be cached (but they will still be served transparently by kuik's image proxy).
-
-### Metrics
-
-Refer to the [dedicated documentation](./docs/metrics.md).
 
 ## Garbage collection and limitations
 

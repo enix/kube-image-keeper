@@ -29,11 +29,7 @@ If you use minio as a S3 compatible storage for the registry, you should be able
 
 ### Registry
 
-| Metric | Description |
-|--------|-------------|
-| registry_http_* | Provide information about registry http requests |
-| registry_storage_* | Provide information about storage operations |
-
+These metrics are exposed by the Docker Registry itself, more details in the official ![documentation](https://docs.docker.com/registry/configuration/#debug)
 
 ## Grafana Dashboard
 
