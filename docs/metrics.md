@@ -29,10 +29,10 @@ If you use minio as a S3 compatible storage for the registry, you should be able
 
 ### Registry
 
-These metrics are exposed by the Docker Registry itself, more details in the official ![documentation](https://docs.docker.com/registry/configuration/#debug)
+These metrics are exposed by the Docker Registry itself, more details in the official [documentation](https://docs.docker.com/registry/configuration/#debug)
 
 ## Grafana Dashboard
 
-We provide a Grafana dashboard available here : 
+We provide a Grafana dashboard available [here](./kube-image-keeper.dashboard.json) or directly on GrafanaLabs. 
 
 ![Dashboard](./grafana_dashboard.png)
