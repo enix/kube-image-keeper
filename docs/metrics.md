@@ -2,9 +2,13 @@
 
 To assist with operations and provide a visualization of kube-image-keeper activities, Prometheus metrics are exposed from the three components (proxy, controller and registry).
 
-If you are deploying kube-image-keeper with Helm, both PodMonitor and ServiceMonitor can be configured through the following values `controllers.podMonitor.create=true`, `proxy.podMonitor.create=true` and `registry.serviceMonitor.create=true`.
+If you are deploying kube-image-keeper with Helm, both PodMonitor and ServiceMonitor can be configured through the following values:
+- `controllers.podMonitor.create=true`
+- `proxy.podMonitor.create=true`
+- `registry.serviceMonitor.create=true`
 
-If you use minio as a S3 compatible storage for the registry, you should be able to get metrics by enabling a serviceMonitor for minio `minio.metrics.serviceMonitor.enabled=true`
+If you use minio as a S3 compatible storage for the registry, you should be able to get metrics by enabling a serviceMonitor for minio:
+- `minio.metrics.serviceMonitor.enabled=true`
 
 ## Exposed Metrics
 
