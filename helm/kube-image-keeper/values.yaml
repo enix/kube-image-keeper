@@ -34,6 +34,13 @@ controllers:
   tolerations: []
   # -- Set the PriorityClassName for the controller pod
   priorityClassName: ""
+  pdb:
+    # -- Create a PodDisruptionBudget for the controllers
+    create: false
+    # -- Minimum available pods
+    minAvailable: 1
+    # -- Maximum unavailable pods
+    maxUnavailable: ""
   # -- Affinity for the controller pod
   affinity: {}
   resources:
