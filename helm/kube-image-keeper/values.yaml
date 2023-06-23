@@ -32,6 +32,8 @@ controllers:
   nodeSelector: {}
   # -- Toleration for the controller pod
   tolerations: []
+  # -- Set the PriorityClassName for the controller pod
+  priorityClassName: ""
   # -- Affinity for the controller pod
   affinity: {}
   resources:
@@ -123,6 +125,8 @@ proxy:
   - effect: NoSchedule
     key: node.kubernetes.io/network-unavailable
     operator: Exists
+  # -- Set the PriorityClassName for the proxy pod
+  priorityClassName: system-node-critical
   # -- Affinity for the proxy pod
   affinity: {}
   resources:
@@ -187,19 +191,21 @@ registry:
       cpu: "1"
       # -- Memory limits for the registry pod
       memory: "1Gi"
-  # -- Specify secrets to be used when pulling proxy image
+  # -- Specify secrets to be used when pulling registry image
   imagePullSecrets: []
-  # -- Annotations to add to the proxy pod
+  # -- Annotations to add to the registry pod
   podAnnotations: {}
-  # -- Security context for the proxy pod
+  # -- Security context for the registry pod
   podSecurityContext: {}
-  # -- Security context for containers of the proxy pod
+  # -- Security context for containers of the registry pod
   securityContext: {}
-  # -- Node selector for the proxy pod
+  # -- Node selector for the registry pod
   nodeSelector: {}
-  # -- Toleration for the proxy pod
+  # -- Toleration for the registry pod
   tolerations: []
-  # -- Affinity for the proxy pod
+  # -- Set the PriorityClassName for the registry pod
+  priorityClassName: ""
+  # -- Affinity for the registry pod
   affinity: {}
   serviceMonitor:
     # -- Should a ServiceMonitor object be installed to scrape this exporter. For prometheus-operator (kube-prometheus) users.
