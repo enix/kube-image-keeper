@@ -12,6 +12,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
+	"github.com/google/go-containerregistry/pkg/v1/types"
 )
 
 var Endpoint = ""
@@ -104,7 +105,7 @@ func CacheImage(imageName string, keychain authn.Keychain) error {
 	}
 
 	auth := remote.WithAuthFromKeychain(keychain)
-	image, err := remote.Image(sourceRef, auth)
+	desc, err := remote.Get(sourceRef, auth)
 	if err != nil {
 		if errIsImageNotFound(err) {
 
@@ -113,8 +114,23 @@ func CacheImage(imageName string, keychain authn.Keychain) error {
 		return err
 	}
 
-	if err := remote.Write(destRef, image); err != nil {
-		return err
+	switch desc.MediaType {
+	case types.OCIImageIndex, types.DockerManifestList:
+		index, err := desc.ImageIndex()
+		if err != nil {
+			return err
+		}
+		if err := remote.WriteIndex(destRef, index); err != nil {
+			return err
+		}
+	default:
+		image, err := desc.Image()
+		if err != nil {
+			return err
+		}
+		if err := remote.Write(destRef, image); err != nil {
+			return err
+		}
 	}
 	return nil
 }
