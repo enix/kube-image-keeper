@@ -22,7 +22,9 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "kube-image-keeper.serviceAccountName" . }}
-      priorityClassName: system-node-critical
+      {{- if .Values.proxy.priorityClassName }}
+      priorityClassName: {{ .Values.proxy.priorityClassName | quote }}
+      {{- end }}
       securityContext:
         {{- toYaml .Values.proxy.podSecurityContext | nindent 8 }}
       containers:

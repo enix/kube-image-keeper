@@ -25,6 +25,9 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "kube-image-keeper.serviceAccountName" . }}
+      {{- if .Values.controllers.priorityClassName }}
+      priorityClassName: {{ .Values.controllers.priorityClassName | quote }}
+      {{- end }}
       securityContext:
         {{- toYaml .Values.controllers.podSecurityContext | nindent 8 }}
       containers:
