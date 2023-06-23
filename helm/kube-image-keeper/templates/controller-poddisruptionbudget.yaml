@@ -1,4 +1,4 @@
-{{- if and .Values.controllers.pdb.create (gt .Values.controllers.replicas 1.0)  }}
+{{- if .Values.controllers.pdb.create }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
