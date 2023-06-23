@@ -160,6 +160,7 @@ registry:
     pullPolicy: IfNotPresent
     # -- Registry image tag
     tag: "2.8.1"
+  # -- Number of replicas for the registry pod
   replicas: 1
   persistence:
     # -- If true, enable persistent storage
@@ -207,6 +208,13 @@ registry:
   priorityClassName: ""
   # -- Affinity for the registry pod
   affinity: {}
+  pdb:
+    # -- Create a PodDisruptionBudget for the registry
+    create: false
+    # -- Minimum available pods
+    minAvailable: 1
+    # -- Maximum unavailable pods
+    maxUnavailable: ""
   serviceMonitor:
     # -- Should a ServiceMonitor object be installed to scrape this exporter. For prometheus-operator (kube-prometheus) users.
     create: false

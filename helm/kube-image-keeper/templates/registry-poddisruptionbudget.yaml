@@ -1,0 +1,18 @@
+{{- if and .Values.registry.pdb.create (eq (include "kube-image-keeper.registry-stateless-mode" .) "true") }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "kube-image-keeper.fullname" . }}-registry
+  labels:
+    {{- include "kube-image-keeper.registry-labels" . | nindent 4 }}
+spec:
+  {{- if .Values.registry.pdb.minAvailable }}
+  minAvailable: {{ .Values.registry.pdb.minAvailable }}
+  {{- end }}
+  {{- if .Values.registry.pdb.maxUnavailable }}
+  maxUnavailable: {{ .Values.registry.pdb.maxUnavailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "kube-image-keeper.registry-selectorLabels" . | nindent 6 }}
+{{- end }}
