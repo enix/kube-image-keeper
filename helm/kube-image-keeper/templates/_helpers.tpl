@@ -74,6 +74,7 @@ Selector labels
 {{- define "kube-image-keeper.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "kube-image-keeper.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
+kube-image-keeper.enix.io/image-caching-policy: ignore
 {{- end }}
 
 {{- define "kube-image-keeper.controllers-selectorLabels" -}}
