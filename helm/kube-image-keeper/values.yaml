@@ -167,8 +167,11 @@ registry:
     # -- External S3 configuration (needed only if you don't enable minio) (see https://github.com/docker/docs/blob/main/registry/storage-drivers/s3.md)
     s3: {}
     s3ExistingSecret: ""
-  # -- Garbage collector cron schedule. Use standard crontab format.
-  garbageCollectionSchedule: "0 0 * * 0"
+  garbageCollection:
+    # -- Garbage collector cron schedule. Use standard crontab format.
+    schedule: "0 0 * * 0"
+    # -- If true, delete untagged manifests
+    deleteUntagged: true
   service:
     # -- Registry service type
     type: ClusterIP

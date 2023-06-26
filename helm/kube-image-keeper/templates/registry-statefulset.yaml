@@ -54,7 +54,7 @@ spec:
             - bin/registry
             - garbage-collect
             - /etc/docker/registry/config.yml
-            - --delete-untagged=true
+            - --delete-untagged={{ .Values.registry.garbageCollection.deleteUntagged }}
           resources:
             {{- toYaml .Values.registry.resources | nindent 12 }}
           {{- if .Values.registry.persistence.enabled }}

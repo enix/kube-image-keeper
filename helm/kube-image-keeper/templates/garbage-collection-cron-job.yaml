@@ -1,4 +1,4 @@
-{{- if and .Values.registry.garbageCollectionSchedule (or .Values.registry.persistence.enabled (eq (include "kube-image-keeper.registry-stateless-mode" .) "true")) }}
+{{- if and .Values.registry.garbageCollection.schedule (or .Values.registry.persistence.enabled (eq (include "kube-image-keeper.registry-stateless-mode" .) "true")) }}
 {{- if semverCompare ">=1.21-0" (default .Capabilities.KubeVersion.Version .Values.kubeVersion) -}}
 apiVersion: batch/v1
 {{- else -}}
@@ -11,7 +11,7 @@ metadata:
     {{- include "kube-image-keeper.garbage-collection-labels" . | nindent 4 }}
 spec:
   concurrencyPolicy: Forbid
-  schedule: "{{ .Values.registry.garbageCollectionSchedule }}"
+  schedule: "{{ .Values.registry.garbageCollection.schedule }}"
   jobTemplate:
     spec:
       backoffLimit: 3
