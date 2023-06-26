@@ -1,4 +1,4 @@
-{{- if .Values.registry.garbageCollectionSchedule }}
+{{- if .Values.registry.garbageCollection.schedule }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
