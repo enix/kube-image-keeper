@@ -95,7 +95,7 @@ In kuik's namespace, you will find:
 
 - a `Deployment` to run kuik's controllers,
 - a `DaemonSet` to run kuik's image proxy,
-- a `StatefulSet` to run kuik's image cache.
+- a `StatefulSet` to run kuik's image cache, a `Deployment` is used instead when this component runs in HA mode.
 
 The image cache will obviously require a bit of disk space to run (see [Garbage collection and limitations](#garbage-collection-and-limitations) below). Otherwise, kuik's components are fairly lightweight in terms of compute resources. This shows CPU and RAM usage with the default setup, featuring two controllers in HA mode:
 
@@ -167,7 +167,7 @@ This logic isn't implemented by the kuik controllers or webhook directly, but th
 
 ### Cache persistence & garbage collection
 
-Persistence is disabled by default. You can enable it by setting the Helm value `registry.persistence.enabled=true` and setting `registry.persistence.size` to the desired size (20 GiB by default).
+Persistence is disabled by default. You can enable it by setting the Helm value `registry.persistence.enabled=true` and setting `registry.persistence.size` to the desired size (20 GiB by default). Be aware that this don't allow for high availability of the registry, to enable HA please refer to our related guide [./docs/high-availability.md](./docs/high-availability.md).
 
 Note that persistence requires that you have Persistent Volumes available on your cluster; otherwise, kuik's registry pod will remain `Pending` and your images won't be cached (but they will still be served transparently by kuik's image proxy).
 
