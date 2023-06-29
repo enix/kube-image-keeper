@@ -4,8 +4,8 @@ kube-image-keeper supports multiple storage solutions, some of them allowing for
 
 | Name          | HA-compatible | Enable                              |
 |---------------|---------------|-------------------------------------|
-| Tmpfs         |               | by default                          |
-| PVC           |               | `registry.persistence.enabled=true` |
+| Tmpfs         |      No       | by default                          |
+| PVC           |      No       | `registry.persistence.enabled=true` |
 | Minio         |      Yes      | `minio.enabled=true`                |
 | S3-compatible |      Yes      | `registry.persistence.s3=...`       |
 
@@ -50,11 +50,15 @@ data:
   root-password: <base64-encoded-value>
 ```
 
+It is NOT necessary to set `registry.persistence.enabled` to `true` to enable persistence through Minio.
+
+It is NOT necessary to configure the S3 endpoint when using this solution as it will be configured automatically by the chart.
+
 ## S3-compatible
 
-Any s3-compatible service can be used as a storage backend, including but not limited to AWS S3 and Minio.
+Any s3-compatible service can be used as a storage backend, including but not limited to AWS S3 and Minio. In the case you are using Minio, it has to be already installed somewhere. If you don't already have an instance of Minio running, please refer to the above section about how to install Minio as a dependency.
 
-Here is an example of values to enable minio (please refers to [docker registry S3 documentation](https://github.com/docker/docs/blob/main/registry/storage-drivers/s3.md) for more details):
+Here is an example of values to use an AWS bucket (please refers to [docker registry S3 documentation](https://github.com/docker/docs/blob/main/registry/storage-drivers/s3.md) for more details):
 
 ```yaml
 registry:
