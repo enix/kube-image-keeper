@@ -37,6 +37,6 @@ These metrics are exposed by the Docker Registry itself, more details in the off
 
 ## Grafana Dashboard
 
-We provide a Grafana dashboard available [here](./kube-image-keeper.dashboard.json) or directly on GrafanaLabs. 
+We provide a Grafana dashboard available [here](./kube-image-keeper.dashboard.json) or directly on [GrafanaLabs](https://grafana.com/grafana/dashboards/19023-kube-image-keeper/). 
 
 ![Dashboard](./grafana_dashboard.png)
