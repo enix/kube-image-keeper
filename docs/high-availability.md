@@ -58,7 +58,7 @@ It is NOT necessary to configure the S3 endpoint when using this solution as it 
 
 Any s3-compatible service can be used as a storage backend, including but not limited to AWS S3 and Minio. In the case you are using Minio, it has to be already installed somewhere. If you don't already have an instance of Minio running, please refer to the above section about how to install Minio as a dependency.
 
-Here is an example of values to use an AWS bucket (please refers to [docker registry S3 documentation](https://github.com/docker/docs/blob/main/registry/storage-drivers/s3.md) for more details):
+Here is an example of values to use a S3 compatible  bucket (please refers to [docker registry S3 documentation](https://github.com/docker/docs/blob/main/registry/storage-drivers/s3.md) for more details):
 
 ```yaml
 registry:
@@ -68,4 +68,21 @@ registry:
       region: us-east-1
       regionendpoint: http://minio:9000
       bucket: registry
+```
+
+For an AWS S3 bucket, you may not prefix the bucket name with `s3://`:
+
+```yaml
+registry:
+  persistence:
+    s3ExistingSecret: secret-name
+    s3:
+      region: us-east-1
+      bucket: mybucket
+```
+
+Create the associated secrets containing your credentials with kubectl:
+
+```
+ kubectl create secret generic secret-name -n kuik-system --from-literal=accessKey=$ACCESSKEY} --from-literal=secretKey=${SECRETKEY}
 ```
