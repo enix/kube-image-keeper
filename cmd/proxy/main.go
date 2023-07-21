@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 
+	_ "go.uber.org/automaxprocs"
+
 	"github.com/enix/kube-image-keeper/internal/proxy"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/enix/kube-image-keeper/internal/scheme"
