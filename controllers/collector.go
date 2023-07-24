@@ -2,7 +2,6 @@ package controllers
 
 import (
 	"context"
-	"net/http"
 	"strconv"
 
 	kuikenixiov1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
@@ -46,7 +45,7 @@ var (
 		Name:      "up",
 		Help:      "Whether or not this replica is healthy.",
 	}, func() float64 {
-		if resp, err := http.Get("http://" + ProbeAddr + "/healthz"); err != nil || (resp != nil && resp.StatusCode != http.StatusOK) {
+		if err := Healthz(); err != nil {
 			return 0
 		}
 		return 1
