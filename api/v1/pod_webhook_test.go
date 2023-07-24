@@ -3,6 +3,7 @@ package v1
 import (
 	_ "crypto/sha256"
 	"fmt"
+	"regexp"
 	"testing"
 
 	"github.com/enix/kube-image-keeper/controllers"
@@ -61,6 +62,46 @@ func TestRewriteImages(t *testing.T) {
 		g.Expect(podStub.Annotations[fmt.Sprintf(controllers.AnnotationOriginalImageTemplate, "c")]).To(Equal("original-2"))
 		g.Expect(podStub.Annotations[fmt.Sprintf(controllers.AnnotationOriginalImageTemplate, "d")]).To(Equal("185.145.250.247:30042/alpine"))
 		g.Expect(podStub.Annotations[fmt.Sprintf(controllers.AnnotationOriginalImageTemplate, "e")]).To(Equal("185.145.250.247:30042/alpine:latest"))
+		g.Expect(podStub.Annotations[fmt.Sprintf(controllers.AnnotationOriginalImageTemplate, "f")]).To(Equal(""))
+	})
+}
+
+func TestRewriteImagesWithIgnore(t *testing.T) {
+	podStub = *podStub.DeepCopy()
+
+	g := NewWithT(t)
+	t.Run("Rewrite image", func(t *testing.T) {
+		ir := ImageRewriter{
+			ProxyPort: 4242,
+			IgnoreImages: []*regexp.Regexp{
+				regexp.MustCompile("original"),
+				regexp.MustCompile("alpine:latest"),
+			},
+		}
+		ir.RewriteImages(&podStub)
+
+		rewrittenInitContainers := []corev1.Container{
+			{Name: "a", Image: "original-init"},
+		}
+
+		rewrittenContainers := []corev1.Container{
+			{Name: "b", Image: "original"},
+			{Name: "c", Image: "localhost:1313/original-2"},
+			{Name: "d", Image: "localhost:4242/185.145.250.247-30042/alpine"},
+			{Name: "e", Image: "185.145.250.247-30042/alpine:latest"},
+			{Name: "f", Image: "invalid:image:8080"},
+		}
+
+		g.Expect(podStub.Spec.InitContainers).To(Equal(rewrittenInitContainers))
+		g.Expect(podStub.Spec.Containers).To(Equal(rewrittenContainers))
+
+		g.Expect(podStub.Labels[controllers.LabelImageRewrittenName]).To(Equal("true"))
+
+		g.Expect(podStub.Annotations[fmt.Sprintf(controllers.AnnotationOriginalInitImageTemplate, "a")]).To(Equal(""))
+		g.Expect(podStub.Annotations[fmt.Sprintf(controllers.AnnotationOriginalImageTemplate, "b")]).To(Equal(""))
+		g.Expect(podStub.Annotations[fmt.Sprintf(controllers.AnnotationOriginalImageTemplate, "c")]).To(Equal(""))
+		g.Expect(podStub.Annotations[fmt.Sprintf(controllers.AnnotationOriginalImageTemplate, "d")]).To(Equal("185.145.250.247:30042/alpine"))
+		g.Expect(podStub.Annotations[fmt.Sprintf(controllers.AnnotationOriginalImageTemplate, "e")]).To(Equal(""))
 		g.Expect(podStub.Annotations[fmt.Sprintf(controllers.AnnotationOriginalImageTemplate, "f")]).To(Equal(""))
 	})
 }

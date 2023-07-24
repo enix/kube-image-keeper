@@ -3,6 +3,8 @@ package main
 import (
 	"flag"
 	"os"
+	"regexp"
+	"strings"
 	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -28,6 +30,26 @@ var (
 	setupLog = ctrl.Log.WithName("setup")
 )
 
+type regexpArrayFlags []*regexp.Regexp
+
+func (re *regexpArrayFlags) String() string {
+	s := []string{}
+	for _, r := range *re {
+		s = append(s, r.String())
+	}
+	return strings.Join(s, ",")
+}
+
+func (re *regexpArrayFlags) Set(value string) error {
+	r, err := regexp.Compile(value)
+	if err != nil {
+		setupLog.Error(err, "unable parse ignored images regex", "controller", "Pod")
+		os.Exit(1)
+	}
+	*re = append(*re, r)
+	return nil
+}
+
 func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
@@ -35,6 +57,7 @@ func main() {
 	var expiryDelay uint
 	var proxyPort int
 	var ignoreNamespace string
+	var ignoreImages regexpArrayFlags
 	var maxConcurrentCachedImageReconciles int
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -44,6 +67,7 @@ func main() {
 	flag.UintVar(&expiryDelay, "expiry-delay", 30, "The delay in days before deleting an unused CachedImage.")
 	flag.IntVar(&proxyPort, "proxy-port", 8082, "The port where the proxy is listening on this machine.")
 	flag.StringVar(&ignoreNamespace, "ignore-namespace", "kuik-system", "The address the probe endpoint binds to.")
+	flag.Var(&ignoreImages, "ignore-images", "List of regexes that represents images to be excluded.")
 	flag.StringVar(&registry.Endpoint, "registry-endpoint", "kube-image-keeper-registry:5000", "The address of the registry where cached images are stored.")
 	flag.IntVar(&maxConcurrentCachedImageReconciles, "max-concurrent-cached-image-reconciles", 3, "Maximum number of CachedImages that can be handled and reconciled at the same time (put or removed from cache).")
 
@@ -89,6 +113,7 @@ func main() {
 	imageRewriter := kuikenixiov1.ImageRewriter{
 		Client:          mgr.GetClient(),
 		IgnoreNamespace: ignoreNamespace,
+		IgnoreImages:    ignoreImages,
 		ProxyPort:       proxyPort,
 	}
 	mgr.GetWebhookServer().Register("/mutate-core-v1-pod", &webhook.Admission{Handler: &imageRewriter})
