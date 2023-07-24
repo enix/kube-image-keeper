@@ -88,7 +88,7 @@ func TestRewriteImagesWithIgnore(t *testing.T) {
 			{Name: "b", Image: "original"},
 			{Name: "c", Image: "localhost:1313/original-2"},
 			{Name: "d", Image: "localhost:4242/185.145.250.247-30042/alpine"},
-			{Name: "e", Image: "185.145.250.247-30042/alpine:latest"},
+			{Name: "e", Image: "185.145.250.247:30042/alpine:latest"},
 			{Name: "f", Image: "invalid:image:8080"},
 		}
 
