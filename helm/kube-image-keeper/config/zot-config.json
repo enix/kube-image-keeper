@@ -1,0 +1,15 @@
+{
+    "storage": {
+        "rootDirectory": "/var/lib/registry",
+        "gc": {{ .Values.registry.garbageCollection.enabled }},
+        "gcDelay": "1h",
+        "gcInterval": "24h"
+    },
+    "http": {
+        "address": "0.0.0.0",
+        "port": "5000"
+    },
+    "log": {
+        "level": "debug"
+    }
+}

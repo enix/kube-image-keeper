@@ -44,7 +44,7 @@ spec:
           command:
             - registry-proxy
             - -v={{ .Values.proxy.verbosity }}
-            - -registry-endpoint={{ include "kube-image-keeper.fullname" . }}-registry:5000
+            - -registry-endpoint={{ include "kube-image-keeper.fullname" . }}-zot:5000
             {{- with .Values.proxy.kubeApiRateLimits }}
             - -kube-api-rate-limit-qps={{ .qps }}
             - -kube-api-rate-limit-burst={{ .burst }}

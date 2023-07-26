@@ -167,116 +167,13 @@ proxy:
     # burst: 10
 
 registry:
-  image:
-    # -- Registry image repository
-    repository: registry
-    # -- Registry image pull policy
-    pullPolicy: IfNotPresent
-    # -- Registry image tag
-    tag: "2.8.1"
-  # -- Number of replicas for the registry pod
-  replicas: 1
-  persistence:
-    # -- If true, enable persistent storage (ignored when using minio or S3)
-    enabled: false
-    # -- StorageClass for persistent volume
-    storageClass: null
-    # -- Registry persistent volume size
-    size: 20Gi
-    # -- External S3 configuration (needed only if you don't enable minio) (see https://github.com/docker/docs/blob/main/registry/storage-drivers/s3.md)
-    s3: {}
-    s3ExistingSecret: ""
-    # -- Disable blobs redirection to S3 bucket (useful if your S3 instance is not accessible from kubelet)
-    disableS3Redirections: false
   garbageCollection:
-    # -- Garbage collector cron schedule. Use standard crontab format.
-    schedule: "0 0 * * 0"
-    # -- If true, delete untagged manifests
-    deleteUntagged: true
-  service:
-    # -- Registry service type
-    type: ClusterIP
-  # -- A secret used to sign state that may be stored with the client to protect against tampering, generated if empty (see https://github.com/distribution/distribution/blob/main/docs/configuration.md#http)
-  httpSecret: ""
-  # -- Extra env variables for the registry pod
-  env: []
-  resources:
-    requests:
-      # -- Cpu requests for the registry pod
-      cpu: "50m"
-      # -- Memory requests for the registry pod
-      memory: "256Mi"
-    limits:
-      # -- Cpu limits for the registry pod
-      cpu: "1"
-      # -- Memory limits for the registry pod
-      memory: "1Gi"
-  # -- Specify secrets to be used when pulling registry image
-  imagePullSecrets: []
-  # -- Annotations to add to the registry pod
-  podAnnotations: {}
-  # -- Security context for the registry pod
-  podSecurityContext: {}
-  # -- Security context for containers of the registry pod
-  securityContext: {}
-  # -- Node selector for the registry pod
-  nodeSelector: {}
-  # -- Toleration for the registry pod
-  tolerations: []
-  # -- Set the PriorityClassName for the registry pod
-  priorityClassName: ""
-  # -- Affinity for the registry pod
-  affinity: {}
-  pdb:
-    # -- Create a PodDisruptionBudget for the registry
-    create: false
-    # -- Minimum available pods
-    minAvailable: 1
-    # -- Maximum unavailable pods
-    maxUnavailable: ""
-  serviceMonitor:
-    # -- Should a ServiceMonitor object be installed to  scrape kuik registry metrics. For prometheus-operator (kube-prometheus) users.
-    create: false
-    # -- Target scrape interval set in the ServiceMonitor
-    scrapeInterval: 60s
-    # -- Target scrape timeout set in the ServiceMonitor
-    scrapeTimeout: 30s
-    # -- Additional labels to add to ServiceMonitor objects
-    extraLabels: {}
-    # -- Relabel config for the ServiceMonitor, see: https://coreos.com/operators/prometheus/docs/latest/api.html#relabelconfig
-    relabelings: []
+    enabled: true
 
-registryUI:
-  # -- If true, enable the registry user interface
-  enabled: false
-  image:
-    # -- Registry UI image repository
-    repository: parabuzzle/craneoperator
-    # -- Registry UI image pull policy
-    pullPolicy: IfNotPresent
-    # -- Registry UI image tag
-    tag: "2.2.5"
-  auth:
-    # -- Registry UI username
-    username: "admin"
-    # -- Registry UI password
-    password: ""
-  # -- CPU / Memory resources requests / limits for the registry UI pod
-  resources: {}
-  # -- Specify secrets to be used when pulling registry UI image
-  imagePullSecrets: []
-  # -- Annotations to add to the registry UI pod
-  podAnnotations: {}
-  # -- Security context for the registry UI pod
-  podSecurityContext: {}
-  # -- Security context for containers of the registry UI pod
-  securityContext: {}
-  # -- Node selector for the registry UI pod
-  nodeSelector: {}
-  # -- Toleration for the registry UI pod
-  tolerations: []
-  # -- Affinity for the registry UI pod
-  affinity: {}
+zot:
+  # -- If true, install zot as a registry
+  enabled: true
+  mountConfig: true
 
 minio:
   # -- If true, install minio as a local storage backend for the registry
