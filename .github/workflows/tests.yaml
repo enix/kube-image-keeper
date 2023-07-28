@@ -157,7 +157,7 @@ jobs:
             echo "Testing $component metrics endpoint"
             for ip in $(kubectl get po -l "app.kubernetes.io/component=$component" -n kuik-system -o jsonpath='{range .items[*]}{.status.podIP}{"\n"}{end}')
             do
-               response=$(kubectl run curl-pod --image=curlimages/curl --rm -i --quiet --restart=Never -- curl -s -o /dev/null -w "%{http_code}\n" http://$ip:8080/metrics)
+               response=$(kubectl run curl-pod --image=curlimages/curl --rm -ti --quiet --restart=Never -- curl -s -o /dev/null -w "%{http_code}\n" http://$ip:8080/metrics)
                if [[ $response -ge 200 && $response -lt 300 ]]; then
                   echo "HTTP status code $response is valid for $ip"
                else
@@ -165,3 +165,4 @@ jobs:
                   exit 1
                fi
             done
+          done
