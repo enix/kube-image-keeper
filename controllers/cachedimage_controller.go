@@ -9,14 +9,21 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	"github.com/enix/kube-image-keeper/api/v1alpha1"
 	kuikenixiov1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
@@ -29,8 +36,9 @@ const cachedImageFinalizerName = "cachedimage.kuik.enix.io/finalizer"
 // CachedImageReconciler reconciles a CachedImage object
 type CachedImageReconciler struct {
 	client.Client
-	Scheme   *runtime.Scheme
-	Recorder record.EventRecorder
+	Scheme      *runtime.Scheme
+	Recorder    record.EventRecorder
+	ExpiryDelay time.Duration
 }
 
 //+kubebuilder:rbac:groups=kuik.enix.io,resources=cachedimages,verbs=get;list;watch;create;update;patch;delete
@@ -155,6 +163,18 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
+	// Set an expiration date for unused CachedImage
+	if len(cachedImage.Status.UsedBy.Pods) == 0 {
+		expiresAt := metav1.NewTime(time.Now().Add(r.ExpiryDelay))
+		log.Info("cachedimage not is use anymore, setting an expiry date", "cachedImage", klog.KObj(&cachedImage), "expiresAt", expiresAt)
+		cachedImage.Spec.ExpiresAt = &expiresAt
+
+		err := r.Patch(ctx, &cachedImage, client.Merge)
+		if err != nil && !apierrors.IsNotFound(err) {
+			return ctrl.Result{}, err
+		}
+	}
+
 	log.Info("reconciled cachedimage")
 	return ctrl.Result{}, nil
 }
@@ -185,8 +205,19 @@ func (r *CachedImageReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrent
 		return err
 	}
 
+	p := predicate.Funcs{
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			return true
+		},
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kuikenixiov1alpha1.CachedImage{}).
+		Watches(
+			&source.Kind{Type: &corev1.Pod{}},
+			handler.EnqueueRequestsFromMapFunc(r.cachedImagesWithDeletingPods),
+			builder.WithPredicates(p),
+		).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: maxConcurrentReconciles,
 		}).
@@ -232,4 +263,37 @@ func containsString(slice []string, s string) bool {
 		}
 	}
 	return false
+}
+
+func (r *CachedImageReconciler) cachedImagesWithDeletingPods(obj client.Object) []ctrl.Request {
+	log := log.
+		FromContext(context.Background()).
+		WithName("controller-runtime.manager.controller.cachedImage.deletingPods").
+		WithValues("pod", klog.KObj(obj))
+
+	pod := obj.(*corev1.Pod)
+	var currentPod corev1.Pod
+	// wait for the Pod to be really deleted
+	if err := r.Get(context.Background(), types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}, &currentPod); err == nil || !apierrors.IsNotFound(err) {
+		return make([]ctrl.Request, 0)
+	}
+
+	ctx := logr.NewContext(context.Background(), log)
+	cachedImages := desiredCachedImages(ctx, pod)
+
+	res := []ctrl.Request{}
+	for _, cachedImage := range cachedImages {
+		for _, value := range pod.GetAnnotations() {
+			// TODO check key format is "original-image-%s" or "original-init-image-%s"
+			if cachedImage.Spec.SourceImage == value {
+				res = append(res, ctrl.Request{
+					NamespacedName: types.NamespacedName{
+						Name: cachedImage.Name,
+					},
+				})
+			}
+		}
+	}
+
+	return res
 }
