@@ -5,7 +5,6 @@ import (
 	_ "crypto/sha256"
 	"fmt"
 	"strings"
-	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
@@ -22,7 +21,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -39,7 +37,6 @@ const AnnotationOriginalInitImageTemplate = "original-init-image-%s"
 type PodReconciler struct {
 	client.Client
 	Scheme      *runtime.Scheme
-	ExpiryDelay time.Duration
 }
 
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch;create;update;patch;delete
@@ -67,66 +64,10 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 
 	cachedImages := desiredCachedImages(ctx, &pod)
 
-	finalizerName := "pod.kuik.enix.io/finalizer"
-
 	// On pod deletion
 	if !pod.DeletionTimestamp.IsZero() {
-		if !containsString(pod.GetFinalizers(), finalizerName) {
-			return ctrl.Result{}, nil
-		}
-
 		log.Info("pod is deleting")
-		for _, cachedImage := range cachedImages {
-			// Check if this CachedImage is in use by other pods
-			var podsList corev1.PodList
-			if err := r.List(ctx, &podsList, client.MatchingFields{cachedImageOwnerKey: cachedImage.Name}); err != nil {
-				return ctrl.Result{}, err
-			}
-			cachedImageInUse := false
-			for _, p := range podsList.Items {
-				cachedImageInUse = cachedImageInUse || p.DeletionTimestamp.IsZero()
-			}
-
-			// Set an expiration date for unused CachedImage
-			if !cachedImageInUse {
-				expiresAt := metav1.NewTime(time.Now().Add(r.ExpiryDelay))
-				log.Info("cachedimage not is use anymore, setting an expiry date", "cachedImage", klog.KObj(&cachedImage), "expiresAt", expiresAt)
-				cachedImage.Spec.ExpiresAt = &expiresAt
-
-				err := r.Patch(ctx, &cachedImage, client.Merge)
-				if err != nil && !apierrors.IsNotFound(err) {
-					return ctrl.Result{}, err
-				}
-			}
-
-			var ci kuikenixiov1alpha1.CachedImage
-			err := r.Get(ctx, client.ObjectKeyFromObject(&cachedImage), &ci)
-			if err != nil && !apierrors.IsNotFound(err) {
-				if apierrors.IsNotFound(err) {
-					continue
-				} else {
-					return ctrl.Result{}, err
-				}
-			}
-		}
-
-		log.Info("removing finalizer")
-		controllerutil.RemoveFinalizer(&pod, finalizerName)
-		if err := r.Update(ctx, &pod); err != nil {
-			return ctrl.Result{}, err
-		}
-
-		log.Info("reconciled deleting pod")
 		return ctrl.Result{}, nil
-	}
-
-	// Add finalizer to keep the Pod during expiring of CachedImages
-	if !containsString(pod.GetFinalizers(), finalizerName) {
-		log.Info("adding finalizer")
-		controllerutil.AddFinalizer(&pod, finalizerName)
-		if err := r.Update(ctx, &pod); err != nil {
-			return ctrl.Result{}, err
-		}
 	}
 
 	// On pod creation and update
