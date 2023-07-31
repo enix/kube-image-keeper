@@ -205,18 +205,29 @@ func (r *CachedImageReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrent
 		return err
 	}
 
-	p := predicate.Funcs{
-		DeleteFunc: func(e event.DeleteEvent) bool {
-			return true
-		},
-	}
-
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kuikenixiov1alpha1.CachedImage{}).
 		Watches(
 			&source.Kind{Type: &corev1.Pod{}},
-			handler.EnqueueRequestsFromMapFunc(r.cachedImagesWithDeletingPods),
-			builder.WithPredicates(p),
+			handler.EnqueueRequestsFromMapFunc(r.cachedImagesRequestFromPod),
+			builder.WithPredicates(predicate.Funcs{
+				DeleteFunc: func(e event.DeleteEvent) bool {
+					pod := e.Object.(*corev1.Pod)
+					var currentPod corev1.Pod
+					// wait for the Pod to be really deleted
+					err := r.Get(context.Background(), types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}, &currentPod)
+					return err != nil && apierrors.IsNotFound(err)
+				},
+			}),
+		).
+		Watches(
+			&source.Kind{Type: &corev1.Pod{}},
+			handler.EnqueueRequestsFromMapFunc(r.cachedImagesRequestFromPod),
+			builder.WithPredicates(predicate.Funcs{
+				CreateFunc: func(e event.CreateEvent) bool {
+					return true
+				},
+			}),
 		).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: maxConcurrentReconciles,
@@ -265,19 +276,13 @@ func containsString(slice []string, s string) bool {
 	return false
 }
 
-func (r *CachedImageReconciler) cachedImagesWithDeletingPods(obj client.Object) []ctrl.Request {
+func (r *CachedImageReconciler) cachedImagesRequestFromPod(obj client.Object) []ctrl.Request {
 	log := log.
 		FromContext(context.Background()).
 		WithName("controller-runtime.manager.controller.cachedImage.deletingPods").
 		WithValues("pod", klog.KObj(obj))
 
 	pod := obj.(*corev1.Pod)
-	var currentPod corev1.Pod
-	// wait for the Pod to be really deleted
-	if err := r.Get(context.Background(), types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}, &currentPod); err == nil || !apierrors.IsNotFound(err) {
-		return make([]ctrl.Request, 0)
-	}
-
 	ctx := logr.NewContext(context.Background(), log)
 	cachedImages := desiredCachedImages(ctx, pod)
 
