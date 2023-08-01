@@ -35,7 +35,6 @@ Common labels
 */}}
 {{- define "kube-image-keeper.labels" -}}
 helm.sh/chart: {{ include "kube-image-keeper.chart" . }}
-kube-image-keeper.enix.io/image-caching-policy: ignore
 {{ include "kube-image-keeper.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}

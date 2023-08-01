@@ -41,7 +41,6 @@ spec:
             - -leader-elect
             - -expiry-delay={{ .Values.cachedImagesExpiryDelay }}
             - -proxy-port={{ .Values.proxy.hostPort }}
-            - -ignore-namespace={{ .Release.Namespace }}
             - -registry-endpoint={{ include "kube-image-keeper.fullname" . }}-registry:5000
             - -max-concurrent-cached-image-reconciles={{ .Values.controllers.maxConcurrentCachedImageReconciles }}
             - -zap-log-level={{ .Values.controllers.verbosity }}

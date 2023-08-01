@@ -14,35 +14,25 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 //+kubebuilder:webhook:path=/mutate-core-v1-pod,mutating=true,failurePolicy=fail,sideEffects=None,groups=core,resources=pods,verbs=create;update,versions=v1,name=mpod.kb.io,admissionReviewVersions=v1
 
 type ImageRewriter struct {
-	Client          client.Client
-	IgnoreNamespace string
-	ProxyPort       int
-	decoder         *admission.Decoder
+	Client    client.Client
+	ProxyPort int
+	decoder   *admission.Decoder
 }
 
 func (a *ImageRewriter) Handle(ctx context.Context, req admission.Request) admission.Response {
-	log := log.
-		FromContext(ctx).
-		WithName("controller-runtime.webhook.pod")
-
 	pod := &corev1.Pod{}
 	err := a.decoder.Decode(req, pod)
 	if err != nil {
 		return admission.Errored(http.StatusBadRequest, err)
 	}
 
-	if req.Namespace != a.IgnoreNamespace {
-		a.RewriteImages(pod)
-	} else {
-		log.Info("Ignoring pod from ignored namespace", "namespace", req.Namespace)
-	}
+	a.RewriteImages(pod)
 
 	marshaledPod, err := json.Marshal(pod)
 	if err != nil {
