@@ -12,8 +12,10 @@ jobs:
     name: Conventional commit checker
     runs-on: ubuntu-22.04
     steps:
+      - uses: actions/checkout@v2
+
       - name: check-for-cc
         id: check-for-cc
-        uses: agenthunt/conventional-commit-checker-action@v1.0.0
+        uses: ahmadnassri/action-commit-lint@v1
         with:
-          pr-body-regex: "(.*)"
+          config: conventional
