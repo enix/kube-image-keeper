@@ -104,6 +104,17 @@ func Test_handleOriginRegistryPort(t *testing.T) {
 			originRegistry: "enix.io-5000",
 			expectedOutput: "enix.io:5000",
 		},
+		{
+			name:           "Domain name with number + port",
+			originRegistry: "regsitry-2.enix.io-5000",
+			expectedOutput: "regsitry-2.enix.io:5000",
+		},
+
+		{
+			name:           "Domain name with number + port with same value",
+			originRegistry: "regsitry-5000.enix.io-5000",
+			expectedOutput: "regsitry-5000.enix.io:5000",
+		},
 	}
 
 	g := NewWithT(t)
