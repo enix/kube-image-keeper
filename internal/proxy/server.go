@@ -276,12 +276,13 @@ func recoveryMiddleware() gin.HandlerFunc {
 }
 
 func handleOriginRegistryPort(originRegistry string) string {
-	re := regexp.MustCompile(`-([0-9]+)`)
+	re := regexp.MustCompile(`-([0-9]+)$`)
 	parts := re.FindStringSubmatch(originRegistry)
+	originRegistryBytes := []byte(originRegistry)
 
 	if len(parts) == 2 {
-		originRegistry = strings.ReplaceAll(originRegistry, parts[0], ":"+parts[1])
+		originRegistryBytes = re.ReplaceAll(originRegistryBytes, []byte(":$1"))
 	}
 
-	return originRegistry
+	return string(originRegistryBytes)
 }
