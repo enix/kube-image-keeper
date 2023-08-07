@@ -16,6 +16,6 @@ jobs:
 
       - name: check-for-cc
         id: check-for-cc
-        uses: ahmadnassri/action-commit-lint@v1
+        uses: ahmadnassri/action-commit-lint@v2
         with:
           config: conventional
