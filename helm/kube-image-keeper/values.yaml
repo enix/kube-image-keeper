@@ -2,7 +2,6 @@
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
-
 # -- Delay in days before deleting an unused CachedImage
 cachedImagesExpiryDelay: 30
 # -- If true, install the CRD
@@ -59,7 +58,9 @@ controllers:
   webhook:
     # -- Don't enable image caching for pods scheduled into these namespaces
     ignoredNamespaces:
-    - kube-system
+      - kube-system
+    # -- Don't enable image caching if the image match the following regexes
+    ignoredImages: []
     # -- If true, create the issuer used to issue the webhook certificate
     createCertificateIssuer: true
     # -- Issuer reference to issue the webhook certificate, ignored if createCertificateIssuer is true
@@ -107,33 +108,33 @@ proxy:
   nodeSelector: {}
   # -- Toleration for the proxy pod
   tolerations:
-  - effect: NoSchedule
-    operator: Exists
-  - key: CriticalAddonsOnly
-    operator: Exists
-  - effect: NoExecute
-    operator: Exists
-  - effect: NoExecute
-    key: node.kubernetes.io/not-ready
-    operator: Exists
-  - effect: NoExecute
-    key: node.kubernetes.io/unreachable
-    operator: Exists
-  - effect: NoSchedule
-    key: node.kubernetes.io/disk-pressure
-    operator: Exists
-  - effect: NoSchedule
-    key: node.kubernetes.io/memory-pressure
-    operator: Exists
-  - effect: NoSchedule
-    key: node.kubernetes.io/pid-pressure
-    operator: Exists
-  - effect: NoSchedule
-    key: node.kubernetes.io/unschedulable
-    operator: Exists
-  - effect: NoSchedule
-    key: node.kubernetes.io/network-unavailable
-    operator: Exists
+    - effect: NoSchedule
+      operator: Exists
+    - key: CriticalAddonsOnly
+      operator: Exists
+    - effect: NoExecute
+      operator: Exists
+    - effect: NoExecute
+      key: node.kubernetes.io/not-ready
+      operator: Exists
+    - effect: NoExecute
+      key: node.kubernetes.io/unreachable
+      operator: Exists
+    - effect: NoSchedule
+      key: node.kubernetes.io/disk-pressure
+      operator: Exists
+    - effect: NoSchedule
+      key: node.kubernetes.io/memory-pressure
+      operator: Exists
+    - effect: NoSchedule
+      key: node.kubernetes.io/pid-pressure
+      operator: Exists
+    - effect: NoSchedule
+      key: node.kubernetes.io/unschedulable
+      operator: Exists
+    - effect: NoSchedule
+      key: node.kubernetes.io/network-unavailable
+      operator: Exists
   # -- Set the PriorityClassName for the proxy pod
   priorityClassName: system-node-critical
   # -- Affinity for the proxy pod

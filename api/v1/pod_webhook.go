@@ -20,9 +20,10 @@ import (
 //+kubebuilder:webhook:path=/mutate-core-v1-pod,mutating=true,failurePolicy=fail,sideEffects=None,groups=core,resources=pods,verbs=create;update,versions=v1,name=mpod.kb.io,admissionReviewVersions=v1
 
 type ImageRewriter struct {
-	Client    client.Client
-	ProxyPort int
-	decoder   *admission.Decoder
+	Client       client.Client
+	IgnoreImages []*regexp.Regexp
+	ProxyPort    int
+	decoder      *admission.Decoder
 }
 
 func (a *ImageRewriter) Handle(ctx context.Context, req admission.Request) admission.Response {
@@ -73,6 +74,10 @@ func (a *ImageRewriter) InjectDecoder(d *admission.Decoder) error {
 }
 
 func (a *ImageRewriter) handleContainer(pod *corev1.Pod, container *corev1.Container, annotationKey string) {
+	if a.isImageIgnored(container) {
+		return
+	}
+
 	re := regexp.MustCompile(`localhost:[0-9]+/`)
 	image := re.ReplaceAllString(container.Image, "")
 
@@ -87,4 +92,13 @@ func (a *ImageRewriter) handleContainer(pod *corev1.Pod, container *corev1.Conta
 	image = strings.ReplaceAll(image, sourceRef.Context().RegistryStr(), sanitizedRegistryName)
 
 	container.Image = fmt.Sprintf("localhost:%d/%s", a.ProxyPort, image)
+}
+
+func (a *ImageRewriter) isImageIgnored(container *corev1.Container) (ignored bool) {
+	for _, r := range a.IgnoreImages {
+		if r.MatchString(container.Image) {
+			return true
+		}
+	}
+	return
 }

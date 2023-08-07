@@ -44,6 +44,9 @@ spec:
             - -registry-endpoint={{ include "kube-image-keeper.fullname" . }}-registry:5000
             - -max-concurrent-cached-image-reconciles={{ .Values.controllers.maxConcurrentCachedImageReconciles }}
             - -zap-log-level={{ .Values.controllers.verbosity }}
+            {{- range .Values.controllers.webhook.ignoredImages }}
+            - -ignore-images={{- . }}
+            {{- end }}
           ports:
             - containerPort: 9443
               name: webhook-server
