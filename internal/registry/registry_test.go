@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"crypto/sha1"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -28,6 +29,10 @@ func mockV2Endpoint(gh *ghttp.GHTTPWithGomega) http.HandlerFunc {
 
 func sha224(str string) string {
 	return fmt.Sprintf("%x", sha256.Sum224([]byte(str)))
+}
+
+func sha1Sum(str string) string {
+	return fmt.Sprintf("%x", sha1.Sum([]byte(str)))
 }
 
 func Test_parseLocalReference(t *testing.T) {
@@ -411,6 +416,62 @@ func TestRepositoryLabel(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			label := RepositoryLabel(tt.repositoryName)
 			g.Expect(label).To(Equal(tt.expectedLabel))
+		})
+	}
+}
+
+func TestContainerAnnotationKey(t *testing.T) {
+	tests := []struct {
+		name                  string
+		containerName         string
+		initContainer         bool
+		expectedAnnotationKey string
+	}{
+		{
+			name:                  "Basic",
+			containerName:         "backend",
+			expectedAnnotationKey: "original-image-backend",
+		},
+		{
+			name:                  "Basic init",
+			containerName:         "backend",
+			initContainer:         true,
+			expectedAnnotationKey: "original-init-image-backend",
+		},
+		{
+			name:                  "Long name",
+			containerName:         "my-incredible-and-marvelous-backend-that-rocks-so-much-it-has-become-a-mountain",
+			expectedAnnotationKey: "original-image-" + sha1Sum("my-incredible-and-marvelous-backend-that-rocks-so-much-it-has-become-a-mountain"),
+		},
+		{
+			name:                  "63 chars output",
+			containerName:         "my-incredible-and-marvelous-backend-that-rocks-s",
+			expectedAnnotationKey: "original-image-my-incredible-and-marvelous-backend-that-rocks-s",
+		},
+		{
+			name:                  "63 chars output init",
+			containerName:         "my-incredible-and-marvelous-backend-that-ro",
+			initContainer:         true,
+			expectedAnnotationKey: "original-init-image-my-incredible-and-marvelous-backend-that-ro",
+		},
+		{
+			name:                  "64 chars output",
+			containerName:         "my-incredible-and-marvelous-backend-that-rocks-so",
+			expectedAnnotationKey: "original-image-" + sha1Sum("my-incredible-and-marvelous-backend-that-rocks-so"),
+		},
+		{
+			name:                  "64 chars output init",
+			containerName:         "my-incredible-and-marvelous-backend-that-roc",
+			initContainer:         true,
+			expectedAnnotationKey: "original-init-image-" + sha1Sum("my-incredible-and-marvelous-backend-that-roc"),
+		},
+	}
+
+	g := NewWithT(t)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			annotationKey := ContainerAnnotationKey(tt.containerName, tt.initContainer)
+			g.Expect(annotationKey).To(Equal(tt.expectedAnnotationKey))
 		})
 	}
 }
