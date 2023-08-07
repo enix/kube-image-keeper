@@ -425,40 +425,40 @@ func TestContainerAnnotationKey(t *testing.T) {
 		{
 			name:                  "Basic",
 			containerName:         "backend",
-			expectedAnnotationKey: "original-image-backend",
+			expectedAnnotationKey: "kuik.enix.io/backend-image",
 		},
 		{
 			name:                  "Basic init",
 			containerName:         "backend",
 			initContainer:         true,
-			expectedAnnotationKey: "original-init-image-backend",
+			expectedAnnotationKey: "kuik.enix.io/backend-init-image",
 		},
 		{
 			name:                  "Long name",
 			containerName:         "my-incredible-and-marvelous-backend-that-rocks-so-much-it-has-become-a-mountain",
-			expectedAnnotationKey: "original-image-" + sha1Sum("my-incredible-and-marvelous-backend-that-rocks-so-much-it-has-become-a-mountain"),
+			expectedAnnotationKey: "kuik.enix.io/" + sha1Sum("my-incredible-and-marvelous-backend-that-rocks-so-much-it-has-become-a-mountain") + "-image",
 		},
 		{
 			name:                  "63 chars output",
-			containerName:         "my-incredible-and-marvelous-backend-that-rocks-s",
-			expectedAnnotationKey: "original-image-my-incredible-and-marvelous-backend-that-rocks-s",
+			containerName:         "my-incredible-and-marvelous-backend-that-roc",
+			expectedAnnotationKey: "kuik.enix.io/my-incredible-and-marvelous-backend-that-roc-image",
 		},
 		{
 			name:                  "63 chars output init",
-			containerName:         "my-incredible-and-marvelous-backend-that-ro",
+			containerName:         "my-incredible-and-marvelous-backend-tha",
 			initContainer:         true,
-			expectedAnnotationKey: "original-init-image-my-incredible-and-marvelous-backend-that-ro",
+			expectedAnnotationKey: "kuik.enix.io/my-incredible-and-marvelous-backend-tha-init-image",
 		},
 		{
 			name:                  "64 chars output",
-			containerName:         "my-incredible-and-marvelous-backend-that-rocks-so",
-			expectedAnnotationKey: "original-image-" + sha1Sum("my-incredible-and-marvelous-backend-that-rocks-so"),
+			containerName:         "my-incredible-and-marvelous-backend-that-rock",
+			expectedAnnotationKey: "kuik.enix.io/" + sha1Sum("my-incredible-and-marvelous-backend-that-rock") + "-image",
 		},
 		{
 			name:                  "64 chars output init",
-			containerName:         "my-incredible-and-marvelous-backend-that-roc",
+			containerName:         "my-incredible-and-marvelous-backend-that",
 			initContainer:         true,
-			expectedAnnotationKey: "original-init-image-" + sha1Sum("my-incredible-and-marvelous-backend-that-roc"),
+			expectedAnnotationKey: "kuik.enix.io/" + sha1Sum("my-incredible-and-marvelous-backend-that") + "-init-image",
 		},
 	}
 

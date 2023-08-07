@@ -217,9 +217,9 @@ func RepositoryLabel(repositoryName string) string {
 }
 
 func ContainerAnnotationKey(containerName string, initContainer bool) string {
-	template := "original-image-%s"
+	template := "kuik.enix.io/%s-image"
 	if initContainer {
-		template = "original-init-image-%s"
+		template = "kuik.enix.io/%s-init-image"
 	}
 
 	if len(containerName)+len(template)-2 > 63 {
