@@ -11,6 +11,7 @@ import (
 	_ "crypto/sha256"
 
 	"github.com/enix/kube-image-keeper/controllers"
+	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/google/go-containerregistry/pkg/name"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -57,13 +58,13 @@ func (a *ImageRewriter) RewriteImages(pod *corev1.Pod) {
 	// Handle Containers
 	for i := range pod.Spec.Containers {
 		container := &pod.Spec.Containers[i]
-		a.handleContainer(pod, container, fmt.Sprintf(controllers.AnnotationOriginalImageTemplate, container.Name))
+		a.handleContainer(pod, container, registry.ContainerAnnotationKey(container.Name, false))
 	}
 
 	// Handle init containers
 	for i := range pod.Spec.InitContainers {
 		container := &pod.Spec.InitContainers[i]
-		a.handleContainer(pod, container, fmt.Sprintf(controllers.AnnotationOriginalInitImageTemplate, container.Name))
+		a.handleContainer(pod, container, registry.ContainerAnnotationKey(container.Name, true))
 	}
 }
 

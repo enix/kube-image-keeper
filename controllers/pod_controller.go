@@ -3,7 +3,6 @@ package controllers
 import (
 	"context"
 	_ "crypto/sha256"
-	"fmt"
 	"strings"
 	"time"
 
@@ -32,8 +31,6 @@ import (
 
 const cachedImageOwnerKey = ".metadata.podOwner"
 const LabelImageRewrittenName = "kuik.enix.io/images-rewritten"
-const AnnotationOriginalImageTemplate = "original-image-%s"
-const AnnotationOriginalInitImageTemplate = "original-init-image-%s"
 
 // PodReconciler reconciles a Pod object
 type PodReconciler struct {
@@ -233,8 +230,8 @@ func desiredCachedImages(ctx context.Context, pod *corev1.Pod) []kuikenixiov1alp
 		pullSecretNames = append(pullSecretNames, pullSecret.Name)
 	}
 
-	cachedImages := desiredCachedImagesForContainers(ctx, pod.Spec.Containers, pod.Annotations, AnnotationOriginalImageTemplate)
-	cachedImages = append(cachedImages, desiredCachedImagesForContainers(ctx, pod.Spec.InitContainers, pod.Annotations, AnnotationOriginalInitImageTemplate)...)
+	cachedImages := desiredCachedImagesForContainers(ctx, pod.Spec.Containers, pod.Annotations, false)
+	cachedImages = append(cachedImages, desiredCachedImagesForContainers(ctx, pod.Spec.InitContainers, pod.Annotations, true)...)
 
 	for i := range cachedImages {
 		cachedImages[i].Spec.PullSecretNames = pullSecretNames
@@ -244,12 +241,12 @@ func desiredCachedImages(ctx context.Context, pod *corev1.Pod) []kuikenixiov1alp
 	return cachedImages
 }
 
-func desiredCachedImagesForContainers(ctx context.Context, containers []corev1.Container, annotations map[string]string, annotationKeyTemplate string) []kuikenixiov1alpha1.CachedImage {
+func desiredCachedImagesForContainers(ctx context.Context, containers []corev1.Container, annotations map[string]string, initContainer bool) []kuikenixiov1alpha1.CachedImage {
 	log := log.FromContext(ctx)
 	cachedImages := []kuikenixiov1alpha1.CachedImage{}
 
 	for _, container := range containers {
-		annotationKey := fmt.Sprintf(annotationKeyTemplate, container.Name)
+		annotationKey := registry.ContainerAnnotationKey(container.Name, initContainer)
 		containerLog := log.WithValues("container", container.Name, "annotationKey", annotationKey)
 
 		sourceImage, ok := annotations[annotationKey]

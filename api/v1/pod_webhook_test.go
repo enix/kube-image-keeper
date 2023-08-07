@@ -2,11 +2,11 @@ package v1
 
 import (
 	_ "crypto/sha256"
-	"fmt"
 	"regexp"
 	"testing"
 
 	"github.com/enix/kube-image-keeper/controllers"
+	"github.com/enix/kube-image-keeper/internal/registry"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -59,12 +59,12 @@ func TestRewriteImages(t *testing.T) {
 
 		g.Expect(podStub.Labels[controllers.LabelImageRewrittenName]).To(Equal("true"))
 
-		g.Expect(podStub.Annotations[fmt.Sprintf(controllers.AnnotationOriginalInitImageTemplate, "a")]).To(Equal("original-init"))
-		g.Expect(podStub.Annotations[fmt.Sprintf(controllers.AnnotationOriginalImageTemplate, "b")]).To(Equal("original"))
-		g.Expect(podStub.Annotations[fmt.Sprintf(controllers.AnnotationOriginalImageTemplate, "c")]).To(Equal("original-2"))
-		g.Expect(podStub.Annotations[fmt.Sprintf(controllers.AnnotationOriginalImageTemplate, "d")]).To(Equal("185.145.250.247:30042/alpine"))
-		g.Expect(podStub.Annotations[fmt.Sprintf(controllers.AnnotationOriginalImageTemplate, "e")]).To(Equal("185.145.250.247:30042/alpine:latest"))
-		g.Expect(podStub.Annotations[fmt.Sprintf(controllers.AnnotationOriginalImageTemplate, "f")]).To(Equal(""))
+		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("a", true)]).To(Equal("original-init"))
+		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("b", false)]).To(Equal("original"))
+		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("c", false)]).To(Equal("original-2"))
+		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("d", false)]).To(Equal("185.145.250.247:30042/alpine"))
+		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("e", false)]).To(Equal("185.145.250.247:30042/alpine:latest"))
+		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("f", false)]).To(Equal(""))
 	})
 }
 
@@ -99,12 +99,12 @@ func TestRewriteImagesWithIgnore(t *testing.T) {
 
 		g.Expect(podStub.Labels[controllers.LabelImageRewrittenName]).To(Equal("true"))
 
-		g.Expect(podStub.Annotations[fmt.Sprintf(controllers.AnnotationOriginalInitImageTemplate, "a")]).To(Equal(""))
-		g.Expect(podStub.Annotations[fmt.Sprintf(controllers.AnnotationOriginalImageTemplate, "b")]).To(Equal(""))
-		g.Expect(podStub.Annotations[fmt.Sprintf(controllers.AnnotationOriginalImageTemplate, "c")]).To(Equal(""))
-		g.Expect(podStub.Annotations[fmt.Sprintf(controllers.AnnotationOriginalImageTemplate, "d")]).To(Equal("185.145.250.247:30042/alpine"))
-		g.Expect(podStub.Annotations[fmt.Sprintf(controllers.AnnotationOriginalImageTemplate, "e")]).To(Equal(""))
-		g.Expect(podStub.Annotations[fmt.Sprintf(controllers.AnnotationOriginalImageTemplate, "f")]).To(Equal(""))
+		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("a", true)]).To(Equal(""))
+		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("b", false)]).To(Equal(""))
+		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("c", false)]).To(Equal(""))
+		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("d", false)]).To(Equal("185.145.250.247:30042/alpine"))
+		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("e", false)]).To(Equal(""))
+		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("f", false)]).To(Equal(""))
 	})
 }
 

@@ -2,7 +2,6 @@ package controllers
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -20,9 +19,9 @@ var podStub = corev1.Pod{
 		Name:      "test-pod",
 		Namespace: "default",
 		Annotations: map[string]string{
-			fmt.Sprintf(AnnotationOriginalInitImageTemplate, "a"): "alpine",
-			fmt.Sprintf(AnnotationOriginalImageTemplate, "b"):     "nginx",
-			fmt.Sprintf(AnnotationOriginalImageTemplate, "c"):     "busybox",
+			registry.ContainerAnnotationKey("a", true):  "alpine",
+			registry.ContainerAnnotationKey("b", false): "nginx",
+			registry.ContainerAnnotationKey("c", false): "busybox",
 		},
 		Labels: map[string]string{
 			LabelImageRewrittenName: "true",
