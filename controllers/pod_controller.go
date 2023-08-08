@@ -174,8 +174,14 @@ func desiredCachedImages(ctx context.Context, pod *corev1.Pod) []kuikenixiov1alp
 		pullSecretNames = append(pullSecretNames, pullSecret.Name)
 	}
 
-	cachedImages := desiredCachedImagesForContainers(ctx, pod.Spec.Containers, pod.Annotations, false)
-	cachedImages = append(cachedImages, desiredCachedImagesForContainers(ctx, pod.Spec.InitContainers, pod.Annotations, true)...)
+	ephemeralContainers := []corev1.Container{}
+	for _, ephemeralContainer := range pod.Spec.EphemeralContainers {
+		ephemeralContainers = append(ephemeralContainers, corev1.Container(ephemeralContainer.EphemeralContainerCommon))
+	}
+
+	cachedImages := desiredCachedImagesForContainers(ctx, pod.Spec.Containers, pod.Annotations, registry.Container)
+	cachedImages = append(cachedImages, desiredCachedImagesForContainers(ctx, pod.Spec.InitContainers, pod.Annotations, registry.InitContainer)...)
+	cachedImages = append(cachedImages, desiredCachedImagesForContainers(ctx, ephemeralContainers, pod.Annotations, registry.EphemeralContainer)...)
 
 	for i := range cachedImages {
 		cachedImages[i].Spec.PullSecretNames = pullSecretNames
@@ -185,12 +191,12 @@ func desiredCachedImages(ctx context.Context, pod *corev1.Pod) []kuikenixiov1alp
 	return cachedImages
 }
 
-func desiredCachedImagesForContainers(ctx context.Context, containers []corev1.Container, annotations map[string]string, initContainer bool) []kuikenixiov1alpha1.CachedImage {
+func desiredCachedImagesForContainers(ctx context.Context, containers []corev1.Container, annotations map[string]string, containerType registry.ContainerType) []kuikenixiov1alpha1.CachedImage {
 	log := log.FromContext(ctx)
 	cachedImages := []kuikenixiov1alpha1.CachedImage{}
 
 	for _, container := range containers {
-		annotationKey := registry.ContainerAnnotationKey(container.Name, initContainer)
+		annotationKey := registry.ContainerAnnotationKey(container.Name, containerType)
 		containerLog := log.WithValues("container", container.Name, "annotationKey", annotationKey)
 
 		sourceImage, ok := annotations[annotationKey]

@@ -428,7 +428,7 @@ func TestContainerAnnotationKey(t *testing.T) {
 	tests := []struct {
 		name                  string
 		containerName         string
-		initContainer         bool
+		containerType         ContainerType
 		expectedAnnotationKey string
 	}{
 		{
@@ -439,8 +439,14 @@ func TestContainerAnnotationKey(t *testing.T) {
 		{
 			name:                  "Basic init",
 			containerName:         "backend",
-			initContainer:         true,
+			containerType:         InitContainer,
 			expectedAnnotationKey: "original-init-image-backend",
+		},
+		{
+			name:                  "Basic ephemeral",
+			containerName:         "backend",
+			containerType:         EphemeralContainer,
+			expectedAnnotationKey: "original-tmp-image-backend",
 		},
 		{
 			name:                  "Long name",
@@ -455,8 +461,14 @@ func TestContainerAnnotationKey(t *testing.T) {
 		{
 			name:                  "63 chars output init",
 			containerName:         "my-incredible-and-marvelous-backend-that-ro",
-			initContainer:         true,
+			containerType:         InitContainer,
 			expectedAnnotationKey: "original-init-image-my-incredible-and-marvelous-backend-that-ro",
+		},
+		{
+			name:                  "63 chars output init",
+			containerName:         "my-incredible-and-marvelous-backend-that-roc",
+			containerType:         EphemeralContainer,
+			expectedAnnotationKey: "original-tmp-image-my-incredible-and-marvelous-backend-that-roc",
 		},
 		{
 			name:                  "64 chars output",
@@ -466,16 +478,24 @@ func TestContainerAnnotationKey(t *testing.T) {
 		{
 			name:                  "64 chars output init",
 			containerName:         "my-incredible-and-marvelous-backend-that-roc",
-			initContainer:         true,
+			containerType:         InitContainer,
 			expectedAnnotationKey: "original-init-image-" + sha1Sum("my-incredible-and-marvelous-backend-that-roc"),
+		},
+		{
+			name:                  "64 chars output init",
+			containerName:         "my-incredible-and-marvelous-backend-that-rock",
+			containerType:         EphemeralContainer,
+			expectedAnnotationKey: "original-tmp-image-" + sha1Sum("my-incredible-and-marvelous-backend-that-rock"),
 		},
 	}
 
 	g := NewWithT(t)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			annotationKey := ContainerAnnotationKey(tt.containerName, tt.initContainer)
+			annotationKey := ContainerAnnotationKey(tt.containerName, tt.containerType)
+			println(annotationKey)
 			g.Expect(annotationKey).To(Equal(tt.expectedAnnotationKey))
+			g.Expect(len(annotationKey)).To(BeNumerically("<", 64))
 		})
 	}
 }

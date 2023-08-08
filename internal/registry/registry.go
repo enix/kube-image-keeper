@@ -21,6 +21,14 @@ import (
 	"k8s.io/utils/strings/slices"
 )
 
+type ContainerType int64
+
+const (
+	Container ContainerType = iota
+	InitContainer
+	EphemeralContainer
+)
+
 var Endpoint = ""
 var Protocol = "http://"
 
@@ -175,10 +183,12 @@ func RepositoryLabel(repositoryName string) string {
 	return sanitizedName
 }
 
-func ContainerAnnotationKey(containerName string, initContainer bool) string {
+func ContainerAnnotationKey(containerName string, containerType ContainerType) string {
 	template := "original-image-%s"
-	if initContainer {
+	if containerType == InitContainer {
 		template = "original-init-image-%s"
+	} else if containerType == EphemeralContainer {
+		template = "original-tmp-image-%s"
 	}
 
 	if len(containerName)+len(template)-2 > 63 {

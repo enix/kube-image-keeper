@@ -19,9 +19,10 @@ var podStub = corev1.Pod{
 		Name:      "test-pod",
 		Namespace: "default",
 		Annotations: map[string]string{
-			registry.ContainerAnnotationKey("a", true):  "alpine",
-			registry.ContainerAnnotationKey("b", false): "nginx",
-			registry.ContainerAnnotationKey("c", false): "busybox",
+			registry.ContainerAnnotationKey("a", registry.InitContainer):      "alpine",
+			registry.ContainerAnnotationKey("b", registry.Container):          "nginx",
+			registry.ContainerAnnotationKey("c", registry.Container):          "busybox",
+			registry.ContainerAnnotationKey("d", registry.EphemeralContainer): "ubuntu",
 		},
 		Labels: map[string]string{
 			LabelImageRewrittenName: "true",
@@ -34,6 +35,13 @@ var podStub = corev1.Pod{
 		Containers: []corev1.Container{
 			{Name: "b", Image: "nginx:1.22"},
 			{Name: "c", Image: "busybox:1.35"},
+		},
+		EphemeralContainers: []corev1.EphemeralContainer{
+			{
+				EphemeralContainerCommon: corev1.EphemeralContainerCommon{
+					Name: "d", Image: "ubuntu:22.04",
+				},
+			},
 		},
 	},
 }
@@ -50,6 +58,13 @@ var podStubNotRewritten = corev1.Pod{
 		Containers: []corev1.Container{
 			{Name: "b", Image: "nginx"},
 			{Name: "c", Image: "busybox"},
+		},
+		EphemeralContainers: []corev1.EphemeralContainer{
+			{
+				EphemeralContainerCommon: corev1.EphemeralContainerCommon{
+					Name: "d", Image: "ubuntu",
+				},
+			},
 		},
 	},
 }
@@ -72,6 +87,9 @@ func TestDesiredCachedImages(t *testing.T) {
 				}},
 				{Spec: kuikenixiov1alpha1.CachedImageSpec{
 					SourceImage: "alpine",
+				}},
+				{Spec: kuikenixiov1alpha1.CachedImageSpec{
+					SourceImage: "ubuntu",
 				}},
 			},
 		},
@@ -179,6 +197,10 @@ var _ = Describe("Pod Controller", func() {
 			for _, cachedImage := range fetched.Items {
 				cachedImages = append(cachedImages, cachedImage.Spec.SourceImage)
 			}
+			println("=================================")
+			println("=================================")
+			println("=================================")
+			println("=================================")
 			Expect(cachedImages).To(ConsistOf(annotationsImages))
 
 			By("Deleting previously created pod")

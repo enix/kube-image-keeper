@@ -58,13 +58,21 @@ func (a *ImageRewriter) RewriteImages(pod *corev1.Pod) {
 	// Handle Containers
 	for i := range pod.Spec.Containers {
 		container := &pod.Spec.Containers[i]
-		a.handleContainer(pod, container, registry.ContainerAnnotationKey(container.Name, false))
+		a.handleContainer(pod, container, registry.ContainerAnnotationKey(container.Name, registry.Container))
 	}
 
 	// Handle init containers
 	for i := range pod.Spec.InitContainers {
 		container := &pod.Spec.InitContainers[i]
-		a.handleContainer(pod, container, registry.ContainerAnnotationKey(container.Name, true))
+		a.handleContainer(pod, container, registry.ContainerAnnotationKey(container.Name, registry.InitContainer))
+	}
+
+	// Handle ephemeral containers
+	for i := range pod.Spec.EphemeralContainers {
+		container := &pod.Spec.EphemeralContainers[i]
+		c := corev1.Container(container.EphemeralContainerCommon)
+		a.handleContainer(pod, &c, registry.ContainerAnnotationKey(container.Name, registry.EphemeralContainer))
+		container.Image = c.Image
 	}
 }
 

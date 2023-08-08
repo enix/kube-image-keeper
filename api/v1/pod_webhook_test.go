@@ -29,6 +29,13 @@ var podStub = corev1.Pod{
 			{Name: "e", Image: "185.145.250.247:30042/alpine:latest"},
 			{Name: "f", Image: "invalid:image:8080"},
 		},
+		EphemeralContainers: []corev1.EphemeralContainer{
+			{
+				EphemeralContainerCommon: corev1.EphemeralContainerCommon{
+					Name: "g", Image: "original",
+				},
+			},
+		},
 	},
 }
 
@@ -54,17 +61,27 @@ func TestRewriteImages(t *testing.T) {
 			{Name: "f", Image: "invalid:image:8080"},
 		}
 
+		rewrittenEphemeralContainers := []corev1.EphemeralContainer{
+			{
+				EphemeralContainerCommon: corev1.EphemeralContainerCommon{
+					Name: "g", Image: "localhost:4242/original",
+				},
+			},
+		}
+
 		g.Expect(podStub.Spec.InitContainers).To(Equal(rewrittenInitContainers))
 		g.Expect(podStub.Spec.Containers).To(Equal(rewrittenContainers))
+		g.Expect(podStub.Spec.EphemeralContainers).To(Equal(rewrittenEphemeralContainers))
 
 		g.Expect(podStub.Labels[controllers.LabelImageRewrittenName]).To(Equal("true"))
 
-		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("a", true)]).To(Equal("original-init"))
-		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("b", false)]).To(Equal("original"))
-		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("c", false)]).To(Equal("original-2"))
-		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("d", false)]).To(Equal("185.145.250.247:30042/alpine"))
-		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("e", false)]).To(Equal("185.145.250.247:30042/alpine:latest"))
-		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("f", false)]).To(Equal(""))
+		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("a", registry.InitContainer)]).To(Equal("original-init"))
+		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("b", registry.Container)]).To(Equal("original"))
+		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("c", registry.Container)]).To(Equal("original-2"))
+		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("d", registry.Container)]).To(Equal("185.145.250.247:30042/alpine"))
+		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("e", registry.Container)]).To(Equal("185.145.250.247:30042/alpine:latest"))
+		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("f", registry.Container)]).To(Equal(""))
+		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("g", registry.EphemeralContainer)]).To(Equal("original"))
 	})
 }
 
@@ -99,12 +116,12 @@ func TestRewriteImagesWithIgnore(t *testing.T) {
 
 		g.Expect(podStub.Labels[controllers.LabelImageRewrittenName]).To(Equal("true"))
 
-		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("a", true)]).To(Equal(""))
-		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("b", false)]).To(Equal(""))
-		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("c", false)]).To(Equal(""))
-		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("d", false)]).To(Equal("185.145.250.247:30042/alpine"))
-		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("e", false)]).To(Equal(""))
-		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("f", false)]).To(Equal(""))
+		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("a", registry.InitContainer)]).To(Equal(""))
+		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("b", registry.Container)]).To(Equal(""))
+		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("c", registry.Container)]).To(Equal(""))
+		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("d", registry.Container)]).To(Equal("185.145.250.247:30042/alpine"))
+		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("e", registry.Container)]).To(Equal(""))
+		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("f", registry.Container)]).To(Equal(""))
 	})
 }
 
