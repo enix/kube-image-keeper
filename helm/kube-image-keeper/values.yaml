@@ -182,6 +182,8 @@ registry:
     # -- External S3 configuration (needed only if you don't enable minio) (see https://github.com/docker/docs/blob/main/registry/storage-drivers/s3.md)
     s3: {}
     s3ExistingSecret: ""
+    # -- Disable blobs redirection to S3 bucket (useful if your S3 instance is not accessible from kubelet)
+    disableS3Redirections: false
   garbageCollection:
     # -- Garbage collector cron schedule. Use standard crontab format.
     schedule: "0 0 * * 0"
