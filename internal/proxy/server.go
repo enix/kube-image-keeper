@@ -208,7 +208,7 @@ func (p *Proxy) proxyRegistry(c *gin.Context, endpoint string, endpointIsOrigin 
 	}
 
 	proxy.ModifyResponse = func(resp *http.Response) error {
-		if endpoint == registry.Protocol+registry.Endpoint && resp.StatusCode != http.StatusOK {
+		if endpoint == registry.Protocol+registry.Endpoint && !(resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusTemporaryRedirect) {
 			return errors.New(resp.Status)
 		}
 		return nil

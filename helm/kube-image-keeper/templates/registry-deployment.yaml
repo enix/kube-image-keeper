@@ -62,10 +62,16 @@ spec:
               value: registry
             - name: REGISTRY_STORAGE_S3_REGIONENDPOINT
               value: http://{{ include "kube-image-keeper.fullname" . }}-minio:9000
+            - name: REGISTRY_STORAGE_REDIRECT_DISABLE
+              value: "true"
             {{- else }}
             {{- range $k, $v := omit .Values.registry.persistence.s3 "accesskey" "secretkey" }}
             - name: {{ printf "%s_%s" "REGISTRY_STORAGE_S3" ($k | upper) }}
               value: {{ $v | quote }}
+            {{- end }}
+            {{- if .Values.registry.persistence.disableS3Redirections }}
+            - name: REGISTRY_STORAGE_REDIRECT_DISABLE
+              value: "true"
             {{- end }}
             {{- end }}
             {{ $s3KeysSecretName := .Values.registry.persistence.s3ExistingSecret | default (print (include "kube-image-keeper.fullname" . ) "-s3-registry-keys") }}
