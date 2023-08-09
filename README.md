@@ -191,3 +191,17 @@ Currently, if the cache gets deleted, the `status.isCached` field of `CachedImag
 ```bash
 kubectl annotate cachedimages --all --overwrite "timestamp=$(date +%s)"
 ```
+
+## Known issues 
+
+Kuik's core functionality intercepts pod creation events to modify the definition of container images, facilitating image caching. However, some Kubernetes operators create pods autonomously and don't expect modifications to the image definitions (for exemple cloudnative-pg), the unexpected rewriting of the `pod.specs.image` field can lead to inifinite reconciliation loop because the operator's expected target container image will be endlessly rewritten by the Kuik `MutatingWebhookConfiguration`. In that case, you may want to disable Kuik for specific pods using the following Helm values:
+```bash
+controllers:
+  webhook:
+    objectSelector:
+      matchExpressions:
+        - key: cnpg.io/podRole
+          operator: NotIn
+          values:
+            - instance
+```
