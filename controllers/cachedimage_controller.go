@@ -69,7 +69,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	// Remove image from registry when CachedImage is being deleted, finalizer is removed after it
 	if !cachedImage.ObjectMeta.DeletionTimestamp.IsZero() {
-		if containsString(cachedImage.GetFinalizers(), cachedImageFinalizerName) {
+		if controllerutil.ContainsFinalizer(&cachedImage, cachedImageFinalizerName) {
 			log.Info("deleting image from cache")
 			r.Recorder.Eventf(&cachedImage, "Normal", "CleaningUp", "Removing image %s from cache", cachedImage.Spec.SourceImage)
 			if err := registry.DeleteImage(cachedImage.Spec.SourceImage); err != nil {
@@ -90,7 +90,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	// Add finalizer to keep the CachedImage during image removal from registry on deletion
-	if !containsString(cachedImage.GetFinalizers(), cachedImageFinalizerName) {
+	if !controllerutil.ContainsFinalizer(&cachedImage, cachedImageFinalizerName) {
 		log.Info("adding finalizer")
 		controllerutil.AddFinalizer(&cachedImage, cachedImageFinalizerName)
 		if err := r.Update(ctx, &cachedImage); err != nil {
@@ -264,16 +264,6 @@ func (r *CachedImageReconciler) updatePodCount(ctx context.Context, cachedImage 
 	}
 
 	return
-}
-
-// Helper functions to check and remove string from a slice of strings.
-func containsString(slice []string, s string) bool {
-	for _, item := range slice {
-		if item == s {
-			return true
-		}
-	}
-	return false
 }
 
 func (r *CachedImageReconciler) cachedImagesRequestFromPod(obj client.Object) []ctrl.Request {
