@@ -71,15 +71,15 @@ controllers:
       # -- Run the webhook if the object has matching labels. (See https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.21/#labelselectorrequirement-v1-meta)
       matchExpressions: []
   podMonitor:
-    # -- Should a ServiceMonitor object be installed to scrape this exporter. For prometheus-operator (kube-prometheus) users.
+    # -- Should a PodMonitor object be installed to scrape kuik controller metrics. For prometheus-operator (kube-prometheus) users.
     create: false
-    # -- Target scrape interval set in the ServiceMonitor
+    # -- Target scrape interval set in the PodMonitor
     scrapeInterval: 60s
-    # -- Target scrape timeout set in the ServiceMonitor
+    # -- Target scrape timeout set in the PodMonitor
     scrapeTimeout: 30s
-    # -- Additional labels to add to ServiceMonitor objects
+    # -- Additional labels to add to PodMonitor objects
     extraLabels: {}
-    # -- Relabel config for the ServiceMonitor, see: https://coreos.com/operators/prometheus/docs/latest/api.html#relabelconfig
+    # -- Relabel config for the PodMonitor, see: https://coreos.com/operators/prometheus/docs/latest/api.html#relabelconfig
     relabelings: []
 
 proxy:
@@ -151,15 +151,15 @@ proxy:
       # -- Memory limits for the proxy pod
       memory: "512Mi"
   podMonitor:
-    # -- Should a ServiceMonitor object be installed to scrape this exporter. For prometheus-operator (kube-prometheus) users.
+    # -- Should a PodMonitor object be installed to scrape kuik proxy metrics. For prometheus-operator (kube-prometheus) users.
     create: false
-    # -- Target scrape interval set in the ServiceMonitor
+    # -- Target scrape interval set in the PodMonitor
     scrapeInterval: 60s
-    # -- Target scrape timeout set in the ServiceMonitor
+    # -- Target scrape timeout set in the PodMonitor
     scrapeTimeout: 30s
-    # -- Additional labels to add to ServiceMonitor objects
+    # -- Additional labels to add to PodMonitor objects
     extraLabels: {}
-    # -- Relabel config for the ServiceMonitor, see: https://coreos.com/operators/prometheus/docs/latest/api.html#relabelconfig
+    # -- Relabel config for the PodMonitor, see: https://coreos.com/operators/prometheus/docs/latest/api.html#relabelconfig
     relabelings: []
 
 registry:
@@ -231,7 +231,7 @@ registry:
     # -- Maximum unavailable pods
     maxUnavailable: ""
   serviceMonitor:
-    # -- Should a ServiceMonitor object be installed to scrape this exporter. For prometheus-operator (kube-prometheus) users.
+    # -- Should a ServiceMonitor object be installed to  scrape kuik registry metrics. For prometheus-operator (kube-prometheus) users.
     create: false
     # -- Target scrape interval set in the ServiceMonitor
     scrapeInterval: 60s

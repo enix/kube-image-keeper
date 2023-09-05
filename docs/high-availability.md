@@ -1,12 +1,18 @@
 # Storage & high availability
 
-kube-image-keeper supports multiple storage solutions, some of them allowing for high availability of the registry component.
+The kuik controller can run in active/standby mode. By default, the kuik Helm chart will run two replicas of the controller, which means that we automatically get high availability for that component without needing to configure anything else.
+
+The kuik proxy (which runs on each node, thanks to a DaemonSet) doesn't require any particular HA configuration. Just like e.g. kube-proxy, the kuik proxy only serves its local node, so if a node failure takes down a node's kuik proxy, it doesn't affect other nodes.
+
+The kuik registry, however, is a stateful component, and it requires extra steps if we want to run it in highly available fashion.
+
+The registry supports various storage solutions, some of which enable high availability scenarios.
 
 | Name          | HA-compatible | Enable                              |
 |---------------|---------------|-------------------------------------|
 | Tmpfs         |      No       | by default                          |
 | PVC           |      No       | `registry.persistence.enabled=true` |
-| Minio         |      Yes      | `minio.enabled=true`                |
+| MinIO         |      Yes      | `minio.enabled=true`                |
 | S3-compatible |      Yes      | `registry.persistence.s3=...`       |
 
 HA-compatible backends uses a deployment whereas other backends relies on a statefulset.
@@ -15,50 +21,17 @@ To enable HA, set `registry.replicas` to a value greater than `1` and make sure 
 
 ## Tmpfs
 
-This is the default mode, the registry don't use a volume so the data isn't persistent. Garbage collection is disabled.
+This is the default mode, the registry don't use a volume so the data isn't persistent. Garbage collection is disabled. In this mode, if the registry Pod fails, a new Pod can be created, but the registry cache will be empty and will need to be re-populated.
 
-## Persistent Volume Claim
+## PersistentVolumeClaim
 
-To enable this mode you just have to set `registry.persistence.enabled` value to `true`.
-
-## Minio
-
-This install the [bitnami minio chart](https://artifacthub.io/packages/helm/bitnami/minio) as a dependency. Values of the subchart can be configured via the `minio` value. To enable this subchart, set `minio.enabled` to `true`. Be aware that minio uses PVCs to store data, so you will have to define a storageClass and a PVC size. It also requires you to set a root password.
-
-Here is an example of values to enable minio (please refers to minio helm chart documentation for more details):
-
-```yaml
-minio:
-  enabled: true
-  auth:
-    existingSecret: minio-root-auth
-  persistence:
-    storageClass: storage-class-name
-    size: 10Gi
-```
-
-And the root authentication secret:
-
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: minio-root-auth
-type: Opaque
-data:
-  root-username: <base64-encoded-value>
-  root-password: <base64-encoded-value>
-```
-
-It is NOT necessary to set `registry.persistence.enabled` to `true` to enable persistence through Minio.
-
-It is NOT necessary to configure the S3 endpoint when using this solution as it will be configured automatically by the chart.
+By setting the `registry.persistence.enabled` value to `true`, the kuik registry will use a PersistentVolumeClaim. If the PVC itself is backed by a local volume, this won't improve the durability of the registry in case of e.g. complete node failure. However, if the PVC is backed by a network or cloud volume, then the content of the registry cache won't be lost in case of node outage. But with most setups, a node outage might still take down the registry for an extended period of time, until the node is restored or the volume is detached from the node to be reattached to another (the exact procedure may depend on your specific cluster setup). Therefore, the PVC mode is *not* considered highly available here.
 
 ## S3-compatible
 
-Any s3-compatible service can be used as a storage backend, including but not limited to AWS S3 and Minio. In the case you are using Minio, it has to be already installed somewhere. If you don't already have an instance of Minio running, please refer to the above section about how to install Minio as a dependency.
+Any S3-compatible service can be used as a storage backend for the registry, including but not limited to AWS S3 and MinIO.
 
-Here is an example of values to use a S3 compatible  bucket (please refers to [docker registry S3 documentation](https://github.com/docker/docs/blob/main/registry/storage-drivers/s3.md) for more details):
+Here is an example of values to use an S3-compatible bucket:
 
 ```yaml
 registry:
@@ -70,7 +43,9 @@ registry:
       bucket: registry
 ```
 
-For an AWS S3 bucket, you may not prefix the bucket name with `s3://`:
+Please refer to the [Docker registry S3 documentation](https://github.com/docker/docs/blob/main/registry/storage-drivers/s3.md) for more details.
+
+Note that when using AWS S3 buckets, you shouldn't prefix the bucket name with `s3://`:
 
 ```yaml
 registry:
@@ -81,8 +56,45 @@ registry:
       bucket: mybucket
 ```
 
-Create the associated secrets containing your credentials with kubectl:
+Furthermore, you will need to create a Secret holding the associated secret:
 
 ```
- kubectl create secret generic secret-name -n kuik-system --from-literal=accessKey=$ACCESSKEY} --from-literal=secretKey=${SECRETKEY}
+kubectl create secret generic secret-name \
+        --from-literal=accessKey=${ACCESSKEY} \
+        --from-literal=secretKey=${SECRETKEY}
 ```
+
+If you want to use MinIO and self-host MinIO on your Kubernetes cluster, the kuik Helm chart can help with that! Check the next section for details.
+
+## MinIO
+
+The kuik Helm chart has an optional dependency on the [bitnami MinIO chart](https://artifacthub.io/packages/helm/bitnami/minio). The subchart can be enabled by setting `minio.enabled` to `true`, and it can be configured by passing values under the `minio.*` path; for instance, with the following values YAML:
+
+```yaml
+minio:
+  enabled: true
+  auth:
+    existingSecret: minio-root-auth
+  persistence:
+    storageClass: storage-class-name
+    size: 10Gi
+```
+
+Note that by default, MinIO uses PersistentVolumes to store data, and will obtain them thanks to PersistentVolumeClaims. You don't need to specify the `storageClass` if your cluster has a default StorageClass; and if you don't specify a size, it will use a default size - so you don't have specify these.
+
+However, you **must** specify the `minio.auth.existingSecret` value (or set up authentication somehow) and create the corresponding Secret manually.
+
+Here is an example to create the associated Secret:
+
+```
+kubectl create secret generic minio-root-auth \
+        --from-literal=root-user=root \
+        --from-literal=root-password=valid.cow.accumulator.paperclip
+```
+
+(Of course, you should generate your own secure password!)
+
+It is NOT necessary to set `registry.persistence.enabled` to `true` to enable persistence through MinIO.
+
+It is NOT necessary to configure the S3 endpoint when using this solution as it will be configured automatically by the chart.
+
