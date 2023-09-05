@@ -131,3 +131,13 @@ $(CONTROLLER_GEN): $(LOCALBIN)
 envtest: $(ENVTEST) ## Download envtest-setup locally if necessary.
 $(ENVTEST): $(LOCALBIN)
 	GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+
+# This is not used for kubebuilder, but to generate the Helm chart template README.
+.PHONY: helm-docs
+helm-docs:
+	{ \
+		sed 's/<!-- VALUES -->/{{ template "chart.valuesSection" . }}/' README.md ; \
+		printf "\n\n## License\n\n" ; \
+		cat LICENSE ; \
+	} > helm/kube-image-keeper/README.md.gotmpl
+

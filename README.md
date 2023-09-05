@@ -129,6 +129,8 @@ helm upgrade --install \
 
 That's it!
 
+<!-- VALUES -->
+
 ## Installation with plain YAML files
 
 You can use Helm to generate plain YAML files and then deploy these YAML files with `kubectl apply` or whatever you want:
@@ -174,9 +176,9 @@ Keep in mind that kuik will ignore pods scheduled into its own namespace.
 
 ### Cache persistence & garbage collection
 
-Persistence is disabled by default. You can enable it by setting the Helm value `registry.persistence.enabled=true` and setting `registry.persistence.size` to the desired size (20 GiB by default). Be aware that this don't allow for high availability of the registry, to enable HA please refer to our related guide [./docs/high-availability.md](./docs/high-availability.md).
+Persistence is disabled by default. You can enable it by setting the Helm value `registry.persistence.enabled=true`. This will create a PersistentVolumeClaim with a default size of 20 GiB. You can change that size by setting the value `registry.persistence.size`. Keep in mind that enabling persistence isn't enough to provide high availability of the registry! If you want kuik to be highly available, please refer to the [high availability guide](./docs/high-availability.md).
 
-Note that persistence requires that you have Persistent Volumes available on your cluster; otherwise, kuik's registry pod will remain `Pending` and your images won't be cached (but they will still be served transparently by kuik's image proxy).
+Note that persistence requires your cluster to have some PersistentVolumes. If you don't have PersistentVolumes, kuik's registry Pod will remain `Pending` and your images won't be cached (but they will still be served transparently by kuik's image proxy).
 
 ## Garbage collection and limitations
 
@@ -192,9 +194,12 @@ Currently, if the cache gets deleted, the `status.isCached` field of `CachedImag
 kubectl annotate cachedimages --all --overwrite "timestamp=$(date +%s)"
 ```
 
-## Known issues 
+## Known issues
 
-Kuik's core functionality intercepts pod creation events to modify the definition of container images, facilitating image caching. However, some Kubernetes operators create pods autonomously and don't expect modifications to the image definitions (for exemple cloudnative-pg), the unexpected rewriting of the `pod.specs.containers.image` field can lead to inifinite reconciliation loop because the operator's expected target container image will be endlessly rewritten by the Kuik `MutatingWebhookConfiguration`. In that case, you may want to disable Kuik for specific pods using the following Helm values:
+### Conflicts with other mutating webhooks
+
+Kuik's core functionality intercepts pod creation events to modify the definition of container images, facilitating image caching. However, some Kubernetes operators create pods autonomously and don't expect modifications to the image definitions (for exemple cloudnative-pg), the unexpected rewriting of the `pod.specs.containers.image` field can lead to inifinite reconciliation loop because the operator's expected target container image will be endlessly rewritten by the kuik `MutatingWebhookConfiguration`. In that case, you may want to disable kuik for specific pods using the following Helm values:
+
 ```bash
 controllers:
   webhook:
@@ -205,3 +210,18 @@ controllers:
           values:
             - instance
 ```
+
+### Private images are a bit less private
+
+Imagine the following scenario:
+- pods A and B use a private image, `example.com/myimage:latest`
+- pod A correctly references `imagePullSecrets, but pod B does not
+
+On a normal Kubernetes cluster (without kuik), if pods A and B are on the same node, then pod B will run correctly, even though it doesn't reference `imagePullSecrets`, because the image gets pulled when starting pod A, and once it's available on the node, any other pod can use it. However, if pods A and B are on different nodes, pod B won't start, because it won't be able to pull the private image. Some folks may use that to segregate sensitive image to specific nodes using a combination of taints, tolerations, or node selectors.
+
+Howevever, when using kuik, once an image has been pulled and stored in kuik's registry, it becomes available for any node on the cluster. This means that using taints, tolerations, etc. to limit sensitive images to specific nodes won't work anymore.
+
+### Cluster autoscaling delays
+
+With kuik, all image pulls (except in the namespaces excluded from kuik) go through kuik's registry proxy, which runs on each node thanks to a DaemonSet. When a node gets added to a Kubernetes cluster (for instance, by the cluster autoscaler), a kuik registry proxy Pod gets scheduled on that node, but it will take a brief moment to start. During that time, all other image pulls will fail. Thanks to Kubernetes automatic retry mechanisms, they will eventually succeed, but on new nodes, you may see Pods in `ErrImagePull` or `ImagePullBackOff` status for a minute before everything works correctly. If you are using cluster autoscaling and try to achieve very fast scale-up times, this is something that you might want to keep in mind.
+
