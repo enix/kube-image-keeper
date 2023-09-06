@@ -26,7 +26,7 @@ jobs:
       notes: ${{ steps.dry-run.outputs.new_release_notes }}
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           persist-credentials: false
 
@@ -75,7 +75,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Golang
         uses: actions/setup-go@v4
@@ -122,7 +122,7 @@ jobs:
       QUAY_IMAGE: "quay.io/enix/kube-image-keeper"
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           path: repository
 
@@ -186,7 +186,7 @@ jobs:
         k8sversion: ["v1.21.14", "v1.22.17", "v1.23.17", "v1.24.15", "v1.25.11", "v1.26.6", "v1.27.3"]
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup KinD
         uses: engineerd/setup-kind@v0.5.0
@@ -275,7 +275,7 @@ jobs:
       prerelease: ${{ steps.inspect.outputs.prerelease }}
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           path: repository
           persist-credentials: false
@@ -358,7 +358,7 @@ jobs:
           git config --global user.email '${{ env.COMMIT_EMAIL }}'
 
       - name: Checkout Repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           path: repository
 
