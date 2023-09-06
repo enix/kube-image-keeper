@@ -108,11 +108,11 @@ kube-image-keeper-controllers-5b5cc9fcc6-tjl7t   3m           24Mi
 kube-image-keeper-proxy-54lzk                    1m           19Mi
 ```
 
-![Architecture](./docs/architecture.jpg)
+![Architecture](https://raw.githubusercontent.com/enix/kube-image-keeper/main/docs/architecture.jpg)
 
 ### Metrics
 
-Refer to the [dedicated documentation](./docs/metrics.md).
+Refer to the [dedicated documentation](https://github.com/enix/kube-image-keeper/blob/main/docs/metrics.md).
 
 
 ## Installation
@@ -148,7 +148,7 @@ kubectl apply -f /tmp/kuik.yaml --namespace kuik-system
 
 If you want to change e.g. the expiration delay, the port number used by the proxy, enable persistence (with a PVC) for the registry cache... You can do that with standard Helm values.
 
-You can see the full list of parameters (along with their meaning and default values) in the chart's [values.yaml](/helm/kube-image-keeper/values.yaml) file, or on [kuik's page on the Artifact Hub](https://artifacthub.io/packages/helm/enix/kube-image-keeper).
+You can see the full list of parameters (along with their meaning and default values) in the chart's [values.yaml](https://github.com/enix/kube-image-keeper/blob/main/helm/kube-image-keeper/values.yaml) file, or on [kuik's page on the Artifact Hub](https://artifacthub.io/packages/helm/enix/kube-image-keeper).
 
 For instance, to extend the expiration delay to 3 months (90 days), you can deploy kuik like this:
 
@@ -189,7 +189,7 @@ Keep in mind that kuik will ignore pods scheduled into its own namespace.
 
 ### Cache persistence & garbage collection
 
-Persistence is disabled by default. You can enable it by setting the Helm value `registry.persistence.enabled=true`. This will create a PersistentVolumeClaim with a default size of 20 GiB. You can change that size by setting the value `registry.persistence.size`. Keep in mind that enabling persistence isn't enough to provide high availability of the registry! If you want kuik to be highly available, please refer to the [high availability guide](./docs/high-availability.md).
+Persistence is disabled by default. You can enable it by setting the Helm value `registry.persistence.enabled=true`. This will create a PersistentVolumeClaim with a default size of 20 GiB. You can change that size by setting the value `registry.persistence.size`. Keep in mind that enabling persistence isn't enough to provide high availability of the registry! If you want kuik to be highly available, please refer to the [high availability guide](https://github.com/enix/kube-image-keeper/blob/main/docs/high-availability.md).
 
 Note that persistence requires your cluster to have some PersistentVolumes. If you don't have PersistentVolumes, kuik's registry Pod will remain `Pending` and your images won't be cached (but they will still be served transparently by kuik's image proxy).
 
