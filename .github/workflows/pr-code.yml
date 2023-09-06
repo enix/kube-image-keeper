@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Golang
         uses: actions/setup-go@v4
@@ -45,7 +45,7 @@ jobs:
       ENVTEST_K8S_VERSION: ${{ matrix.kubernetes-version }}
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Golang
         uses: actions/setup-go@v4
