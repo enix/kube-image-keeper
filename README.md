@@ -160,6 +160,19 @@ helm upgrade --install \
      --set cachedImagesExpiryDelay=90
 ```
 
+## Upgrading
+
+### From 1.2.0 to 1.3.0
+
+In v1.3.0, we removed the finalizer `pod.kuik.enix.io/finalizer` from pods that were rewritten by Kuik.
+
+To avoid having these pods stuck in `Terminating` state after a delete action or a rolling update, you will need to manually remove the finalizer from these pods once you upgrade to 1.3.0.
+This can be achieved using the following command: 
+
+```
+kubectl get pods --all-namespaces -l kuik.enix.io/images-rewritten=true -o json | jq '.items[].metadata.finalizers=null' | kubectl replace -f -
+```
+
 ## Advanced usage
 
 ### Pod filtering
