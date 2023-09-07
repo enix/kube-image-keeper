@@ -189,10 +189,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup KinD
-        uses: engineerd/setup-kind@v0.5.0
+        uses: helm/kind-action@v1.8.0
         with:
-          image: kindest/node:${{ matrix.k8sversion }}
-          version: v0.17.0
+          node_image: kindest/node:${{ matrix.k8sversion }}
 
       - name: Run cert-manager installation
         run: |
