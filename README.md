@@ -53,14 +53,15 @@ We investigated other options, and we didn't find any that would quite fit our r
 ### Kubernetes
 
 | K8s version | Tested | In production |
-| 1.21 | : white_check_mark: | - |
-| 1.22 | :white_check_mark: | - |
-| 1.23 | :white_check_mark: | :white_check_mark: |
-| 1.24 | :white_check_mark: | :white_check_mark: |
-| 1.25 | :white_check_mark: | :white_check_mark: |
-| 1.26 | :white_check_mark: | :white_check_mark: |
-| 1.27 | :white_check_mark: | - |
-| 1.28 | :white_check_mark: | - |
+| ------------|--------|---------------|
+| 1.21        | :white_check_mark: | - |
+| 1.22        | :white_check_mark: | - |
+| 1.23        | :white_check_mark: | :white_check_mark: |
+| 1.24        | :white_check_mark: | :white_check_mark: |
+| 1.25        | :white_check_mark: | :white_check_mark: |
+| 1.26        | :white_check_mark: | :white_check_mark: |
+| 1.27        | :white_check_mark: | - |
+| 1.28        | :white_check_mark: | - |
 
 ### CNI 
 
