@@ -53,7 +53,7 @@ We investigated other options, and we didn't find any that would quite fit our r
 ### Kubernetes
 
 | K8s version | Tested | In production |
-| ------------|--------|---------------|
+|:-----------:|:------:|:-------------:|
 | 1.21        | :white_check_mark: | - |
 | 1.22        | :white_check_mark: | - |
 | 1.23        | :white_check_mark: | :white_check_mark: |
@@ -66,7 +66,7 @@ We investigated other options, and we didn't find any that would quite fit our r
 ### CNI 
 
 | CNI           |   Tested |
-| --------------|----------|
+|:-------------:|:--------:|
 | Cilium        | :white_check_mark: |
 | Calico        | :white_check_mark: |
 | Kube-router   | :white_check_mark: |
