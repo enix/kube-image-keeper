@@ -164,6 +164,8 @@ helm upgrade --install \
 
 ### From 1.2.0 to 1.3.0
 
+***ACTION REQUIRED***
+
 In v1.3.0, we removed the finalizer `pod.kuik.enix.io/finalizer` from pods that were rewritten by kuik.
 
 To avoid having these pods stuck in `Terminating` state after a delete action or a rolling update, you will need to manually remove the finalizer from these pods once you upgrade to 1.3.0.
