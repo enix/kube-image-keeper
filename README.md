@@ -65,6 +65,14 @@ We investigated other options, and we didn't find any that would quite fit our r
 
 ### CNI 
 
+| CNI           |   Tested |
+| --------------|----------|
+| Cilium        | :white_check_mark: |
+| Calico        | :white_check_mark: |
+| Kube-router   | :white_check_mark: |
+
+**Warning** Your CNI should support Hostport feature to work with kuik.
+
 ## How it works
 
 When a pod is created, kuik's **mutating webhook** rewrites its images on the fly, adding a `localhost:{port}/` prefix (the `port` is 7439 by default, and is configurable).
