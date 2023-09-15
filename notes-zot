@@ -1,0 +1,3 @@
+problèmes avec zot:
+    - configmap $CHART_RELEASE-config => kube-image-keeper-config, should be kube-image-keeper-zot-config
+    - be able to choose service name kube-image-keeper-zot could be kube-image-keeper-registry (otherwise its breaking change)

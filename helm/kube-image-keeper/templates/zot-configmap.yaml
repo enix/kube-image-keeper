@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kube-image-keeper.fullname" . }}-config
+data:
+  config.json: |-
+    {{- tpl (.Files.Get "config/zot-config.json") . | nindent 4 }}

@@ -1,4 +1,5 @@
-{{- if .Values.registry.garbageCollection.schedule }}
+{{- if not .Values.zot.enabled }}
+{{- if and (not .Values.zot.enabled) .Values.registry.garbageCollection.schedule }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -14,4 +15,5 @@ rules:
   - apiGroups: [""]
     resources: ["pods/exec"]
     verbs: ["create"]
+{{- end }}
 {{- end }}

@@ -1,4 +1,4 @@
-{{- if .Values.registry.serviceMonitor.create }}
+{{- if and (not .Values.zot.enabled) .Values.registry.serviceMonitor.create }}
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:

@@ -1,6 +1,9 @@
 dependencies:
 - name: minio
   repository: https://charts.bitnami.com/bitnami
-  version: 12.1.4
-digest: sha256:568849941ea1910370be9ac8fdae8500441454ce976927714b927fee3c557aa9
-generated: "2023-02-17T18:38:01.769288012+01:00"
+  version: 12.1.14
+- name: zot
+  repository: https://zotregistry.io/helm-charts
+  version: 0.1.26
+digest: sha256:82269ef512172e24152909a0b3fc1c9fba4afdf899b46d72ff7587000855853c
+generated: "2023-07-26T11:14:10.266090961+02:00"

@@ -6,11 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 
 	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/crane"
 	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/v1/convert"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 )
@@ -113,6 +116,23 @@ func CacheImage(imageName string, keychain authn.Keychain) error {
 		}
 		return err
 	}
+
+	crane.Copy(sourceRef.String(), "", crane.WithAuthFromKeychain(keychain))
+
+	ociImg, err := convert.Image(image, convert.WithPlatform())
+	if err != nil {
+		fmt.Println("Failed to convert Docker image to OCI image:", err)
+		os.Exit(1)
+	}
+
+	// Create a new OCI image with the source Docker image's configuration and layers
+	// crane.Pull()
+	// mutate.
+	// ociImage, err := mutate.Manifest(image)
+	// if err != nil {
+	// 	fmt.Println("Failed to create OCI image:", err)
+	// 	os.Exit(1)
+	// }
 
 	if err := remote.Write(destRef, image); err != nil {
 		return err

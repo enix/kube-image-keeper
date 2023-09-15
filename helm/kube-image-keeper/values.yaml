@@ -278,6 +278,11 @@ registryUI:
   # -- Affinity for the registry UI pod
   affinity: {}
 
+zot:
+  # -- If true, install zot as a registry
+  enabled: false
+  mountConfig: true
+
 minio:
   # -- If true, install minio as a local storage backend for the registry
   enabled: false

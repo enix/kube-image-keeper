@@ -28,6 +28,10 @@ maintainers:
     url: https://github.com/donch
 dependencies:
   - name: minio
-    version: "12.1.4"
+    version: "~12.1.4"
     repository: "https://charts.bitnami.com/bitnami"
     condition: minio.enabled
+  - name: zot
+    version: "~0.1.26"
+    repository: "https://zotregistry.io/helm-charts"
+    condition: zot.enabled

@@ -1,0 +1,75 @@
+installCRD: true
+
+controllers:
+  image:
+    tag: debug-022
+    repository: harbor.enix.io/plaffitt-dev/kuik
+    # pullPolicy: Always
+  # verbosity: DEBUG
+  imagePullSecrets:
+    - name: harbor-registry-secret
+  webhook:
+    # ignoredImages:
+    #   - (operator|prom)
+    objectSelector:
+      matchExpressions:
+      - key: app
+        operator: NotIn
+        values:
+        - cattle-cluster-agent
+        - ingress-nginx
+      - key: k8s-app
+        operator: NotIn
+        values:
+        - kube-dns
+  podMonitor:
+    create: true
+
+proxy:
+  image:
+    tag: debug-022
+    repository: harbor.enix.io/plaffitt-dev/kuik
+    # pullPolicy: Always
+  verbosity: 5
+  imagePullSecrets:
+    - name: harbor-registry-secret
+  podMonitor:
+    create: true
+
+registry:
+  replicas: 1
+  garbageCollectionSchedule: 0 * * * *
+  persistence:
+    # enabled: true
+    # size: 1Gi
+    s3:
+      accesskey: dDrq0ZXz7dEp2FTg
+      secretkey: sljBvCIFecmQcKGl30RaQmZAj0zsGmz0
+      region: us-east-1
+      regionendpoint: http://minio-ext:9000
+      bucket: registry
+    # s3ExistingSecret: s3-registry-keys
+    disableS3Redirections: true
+  serviceMonitor:
+    create: true
+
+zot:
+  enabled: true
+
+# registryUI:
+#   auth:
+#     password: dev
+#   enabled: "true"
+
+# minio:
+#   enabled: true
+#   auth:
+#     forcePassword: true
+#     rootPassword: 8nRUH4UqQi
+#   persistence:
+#     size: 1Gi
+  # ingress:
+  #   enabled: true
+  #   hostname: minio-bundled.185.145.250.247.enix.link
+
+# aemai3leiPahcea7se

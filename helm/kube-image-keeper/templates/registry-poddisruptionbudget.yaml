@@ -1,3 +1,4 @@
+{{- if not .Values.zot.enabled }}
 {{- if and .Values.registry.pdb.create (eq (include "kube-image-keeper.registry-stateless-mode" .) "true") }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -15,4 +16,5 @@ spec:
   selector:
     matchLabels:
       {{- include "kube-image-keeper.registry-selectorLabels" . | nindent 6 }}
+{{- end }}
 {{- end }}

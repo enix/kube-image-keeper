@@ -1,3 +1,4 @@
+{{- if not .Values.zot.enabled }}
 {{- if eq (include "kube-image-keeper.registry-stateless-mode" .) "false" }}
 
 {{- if gt (int .Values.registry.replicas) 1 -}}
@@ -114,4 +115,5 @@ spec:
         requests:
           storage: {{ .Values.registry.persistence.size }}
   {{- end }}
+{{- end }}
 {{- end }}

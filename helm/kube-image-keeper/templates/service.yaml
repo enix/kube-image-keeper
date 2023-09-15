@@ -1,3 +1,4 @@
+{{- if not .Values.zot.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -15,3 +16,4 @@ spec:
       targetPort: 5001
   selector:
     {{- include "kube-image-keeper.registry-selectorLabels" . | nindent 4 }}
+{{- end }}
