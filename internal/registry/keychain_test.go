@@ -161,7 +161,7 @@ func TestResolve(t *testing.T) {
 			expectedAuthenticator: defaultAuthenticator,
 		},
 		{
-			name: "Local regsitry",
+			name: "Local registry",
 			pullSecrets: []string{
 				"bar",
 			},
