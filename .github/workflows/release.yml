@@ -183,7 +183,7 @@ jobs:
     strategy:
       max-parallel: 6
       matrix:
-        k8sversion: ["v1.21.14", "v1.22.17", "v1.23.17", "v1.24.15", "v1.25.11", "v1.26.6", "v1.27.3"]
+        k8sversion: ["v1.21.14", "v1.22.17", "v1.23.17", "v1.24.15", "v1.25.11", "v1.26.6", "v1.27.3", "v1.28.0"]
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
