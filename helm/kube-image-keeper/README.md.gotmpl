@@ -175,6 +175,8 @@ This can be achieved using the following command:
 kubectl get pods --all-namespaces -l kuik.enix.io/images-rewritten=true -o json | jq '.items[].metadata.finalizers=null' | kubectl replace -f -
 ```
 
+***Ensure you run this command AFTER having fully upgraded to version 1.3.0. Otherwise, the kuik controllers will continuously re-add the finalizer to the rewritten pods.***
+
 ## Advanced usage
 
 ### Pod filtering
