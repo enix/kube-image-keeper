@@ -8,6 +8,23 @@
 kube-image-keeper (a.k.a. *kuik*, which is pronounced /kwɪk/, like "quick") is a container image caching system for Kubernetes.
 It saves the container images used by your pods in its own local registry so that these images remain available if the original becomes unavailable.
 
+## Upgrading
+
+### From 1.2.0 to 1.3.0
+
+***ACTION REQUIRED***
+
+In v1.3.0, we removed the finalizer `pod.kuik.enix.io/finalizer` from pods that were rewritten by kuik.
+
+To avoid having these pods stuck in `Terminating` state after a delete action or a rolling update, you will need to manually remove the finalizer from these pods once you upgrade to 1.3.0.
+This can be achieved using the following command: 
+
+```
+kubectl get pods --all-namespaces -l kuik.enix.io/images-rewritten=true -o json | jq '.items[].metadata.finalizers=null' | kubectl replace -f -
+```
+
+***Ensure you run this command AFTER having fully upgraded to version 1.3.0. Otherwise, the kuik controllers will continuously re-add the finalizer to the rewritten pods.***
+
 ## Why and when is it useful?
 
 At [Enix](https://enix.io/), we manage production Kubernetes clusters both for our internal use and for various customers; sometimes on premises, sometimes in various clouds, public or private. We regularly run into image availability issues, for instance:
@@ -159,23 +176,6 @@ helm upgrade --install \
      --repo https://charts.enix.io/ \
      --set cachedImagesExpiryDelay=90
 ```
-
-## Upgrading
-
-### From 1.2.0 to 1.3.0
-
-***ACTION REQUIRED***
-
-In v1.3.0, we removed the finalizer `pod.kuik.enix.io/finalizer` from pods that were rewritten by kuik.
-
-To avoid having these pods stuck in `Terminating` state after a delete action or a rolling update, you will need to manually remove the finalizer from these pods once you upgrade to 1.3.0.
-This can be achieved using the following command: 
-
-```
-kubectl get pods --all-namespaces -l kuik.enix.io/images-rewritten=true -o json | jq '.items[].metadata.finalizers=null' | kubectl replace -f -
-```
-
-***Ensure you run this command AFTER having fully upgraded to version 1.3.0. Otherwise, the kuik controllers will continuously re-add the finalizer to the rewritten pods.***
 
 ## Advanced usage
 
