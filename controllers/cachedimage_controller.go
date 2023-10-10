@@ -101,8 +101,35 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	log = log.WithValues("sourceImage", cachedImage.Spec.SourceImage)
 
-	// Delete expired CachedImage and schedule deletion for expiring ones
+	// Update CachedImage UsedBy status
+	if requeue, err := r.updatePodCount(ctx, &cachedImage); requeue {
+		return ctrl.Result{Requeue: true}, nil
+	} else if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// Set an expiration date for unused CachedImage
 	expiresAt := cachedImage.Spec.ExpiresAt
+	if len(cachedImage.Status.UsedBy.Pods) == 0 && !cachedImage.Spec.Retain {
+		expiresAt := metav1.NewTime(time.Now().Add(r.ExpiryDelay))
+		log.Info("cachedimage is no longer used, setting an expiry date", "cachedImage", klog.KObj(&cachedImage), "expiresAt", expiresAt)
+		cachedImage.Spec.ExpiresAt = &expiresAt
+
+		err := r.Patch(ctx, &cachedImage, client.Merge)
+		if err != nil && !apierrors.IsNotFound(err) {
+			return ctrl.Result{}, err
+		}
+	} else {
+		log.Info("cachedimage is used or retained", "cachedImage", klog.KObj(&cachedImage), "expiresAt", expiresAt, "retain", cachedImage.Spec.Retain)
+		patch := client.MergeFrom(cachedImage.DeepCopy())
+		cachedImage.Spec.ExpiresAt = nil
+		err := r.Patch(ctx, &cachedImage, patch)
+		if err != nil && !apierrors.IsNotFound(err) {
+			return ctrl.Result{}, err
+		}
+	}
+
+	// Delete expired CachedImage and schedule deletion for expiring ones
 	if !expiresAt.IsZero() {
 		if time.Now().After(expiresAt.Time) {
 			log.Info("cachedimage expired, deleting it", "now", time.Now(), "expiresAt", expiresAt)
@@ -157,25 +184,6 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
-	// Update CachedImage UsedBy status
-	if requeue, err := r.updatePodCount(ctx, &cachedImage); requeue {
-		return ctrl.Result{Requeue: true}, nil
-	} else if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	// Set an expiration date for unused CachedImage
-	if len(cachedImage.Status.UsedBy.Pods) == 0 {
-		expiresAt := metav1.NewTime(time.Now().Add(r.ExpiryDelay))
-		log.Info("cachedimage not is use anymore, setting an expiry date", "cachedImage", klog.KObj(&cachedImage), "expiresAt", expiresAt)
-		cachedImage.Spec.ExpiresAt = &expiresAt
-
-		err := r.Patch(ctx, &cachedImage, client.Merge)
-		if err != nil && !apierrors.IsNotFound(err) {
-			return ctrl.Result{}, err
-		}
-	}
-
 	log.Info("reconciled cachedimage")
 	return ctrl.Result{}, nil
 }
@@ -212,6 +220,9 @@ func (r *CachedImageReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrent
 			&source.Kind{Type: &corev1.Pod{}},
 			handler.EnqueueRequestsFromMapFunc(r.cachedImagesRequestFromPod),
 			builder.WithPredicates(predicate.Funcs{
+				// GenericFunc: func(e event.GenericEvent) bool {
+				// 	return true
+				// },
 				DeleteFunc: func(e event.DeleteEvent) bool {
 					pod := e.Object.(*corev1.Pod)
 					var currentPod corev1.Pod
