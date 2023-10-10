@@ -18,6 +18,9 @@ spec:
     - jsonPath: .status.isCached
       name: Cached
       type: boolean
+    - jsonPath: .spec.retain
+      name: Retain
+      type: boolean
     - jsonPath: .spec.expiresAt
       name: Expires at
       type: string
@@ -56,6 +59,8 @@ spec:
                 type: array
               pullSecretsNamespace:
                 type: string
+              retain:
+                type: boolean
               sourceImage:
                 type: string
             required:

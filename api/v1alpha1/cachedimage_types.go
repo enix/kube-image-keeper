@@ -10,9 +10,11 @@ var RepositoryLabelName = "kuik.enix.io/repository"
 type CachedImageSpec struct {
 	SourceImage string `json:"sourceImage"`
 	// +optional
-	ExpiresAt            *metav1.Time `json:"expiresAt,omitempty"`
-	PullSecretNames      []string     `json:"pullSecretNames,omitempty"`
-	PullSecretsNamespace string       `json:"pullSecretsNamespace,omitempty"`
+	ExpiresAt *metav1.Time `json:"expiresAt,omitempty"`
+	// +optional
+	Retain               bool     `json:"retain,omitempty"`
+	PullSecretNames      []string `json:"pullSecretNames,omitempty"`
+	PullSecretsNamespace string   `json:"pullSecretsNamespace,omitempty"`
 }
 
 type PodReference struct {
@@ -36,6 +38,7 @@ type CachedImageStatus struct {
 //+kubebuilder:subresource:status
 //+kubebuilder:resource:scope=Cluster,shortName=ci
 //+kubebuilder:printcolumn:name="Cached",type="boolean",JSONPath=".status.isCached"
+//+kubebuilder:printcolumn:name="Retain",type="boolean",JSONPath=".spec.retain"
 //+kubebuilder:printcolumn:name="Expires at",type="string",JSONPath=".spec.expiresAt"
 //+kubebuilder:printcolumn:name="Pods count",type="integer",JSONPath=".status.usedBy.count"
 //+kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"

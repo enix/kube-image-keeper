@@ -33,7 +33,7 @@ const LabelImageRewrittenName = "kuik.enix.io/images-rewritten"
 // PodReconciler reconciles a Pod object
 type PodReconciler struct {
 	client.Client
-	Scheme      *runtime.Scheme
+	Scheme *runtime.Scheme
 }
 
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch;create;update;patch;delete
@@ -89,7 +89,10 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			}
 		} else {
 			patch := client.MergeFrom(ci.DeepCopy())
-			ci.Spec = cachedImage.Spec
+
+			ci.Spec.PullSecretNames = cachedImage.Spec.PullSecretNames
+			ci.Spec.PullSecretsNamespace = cachedImage.Spec.PullSecretsNamespace
+			ci.Spec.SourceImage = cachedImage.Spec.SourceImage
 
 			if err = r.Patch(ctx, &ci, patch); err != nil {
 				return ctrl.Result{}, err
