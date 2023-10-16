@@ -1,0 +1,40 @@
+mode: distributed
+
+persistence:
+  storageClass: node-san
+  size: 1Gi
+
+auth:
+  forcePassword: true
+  rootPassword: 8nRUH4UqQi
+
+provisioning:
+  enabled: true
+  buckets:
+    - name: registry
+  usersExistingSecrets:
+    - minio-registry-users
+  extraVolumes:
+    - name: registry-keys
+      secret:
+        defaultMode: 420
+        secretName: minio-registry-keys
+  extraVolumeMounts:
+    - name: registry-keys
+      mountPath: /opt/bitnami/minio/svcacct/registry/
+  extraCommands:
+    - |
+      (mc admin user svcacct info provisioning $(cat /opt/bitnami/minio/svcacct/registry/accessKey) 2> /dev/null ||
+      mc admin user svcacct add
+      --access-key "$(cat /opt/bitnami/minio/svcacct/registry/accessKey)"
+      --secret-key "$(cat /opt/bitnami/minio/svcacct/registry/secretKey)"
+      provisioning registry) > /dev/null
+
+ingress:
+  enabled: true
+  hostname: minio.185.145.250.247.enix.link
+
+apiIngress:
+  enabled: true
+  hostname: minio-api.185.145.250.247.enix.link
+

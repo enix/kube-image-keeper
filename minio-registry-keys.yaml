@@ -1,0 +1,9 @@
+apiVersion: v1
+data:
+  accessKey: ZERycTBaWHo3ZEVwMkZUZw==
+  secretKey: c2xqQnZDSUZlY21RY0tHbDMwUmFRbVpBajB6c0dtejA=
+kind: Secret
+metadata:
+  name: minio-registry-keys
+  namespace: minio
+type: Opaque

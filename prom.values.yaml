@@ -1,0 +1,44 @@
+alertmanager:
+  enabled: false
+kube-state-metrics:
+  enabled: false
+nodeExporter:
+  enabled: false
+grafana:
+  enabled: false
+
+# extraScrapeConfigs: |
+prometheus:
+  prometheusSpec:
+    additionalScrapeConfigs:
+      - job_name: 'kuik-controllers'
+        kubernetes_sd_configs:
+        - role: pod
+          namespaces:
+            names: [kuik-system]
+          selectors:
+            - role: pod
+              label: app.kubernetes.io/component=controllers
+        relabel_configs:
+          - source_labels: [__address__]
+            regex: '(.+):8080$'
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod_name
+            action: replace
+      - job_name: 'kuik-proxies'
+        kubernetes_sd_configs:
+        - role: pod
+          namespaces:
+            names: [kuik-system]
+          selectors:
+            - role: pod
+              label: app.kubernetes.io/component=proxy
+        relabel_configs:
+          - source_labels: [__address__]
+            regex: '(.+):8080$'
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod_name
+            action: replace
+

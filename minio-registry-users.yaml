@@ -1,0 +1,8 @@
+apiVersion: v1
+data:
+  registry: dXNlcm5hbWU9cmVnaXN0cnkKcGFzc3dvcmQ9SkNXdTFOZ3VvQlVLQVV5bDI1dW9qR0NQZWVoeUdNZ2MKcG9saWNpZXM9cmVhZHdyaXRlCnNldFBvbGljaWVzPXRydWUK
+kind: Secret
+metadata:
+  name: minio-registry-users
+  namespace: minio
+type: Opaque
