@@ -38,6 +38,7 @@ type CachedImageReconciler struct {
 	client.Client
 	Scheme      *runtime.Scheme
 	Recorder    record.EventRecorder
+	ApiReader   client.Reader
 	ExpiryDelay time.Duration
 }
 
@@ -128,7 +129,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	if !isCached {
 		r.Recorder.Eventf(&cachedImage, "Normal", "Caching", "Start caching image %s", cachedImage.Spec.SourceImage)
-		keychain := registry.NewKubernetesKeychain(r.Client, cachedImage.Spec.PullSecretsNamespace, cachedImage.Spec.PullSecretNames)
+		keychain := registry.NewKubernetesKeychain(r.ApiReader, cachedImage.Spec.PullSecretsNamespace, cachedImage.Spec.PullSecretNames)
 		if err := registry.CacheImage(cachedImage.Spec.SourceImage, keychain); err != nil {
 			log.Error(err, "failed to cache image")
 			r.Recorder.Eventf(&cachedImage, "Warning", "CacheFailed", "Failed to cache image %s, reason: %s", cachedImage.Spec.SourceImage, err)
