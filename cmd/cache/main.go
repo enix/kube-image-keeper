@@ -95,6 +95,7 @@ func main() {
 		Client:      mgr.GetClient(),
 		Scheme:      mgr.GetScheme(),
 		Recorder:    mgr.GetEventRecorderFor("cachedimage-controller"),
+		ApiReader:   mgr.GetAPIReader(),
 		ExpiryDelay: time.Duration(expiryDelay*24) * time.Hour,
 	}).SetupWithManager(mgr, maxConcurrentCachedImageReconciles); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "CachedImage")

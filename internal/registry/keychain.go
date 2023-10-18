@@ -24,13 +24,13 @@ const (
 )
 
 type kubernetesKeychain struct {
-	client     client.Client
+	client     client.Reader
 	mu         sync.Mutex
 	namespace  string
 	pullSecret string
 }
 
-func NewKubernetesKeychain(client client.Client, namespace string, pullSecrets []string) authn.Keychain {
+func NewKubernetesKeychain(client client.Reader, namespace string, pullSecrets []string) authn.Keychain {
 	keychains := []authn.Keychain{}
 	for _, pullSecret := range pullSecrets {
 		keychains = append(keychains, &kubernetesKeychain{
