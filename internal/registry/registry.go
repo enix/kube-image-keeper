@@ -11,6 +11,8 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	"github.com/google/go-containerregistry/pkg/v1/types"
@@ -95,7 +97,7 @@ func DeleteImage(imageName string) error {
 	return remote.Delete(digest)
 }
 
-func CacheImage(imageName string, keychain authn.Keychain) error {
+func CacheImage(imageName string, keychain authn.Keychain, architectures []string) error {
 	destRef, err := parseLocalReference(imageName)
 	if err != nil {
 		return err
@@ -121,7 +123,17 @@ func CacheImage(imageName string, keychain authn.Keychain) error {
 		if err != nil {
 			return err
 		}
-		if err := remote.WriteIndex(destRef, index); err != nil {
+
+		filteredIndex := mutate.RemoveManifests(index, func(desc v1.Descriptor) bool {
+			for _, arch := range architectures {
+				if arch == desc.Platform.Architecture {
+					return false
+				}
+			}
+			return true
+		})
+
+		if err := remote.WriteIndex(destRef, filteredIndex); err != nil {
 			return err
 		}
 	default:
@@ -133,6 +145,7 @@ func CacheImage(imageName string, keychain authn.Keychain) error {
 			return err
 		}
 	}
+
 	return nil
 }
 
