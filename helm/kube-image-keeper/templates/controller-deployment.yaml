@@ -47,6 +47,9 @@ spec:
             {{- range .Values.controllers.webhook.ignoredImages }}
             - -ignore-images={{- . }}
             {{- end }}
+            {{- range .Values.architectures }}
+            - -arch={{- . }}
+            {{- end }}
           ports:
             - containerPort: 9443
               name: webhook-server

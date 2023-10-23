@@ -6,6 +6,8 @@
 cachedImagesExpiryDelay: 30
 # -- If true, install the CRD
 installCRD: true
+# -- List of architectures to put in cache
+architectures: [amd64]
 
 controllers:
   # Maximum number of CachedImages that can be handled and reconciled at the same time (put or remove from cache)

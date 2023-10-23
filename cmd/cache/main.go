@@ -49,6 +49,17 @@ func (re *regexpArrayFlags) Set(value string) error {
 	return nil
 }
 
+type arrayFlags []string
+
+func (a *arrayFlags) String() string {
+	return strings.Join(*a, ",")
+}
+
+func (a *arrayFlags) Set(value string) error {
+	*a = append(*a, value)
+	return nil
+}
+
 func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
@@ -56,6 +67,7 @@ func main() {
 	var expiryDelay uint
 	var proxyPort int
 	var ignoreImages regexpArrayFlags
+	var architectures arrayFlags
 	var maxConcurrentCachedImageReconciles int
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -64,7 +76,8 @@ func main() {
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.UintVar(&expiryDelay, "expiry-delay", 30, "The delay in days before deleting an unused CachedImage.")
 	flag.IntVar(&proxyPort, "proxy-port", 8082, "The port where the proxy is listening on this machine.")
-	flag.Var(&ignoreImages, "ignore-images", "List of regexes that represents images to be excluded.")
+	flag.Var(&ignoreImages, "ignore-images", "Regex that represents images to be excluded (this flag can be used multiple times).")
+	flag.Var(&architectures, "arch", "Architecture of image to put in cache (this flag can be used multiple times).")
 	flag.StringVar(&registry.Endpoint, "registry-endpoint", "kube-image-keeper-registry:5000", "The address of the registry where cached images are stored.")
 	flag.IntVar(&maxConcurrentCachedImageReconciles, "max-concurrent-cached-image-reconciles", 3, "Maximum number of CachedImages that can be handled and reconciled at the same time (put or removed from cache).")
 
@@ -92,11 +105,12 @@ func main() {
 	}
 
 	if err = (&controllers.CachedImageReconciler{
-		Client:      mgr.GetClient(),
-		Scheme:      mgr.GetScheme(),
-		Recorder:    mgr.GetEventRecorderFor("cachedimage-controller"),
-		ApiReader:   mgr.GetAPIReader(),
-		ExpiryDelay: time.Duration(expiryDelay*24) * time.Hour,
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		Recorder:      mgr.GetEventRecorderFor("cachedimage-controller"),
+		ApiReader:     mgr.GetAPIReader(),
+		ExpiryDelay:   time.Duration(expiryDelay*24) * time.Hour,
+		Architectures: []string(architectures),
 	}).SetupWithManager(mgr, maxConcurrentCachedImageReconciles); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "CachedImage")
 		os.Exit(1)
