@@ -191,11 +191,23 @@ This logic isn't implemented by the kuik controllers or webhook directly, but th
 
 Keep in mind that kuik will ignore pods scheduled into its own namespace.
 
-### Cache persistence & garbage collection
+### Cache persistence
 
 Persistence is disabled by default. You can enable it by setting the Helm value `registry.persistence.enabled=true`. This will create a PersistentVolumeClaim with a default size of 20 GiB. You can change that size by setting the value `registry.persistence.size`. Keep in mind that enabling persistence isn't enough to provide high availability of the registry! If you want kuik to be highly available, please refer to the [high availability guide](https://github.com/enix/kube-image-keeper/blob/main/docs/high-availability.md).
 
 Note that persistence requires your cluster to have some PersistentVolumes. If you don't have PersistentVolumes, kuik's registry Pod will remain `Pending` and your images won't be cached (but they will still be served transparently by kuik's image proxy).
+
+### Multi-arch cluster / Non-amd64 architectures
+
+By default, kuik only caches the `amd64` variant of an image. To cache more/other architectures, you need to set the `architectures` field to your helm values.
+
+Example:
+
+```yaml
+architectures: [amd64, arm]
+```
+
+Kuik will only cache the architectures available for an image, but will not crash if the architecture doesn't exist.
 
 ## Garbage collection and limitations
 
