@@ -13,7 +13,9 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       VERSION: ${{ github.run_id }}
-      GHCR_REGISTRY: "ghcr.io"
+      HARBOR_URL: "harbor.enix.io"
+      HARBOR_REPO: "kube-image-keeper/kube-image-keeper"
+      GHCR_IMAGE: "ghcr.io/enix/kube-image-keeper"
       QUAY_IMAGE: "quay.io/enix/kube-image-keeper"
     steps:
       - name: Checkout Repository
@@ -31,16 +33,16 @@ jobs:
       - name: Log in to the Container registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.GHCR_REGISTRY }}
-          username: ${{ env.COMMIT_NAME }}
-          password: ${{ secrets.RELEASE_GITHUB_TOKEN }}
+          registry: ${{ env.HARBOR_URL }}
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
 
       - name: Generate image metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: |
-            ${{ env.GHCR_REGISTRY }}/${{ github.repository }}
+            ${{ env.GHCR_IMAGE }}
             ${{ github.repository }}
             ${{ env.QUAY_IMAGE }}
 
@@ -55,7 +57,7 @@ jobs:
           push: true
           labels: ${{ steps.meta.outputs.labels }}
           tags: |
-            ${{ env.GHCR_REGISTRY }}/${{ github.repository }}:${{ env.VERSION }}
+            ${{ env.HARBOR_URL }}/${{ env.HARBOR_REPO }}:${{ env.VERSION }}
 
       - name: Build alpine container images
         uses: docker/build-push-action@v5
@@ -69,7 +71,7 @@ jobs:
           push: true
           labels: ${{ steps.meta.outputs.labels }}
           tags: |
-            ${{ env.GHCR_REGISTRY }}/${{ github.repository }}:${{ env.VERSION }}-alpine
+            ${{ env.HARBOR_URL }}/${{ env.HARBOR_REPO }}:${{ env.VERSION }}-alpine
 
   e2e:
     name: Tests End-to-End on K8s
@@ -78,8 +80,8 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       VERSION: ${{ github.run_id }}
-      GHCR_IMAGE_NAME: "ghcr.io/enix/kube-image-keeper"
-      GHCR_REGISTRY: "ghcr.io"
+      HARBOR_IMAGE: "harbor.enix.io/kube-image-keeper/kube-image-keeper"
+      HARBOR_REGISTRY: "harbor.enix.io"
     strategy:
       max-parallel: 6
       matrix:
@@ -126,13 +128,12 @@ jobs:
         run : |
           set -euo pipefail
           kubectl create namespace kuik-system
-          kubectl create secret docker-registry ghcr-secret -n kuik-system --docker-server=https://ghcr.io \
-            --docker-username=monkeynator --docker-password=${{ secrets.RELEASE_GITHUB_TOKEN }} \
-            --docker-email=${{ env.COMMIT_EMAIL }}
+          kubectl create secret docker-registry harbor-secret -n kuik-system --docker-server=${{ env.HARBOR_REGISTRY }} \
+            --docker-username=${{ secrets.HARBOR_USERNAME }} --docker-password=${{ secrets.HARBOR_PASSWORD }}
           helm upgrade --install kube-image-keeper -n kuik-system --create-namespace ./helm/kube-image-keeper \
             --set controllers.image.tag=${{ env.VERSION }} --set proxy.image.tag=${{ env.VERSION }} \
-            --set controllers.image.repository=${{ env.GHCR_IMAGE_NAME }} --set proxy.image.repository=${{ env.GHCR_IMAGE_NAME }} \
-            --set controllers.imagePullSecrets[0].name=ghcr-secret --set proxy.image.imagePullSecrets[0].name=ghcr-secret  --debug
+            --set controllers.image.repository=${{ env.HARBOR_IMAGE }} --set proxy.image.repository=${{ env.HARBOR_IMAGE }} \
+            --set controllers.imagePullSecrets[0].name=harbor-secret --set proxy.image.imagePullSecrets[0].name=harbor-secret  --debug
           kubectl wait pods -n kuik-system -l app.kubernetes.io/instance=kube-image-keeper --for condition=Ready --timeout=30s
 
       - name: Run end-to-end tests
