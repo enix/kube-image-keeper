@@ -168,18 +168,20 @@ jobs:
                while [[ $attempts -lt 3 && $success == false ]]
                do
                    response=$(kubectl run curl-pod --image=curlimages/curl --rm -ti --quiet --restart=Never -- curl -s -o /dev/null -w "%{http_code}\n" http://$ip:8080/metrics)
-                   if [[ $response -ge 200 && $response -lt 300 ]]; then
+                   if [[ -z "$response" ]]; then
+                        echo "No HTTP response received from $ip"
+                   elif [[ $response -ge 200 && $response -lt 300 ]]; then
                         echo "HTTP status code $response is valid for $ip"
                         success=true
                    else
                         echo "HTTP status code $response is not valid for $ip"
-                        ((attempts++))
-                        sleep 5
                    fi
+                   attempts=$(( $attempts + 1 ))
+                   sleep 3
                done
                if [[ $success == false ]]; then
-                      echo "Failed after 3 attempts for $ip"
-                      exit 1
+                   echo "Failed after 3 attempts for $ip"
+                   exit 1
                fi
             done
           done
