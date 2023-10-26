@@ -134,7 +134,7 @@ jobs:
             --docker-username="$HARBOR_USERNAME" --docker-password="$HARBOR_PASSWORD"
           helm upgrade --install kube-image-keeper -n kuik-system --create-namespace ./helm/kube-image-keeper \
             --set controllers.image.tag=$VERSION --set proxy.image.tag=$VERSION \
-            --set controllers.image.repository=$HARBOR_IMAGE --set proxy.image.repository=${HARBOR_IMAGE \
+            --set controllers.image.repository=$HARBOR_IMAGE --set proxy.image.repository=$HARBOR_IMAGE \
             --set controllers.imagePullSecrets[0].name=harbor-secret --set proxy.image.imagePullSecrets[0].name=harbor-secret  --debug
           kubectl wait pods -n kuik-system -l app.kubernetes.io/instance=kube-image-keeper --for condition=Ready --timeout=30s
 
