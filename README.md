@@ -135,7 +135,7 @@ Refer to the [dedicated documentation](https://github.com/enix/kube-image-keeper
 ## Installation
 
 1. Make sure that you have cert-manager installed. If not, check its [installation page](https://cert-manager.io/docs/installation/) (it's fine to use the `kubectl apply` one-liner, and no further configuration is required).
-1. Install kuik's Helm chart from the [enix/helm-charts](https://github.com/enix/helm-charts) repository:
+1. Install kuik's Helm chart from our [charts](https://charts.enix.io) repository:
 
 ```bash
 helm upgrade --install \
