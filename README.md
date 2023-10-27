@@ -197,9 +197,23 @@ Persistence is disabled by default. You can enable it by setting the Helm value 
 
 Note that persistence requires your cluster to have some PersistentVolumes. If you don't have PersistentVolumes, kuik's registry Pod will remain `Pending` and your images won't be cached (but they will still be served transparently by kuik's image proxy).
 
+### Retain policy
+
+Sometimes, you want images to stay cached even when they are not used anymore (for instance when you run a workload for a fixed amount of time, stop it, and run it again later). You can choose to prevent `CachedImages` from expiring by manually setting the `spec.retain` flag to `true` like shown below:
+
+```yaml
+apiVersion: kuik.enix.io/v1alpha1
+kind: CachedImage
+metadata:
+  name: docker.io-library-nginx-1.25
+spec:
+  retain: true # here
+  sourceImage: nginx:1.25
+```
+
 ### Multi-arch cluster / Non-amd64 architectures
 
-By default, kuik only caches the `amd64` variant of an image. To cache more/other architectures, you need to set the `architectures` field to your helm values.
+By default, kuik only caches the `amd64` variant of an image. To cache more/other architectures, you need to set the `architectures` field in your helm values.
 
 Example:
 
@@ -207,7 +221,9 @@ Example:
 architectures: [amd64, arm]
 ```
 
-Kuik will only cache the architectures available for an image, but will not crash if the architecture doesn't exist.
+Kuik will only cache available architectures for an image, but will not crash if the architecture doesn't exist.
+
+No manual action is required when migrating an amd64-only cluster from v1.3.0 to v1.4.0.
 
 ## Garbage collection and limitations
 
