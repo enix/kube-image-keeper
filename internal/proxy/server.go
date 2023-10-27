@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net/http"
@@ -17,24 +18,27 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
+	"golang.org/x/exp/slices"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type Proxy struct {
-	engine    *gin.Engine
-	k8sClient client.Client
-	collector *Collector
-	exporter  *metrics.Exporter
+	engine             *gin.Engine
+	k8sClient          client.Client
+	collector          *Collector
+	exporter           *metrics.Exporter
+	insecureRegistries []string
 }
 
-func New(k8sClient client.Client, metricsAddr string) *Proxy {
+func New(k8sClient client.Client, metricsAddr string, insecureRegistries []string) *Proxy {
 	collector := NewCollector()
 	return &Proxy{
-		k8sClient: k8sClient,
-		engine:    gin.Default(),
-		collector: collector,
-		exporter:  metrics.New(collector, metricsAddr),
+		k8sClient:          k8sClient,
+		engine:             gin.Default(),
+		collector:          collector,
+		exporter:           metrics.New(collector, metricsAddr),
+		insecureRegistries: insecureRegistries,
 	}
 }
 
@@ -140,7 +144,7 @@ func (p *Proxy) routeProxy(c *gin.Context) {
 	if err := p.proxyRegistry(c, registry.Protocol+registry.Endpoint, false, nil); err != nil {
 		klog.InfoS("cached image is not available, proxying origin", "originRegistry", originRegistry, "error", err)
 
-		transport, err := p.getAuthentifiedTransport(originRegistry, repository)
+		transport, err := p.getAuthentifiedTransport(originRegistry, repository, p.insecureRegistries)
 		if err != nil {
 			_ = c.AbortWithError(http.StatusUnauthorized, err)
 			return
@@ -223,7 +227,7 @@ func (p *Proxy) proxyRegistry(c *gin.Context, endpoint string, endpointIsOrigin 
 	return proxyError
 }
 
-func (p *Proxy) getAuthentifiedTransport(registryDomain string, repository string) (http.RoundTripper, error) {
+func (p *Proxy) getAuthentifiedTransport(registryDomain string, repository string, insecureRegistries []string) (http.RoundTripper, error) {
 	repositoryLabel := registry.RepositoryLabel(registryDomain + "/" + repository)
 	cachedImages := &kuikenixiov1alpha1.CachedImageList{}
 
@@ -255,7 +259,14 @@ func (p *Proxy) getAuthentifiedTransport(registryDomain string, repository strin
 		return nil, err
 	}
 
-	return transport.NewWithContext(context.Background(), ref.Context().Registry, auth, http.DefaultTransport, []string{ref.Scope(transport.PullScope)})
+	originalTransport := http.DefaultTransport
+	if slices.Contains(insecureRegistries, ref.Context().Registry.RegistryStr()) {
+		originalTransport = &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		}
+	}
+
+	return transport.NewWithContext(context.Background(), ref.Context().Registry, auth, originalTransport, []string{ref.Scope(transport.PullScope)})
 }
 
 // See https://github.com/golang/go/issues/28239, https://github.com/golang/go/issues/23643 and https://github.com/golang/go/issues/56228

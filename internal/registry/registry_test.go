@@ -329,7 +329,7 @@ func Test_CacheImage(t *testing.T) {
 
 			Endpoint = cacheRegistry.Addr()
 			keychain := NewKubernetesKeychain(nil, "default", []string{})
-			err := CacheImage(originRegistry.Addr()+"/"+tt.image, keychain, []string{"amd64"})
+			err := CacheImage(originRegistry.Addr()+"/"+tt.image, keychain, []string{"amd64"}, []string{})
 			if tt.wantErr != "" {
 				g.Expect(err).To(BeAssignableToTypeOf(tt.errType))
 				g.Expect(err).To(MatchError(ContainSubstring(tt.wantErr)))
