@@ -49,6 +49,9 @@ spec:
             - -kube-api-rate-limit-qps={{ .qps }}
             - -kube-api-rate-limit-burst={{ .burst }}
             {{- end }}
+            {{- range .Values.insecureRegistries }}
+            - -insecure-registries={{- . }}
+            {{- end }}
           {{- with .Values.proxy.resources }}
           resources:
             {{- toYaml . | nindent 12 }}

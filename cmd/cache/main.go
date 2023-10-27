@@ -3,8 +3,6 @@ package main
 import (
 	"flag"
 	"os"
-	"regexp"
-	"strings"
 	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -20,6 +18,7 @@ import (
 
 	kuikenixiov1 "github.com/enix/kube-image-keeper/api/v1"
 	"github.com/enix/kube-image-keeper/controllers"
+	"github.com/enix/kube-image-keeper/internal"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/enix/kube-image-keeper/internal/scheme"
 	//+kubebuilder:scaffold:imports
@@ -29,46 +28,16 @@ var (
 	setupLog = ctrl.Log.WithName("setup")
 )
 
-type regexpArrayFlags []*regexp.Regexp
-
-func (re *regexpArrayFlags) String() string {
-	s := []string{}
-	for _, r := range *re {
-		s = append(s, r.String())
-	}
-	return strings.Join(s, ",")
-}
-
-func (re *regexpArrayFlags) Set(value string) error {
-	r, err := regexp.Compile(value)
-	if err != nil {
-		setupLog.Error(err, "unable parse ignored images regex", "controller", "Pod")
-		os.Exit(1)
-	}
-	*re = append(*re, r)
-	return nil
-}
-
-type arrayFlags []string
-
-func (a *arrayFlags) String() string {
-	return strings.Join(*a, ",")
-}
-
-func (a *arrayFlags) Set(value string) error {
-	*a = append(*a, value)
-	return nil
-}
-
 func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
 	var probeAddr string
 	var expiryDelay uint
 	var proxyPort int
-	var ignoreImages regexpArrayFlags
-	var architectures arrayFlags
+	var ignoreImages internal.RegexpArrayFlags
+	var architectures internal.ArrayFlags
 	var maxConcurrentCachedImageReconciles int
+	var insecureRegistries internal.ArrayFlags
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
@@ -80,6 +49,7 @@ func main() {
 	flag.Var(&architectures, "arch", "Architecture of image to put in cache (this flag can be used multiple times).")
 	flag.StringVar(&registry.Endpoint, "registry-endpoint", "kube-image-keeper-registry:5000", "The address of the registry where cached images are stored.")
 	flag.IntVar(&maxConcurrentCachedImageReconciles, "max-concurrent-cached-image-reconciles", 3, "Maximum number of CachedImages that can be handled and reconciled at the same time (put or removed from cache).")
+	flag.Var(&insecureRegistries, "insecure-registries", "Insecure registries to allow to cache and proxify images from (this flag can be used multiple times).")
 
 	opts := zap.Options{
 		Development:     true,
@@ -105,12 +75,13 @@ func main() {
 	}
 
 	if err = (&controllers.CachedImageReconciler{
-		Client:        mgr.GetClient(),
-		Scheme:        mgr.GetScheme(),
-		Recorder:      mgr.GetEventRecorderFor("cachedimage-controller"),
-		ApiReader:     mgr.GetAPIReader(),
-		ExpiryDelay:   time.Duration(expiryDelay*24) * time.Hour,
-		Architectures: []string(architectures),
+		Client:             mgr.GetClient(),
+		Scheme:             mgr.GetScheme(),
+		Recorder:           mgr.GetEventRecorderFor("cachedimage-controller"),
+		ApiReader:          mgr.GetAPIReader(),
+		ExpiryDelay:        time.Duration(expiryDelay*24) * time.Hour,
+		Architectures:      []string(architectures),
+		InsecureRegistries: []string(insecureRegistries),
 	}).SetupWithManager(mgr, maxConcurrentCachedImageReconciles); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "CachedImage")
 		os.Exit(1)

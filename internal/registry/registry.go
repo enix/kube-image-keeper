@@ -3,6 +3,7 @@ package registry
 import (
 	"crypto/sha1"
 	"crypto/sha256"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	"github.com/google/go-containerregistry/pkg/v1/types"
+	"k8s.io/utils/strings/slices"
 )
 
 var Endpoint = ""
@@ -46,7 +48,7 @@ func errIsImageNotFound(err error) bool {
 }
 
 func getDestinationName(sourceName string) (string, error) {
-	sourceRef, err := name.ParseReference(sourceName, name.Insecure)
+	sourceRef, err := name.ParseReference(sourceName)
 	if err != nil {
 		return "", err
 	}
@@ -97,18 +99,27 @@ func DeleteImage(imageName string) error {
 	return remote.Delete(digest)
 }
 
-func CacheImage(imageName string, keychain authn.Keychain, architectures []string) error {
+func CacheImage(imageName string, keychain authn.Keychain, architectures []string, insecureRegistries []string) error {
 	destRef, err := parseLocalReference(imageName)
 	if err != nil {
 		return err
 	}
-	sourceRef, err := name.ParseReference(imageName, name.Insecure)
+	sourceRef, err := name.ParseReference(imageName)
 	if err != nil {
 		return err
 	}
 
 	auth := remote.WithAuthFromKeychain(keychain)
-	desc, err := remote.Get(sourceRef, auth)
+	opts := []remote.Option{auth}
+
+	if slices.Contains(insecureRegistries, sourceRef.Context().Registry.RegistryStr()) {
+		transportOption := remote.WithTransport(&http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		})
+		opts = append(opts, transportOption)
+	}
+
+	desc, err := remote.Get(sourceRef, opts...)
 	if err != nil {
 		if errIsImageNotFound(err) {
 

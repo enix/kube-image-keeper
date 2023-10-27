@@ -50,6 +50,9 @@ spec:
             {{- range .Values.architectures }}
             - -arch={{- . }}
             {{- end }}
+            {{- range .Values.insecureRegistries }}
+            - -insecure-registries={{- . }}
+            {{- end }}
           ports:
             - containerPort: 9443
               name: webhook-server

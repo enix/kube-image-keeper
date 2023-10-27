@@ -28,7 +28,7 @@ func init() {
 
 func TestNew(t *testing.T) {
 	g := NewWithT(t)
-	proxy := New(dummyK8sClient, ":8080")
+	proxy := New(dummyK8sClient, ":8080", []string{})
 	g.Expect(proxy).To(Not(BeNil()))
 	g.Expect(proxy.engine).To(Not(BeNil()))
 }

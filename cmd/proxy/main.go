@@ -7,6 +7,7 @@ import (
 
 	_ "go.uber.org/automaxprocs"
 
+	"github.com/enix/kube-image-keeper/internal"
 	"github.com/enix/kube-image-keeper/internal/proxy"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/enix/kube-image-keeper/internal/scheme"
@@ -19,10 +20,11 @@ import (
 )
 
 var (
-	kubeconfig     string
-	metricsAddr    string
-	rateLimitQPS   int
-	rateLimitBurst int
+	kubeconfig         string
+	metricsAddr        string
+	rateLimitQPS       int
+	rateLimitBurst     int
+	insecureRegistries internal.ArrayFlags
 )
 
 func initFlags() {
@@ -35,6 +37,7 @@ func initFlags() {
 	flag.StringVar(&registry.Endpoint, "registry-endpoint", "kube-image-keeper-registry:5000", "The address of the registry where cached images are stored.")
 	flag.IntVar(&rateLimitQPS, "kube-api-rate-limit-qps", 0, "Kubernetes API request rate limit")
 	flag.IntVar(&rateLimitBurst, "kube-api-rate-limit-burst", 0, "Kubernetes API request burst")
+	flag.Var(&insecureRegistries, "insecure-registries", "Insecure registries to allow to cache and proxify images from (this flag can be used multiple times).")
 
 	flag.Parse()
 }
@@ -78,5 +81,5 @@ func main() {
 		panic(err)
 	}
 
-	<-proxy.New(k8sClient, metricsAddr).Run()
+	<-proxy.New(k8sClient, metricsAddr, []string(insecureRegistries)).Run()
 }
