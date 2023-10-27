@@ -112,13 +112,15 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Set an expiration date for unused CachedImage
 	expiresAt := cachedImage.Spec.ExpiresAt
 	if len(cachedImage.Status.UsedBy.Pods) == 0 && !cachedImage.Spec.Retain {
-		expiresAt := metav1.NewTime(time.Now().Add(r.ExpiryDelay))
-		log.Info("cachedimage is no longer used, setting an expiry date", "cachedImage", klog.KObj(&cachedImage), "expiresAt", expiresAt)
-		cachedImage.Spec.ExpiresAt = &expiresAt
+		if cachedImage.Spec.ExpiresAt.IsZero() {
+			expiresAt := metav1.NewTime(time.Now().Add(r.ExpiryDelay))
+			log.Info("cachedimage is no longer used, setting an expiry date", "cachedImage", klog.KObj(&cachedImage), "expiresAt", expiresAt)
+			cachedImage.Spec.ExpiresAt = &expiresAt
 
-		err := r.Patch(ctx, &cachedImage, client.Merge)
-		if err != nil && !apierrors.IsNotFound(err) {
-			return ctrl.Result{}, err
+			err := r.Patch(ctx, &cachedImage, client.Merge)
+			if err != nil && !apierrors.IsNotFound(err) {
+				return ctrl.Result{}, err
+			}
 		}
 	} else {
 		log.Info("cachedimage is used or retained", "cachedImage", klog.KObj(&cachedImage), "expiresAt", expiresAt, "retain", cachedImage.Spec.Retain)
