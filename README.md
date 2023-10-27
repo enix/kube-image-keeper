@@ -17,7 +17,7 @@ It saves the container images used by your pods in its own local registry so tha
 In v1.3.0, we removed the finalizer `pod.kuik.enix.io/finalizer` from pods that were rewritten by kuik.
 
 To avoid having these pods stuck in `Terminating` state after a delete action or a rolling update, you will need to manually remove the finalizer from these pods once you upgrade to 1.3.0.
-This can be achieved using the following command: 
+This can be achieved using the following command:
 
 ```
 kubectl get pods --all-namespaces -l kuik.enix.io/images-rewritten=true -o json | jq '.items[].metadata.finalizers=null' | kubectl replace -f -
@@ -215,7 +215,7 @@ kubectl annotate cachedimages --all --overwrite "timestamp=$(date +%s)"
 
 ### Conflicts with other mutating webhooks
 
-Kuik's core functionality intercepts pod creation events to modify the definition of container images, facilitating image caching. However, some Kubernetes operators create pods autonomously and don't expect modifications to the image definitions (for exemple cloudnative-pg), the unexpected rewriting of the `pod.specs.containers.image` field can lead to inifinite reconciliation loop because the operator's expected target container image will be endlessly rewritten by the kuik `MutatingWebhookConfiguration`. In that case, you may want to disable kuik for specific pods using the following Helm values:
+Kuik's core functionality intercepts pod creation events to modify the definition of container images, facilitating image caching. However, some Kubernetes operators create pods autonomously and don't expect modifications to the image definitions (for example cloudnative-pg), the unexpected rewriting of the `pod.specs.containers.image` field can lead to inifinite reconciliation loop because the operator's expected target container image will be endlessly rewritten by the kuik `MutatingWebhookConfiguration`. In that case, you may want to disable kuik for specific pods using the following Helm values:
 
 ```bash
 controllers:
@@ -241,4 +241,3 @@ Howevever, when using kuik, once an image has been pulled and stored in kuik's r
 ### Cluster autoscaling delays
 
 With kuik, all image pulls (except in the namespaces excluded from kuik) go through kuik's registry proxy, which runs on each node thanks to a DaemonSet. When a node gets added to a Kubernetes cluster (for instance, by the cluster autoscaler), a kuik registry proxy Pod gets scheduled on that node, but it will take a brief moment to start. During that time, all other image pulls will fail. Thanks to Kubernetes automatic retry mechanisms, they will eventually succeed, but on new nodes, you may see Pods in `ErrImagePull` or `ImagePullBackOff` status for a minute before everything works correctly. If you are using cluster autoscaling and try to achieve very fast scale-up times, this is something that you might want to keep in mind.
-
