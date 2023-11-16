@@ -2,13 +2,13 @@
 apiVersion: v1
 kind: Secret
 metadata:
-  name: {{ include "kube-image-keeper.fullname" . }}-s3-registry-keys
+  name: kube-image-keeper-s3-registry-keys
   annotations:
     "helm.sh/resource-policy": "keep"
 type: Opaque
 stringData:
   {{- if .Values.minio.enabled }}
-    {{- $secretName := printf "%s-%s" (include "kube-image-keeper.fullname" .) "s3-registry-keys" }}
+    {{- $secretName := "kube-image-keeper-s3-registry-keys" }}
     {{- $secretData := (get (lookup "v1" "Secret" .Release.Namespace $secretName) "data") | default dict }}
     # set $accessKey $secretKey to existing secret data or generate random ones when they do not exist
     {{- $accessKey := (get $secretData "accessKey" | b64dec) | default (randAlphaNum 16) }}
