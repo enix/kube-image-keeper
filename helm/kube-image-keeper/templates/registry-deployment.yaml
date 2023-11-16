@@ -61,7 +61,7 @@ spec:
             - name: REGISTRY_STORAGE_S3_BUCKET
               value: registry
             - name: REGISTRY_STORAGE_S3_REGIONENDPOINT
-              value: http://{{ include "kube-image-keeper.fullname" . }}-minio:9000
+              value: http://{{ .Values.minio.fullnameOverride }}:9000
             - name: REGISTRY_STORAGE_REDIRECT_DISABLE
               value: "true"
             {{- else }}
