@@ -52,6 +52,8 @@ controllers:
     maxUnavailable: ""
   # -- Affinity for the controller pod
   affinity: {}
+  # -- Extra env variables for the controllers pod
+  env: []
   resources:
     requests:
       # -- Cpu requests for the controller pod
@@ -147,6 +149,8 @@ proxy:
   priorityClassName: system-node-critical
   # -- Affinity for the proxy pod
   affinity: {}
+  # -- Extra env variables for the proxy pod
+  env: []
   resources:
     requests:
       # -- Cpu requests for the proxy pod
