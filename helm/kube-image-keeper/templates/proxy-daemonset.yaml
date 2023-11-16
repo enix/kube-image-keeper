@@ -58,6 +58,10 @@ spec:
             {{- end }}
             {{- end }}
           {{- if .Values.rootCertificateAuthorities }}
+          {{- with .Values.proxy.env }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           volumeMounts:
             - mountPath: /etc/ssl/certs/registry-certificate-authorities
               name: registry-certificate-authorities

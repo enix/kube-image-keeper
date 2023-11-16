@@ -58,6 +58,18 @@ spec:
             - -root-certificate-authorities=/etc/ssl/certs/registry-certificate-authorities/{{- . }}
             {{- end }}
             {{- end }}
+          env:
+            {{- $noProxy := list -}}
+            {{- range .Values.controllers.env }}
+            {{- if eq (lower .name) "no_proxy" }}
+            {{- $noProxy = (.value | replace " " "," | splitList ",") -}}
+            {{- else }}
+            - name: {{ .name }}
+              value: {{ .value }}
+            {{- end }}
+            {{- end }}
+            - name: no_proxy
+              value: {{ join "," (prepend $noProxy (printf "%s-registry" (include "kube-image-keeper.fullname" .))) }}
           ports:
             - containerPort: 9443
               name: webhook-server
