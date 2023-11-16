@@ -1,6 +1,6 @@
 {{- if .Values.minio.enabled }}
 
-{{- $secretName := printf "%s-%s" (include "kube-image-keeper.fullname" .) "minio-passwords" }}
+{{- $secretName := "kube-image-keeper-minio-registry-passwords" }}
 {{- $secretData := (get (lookup "v1" "Secret" .Release.Namespace $secretName) "data") | default dict }}
 # set passwords to existing secret data or generate random ones when they do not exist
 {{- $password := (get $secretData "registry" | b64dec) | default (randAlphaNum 32) }}
@@ -8,7 +8,7 @@
 apiVersion: v1
 kind: Secret
 metadata:
-  name: {{ include "kube-image-keeper.fullname" . }}-minio-registry-users
+  name: kube-image-keeper-minio-registry-users
   annotations:
     "helm.sh/resource-policy": "keep"
 type: Opaque
@@ -22,7 +22,7 @@ stringData:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: {{ include "kube-image-keeper.fullname" . }}-minio-registry-passwords
+  name: kube-image-keeper-minio-registry-passwords
   annotations:
     "helm.sh/resource-policy": "keep"
 type: Opaque

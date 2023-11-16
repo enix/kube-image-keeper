@@ -74,7 +74,7 @@ spec:
               value: "true"
             {{- end }}
             {{- end }}
-            {{ $s3KeysSecretName := .Values.registry.persistence.s3ExistingSecret | default (print (include "kube-image-keeper.fullname" . ) "-s3-registry-keys") }}
+            {{ $s3KeysSecretName := .Values.registry.persistence.s3ExistingSecret | default "kube-image-keeper-s3-registry-keys" }}
             - name: REGISTRY_STORAGE_S3_ACCESSKEY
               valueFrom:
                 secretKeyRef:
