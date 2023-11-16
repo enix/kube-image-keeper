@@ -283,6 +283,7 @@ registryUI:
 minio:
   # -- If true, install minio as a local storage backend for the registry
   enabled: false
+  fullnameOverride: "kuik-minio"
   mode: distributed
   provisioning:
     enabled: true
