@@ -193,8 +193,8 @@ registry:
   garbageCollection:
     # -- Garbage collector cron schedule. Use standard crontab format.
     schedule: "0 0 * * 0"
-    # -- If true, delete untagged manifests
-    deleteUntagged: true
+    # -- If true, delete untagged manifests. Default to false since there is a known bug in **docker distribution** garbage collect job.
+    deleteUntagged: false
   service:
     # -- Registry service type
     type: ClusterIP
