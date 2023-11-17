@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"crypto/x509"
 	"net/http"
 	"time"
 
@@ -42,6 +43,7 @@ type CachedImageReconciler struct {
 	ExpiryDelay        time.Duration
 	Architectures      []string
 	InsecureRegistries []string
+	RootCAs            *x509.CertPool
 }
 
 //+kubebuilder:rbac:groups=kuik.enix.io,resources=cachedimages,verbs=get;list;watch;create;update;patch;delete
@@ -161,7 +163,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if !isCached {
 		r.Recorder.Eventf(&cachedImage, "Normal", "Caching", "Start caching image %s", cachedImage.Spec.SourceImage)
 		keychain := registry.NewKubernetesKeychain(r.ApiReader, cachedImage.Spec.PullSecretsNamespace, cachedImage.Spec.PullSecretNames)
-		if err := registry.CacheImage(cachedImage.Spec.SourceImage, keychain, r.Architectures, r.InsecureRegistries); err != nil {
+		if err := registry.CacheImage(cachedImage.Spec.SourceImage, keychain, r.Architectures, r.InsecureRegistries, r.RootCAs); err != nil {
 			log.Error(err, "failed to cache image")
 			r.Recorder.Eventf(&cachedImage, "Warning", "CacheFailed", "Failed to cache image %s, reason: %s", cachedImage.Spec.SourceImage, err)
 			return ctrl.Result{}, err

@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net/http"
@@ -29,9 +30,10 @@ type Proxy struct {
 	collector          *Collector
 	exporter           *metrics.Exporter
 	insecureRegistries []string
+	rootCAs            *x509.CertPool
 }
 
-func New(k8sClient client.Client, metricsAddr string, insecureRegistries []string) *Proxy {
+func New(k8sClient client.Client, metricsAddr string, insecureRegistries []string, rootCAs *x509.CertPool) *Proxy {
 	collector := NewCollector()
 	return &Proxy{
 		k8sClient:          k8sClient,
@@ -39,6 +41,7 @@ func New(k8sClient client.Client, metricsAddr string, insecureRegistries []strin
 		collector:          collector,
 		exporter:           metrics.New(collector, metricsAddr),
 		insecureRegistries: insecureRegistries,
+		rootCAs:            rootCAs,
 	}
 }
 
@@ -144,7 +147,7 @@ func (p *Proxy) routeProxy(c *gin.Context) {
 	if err := p.proxyRegistry(c, registry.Protocol+registry.Endpoint, false, nil); err != nil {
 		klog.InfoS("cached image is not available, proxying origin", "originRegistry", originRegistry, "error", err)
 
-		transport, err := p.getAuthentifiedTransport(originRegistry, repository, p.insecureRegistries)
+		transport, err := p.getAuthentifiedTransport(originRegistry, repository)
 		if err != nil {
 			_ = c.AbortWithError(http.StatusUnauthorized, err)
 			return
@@ -227,7 +230,7 @@ func (p *Proxy) proxyRegistry(c *gin.Context, endpoint string, endpointIsOrigin 
 	return proxyError
 }
 
-func (p *Proxy) getAuthentifiedTransport(registryDomain string, repository string, insecureRegistries []string) (http.RoundTripper, error) {
+func (p *Proxy) getAuthentifiedTransport(registryDomain string, repository string) (http.RoundTripper, error) {
 	repositoryLabel := registry.RepositoryLabel(registryDomain + "/" + repository)
 	cachedImages := &kuikenixiov1alpha1.CachedImageList{}
 
@@ -259,11 +262,10 @@ func (p *Proxy) getAuthentifiedTransport(registryDomain string, repository strin
 		return nil, err
 	}
 
-	originalTransport := http.DefaultTransport
-	if slices.Contains(insecureRegistries, ref.Context().Registry.RegistryStr()) {
-		originalTransport = &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		}
+	originalTransport := http.DefaultTransport.(*http.Transport).Clone()
+	originalTransport.TLSClientConfig = &tls.Config{RootCAs: p.rootCAs}
+	if slices.Contains(p.insecureRegistries, ref.Context().Registry.RegistryStr()) {
+		originalTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	}
 
 	return transport.NewWithContext(context.Background(), ref.Context().Registry, auth, originalTransport, []string{ref.Scope(transport.PullScope)})

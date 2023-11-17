@@ -52,6 +52,17 @@ spec:
             {{- range .Values.insecureRegistries }}
             - -insecure-registries={{- . }}
             {{- end }}
+            {{- with .Values.rootCertificateAuthorities }}
+            {{- range .keys }}
+            - -root-certificate-authorities=/etc/ssl/certs/registry-certificate-authorities/{{- . }}
+            {{- end }}
+            {{- end }}
+          {{- if .Values.rootCertificateAuthorities }}
+          volumeMounts:
+            - mountPath: /etc/ssl/certs/registry-certificate-authorities
+              name: registry-certificate-authorities
+              readOnly: true
+          {{- end }}
           {{- with .Values.proxy.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
@@ -67,4 +78,11 @@ spec:
       {{- with .Values.proxy.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.rootCertificateAuthorities }}
+      volumes:
+      - name: registry-certificate-authorities
+        secret:
+          defaultMode: 420
+          secretName: {{ .secretName }}
       {{- end }}
