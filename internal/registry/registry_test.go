@@ -310,6 +310,10 @@ func Test_CacheImage(t *testing.T) {
 			cacheRegistry.AppendHandlers(
 				mockV2Endpoint(gh),
 				ghttp.CombineHandlers(
+					gh.VerifyRequest(http.MethodHead, "/v2/"+originRegistryName+"/"+tt.image+"/manifests/latest"),
+					gh.RespondWith(tt.httpStatus, tt.httpResponse, mockedHeadImageHeader),
+				),
+				ghttp.CombineHandlers(
 					gh.VerifyRequest(http.MethodHead, pathMatcher),
 					gh.RespondWith(http.StatusOK, "...", mockedHeadImageHeader),
 				),
