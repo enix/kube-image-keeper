@@ -10,6 +10,10 @@ installCRD: true
 architectures: [amd64]
 # -- Insecure registries to allow to cache and proxify images from
 insecureRegistries: []
+# -- Root certificate authorities to trust
+rootCertificateAuthorities: {}
+  # secretName: some-secret
+  # keys: []
 
 controllers:
   # Maximum number of CachedImages that can be handled and reconciled at the same time (put or remove from cache)

@@ -53,6 +53,11 @@ spec:
             {{- range .Values.insecureRegistries }}
             - -insecure-registries={{- . }}
             {{- end }}
+            {{- with .Values.rootCertificateAuthorities }}
+            {{- range .keys }}
+            - -root-certificate-authorities=/etc/ssl/certs/registry-certificate-authorities/{{- . }}
+            {{- end }}
+            {{- end }}
           ports:
             - containerPort: 9443
               name: webhook-server
@@ -62,8 +67,13 @@ spec:
               protocol: TCP
           volumeMounts:
             - mountPath: /tmp/k8s-webhook-server/serving-certs
-              name: cert
+              name: webhook-cert
               readOnly: true
+            {{- if .Values.rootCertificateAuthorities }}
+            - mountPath: /etc/ssl/certs/registry-certificate-authorities
+              name: registry-certificate-authorities
+              readOnly: true
+            {{- end }}
           {{- with .Values.controllers.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
@@ -81,7 +91,13 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       volumes:
-      - name: cert
+      - name: webhook-cert
         secret:
           defaultMode: 420
           secretName: {{ include "kube-image-keeper.fullname" . }}-webhook-server-cert
+      {{- with .Values.rootCertificateAuthorities }}
+      - name: registry-certificate-authorities
+        secret:
+          defaultMode: 420
+          secretName: {{ .secretName }}
+      {{- end }}

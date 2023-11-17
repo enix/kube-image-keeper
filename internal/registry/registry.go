@@ -4,6 +4,7 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net/http"
@@ -99,7 +100,7 @@ func DeleteImage(imageName string) error {
 	return remote.Delete(digest)
 }
 
-func CacheImage(imageName string, keychain authn.Keychain, architectures []string, insecureRegistries []string) error {
+func CacheImage(imageName string, keychain authn.Keychain, architectures []string, insecureRegistries []string, rootCAs *x509.CertPool) error {
 	destRef, err := parseLocalReference(imageName)
 	if err != nil {
 		return err
@@ -111,18 +112,18 @@ func CacheImage(imageName string, keychain authn.Keychain, architectures []strin
 
 	auth := remote.WithAuthFromKeychain(keychain)
 	opts := []remote.Option{auth}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{RootCAs: rootCAs}
 
 	if slices.Contains(insecureRegistries, sourceRef.Context().Registry.RegistryStr()) {
-		transportOption := remote.WithTransport(&http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		})
-		opts = append(opts, transportOption)
+		transport.TLSClientConfig.InsecureSkipVerify = true
 	}
+
+	opts = append(opts, remote.WithTransport(transport))
 
 	desc, err := remote.Get(sourceRef, opts...)
 	if err != nil {
 		if errIsImageNotFound(err) {
-
 			return errors.New("could not find source image")
 		}
 		return err

@@ -25,6 +25,7 @@ var (
 	rateLimitQPS       int
 	rateLimitBurst     int
 	insecureRegistries internal.ArrayFlags
+	rootCAPaths        internal.ArrayFlags
 )
 
 func initFlags() {
@@ -38,6 +39,7 @@ func initFlags() {
 	flag.IntVar(&rateLimitQPS, "kube-api-rate-limit-qps", 0, "Kubernetes API request rate limit")
 	flag.IntVar(&rateLimitBurst, "kube-api-rate-limit-burst", 0, "Kubernetes API request burst")
 	flag.Var(&insecureRegistries, "insecure-registries", "Insecure registries to allow to cache and proxify images from (this flag can be used multiple times).")
+	flag.Var(&rootCAPaths, "root-certificate-authorities", "Root certificate authorities to trust.")
 
 	flag.Parse()
 }
@@ -81,5 +83,10 @@ func main() {
 		panic(err)
 	}
 
-	<-proxy.New(k8sClient, metricsAddr, []string(insecureRegistries)).Run()
+	rootCAs, err := registry.LoadRootCAPoolFromFiles(rootCAPaths)
+	if err != nil {
+		panic(fmt.Errorf("could not load root certificate authorities: %s", err))
+	}
+
+	<-proxy.New(k8sClient, metricsAddr, []string(insecureRegistries), rootCAs).Run()
 }

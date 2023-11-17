@@ -38,6 +38,7 @@ func main() {
 	var architectures internal.ArrayFlags
 	var maxConcurrentCachedImageReconciles int
 	var insecureRegistries internal.ArrayFlags
+	var rootCAPaths internal.ArrayFlags
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
@@ -50,6 +51,7 @@ func main() {
 	flag.StringVar(&registry.Endpoint, "registry-endpoint", "kube-image-keeper-registry:5000", "The address of the registry where cached images are stored.")
 	flag.IntVar(&maxConcurrentCachedImageReconciles, "max-concurrent-cached-image-reconciles", 3, "Maximum number of CachedImages that can be handled and reconciled at the same time (put or removed from cache).")
 	flag.Var(&insecureRegistries, "insecure-registries", "Insecure registries to allow to cache and proxify images from (this flag can be used multiple times).")
+	flag.Var(&rootCAPaths, "root-certificate-authorities", "Root certificate authorities to trust.")
 
 	opts := zap.Options{
 		Development:     true,
@@ -74,6 +76,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	rootCAs, err := registry.LoadRootCAPoolFromFiles(rootCAPaths)
+	if err != nil {
+		setupLog.Error(err, "could not load root certificate authorities")
+		os.Exit(1)
+	}
+
 	if err = (&controllers.CachedImageReconciler{
 		Client:             mgr.GetClient(),
 		Scheme:             mgr.GetScheme(),
@@ -82,6 +90,7 @@ func main() {
 		ExpiryDelay:        time.Duration(expiryDelay*24) * time.Hour,
 		Architectures:      []string(architectures),
 		InsecureRegistries: []string(insecureRegistries),
+		RootCAs:            rootCAs,
 	}).SetupWithManager(mgr, maxConcurrentCachedImageReconciles); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "CachedImage")
 		os.Exit(1)
