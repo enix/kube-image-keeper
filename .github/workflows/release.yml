@@ -143,7 +143,7 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            ${{ env.GHCR_REGISTRY }}/${{ github.repository }}
+            ${{ env.GHCR_IMAGE }}
             ${{ github.repository }}
             ${{ env.QUAY_IMAGE }}
 
@@ -351,7 +351,8 @@ jobs:
       CR_VERSION: "1.4.1"
       VERSION: ${{ needs.release.outputs.version }}
       PRERELEASE: ${{ needs.release.outputs.prerelease }}
-      QUAY_REPOSITORY: "quay.io/enix/kube-image-keeper"
+      QUAY_IMAGE: "quay.io/enix/kube-image-keeper"
+      GHCR_IMAGE: "ghcr.io/enix/kube-image-keeper"
     steps:
       - name: Configure git
         run: |
@@ -412,6 +413,13 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Login to GHCR 
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ env.COMMIT_NAME }}
+          password: ${{ secrets.RELEASE_GITHUB_TOKEN }}
+
       - name: Login to Quay.io
         uses: docker/login-action@v3
         with:
@@ -425,7 +433,8 @@ jobs:
         with:
           images: |
             ${{ github.repository }}
-            ${{ env.QUAY_REPOSITORY }}
+            ${{ env.QUAY_IMAGE }}
+            ${{ env.GHCR_IMAGE }}
 
       - name: Build container images
         uses: docker/build-push-action@v5
@@ -439,7 +448,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           tags: |
             ${{ github.repository }}:${{ env.VERSION }}
-            ${{ env.QUAY_REPOSITORY }}:${{ env.VERSION }}
+            ${{ env.QUAY_IMAGE }}:${{ env.VERSION }}
+            ${{ env.GHCR_IMAGE }}:${{ env.VERSION }}
 
       - name: Push container images tag (Latest)
         uses: docker/build-push-action@v5
@@ -454,7 +464,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           tags: |
             ${{ github.repository }}:latest
-            ${{ env.QUAY_REPOSITORY }}:latest
+            ${{ env.QUAY_IMAGE }}:latest
+            ${{ env.GHCR_IMAGE }}:latest
       
       - name: Push container images tag (Release)
         uses: docker/build-push-action@v5
@@ -468,7 +479,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           tags: |
             ${{ github.repository }}:${{ env.VERSION }}
-            ${{ env.QUAY_REPOSITORY }}:${{ env.VERSION  }}
+            ${{ env.QUAY_IMAGE }}:${{ env.VERSION }}
+            ${{ env.GHCR_IMAGE }}:${{ env.VERSION }}
 
       - name: Push alpine container images tag (Release)
         uses: docker/build-push-action@v5
@@ -483,7 +495,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           tags: |
             ${{ github.repository }}:${{ env.VERSION }}-alpine
-            ${{ env.QUAY_REPOSITORY }}:${{ env.VERSION  }}-alpine
+            ${{ env.QUAY_IMAGE }}:${{ env.VERSION  }}-alpine
+            ${{ env.GHCR_IMAGE }}:${{ env.VERSION  }}-alpine
 
       - name: Convert Github changelog for Artifacthub
         shell: python
