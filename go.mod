@@ -12,7 +12,7 @@ require (
 	github.com/go-logr/logr v1.3.0
 	github.com/google/go-containerregistry v0.12.1
 	github.com/onsi/ginkgo v1.16.5
-	github.com/onsi/gomega v1.28.1
+	github.com/onsi/gomega v1.30.0
 	github.com/prometheus/client_golang v1.17.0
 	go.uber.org/automaxprocs v1.5.3
 	go.uber.org/zap v1.26.0
