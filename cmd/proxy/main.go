@@ -49,7 +49,7 @@ func main() {
 		klog.Info("using in-cluster configuration")
 		config, err = rest.InClusterConfig()
 	} else {
-		klog.Info("using configuration from '%s'", kubeconfig)
+		klog.Infof("using configuration from '%s'", kubeconfig)
 		config, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
 	}
 
