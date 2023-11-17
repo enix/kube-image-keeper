@@ -39,7 +39,7 @@ spec:
                     sleep 1
                   done
 
-                  kubectl exec deploy/kube-image-keeper-registry -- bin/registry garbage-collect /etc/docker/registry/config.yml --delete-untagged=true
+                  kubectl exec deploy/{{ include "kube-image-keeper.fullname" . }}-registry -- bin/registry garbage-collect /etc/docker/registry/config.yml --delete-untagged=true
                   kubectl set env deploy {{ include "kube-image-keeper.fullname" . }}-registry REGISTRY_STORAGE_MAINTENANCE_READONLY-
                   {{- else }}
                   kubectl rollout restart sts {{ include "kube-image-keeper.fullname" . }}-registry
