@@ -1,4 +1,7 @@
-{{- if eq (include "kube-image-keeper.registry-stateless-mode" .) "true" }}
+{{- if and (eq (include "kube-image-keeper.registry-stateless-mode" .) "false") (gt (int .Values.registry.replicas) 1) }}
+{{ fail "registry needs a configured S3 endpoint to enable HA mode (>1 replicas), please enable minio or configure an external S3 endpoint" }}
+{{- end }}
+
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -10,6 +13,8 @@ spec:
     matchLabels:
       {{- include "kube-image-keeper.registry-selectorLabels" . | nindent 6 }}
   replicas: {{ .Values.registry.replicas }}
+  strategy:
+    type: Recreate
   template:
     metadata:
       {{- with .Values.registry.podAnnotations }}
@@ -28,6 +33,35 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml .Values.registry.podSecurityContext | nindent 8 }}
+       {{- if and .Values.registry.persistence.enabled (eq (include "kube-image-keeper.registry-stateless-mode" .) "false") }}
+      initContainers:
+        - name: setup-dirs
+          image: "{{ .Values.registry.image.repository }}:{{ .Values.registry.image.tag }}"
+          imagePullPolicy: {{ .Values.registry.image.pullPolicy }}
+          command:
+            - mkdir
+            - -p
+            - /var/lib/registry/docker/registry/v2/repositories/
+            - /var/lib/registry/docker/registry/v2/blobs/
+          resources:
+            {{- toYaml .Values.registry.resources | nindent 12 }}
+          volumeMounts:
+            - mountPath: /var/lib/registry
+              name: data
+        - name: garbage-collector
+          image: "{{ .Values.registry.image.repository }}:{{ .Values.registry.image.tag }}"
+          imagePullPolicy: {{ .Values.registry.image.pullPolicy }}
+          command:
+            - bin/registry
+            - garbage-collect
+            - /etc/docker/registry/config.yml
+            - --delete-untagged={{ .Values.registry.garbageCollection.deleteUntagged }}
+          resources:
+            {{- toYaml .Values.registry.resources | nindent 12 }}
+          volumeMounts:
+            - mountPath: /var/lib/registry
+              name: data
+      {{- end }}
       containers:
         - name: registry
           securityContext:
@@ -47,14 +81,15 @@ spec:
                   key: secret
             - name: REGISTRY_STORAGE_DELETE_ENABLED
               value: "true"
-            - name: REGISTRY_STORAGE
-              value: s3
             {{- if .Values.registry.serviceMonitor.create }}
             - name: REGISTRY_HTTP_DEBUG_ADDR
               value: 0.0.0.0:5001
             - name: REGISTRY_HTTP_DEBUG_PROMETHEUS_ENABLED
               value: "true"
             {{- end }}
+            {{- if (eq (include "kube-image-keeper.registry-stateless-mode" .) "true") }}
+            - name: REGISTRY_STORAGE
+              value: s3
             {{- if .Values.minio.enabled }}
             - name: REGISTRY_STORAGE_S3_REGION
               value: us-east-1
@@ -85,10 +120,16 @@ spec:
                 secretKeyRef:
                   name: {{ $s3KeysSecretName }}
                   key: secretKey
+            {{- end }}
             {{- range .Values.registry.env }}
             - name: {{ .name }}
               value: {{ .value | quote }}
             {{- end }}
+          {{- if and .Values.registry.persistence.enabled (eq (include "kube-image-keeper.registry-stateless-mode" .) "false") }}
+          volumeMounts:
+            - mountPath: /var/lib/registry
+              name: data
+          {{- end }}
       {{- with .Values.registry.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -101,4 +142,9 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-{{- end }}
+      {{- if and .Values.registry.persistence.enabled (eq (include "kube-image-keeper.registry-stateless-mode" .) "false") }}
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: {{ include "kube-image-keeper.fullname" . }}-registry-data
+      {{- end }}
