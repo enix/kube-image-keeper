@@ -225,6 +225,27 @@ Kuik will only cache available architectures for an image, but will not crash if
 
 No manual action is required when migrating an amd64-only cluster from v1.3.0 to v1.4.0.
 
+### Corporate proxy
+
+To configure kuik to work behind a corporate proxy, you can set the well known `http_proxy` and `https_proxy` environment variables (upper and lowercase variant both works) through helm values `.proxy.env` and `.controllers.env` like shown below:
+
+```yaml
+controllers:
+  env:
+    - name: http_proxy
+      value: https://proxy.mycompany.org:3128
+    - name: https_proxy
+      value: https://proxy.mycompany.org:3128
+proxy:
+  env:
+    - name: http_proxy
+      value: https://proxy.mycompany.org:3128
+    - name: https_proxy
+      value: https://proxy.mycompany.org:3128
+```
+
+Be careful that both the proxy and the controllers need to access the kubernetes API, so you might need to define the `no_proxy` variable as well to ignore the kubernetes API in case it is not reachable from your proxy (which is true most of the time).
+
 ## Garbage collection and limitations
 
 When a CachedImage expires because it is not used anymore by the cluster, the image is deleted from the registry. However, since kuik uses [Docker's registry](https://docs.docker.com/registry/), this only deletes **reference files** like tags. It doesn't delete blobs, which account for most of the used disk space. [Garbage collection](https://docs.docker.com/registry/garbage-collection/) allows removing those blobs and free up space. The garbage collecting job can be configured to run thanks to the `registry.garbageCollectionSchedule` configuration in a cron-like format. It is disabled by default, because running garbage collection without persistence would just wipe out the cache registry.
