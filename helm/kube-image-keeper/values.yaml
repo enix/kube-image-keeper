@@ -257,6 +257,9 @@ registry:
     extraLabels: {}
     # -- Relabel config for the ServiceMonitor, see: https://coreos.com/operators/prometheus/docs/latest/api.html#relabelconfig
     relabelings: []
+  serviceAccount:
+    # -- Annotations to add to the servicateAccount
+    annotations: {}
 
 registryUI:
   # -- If true, enable the registry user interface
