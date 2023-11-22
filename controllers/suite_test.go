@@ -139,6 +139,7 @@ var _ = BeforeSuite(func() {
 
 	err = (&CachedImageReconciler{
 		Client:      k8sManager.GetClient(),
+		ApiReader:   k8sManager.GetClient(),
 		Scheme:      k8sManager.GetScheme(),
 		Recorder:    k8sManager.GetEventRecorderFor("cachedimage-controller"),
 		ExpiryDelay: 1 * time.Hour,

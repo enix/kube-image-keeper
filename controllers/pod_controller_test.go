@@ -38,6 +38,17 @@ var podStub = corev1.Pod{
 	},
 }
 
+var serviceAccountStub = corev1.ServiceAccount{
+	ObjectMeta: metav1.ObjectMeta{
+		Name:      "test",
+		Namespace: podStub.Namespace,
+	},
+	ImagePullSecrets: []corev1.LocalObjectReference{
+		{Name: "service-account-pull-secret"},
+		{Name: "service-account-pull-secret-2"},
+	},
+}
+
 var podStubNotRewritten = corev1.Pod{
 	ObjectMeta: metav1.ObjectMeta{
 		Name:      "test-pod",
@@ -156,6 +167,10 @@ var _ = Describe("Pod Controller", func() {
 		Expect(k8sClient.Delete(context.Background(), &podStub)).Should(suceedOrNotFound)
 		Expect(k8sClient.Delete(context.Background(), &podStubNotRewritten)).Should(suceedOrNotFound)
 
+		// allow to reuse the stub
+		podStub.ResourceVersion = ""
+		podStubNotRewritten.ResourceVersion = ""
+
 		By("Deleting all cached images")
 		Expect(k8sClient.DeleteAllOf(context.Background(), &kuikenixiov1alpha1.CachedImage{})).Should(Succeed())
 	})
@@ -204,6 +219,28 @@ var _ = Describe("Pod Controller", func() {
 				_ = k8sClient.List(context.Background(), fetched)
 				return fetched.Items
 			}, timeout, interval).Should(HaveLen(0))
+		})
+		It("Should create CachedImages with imagePullSecrets from Pod's ServiceAccount", func() {
+			By("Creating a Pod with a ServiceAccount")
+			Expect(k8sClient.Create(context.Background(), &serviceAccountStub)).Should(Succeed())
+
+			podStub.Spec.ServiceAccountName = serviceAccountStub.Name
+			Expect(k8sClient.Create(context.Background(), &podStub)).Should(Succeed())
+
+			fetched := &kuikenixiov1alpha1.CachedImageList{}
+			Eventually(func() []kuikenixiov1alpha1.CachedImage {
+				_ = k8sClient.List(context.Background(), fetched)
+				return fetched.Items
+			}, timeout, interval).Should(HaveLen(len(podStub.Spec.Containers) + len(podStub.Spec.InitContainers)))
+
+			imagePullSecretNames := make([]string, len(serviceAccountStub.ImagePullSecrets))
+			for i, imagePullSecretName := range serviceAccountStub.ImagePullSecrets {
+				imagePullSecretNames[i] = imagePullSecretName.Name
+			}
+
+			for _, cachedImage := range fetched.Items {
+				Expect(cachedImage.Spec.PullSecretNames).Should(ContainElements(imagePullSecretNames))
+			}
 		})
 	})
 })

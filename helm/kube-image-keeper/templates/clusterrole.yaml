@@ -26,6 +26,13 @@ rules:
   - apiGroups:
     - ""
     resources:
+    - serviceaccounts
+    verbs:
+    - list
+    - watch
+  - apiGroups:
+    - ""
+    resources:
     - pods/finalizers
     verbs:
     - update
