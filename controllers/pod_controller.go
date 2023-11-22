@@ -60,6 +60,10 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	log.Info("reconciling pod")
 
 	cachedImages := desiredCachedImages(ctx, &pod)
+	serviceAccountImagePullSecrets, err := r.imagePullSecretNamesFromPodServiceAccount(ctx, &pod)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 
 	// On pod deletion
 	if !pod.DeletionTimestamp.IsZero() {
@@ -80,6 +84,8 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			log.Info("cachedimage is already being deleted, skipping", "cachedImage", klog.KObj(&cachedImage))
 			continue
 		}
+
+		cachedImage.Spec.PullSecretNames = append(cachedImage.Spec.PullSecretNames, serviceAccountImagePullSecrets...)
 
 		// Create or update CachedImage depending on weather it already exists or not
 		if apierrors.IsNotFound(err) {
@@ -241,4 +247,24 @@ func cachedImageFromSourceImage(sourceImage string) (*kuikenixiov1alpha1.CachedI
 	}
 
 	return &cachedImage, nil
+}
+
+func (r *PodReconciler) imagePullSecretNamesFromPodServiceAccount(ctx context.Context, pod *corev1.Pod) ([]string, error) {
+	if pod.Spec.ServiceAccountName == "" {
+		return []string{}, nil
+	}
+
+	var serviceAccount corev1.ServiceAccount
+	serviceAccountNamespacedName := types.NamespacedName{Namespace: pod.Namespace, Name: pod.Spec.ServiceAccountName}
+	if err := r.Get(ctx, serviceAccountNamespacedName, &serviceAccount); err != nil {
+		return []string{}, err
+	}
+
+	imagePullSecretNames := make([]string, len(serviceAccount.ImagePullSecrets))
+
+	for i, imagePullSecret := range serviceAccount.ImagePullSecrets {
+		imagePullSecretNames[i] = imagePullSecret.Name
+	}
+
+	return imagePullSecretNames, nil
 }
