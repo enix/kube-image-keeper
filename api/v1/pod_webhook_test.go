@@ -121,3 +121,64 @@ func TestInjectDecoder(t *testing.T) {
 		g.Expect(ir.decoder).To(Equal(decoder))
 	})
 }
+
+func Test_isImageIgnored(t *testing.T) {
+	emptyRegexps := []*regexp.Regexp{}
+	someRegexps := []*regexp.Regexp{
+		regexp.MustCompile("alpine"),
+		regexp.MustCompile(".*:latest"),
+	}
+
+	tests := []struct {
+		name    string
+		image   string
+		regexps []*regexp.Regexp
+		ignored bool
+	}{
+		{
+			name:    "No regex",
+			image:   "alpine",
+			regexps: emptyRegexps,
+			ignored: false,
+		},
+		{
+			name:    "No regex with digest",
+			image:   "alpine:latest@sha256:5b161f051d017e55d358435f295f5e9a297e66158f136321d9b04520ec6c48a3",
+			regexps: emptyRegexps,
+			ignored: true,
+		},
+		{
+			name:    "Match first regex",
+			image:   "alpine",
+			regexps: someRegexps,
+			ignored: true,
+		},
+		{
+			name:    "Match second regex",
+			image:   "nginx:latest",
+			regexps: someRegexps,
+			ignored: true,
+		},
+		{
+			name:    "Match no regex",
+			image:   "nginx",
+			regexps: someRegexps,
+			ignored: false,
+		},
+	}
+
+	g := NewWithT(t)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			imageRewriter := ImageRewriter{
+				IgnoreImages: tt.regexps,
+			}
+
+			ignored := imageRewriter.isImageIgnored(&corev1.Container{
+				Image: tt.image,
+			})
+
+			g.Expect(ignored).To(Equal(tt.ignored))
+		})
+	}
+}
