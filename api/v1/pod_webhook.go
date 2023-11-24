@@ -96,6 +96,9 @@ func (a *ImageRewriter) handleContainer(pod *corev1.Pod, container *corev1.Conta
 }
 
 func (a *ImageRewriter) isImageIgnored(container *corev1.Container) (ignored bool) {
+	if strings.Contains(container.Image, "@") {
+		return true
+	}
 	for _, r := range a.IgnoreImages {
 		if r.MatchString(container.Image) {
 			return true

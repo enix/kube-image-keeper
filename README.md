@@ -280,6 +280,7 @@ controllers:
 ### Private images are a bit less private
 
 Imagine the following scenario:
+
 - pods A and B use a private image, `example.com/myimage:latest`
 - pod A correctly references `imagePullSecrets, but pod B does not
 
@@ -291,7 +292,10 @@ Howevever, when using kuik, once an image has been pulled and stored in kuik's r
 
 With kuik, all image pulls (except in the namespaces excluded from kuik) go through kuik's registry proxy, which runs on each node thanks to a DaemonSet. When a node gets added to a Kubernetes cluster (for instance, by the cluster autoscaler), a kuik registry proxy Pod gets scheduled on that node, but it will take a brief moment to start. During that time, all other image pulls will fail. Thanks to Kubernetes automatic retry mechanisms, they will eventually succeed, but on new nodes, you may see Pods in `ErrImagePull` or `ImagePullBackOff` status for a minute before everything works correctly. If you are using cluster autoscaling and try to achieve very fast scale-up times, this is something that you might want to keep in mind.
 
-
 ### Garbage collection issue
 
 We use Docker Distribution in Kuik, along with the integrated garbage collection tool. There is a bug that occurs when untagged images are pushed into the registry, causing it to crash. It's possible to end up in a situation where the registry is in read-only mode and becomes unusable. Until a permanent solution is found, we advise keeping the value `registry.garbageCollection.deleteUntagged` set to false.
+
+### Images with digest
+
+As of today, there is no way to manage container images based on a digest. The rational behind this limitation is that a digest is an image manifest hash, and the manifest contains the registry URL associated with the image. Thus, pushing the image to another registry (our cache registry) changes its digest and as a consequence, it is not anymore referenced by its original digest. Digest validation prevent from pushing a manifest with an invalid digest. Therefore, we currently ignore all images based on a digest, those images will not be rewritten nor put in cache to prevent malfunctionning of kuik.
