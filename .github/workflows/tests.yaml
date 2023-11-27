@@ -25,7 +25,7 @@ jobs:
 
       - name: check-for-cc
         id: check-for-cc
-        uses: webiny/action-conventional-commits@v1.1.0
+        uses: webiny/action-conventional-commits@v1.2.0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
