@@ -54,6 +54,11 @@ controllers:
   affinity: {}
   # -- Extra env variables for the controllers pod
   env: []
+  # -- Readiness probe definition for the controllers pod
+  readinessProbe:
+    httpGet:
+      path: /readyz
+      port: 8081
   resources:
     requests:
       # -- Cpu requests for the controller pod
