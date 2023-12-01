@@ -67,6 +67,10 @@ spec:
               name: registry-certificate-authorities
               readOnly: true
           {{- end }}
+          {{- with .Values.proxy.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- with .Values.proxy.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
