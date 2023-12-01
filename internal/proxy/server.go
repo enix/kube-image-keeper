@@ -128,14 +128,9 @@ func (p *Proxy) Run() chan struct{} {
 	return finished
 }
 
+// https://distribution.github.io/distribution/spec/api/#api-version-check
 func (p *Proxy) v2Endpoint(c *gin.Context) {
-	c.Set("cacheHit", true)
-	err := p.proxyRegistry(c, registry.Protocol+registry.Endpoint, false, nil)
-	if err != nil {
-		klog.Errorf("could not proxy registry: %s", err)
-		_ = c.AbortWithError(http.StatusInternalServerError, err)
-		return
-	}
+	c.JSON(200, map[string]string{})
 }
 
 func (p *Proxy) routeProxy(c *gin.Context) {
