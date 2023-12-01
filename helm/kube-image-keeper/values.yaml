@@ -222,6 +222,11 @@ registry:
   httpSecret: ""
   # -- Extra env variables for the registry pod
   env: []
+  # -- Readiness probe definition for the registry pod
+  readinessProbe:
+    httpGet:
+      path: /v2/
+      port: 5000
   resources:
     requests:
       # -- Cpu requests for the registry pod
