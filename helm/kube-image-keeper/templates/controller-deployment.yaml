@@ -86,6 +86,10 @@ spec:
               name: registry-certificate-authorities
               readOnly: true
             {{- end }}
+          {{- with .Values.controllers.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- with .Values.controllers.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
