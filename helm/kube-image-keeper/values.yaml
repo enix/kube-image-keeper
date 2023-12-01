@@ -151,6 +151,11 @@ proxy:
   affinity: {}
   # -- Extra env variables for the proxy pod
   env: []
+  # -- Readiness probe definition for the proxy pod
+  readinessProbe:
+    httpGet:
+      path: /v2/
+      port: 8082
   resources:
     requests:
       # -- Cpu requests for the proxy pod
