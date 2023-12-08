@@ -130,6 +130,8 @@ func (p *Proxy) Run() chan struct{} {
 
 // https://distribution.github.io/distribution/spec/api/#api-version-check
 func (p *Proxy) v2Endpoint(c *gin.Context) {
+	c.Header("Docker-Distribution-Api-Version", "registry/2.0")
+	c.Header("X-Content-Type-Options", "nosniff")
 	c.JSON(200, map[string]string{})
 }
 
