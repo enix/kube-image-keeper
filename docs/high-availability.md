@@ -15,6 +15,7 @@ The registry supports various storage solutions, some of which enable high avail
 | PVC (RWX)     |      Yes      | `registry.persistence.enabled=true`, `registry.persistence.accessModes='ReadWriteMany'` |
 | MinIO         |      Yes      | `minio.enabled=true`                |
 | S3-compatible |      Yes      | `registry.persistence.s3=...`       |
+| GCS           |      Yes      | `registry.persistence.gcs=...`      |
 
 HA-compatible backends uses a deployment whereas other backends relies on a statefulset.
 
@@ -72,6 +73,27 @@ kubectl create secret generic secret-name \
 ```
 
 If you want to use MinIO and self-host MinIO on your Kubernetes cluster, the kuik Helm chart can help with that! Check the next section for details.
+
+## GCS
+
+Google Cloud Storage can also be used as a storage backend for the registry. Here is an example of values to use GCS:
+
+```yaml
+registry:
+  persistence:
+    gcsExistingSecret: secret-name
+    gcs:
+      bucket: registry
+```
+
+Please refer to the [Docker registry documentation](https://distribution.github.io/distribution/about/configuration/) for more details.
+
+Note that you will need to create a Secret holding the associated service account secret:
+
+```
+kubectl create secret generic secret-name \
+        --from-literal=credentials.json=${GCS_KEY}
+```
 
 ## MinIO
 

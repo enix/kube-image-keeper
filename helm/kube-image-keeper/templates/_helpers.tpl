@@ -110,5 +110,5 @@ Create the name of the service account to use
 {{- end }}
 
 {{- define "kube-image-keeper.registry-stateless-mode" -}}
-{{- ternary "true" "false" (or .Values.minio.enabled (not (empty .Values.registry.persistence.s3))) }}
+{{- ternary "true" "false" (or .Values.minio.enabled (not (empty .Values.registry.persistence.s3)) (not (empty .Values.registry.persistence.gcs))) }}
 {{- end }}
