@@ -208,7 +208,7 @@ registry:
     # -- Registry image pull policy
     pullPolicy: IfNotPresent
     # -- Registry image tag
-    tag: "2.8"
+    tag: "2.8.3"
   # -- Number of replicas for the registry pod
   replicas: 1
   persistence:
@@ -225,6 +225,10 @@ registry:
     s3ExistingSecret: ""
     # -- Disable blobs redirection to S3 bucket (useful if your S3 instance is not accessible from kubelet)
     disableS3Redirections: false
+    # -- GCS configuration (see https://github.com/distribution/distribution/blob/main/docs/content/storage-drivers/gcs.md)
+    gcs: {}
+    # use service account secret in JSON format
+    gcsExistingSecret: ""
   garbageCollection:
     # -- Garbage collector cron schedule. Use standard crontab format.
     schedule: "0 0 * * 0"
