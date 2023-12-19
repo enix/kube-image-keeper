@@ -243,9 +243,6 @@ func (p *Proxy) getAuthentifiedTransport(registryDomain string, repository strin
 	}
 
 	cachedImage := cachedImages.Items[0] // Images from the same repository should need the same pull-secret
-	if len(cachedImage.Spec.PullSecretNames) == 0 {
-		return nil, nil // Not an error since not all images requires authentication to be pulled
-	}
 
 	keychain := registry.NewKubernetesKeychain(p.k8sClient, cachedImage.Spec.PullSecretsNamespace, cachedImage.Spec.PullSecretNames)
 
