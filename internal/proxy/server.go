@@ -108,11 +108,11 @@ func (p *Proxy) Serve() *Proxy {
 	return p
 }
 
-func (p *Proxy) Run() chan struct{} {
+func (p *Proxy) Run(proxyAddr string) chan struct{} {
 	p.Serve()
 	finished := make(chan struct{})
 	go func() {
-		if err := p.engine.Run(":8082"); err != nil {
+		if err := p.engine.Run(proxyAddr); err != nil {
 			panic(err)
 		}
 		finished <- struct{}{}
