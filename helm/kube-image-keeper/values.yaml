@@ -105,10 +105,14 @@ proxy:
     pullPolicy: IfNotPresent
     # -- Proxy image tag. Default chart appVersion
     tag: ""
+  # -- whether to run the proxy daemonset in hostNetwork mode
+  hostNetwork: false
   # -- hostPort used for the proxy pod
   hostPort: 7439
   # -- hostIp used for the proxy pod
   hostIp: "127.0.0.1"
+  # -- metricsPort used for the proxy pod (to expose prometheus metrics)
+  metricsPort: 8080
   # -- Verbosity level for the proxy pod
   verbosity: 1
   # -- Specify secrets to be used when pulling proxy image
