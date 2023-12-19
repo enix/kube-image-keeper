@@ -25,6 +25,10 @@ spec:
       {{- if .Values.proxy.priorityClassName }}
       priorityClassName: {{ .Values.proxy.priorityClassName | quote }}
       {{- end }}
+      {{- if .Values.proxy.hostNetwork }}
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- end }}
       securityContext:
         {{- toYaml .Values.proxy.podSecurityContext | nindent 8 }}
       containers:
@@ -34,6 +38,15 @@ spec:
           image: "{{ .Values.proxy.image.repository }}:{{ .Values.proxy.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.proxy.image.pullPolicy }}
           ports:
+            {{- if .Values.proxy.hostNetwork }}
+            - containerPort: {{ .Values.proxy.hostPort }}
+              hostPort: {{ .Values.proxy.hostPort }}
+              protocol: TCP
+            - containerPort: {{ .Values.proxy.metricsPort }}
+              hostPort: {{ .Values.proxy.metricsPort }}
+              name: metrics
+              protocol: TCP
+            {{- else }}
             - containerPort: 8082
               hostIP: {{ .Values.proxy.hostIp }}
               hostPort: {{ .Values.proxy.hostPort }}
@@ -41,6 +54,7 @@ spec:
             - containerPort: 8080
               name: metrics
               protocol: TCP
+            {{- end }}
           command:
             - registry-proxy
             - -v={{ .Values.proxy.verbosity }}
@@ -56,6 +70,10 @@ spec:
             {{- range .keys }}
             - -root-certificate-authorities=/etc/ssl/certs/registry-certificate-authorities/{{- . }}
             {{- end }}
+            {{- end }}
+            {{- if .Values.proxy.hostNetwork }}
+            - -bind-address={{ .Values.proxy.hostIp }}:{{ .Values.proxy.hostPort }}
+            - -metrics-bind-address={{ .Values.proxy.hostIp }}:{{ .Values.proxy.metricsPort }}
             {{- end }}
           {{- if .Values.rootCertificateAuthorities }}
           {{- with .Values.proxy.env }}
