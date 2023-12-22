@@ -227,7 +227,7 @@ No manual action is required when migrating an amd64-only cluster from v1.3.0 to
 
 ### Corporate proxy
 
-To configure kuik to work behind a corporate proxy, you can set the well known `http_proxy` and `https_proxy` environment variables (upper and lowercase variant both works) through helm values `.proxy.env` and `.controllers.env` like shown below:
+To configure kuik to work behind a corporate proxy, you can set the well known `http_proxy` and `https_proxy` environment variables (upper and lowercase variant both works) through helm values `proxy.env` and `controllers.env` like shown below:
 
 ```yaml
 controllers:
@@ -245,6 +245,23 @@ proxy:
 ```
 
 Be careful that both the proxy and the controllers need to access the kubernetes API, so you might need to define the `no_proxy` variable as well to ignore the kubernetes API in case it is not reachable from your proxy (which is true most of the time).
+
+### Insecure registries & self-signed certificates
+
+In some cases, you may want to use images from self-hosted registries that are insecure (without TLS or with an invalid certificate for instance) or using a self-signed certificate. By default, kuik will not allow to cache images from those registries for security reasons, even though you configured your container runtime (e.g. Docker, containerd) to do so. However you can choose to trust a list of insecure registries to pull from using the helm value `insecureRegistries`. If you use a self-signed certificate you can store the root certificate authority in a secret and reference it with the helm value `rootCertificateAuthorities`. Here is an example of the use of those two values:
+
+```yaml
+insecureRegistries:
+  - http://some-registry.com
+  - https://some-other-registry.com
+
+rootCertificateAuthorities:
+  secretName: some-secret
+  keys:
+    - root.pem
+```
+
+You can of course use as many insecure registries or root certificate authorities as you want. In the case of a self-signed certificate, you can either use the `insecureRegistries` or the `rootCertificateAuthorities` value, but trusting the root certificate will always be more secure than allowing insecure registries.
 
 ## Garbage collection and limitations
 
