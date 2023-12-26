@@ -133,6 +133,9 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err != nil && !apierrors.IsNotFound(err) {
 			return ctrl.Result{}, err
 		}
+		if err := r.Get(ctx, req.NamespacedName, &cachedImage); err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
 	}
 
 	// Delete expired CachedImage and schedule deletion for expiring ones
@@ -170,9 +173,6 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			log.Info("image cached")
 			r.Recorder.Eventf(&cachedImage, "Normal", "Cached", "Successfully cached image %s", cachedImage.Spec.SourceImage)
 			imagePutInCache.Inc()
-			if err := r.Get(ctx, req.NamespacedName, &cachedImage); err != nil {
-				return ctrl.Result{}, client.IgnoreNotFound(err)
-			}
 		}
 	} else {
 		log.Info("image already present in cache, ignoring")
