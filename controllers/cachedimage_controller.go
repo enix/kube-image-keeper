@@ -162,8 +162,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	if !isCached {
 		r.Recorder.Eventf(&cachedImage, "Normal", "Caching", "Start caching image %s", cachedImage.Spec.SourceImage)
-		keychain := registry.NewKubernetesKeychain(r.ApiReader, cachedImage.Spec.PullSecretsNamespace, cachedImage.Spec.PullSecretNames)
-		if err := registry.CacheImage(cachedImage.Spec.SourceImage, keychain, r.Architectures, r.InsecureRegistries, r.RootCAs); err != nil {
+		if err := r.cacheImage(&cachedImage); err != nil {
 			log.Error(err, "failed to cache image")
 			r.Recorder.Eventf(&cachedImage, "Warning", "CacheFailed", "Failed to cache image %s, reason: %s", cachedImage.Spec.SourceImage, err)
 			return ctrl.Result{}, err
@@ -192,6 +191,14 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	log.Info("reconciled cachedimage")
 	return ctrl.Result{}, nil
+}
+
+func (r *CachedImageReconciler) cacheImage(cachedImage *kuikenixiov1alpha1.CachedImage) error {
+	pullSecrets, err := registry.GetPullSecrets(r.ApiReader, cachedImage.Spec.PullSecretsNamespace, cachedImage.Spec.PullSecretNames)
+	if err != nil {
+		return err
+	}
+	return registry.CacheImage(cachedImage.Spec.SourceImage, pullSecrets, r.Architectures, r.InsecureRegistries, r.RootCAs)
 }
 
 // SetupWithManager sets up the controller with the Manager.

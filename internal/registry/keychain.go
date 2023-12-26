@@ -1,110 +1,80 @@
 package registry
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"sync"
 
 	ecrLogin "github.com/awslabs/amazon-ecr-credential-helper/ecr-login"
-	"github.com/docker/cli/cli/config"
-	dockerCliTypes "github.com/docker/cli/cli/config/types"
+	"github.com/distribution/reference"
 	"github.com/google/go-containerregistry/pkg/authn"
-	"github.com/google/go-containerregistry/pkg/name"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/kubernetes/pkg/credentialprovider"
+	credentialprovidersecrets "k8s.io/kubernetes/pkg/credentialprovider/secrets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const (
-	// DefaultAuthKey is the key used for dockerhub in config files, which
-	// is hardcoded for historical reasons.
-	DefaultAuthKey = "https://" + name.DefaultRegistry + "/v1/"
-)
-
-type kubernetesKeychain struct {
-	client     client.Reader
-	mu         sync.Mutex
-	namespace  string
-	pullSecret string
+type authConfigKeychain struct {
+	authn.AuthConfig
 }
 
-func NewKubernetesKeychain(client client.Reader, namespace string, pullSecrets []string) authn.Keychain {
+func (a *authConfigKeychain) Resolve(target authn.Resource) (authn.Authenticator, error) {
+	return authn.FromConfig(a.AuthConfig), nil
+}
+
+func GetKeychains(imageName string, pullSecrets []corev1.Secret) ([]authn.Keychain, error) {
+	defaultKeyring := &credentialprovider.BasicDockerKeyring{}
+
+	keyring, err := credentialprovidersecrets.MakeDockerKeyring(pullSecrets, defaultKeyring)
+	if err != nil {
+		return nil, err
+	}
+
 	keychains := []authn.Keychain{}
-	for _, pullSecret := range pullSecrets {
-		keychains = append(keychains, &kubernetesKeychain{
-			client:     client,
-			namespace:  namespace,
-			pullSecret: pullSecret,
+
+	named, err := reference.ParseNormalizedNamed(imageName)
+	if err != nil {
+		return nil, fmt.Errorf("couldn't parse image name: %v", err)
+	}
+
+	creds, _ := keyring.Lookup(named.Name())
+	for _, cred := range creds {
+		keychains = append(keychains, &authConfigKeychain{
+			AuthConfig: authn.AuthConfig{
+				Username:      cred.Username,
+				Password:      cred.Password,
+				Auth:          cred.Auth,
+				IdentityToken: cred.IdentityToken,
+				RegistryToken: cred.RegistryToken,
+			},
 		})
 	}
 
-	// Add ECR Login Helper
 	keychains = append(keychains, authn.NewKeychainFromHelper(ecrLogin.NewECRHelper()))
 
-	return authn.NewMultiKeychain(keychains...)
+	return keychains, nil
 }
 
-// Resolve implements Keychain.
-func (k *kubernetesKeychain) Resolve(target authn.Resource) (authn.Authenticator, error) {
-	k.mu.Lock()
-	defer k.mu.Unlock()
+func GetPullSecrets(apiReader client.Reader, namespace string, pullSecretNames []string) ([]corev1.Secret, error) {
+	pullSecrets := []corev1.Secret{}
+	for _, pullSecretName := range pullSecretNames {
+		var pullSecret corev1.Secret
+		err := apiReader.Get(context.TODO(), types.NamespacedName{
+			Namespace: namespace,
+			Name:      pullSecretName,
+		}, &pullSecret)
 
-	var secret corev1.Secret
-	err := k.client.Get(context.TODO(), types.NamespacedName{
-		Namespace: k.namespace,
-		Name:      k.pullSecret,
-	}, &secret)
-
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return authn.Anonymous, nil
-		} else {
-			return nil, err
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			} else {
+				return nil, err
+			}
 		}
+
+		pullSecrets = append(pullSecrets, pullSecret)
 	}
 
-	secretKey := ""
-	if secret.Type == corev1.SecretTypeDockerConfigJson {
-		secretKey = corev1.DockerConfigJsonKey
-	} else if secret.Type == corev1.SecretTypeDockercfg {
-		secretKey = corev1.DockerConfigKey
-	} else {
-		return nil, fmt.Errorf("invalid secret type (%s)", secret.Type)
-	}
-	dockerConfigJson, ok := secret.Data[secretKey]
-	if !ok {
-		return nil, fmt.Errorf("invalid secret: missing %s key", secretKey)
-	}
-	cf, err := config.LoadFromReader(bytes.NewReader(dockerConfigJson))
-	if err != nil {
-		return nil, err
-	}
-
-	// See:
-	// https://github.com/google/ko/issues/90
-	// https://github.com/moby/moby/blob/fc01c2b481097a6057bec3cd1ab2d7b4488c50c4/registry/config.go#L397-L404
-	authKey := target.RegistryStr()
-	if authKey == name.DefaultRegistry {
-		authKey = DefaultAuthKey
-	}
-
-	cfg, err := cf.GetAuthConfig(authKey)
-	if err != nil {
-		return nil, err
-	}
-
-	empty := dockerCliTypes.AuthConfig{}
-	if cfg == empty {
-		return authn.Anonymous, nil
-	}
-
-	return authn.FromConfig(authn.AuthConfig{
-		Username:      cfg.Username,
-		Password:      cfg.Password,
-		Auth:          cfg.Auth,
-		IdentityToken: cfg.IdentityToken,
-		RegistryToken: cfg.RegistryToken,
-	}), nil
+	return pullSecrets, nil
 }
