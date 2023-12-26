@@ -12,14 +12,16 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/docker/distribution/reference"
+	"github.com/distribution/reference"
 	kuikenixiov1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/metrics"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/gin-gonic/gin"
+	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	"golang.org/x/exp/slices"
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -144,7 +146,13 @@ func (p *Proxy) routeProxy(c *gin.Context) {
 	if err := p.proxyRegistry(c, registry.Protocol+registry.Endpoint, false, nil); err != nil {
 		klog.InfoS("cached image is not available, proxying origin", "originRegistry", originRegistry, "error", err)
 
-		transport, err := p.getAuthentifiedTransport(originRegistry, repository)
+		cachedImage, err := p.getCachedImage(originRegistry, repository)
+		if err != nil {
+			_ = c.AbortWithError(http.StatusInternalServerError, err)
+			return
+		}
+
+		transport, err := p.getAuthentifiedTransport(cachedImage, "https://"+originRegistry)
 		if err != nil {
 			_ = c.AbortWithError(http.StatusUnauthorized, err)
 			return
@@ -155,11 +163,15 @@ func (p *Proxy) routeProxy(c *gin.Context) {
 		}
 
 		err = p.proxyRegistry(c, "https://"+originRegistry, true, transport)
+		if err == nil {
+			return
+		}
+
 		if err != nil {
 			klog.Errorf("could not proxy registry: %s", err)
 			_ = c.AbortWithError(http.StatusInternalServerError, err)
-			return
 		}
+
 		return
 	}
 
@@ -227,8 +239,8 @@ func (p *Proxy) proxyRegistry(c *gin.Context, endpoint string, endpointIsOrigin 
 	return proxyError
 }
 
-func (p *Proxy) getAuthentifiedTransport(registryDomain string, repository string) (http.RoundTripper, error) {
-	repositoryLabel := registry.RepositoryLabel(registryDomain + "/" + repository)
+func (p *Proxy) getCachedImage(registryDomain string, repositoryName string) (*kuikenixiov1alpha1.CachedImage, error) {
+	repositoryLabel := registry.RepositoryLabel(registryDomain + "/" + repositoryName)
 	cachedImages := &kuikenixiov1alpha1.CachedImageList{}
 
 	klog.InfoS("listing CachedImages", "repositoryLabel", repositoryLabel)
@@ -244,25 +256,64 @@ func (p *Proxy) getAuthentifiedTransport(registryDomain string, repository strin
 
 	cachedImage := cachedImages.Items[0] // Images from the same repository should need the same pull-secret
 
-	keychain := registry.NewKubernetesKeychain(p.k8sClient, cachedImage.Spec.PullSecretsNamespace, cachedImage.Spec.PullSecretNames)
+	return &cachedImage, nil
+}
 
-	ref, err := name.ParseReference(cachedImage.Spec.SourceImage)
+func (p *Proxy) getKeychains(cachedImage *kuikenixiov1alpha1.CachedImage) ([]authn.Keychain, error) {
+	pullSecrets, err := registry.GetPullSecrets(p.k8sClient, cachedImage.Spec.PullSecretsNamespace, cachedImage.Spec.PullSecretNames)
 	if err != nil {
 		return nil, err
 	}
 
-	auth, err := keychain.Resolve(ref.Context())
+	return registry.GetKeychains(cachedImage.Spec.SourceImage, pullSecrets)
+}
+
+func (p *Proxy) getAuthentifiedTransport(cachedImage *kuikenixiov1alpha1.CachedImage, originRegistry string) (http.RoundTripper, error) {
+	imageRef, err := name.ParseReference(cachedImage.Spec.SourceImage)
+	if err != nil {
+		return nil, err
+	}
+
+	keychains, err := p.getKeychains(cachedImage)
+	if err != nil {
+		return nil, err
+	}
+
+	var proxyErrors []error
+	for _, keychain := range keychains {
+		transport, err := p.getAuthentifiedTransportWithKeychain(imageRef.Context(), keychain)
+		if err != nil {
+			proxyErrors = append(proxyErrors, err)
+			continue
+		}
+
+		client := &http.Client{Transport: transport}
+
+		// if :latest doesn't exist, it will respond with 404 so we still can know that this transport is well authentified (!= 401)
+		resp, err := client.Head(originRegistry + "/v2/" + imageRef.Context().RepositoryStr() + "/manifests/latest")
+		if err != nil {
+			proxyErrors = append(proxyErrors, err)
+		} else if resp.StatusCode != http.StatusUnauthorized {
+			return transport, nil
+		}
+	}
+
+	return nil, utilerrors.NewAggregate(proxyErrors)
+}
+
+func (p *Proxy) getAuthentifiedTransportWithKeychain(repository name.Repository, keychain authn.Keychain) (http.RoundTripper, error) {
+	auth, err := keychain.Resolve(repository)
 	if err != nil {
 		return nil, err
 	}
 
 	originalTransport := http.DefaultTransport.(*http.Transport).Clone()
 	originalTransport.TLSClientConfig = &tls.Config{RootCAs: p.rootCAs}
-	if slices.Contains(p.insecureRegistries, ref.Context().Registry.RegistryStr()) {
+	if slices.Contains(p.insecureRegistries, repository.Registry.RegistryStr()) {
 		originalTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	}
 
-	return transport.NewWithContext(context.Background(), ref.Context().Registry, auth, originalTransport, []string{ref.Scope(transport.PullScope)})
+	return transport.NewWithContext(context.Background(), repository.Registry, auth, originalTransport, []string{repository.Scope(transport.PullScope)})
 }
 
 // See https://github.com/golang/go/issues/28239, https://github.com/golang/go/issues/23643 and https://github.com/golang/go/issues/56228

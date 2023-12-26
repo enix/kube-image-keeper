@@ -13,6 +13,8 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/ghttp"
+	corev1 "k8s.io/api/core/v1"
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 )
 
 var mockedDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
@@ -238,15 +240,15 @@ func Test_CacheImage(t *testing.T) {
 		{
 			name:    "Basic",
 			image:   "*****",
-			wantErr: "could not parse reference",
-			errType: &name.ErrBadName{},
+			wantErr: "couldn't parse image name: invalid reference format",
+			errType: errors.New(""),
 		},
 		{
 			name:       "Image not found",
 			image:      "image-not-found",
 			httpStatus: http.StatusNotFound,
 			wantErr:    "could not find source image",
-			errType:    errors.New(""),
+			errType:    utilerrors.NewAggregate([]error{errors.New("")}),
 		},
 		{
 			name:         "Unauthorized",
@@ -254,7 +256,7 @@ func Test_CacheImage(t *testing.T) {
 			httpStatus:   http.StatusUnauthorized,
 			httpResponse: "unauthorized",
 			wantErr:      "unauthorized",
-			errType:      &transport.Error{},
+			errType:      utilerrors.NewAggregate([]error{&transport.Error{}}),
 		},
 		{
 			name:            "Could not write",
@@ -262,7 +264,7 @@ func Test_CacheImage(t *testing.T) {
 			putHttpStatus:   http.StatusUnauthorized,
 			putHttpResponse: "unauthorized",
 			wantErr:         "unauthorized",
-			errType:         &transport.Error{},
+			errType:         utilerrors.NewAggregate([]error{&transport.Error{}}),
 		},
 	}
 
@@ -328,8 +330,7 @@ func Test_CacheImage(t *testing.T) {
 			)
 
 			Endpoint = cacheRegistry.Addr()
-			keychain := NewKubernetesKeychain(nil, "default", []string{})
-			err := CacheImage(originRegistry.Addr()+"/"+tt.image, keychain, []string{"amd64"}, []string{}, nil)
+			err := CacheImage(originRegistry.Addr()+"/"+tt.image, []corev1.Secret{}, []string{"amd64"}, []string{}, nil)
 			if tt.wantErr != "" {
 				g.Expect(err).To(BeAssignableToTypeOf(tt.errType))
 				g.Expect(err).To(MatchError(ContainSubstring(tt.wantErr)))

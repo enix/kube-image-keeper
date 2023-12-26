@@ -18,6 +18,8 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	"github.com/google/go-containerregistry/pkg/v1/types"
+	corev1 "k8s.io/api/core/v1"
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/utils/strings/slices"
 )
 
@@ -100,7 +102,26 @@ func DeleteImage(imageName string) error {
 	return remote.Delete(digest)
 }
 
-func CacheImage(imageName string, keychain authn.Keychain, architectures []string, insecureRegistries []string, rootCAs *x509.CertPool) error {
+func CacheImage(imageName string, pullSecrets []corev1.Secret, architectures []string, insecureRegistries []string, rootCAs *x509.CertPool) error {
+	keychains, err := GetKeychains(imageName, pullSecrets)
+	if err != nil {
+		return err
+	}
+
+	var cacheErrors []error
+	for _, keychain := range keychains {
+		err := cacheImageWithKeychain(imageName, keychain, architectures, insecureRegistries, rootCAs)
+		if err == nil { // stops at the first success
+			return nil
+		}
+		cacheErrors = append(cacheErrors, err)
+	}
+
+	return utilerrors.NewAggregate(cacheErrors)
+
+}
+
+func cacheImageWithKeychain(imageName string, keychain authn.Keychain, architectures []string, insecureRegistries []string, rootCAs *x509.CertPool) error {
 	destRef, err := parseLocalReference(imageName)
 	if err != nil {
 		return err
