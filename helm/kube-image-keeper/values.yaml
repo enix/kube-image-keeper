@@ -164,7 +164,7 @@ proxy:
   readinessProbe:
     httpGet:
       path: /v2/
-      port: 8082
+      port: 7439
   resources:
     requests:
       # -- Cpu requests for the proxy pod
