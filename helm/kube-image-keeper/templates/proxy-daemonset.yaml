@@ -47,7 +47,7 @@ spec:
               name: metrics
               protocol: TCP
             {{- else }}
-            - containerPort: 8082
+            - containerPort: {{ .Values.proxy.hostPort }}
               hostIP: {{ .Values.proxy.hostIp }}
               hostPort: {{ .Values.proxy.hostPort }}
               protocol: TCP
@@ -74,6 +74,8 @@ spec:
             {{- if .Values.proxy.hostNetwork }}
             - -bind-address={{ .Values.proxy.hostIp }}:{{ .Values.proxy.hostPort }}
             - -metrics-bind-address={{ .Values.proxy.hostIp }}:{{ .Values.proxy.metricsPort }}
+            {{- else }}
+            - -bind-address=:{{ .Values.proxy.hostPort }}
             {{- end }}
           {{- if .Values.rootCertificateAuthorities }}
           {{- with .Values.proxy.env }}
@@ -85,9 +87,13 @@ spec:
               name: registry-certificate-authorities
               readOnly: true
           {{- end }}
+          {{- $readinessProbe := deepCopy .Values.proxy.readinessProbe }}
+          {{- if .Values.proxy.hostNetwork }}
+            {{- $readinessProbe := merge $readinessProbe.httpGet (dict "host" "localhost") }}
+          {{- end }}
           {{- with .Values.proxy.readinessProbe }}
           readinessProbe:
-            {{- toYaml . | nindent 12 }}
+            {{- $readinessProbe | toYaml | nindent 12 }}
           {{- end }}
           {{- with .Values.proxy.resources }}
           resources:
