@@ -113,7 +113,8 @@ spec:
   - metadata:
       name: data
     spec:
-      accessModes: [ "ReadWriteOnce" ]
+      accessModes:
+        - {{ .Values.registry.persistence.accessModes }}
       storageClassName: {{ .Values.registry.persistence.storageClass }}
       resources:
         requests:

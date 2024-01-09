@@ -202,6 +202,8 @@ registry:
   # -- Number of replicas for the registry pod
   replicas: 1
   persistence:
+    # -- AccessMode for persistent volume
+    accessModes: ReadWriteOnce
     # -- If true, enable persistent storage (ignored when using minio or S3)
     enabled: false
     # -- StorageClass for persistent volume
