@@ -70,7 +70,7 @@ jobs:
           go tool cover -html=cover.out -o coverage.html
 
       - name: Archive code coverage results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: code-coverage-report-${{ matrix.kubernetes-version }}
           path: coverage.html
