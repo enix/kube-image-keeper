@@ -115,6 +115,7 @@ spec:
     spec:
       accessModes: [ "ReadWriteOnce" ]
       storageClassName: {{ .Values.registry.persistence.storageClass }}
+      persistentVolumeReclaimPolicy: {{ .Values.registry.persistence.reclaimPolicy }}
       resources:
         requests:
           storage: {{ .Values.registry.persistence.size }}

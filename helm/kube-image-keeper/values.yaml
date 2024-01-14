@@ -209,6 +209,8 @@ registry:
     storageClass: null
     # -- Registry persistent volume size
     size: 20Gi
+    # -- Registry persistent volume reclaim policy, set to Delete if you want to delete PVC with Helm delete
+    reclaimPolicy: Retain
     # -- External S3 configuration (needed only if you don't enable minio) (see https://github.com/docker/docs/blob/main/registry/storage-drivers/s3.md)
     s3: {}
     s3ExistingSecret: ""
