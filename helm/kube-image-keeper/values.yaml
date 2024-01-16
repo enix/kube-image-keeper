@@ -72,8 +72,7 @@ controllers:
       memory: "512Mi"
   webhook:
     # -- Don't enable image caching for pods scheduled into these namespaces
-    ignoredNamespaces:
-      - kube-system
+    ignoredNamespaces: []
     # -- Don't enable image caching if the image match the following regexes
     ignoredImages: []
     # -- If true, create the issuer used to issue the webhook certificate
