@@ -11,7 +11,8 @@ The registry supports various storage solutions, some of which enable high avail
 | Name          | HA-compatible | Enable                              |
 |---------------|---------------|-------------------------------------|
 | Tmpfs         |      No       | by default                          |
-| PVC           |      No       | `registry.persistence.enabled=true` |
+| PVC (RWO)     |      No       | `registry.persistence.enabled=true` |
+| PVC (RWX)     |      Yes      | `registry.persistence.enabled=true`, `registry.persistence.accessModes='ReadWriteMany'` |
 | MinIO         |      Yes      | `minio.enabled=true`                |
 | S3-compatible |      Yes      | `registry.persistence.s3=...`       |
 
@@ -23,9 +24,15 @@ To enable HA, set `registry.replicas` to a value greater than `1` and make sure 
 
 This is the default mode, the registry don't use a volume so the data isn't persistent. Garbage collection is disabled. In this mode, if the registry Pod fails, a new Pod can be created, but the registry cache will be empty and will need to be re-populated.
 
-## PersistentVolumeClaim
+## PersistentVolumeClaim (RWO)
 
 By setting the `registry.persistence.enabled` value to `true`, the kuik registry will use a PersistentVolumeClaim. If the PVC itself is backed by a local volume, this won't improve the durability of the registry in case of e.g. complete node failure. However, if the PVC is backed by a network or cloud volume, then the content of the registry cache won't be lost in case of node outage. But with most setups, a node outage might still take down the registry for an extended period of time, until the node is restored or the volume is detached from the node to be reattached to another (the exact procedure may depend on your specific cluster setup). Therefore, the PVC mode is *not* considered highly available here.
+
+## PersistentVolumeClaim (RWX)
+
+By setting the `registry.persistence.enabled` value to `true` AND setting `registry.persistence.accessModes` to `ReadWriteMany` the kuik registry will use a PersistentVolumeClaim in ReadWriteMany mode. This allows multiple pods to use the same volume and therefore this approach is considered highly available.
+
+Only select few storage providers support ReadWriteMany an example of one which does is the [EFS CSI](https://docs.aws.amazon.com/eks/latest/userguide/efs-csi.html) if you are running EKS. This can be useful if you are running kuik within AWS and do not want to run MinIO or create S3 credentials ontop of the deployment.
 
 ## S3-compatible
 
