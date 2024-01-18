@@ -1,0 +1,14 @@
+{{- if and (eq (include "kube-image-keeper.registry-stateless-mode" .) "false") (.Values.registry.persistence.enabled) (eq .Values.registry.persistence.accessModes "ReadWriteMany") }}
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "kube-image-keeper.fullname" . }}-registry-pvc
+spec:
+  accessModes:
+    - {{ .Values.registry.persistence.accessModes }}
+  storageClassName: {{ .Values.registry.persistence.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.registry.persistence.size }}
+{{- end }}
