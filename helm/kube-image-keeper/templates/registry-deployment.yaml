@@ -40,41 +40,17 @@ spec:
               protocol: TCP
           resources:
             {{- toYaml .Values.registry.resources | nindent 12 }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "kube-image-keeper.fullname" . }}-registry-configmap
+            - configMapRef:
+                name: {{ include "kube-image-keeper.fullname" . }}-registry-stateless-configmap
           env:
             - name: REGISTRY_HTTP_SECRET
               valueFrom:
                 secretKeyRef:
                   name: {{ include "kube-image-keeper.fullname" . }}-registry-http-secret
                   key: secret
-            - name: REGISTRY_STORAGE_DELETE_ENABLED
-              value: "true"
-            - name: REGISTRY_STORAGE
-              value: s3
-            {{- if .Values.registry.serviceMonitor.create }}
-            - name: REGISTRY_HTTP_DEBUG_ADDR
-              value: 0.0.0.0:5001
-            - name: REGISTRY_HTTP_DEBUG_PROMETHEUS_ENABLED
-              value: "true"
-            {{- end }}
-            {{- if .Values.minio.enabled }}
-            - name: REGISTRY_STORAGE_S3_REGION
-              value: us-east-1
-            - name: REGISTRY_STORAGE_S3_BUCKET
-              value: registry
-            - name: REGISTRY_STORAGE_S3_REGIONENDPOINT
-              value: http://{{ .Values.minio.fullnameOverride }}:9000
-            - name: REGISTRY_STORAGE_REDIRECT_DISABLE
-              value: "true"
-            {{- else }}
-            {{- range $k, $v := omit .Values.registry.persistence.s3 "accesskey" "secretkey" }}
-            - name: {{ printf "%s_%s" "REGISTRY_STORAGE_S3" ($k | upper) }}
-              value: {{ $v | quote }}
-            {{- end }}
-            {{- if .Values.registry.persistence.disableS3Redirections }}
-            - name: REGISTRY_STORAGE_REDIRECT_DISABLE
-              value: "true"
-            {{- end }}
-            {{- end }}
             {{ $s3KeysSecretName := .Values.registry.persistence.s3ExistingSecret | default "kube-image-keeper-s3-registry-keys" }}
             - name: REGISTRY_STORAGE_S3_ACCESSKEY
               valueFrom:
@@ -86,10 +62,6 @@ spec:
                 secretKeyRef:
                   name: {{ $s3KeysSecretName }}
                   key: secretKey
-            {{- range .Values.registry.env }}
-            - name: {{ .name }}
-              value: {{ .value | quote }}
-            {{- end }}
           {{- with .Values.registry.readinessProbe }}
           readinessProbe:
             {{- toYaml . | nindent 12 }}

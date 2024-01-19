@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kube-image-keeper.fullname" . }}-registry-stateless-configmap
+  labels:
+    {{- include "kube-image-keeper.registry-labels" . | nindent 4 }}
+data:
+  REGISTRY_STORAGE: s3
+  {{- if .Values.minio.enabled }}
+  REGISTRY_STORAGE_S3_REGION: us-east-1
+  REGISTRY_STORAGE_S3_BUCKET: registry
+  REGISTRY_STORAGE_S3_REGIONENDPOINT: http://{{ .Values.minio.fullnameOverride }}:9000
+  REGISTRY_STORAGE_REDIRECT_DISABLE: "true"
+  {{- else }}
+  {{- range $k, $v := omit .Values.registry.persistence.s3 "accesskey" "secretkey" }}
+  {{ printf "%s_%s" "REGISTRY_STORAGE_S3" ($k | upper) }}: {{ $v | quote }}
+  {{- end }}
+  {{- if .Values.registry.persistence.disableS3Redirections }}
+  REGISTRY_STORAGE_REDIRECT_DISABLE: "true"
+  {{- end }}
+  {{- end }}

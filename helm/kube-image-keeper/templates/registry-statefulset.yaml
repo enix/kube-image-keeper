@@ -75,19 +75,9 @@ spec:
               protocol: TCP
           resources:
             {{- toYaml .Values.registry.resources | nindent 12 }}
-          env:
-            - name: REGISTRY_STORAGE_DELETE_ENABLED
-              value: "true"
-            {{- if .Values.registry.serviceMonitor.create }}
-            - name: REGISTRY_HTTP_DEBUG_ADDR
-              value: 0.0.0.0:5001
-            - name: REGISTRY_HTTP_DEBUG_PROMETHEUS_ENABLED
-              value: "true"
-            {{- end }}
-            {{- range .Values.registry.env }}
-            - name: {{ .name }}
-              value: {{ .value | quote }}
-            {{- end }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "kube-image-keeper.fullname" . }}-registry-configmap
           {{- if .Values.registry.persistence.enabled }}
           volumeMounts:
             - mountPath: /var/lib/registry

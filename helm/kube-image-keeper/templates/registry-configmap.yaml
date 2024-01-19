@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kube-image-keeper.fullname" . }}-registry-configmap
+  labels:
+    {{- include "kube-image-keeper.registry-labels" . | nindent 4 }}
+data:
+  REGISTRY_STORAGE_DELETE_ENABLED: "true"
+  {{- if .Values.registry.serviceMonitor.create }}
+  REGISTRY_HTTP_DEBUG_ADDR: 0.0.0.0:5001
+  REGISTRY_HTTP_DEBUG_PROMETHEUS_ENABLED: "true"
+  {{- end }}
+  {{- range .Values.registry.env }}
+  {{ .name }}: {{ .value | quote }}
+  {{- end }}
