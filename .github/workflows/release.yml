@@ -379,7 +379,7 @@ jobs:
       
       - name: Cache for chart-releaser
         id: cache-cr
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: bin/cr
           key: ${{ runner.os }}-cr-${{ env.CR_VERSION }}
@@ -394,7 +394,7 @@ jobs:
 
       - name: Cache for helm-docs
         id: cache-helm-docs
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: bin/helm-docs
           key: ${{ runner.os }}-helm-docs-${{ env.HELM_DOCS_VERSION }}
