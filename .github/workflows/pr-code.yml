@@ -54,7 +54,7 @@ jobs:
           check-latest: true
 
       - name: Restore cached Go modules
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cache/go-build
