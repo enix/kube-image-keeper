@@ -22,7 +22,7 @@ controllers:
   replicas: 2
   image:
     # -- Controller image repository. Also available: `quay.io/enix/kube-image-keeper`
-    repository: enix/kube-image-keeper
+    repository: ghcr.io/enix/kube-image-keeper
     # -- Controller image pull policy
     pullPolicy: IfNotPresent
     # -- Controller image tag. Default chart appVersion
@@ -99,7 +99,7 @@ controllers:
 proxy:
   image:
     # -- Proxy image repository. Also available: `quay.io/enix/kube-image-keeper`
-    repository: enix/kube-image-keeper
+    repository: ghcr.io/enix/kube-image-keeper
     # -- Proxy image pull policy
     pullPolicy: IfNotPresent
     # -- Proxy image tag. Default chart appVersion
