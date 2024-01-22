@@ -11,7 +11,7 @@ require (
 	github.com/docker/go-connections v0.4.0
 	github.com/gin-gonic/gin v1.9.1
 	github.com/go-logr/logr v1.4.1
-	github.com/google/go-containerregistry v0.17.0
+	github.com/google/go-containerregistry v0.18.0
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/gomega v1.30.0
 	github.com/prometheus/client_golang v1.18.0
