@@ -2,6 +2,7 @@ package v1
 
 import (
 	_ "crypto/sha256"
+	"errors"
 	"regexp"
 	"testing"
 
@@ -129,7 +130,7 @@ func TestInjectDecoder(t *testing.T) {
 	})
 }
 
-func Test_isImageIgnored(t *testing.T) {
+func Test_isImageRewritable(t *testing.T) {
 	emptyRegexps := []*regexp.Regexp{}
 	someRegexps := []*regexp.Regexp{
 		regexp.MustCompile("alpine"),
@@ -140,37 +141,37 @@ func Test_isImageIgnored(t *testing.T) {
 		name    string
 		image   string
 		regexps []*regexp.Regexp
-		ignored bool
+		err     error
 	}{
 		{
 			name:    "No regex",
 			image:   "alpine",
 			regexps: emptyRegexps,
-			ignored: false,
+			err:     nil,
 		},
 		{
 			name:    "No regex with digest",
 			image:   "alpine:latest@sha256:5b161f051d017e55d358435f295f5e9a297e66158f136321d9b04520ec6c48a3",
 			regexps: emptyRegexps,
-			ignored: true,
+			err:     errImageContainsDigests,
 		},
 		{
 			name:    "Match first regex",
 			image:   "alpine",
 			regexps: someRegexps,
-			ignored: true,
+			err:     errors.New("image matches alpine"),
 		},
 		{
 			name:    "Match second regex",
 			image:   "nginx:latest",
 			regexps: someRegexps,
-			ignored: true,
+			err:     errors.New("image matches .*:latest"),
 		},
 		{
 			name:    "Match no regex",
 			image:   "nginx",
 			regexps: someRegexps,
-			ignored: false,
+			err:     nil,
 		},
 	}
 
@@ -181,11 +182,16 @@ func Test_isImageIgnored(t *testing.T) {
 				IgnoreImages: tt.regexps,
 			}
 
-			ignored := imageRewriter.isImageIgnored(&corev1.Container{
+			err := imageRewriter.isImageRewritable(&corev1.Container{
 				Image: tt.image,
 			})
 
-			g.Expect(ignored).To(Equal(tt.ignored))
+			if tt.err == nil {
+				g.Expect(err).To(BeNil())
+			} else {
+				g.Expect(err).To(Equal(tt.err))
+			}
+
 		})
 	}
 }
