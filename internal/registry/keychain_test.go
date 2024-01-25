@@ -77,7 +77,7 @@ var pullSecrets = map[string]corev1.Secret{
 var clientError = errors.New("an error occurred")
 var _, invalidJsonError = config.LoadFromReader(bytes.NewReader([]byte("invalid")))
 
-func (m mockClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object) error {
+func (m mockClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 	if m.produceError {
 		return clientError
 	}

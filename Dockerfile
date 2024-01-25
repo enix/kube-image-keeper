@@ -3,7 +3,7 @@ FROM --platform=${BUILDPLATFORM} golang:1.20-alpine3.17 AS builder
 
 WORKDIR /workspace
 
-RUN go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.8.0
+RUN go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.11.1
 
 # Copy the Go Modules manifests
 COPY go.mod go.mod
