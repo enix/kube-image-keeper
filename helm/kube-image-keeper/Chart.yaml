@@ -28,6 +28,6 @@ maintainers:
     url: https://github.com/donch
 dependencies:
   - name: minio
-    version: "12.1.4"
+    version: "13.2.0"
     repository: "https://charts.bitnami.com/bitnami"
     condition: minio.enabled
