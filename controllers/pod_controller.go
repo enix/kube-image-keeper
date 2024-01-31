@@ -28,7 +28,8 @@ import (
 )
 
 const cachedImageOwnerKey = ".metadata.podOwner"
-const LabelImageRewrittenName = "kuik.enix.io/images-rewritten"
+const LabelManagedName = "kuik.enix.io/managed"
+const AnnotationRewriteImagesName = "kuik.enix.io/rewrite-images"
 
 // PodReconciler reconciles a Pod object
 type PodReconciler struct {
@@ -122,7 +123,7 @@ func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1.Pod{}, builder.WithPredicates(predicate.NewPredicateFuncs(func(object client.Object) bool {
-			_, ok := object.GetLabels()[LabelImageRewrittenName]
+			_, ok := object.GetLabels()[LabelManagedName]
 			return ok
 		}))).
 		Watches(
@@ -147,7 +148,7 @@ func (r *PodReconciler) podsWithDeletingCachedImages(obj client.Object) []ctrl.R
 	}
 
 	var podList corev1.PodList
-	podRequirements, _ := labels.NewRequirement(LabelImageRewrittenName, selection.Equals, []string{"true"})
+	podRequirements, _ := labels.NewRequirement(LabelManagedName, selection.Equals, []string{"true"})
 	selector := labels.NewSelector()
 	selector = selector.Add(*podRequirements)
 	if err := r.List(context.Background(), &podList, &client.ListOptions{

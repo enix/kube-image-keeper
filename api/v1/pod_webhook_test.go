@@ -40,7 +40,11 @@ func TestRewriteImages(t *testing.T) {
 		ir := ImageRewriter{
 			ProxyPort: 4242,
 		}
-		ir.RewriteImages(&podStub)
+
+		ir.RewriteImages(&podStub, false)
+		g.Expect(podStub.Annotations[controllers.AnnotationRewriteImagesName]).To(Equal("false"))
+
+		ir.RewriteImages(&podStub, true)
 
 		rewrittenInitContainers := []corev1.Container{
 			{Name: "a", Image: "localhost:4242/original-init"},
@@ -57,7 +61,7 @@ func TestRewriteImages(t *testing.T) {
 		g.Expect(podStub.Spec.InitContainers).To(Equal(rewrittenInitContainers))
 		g.Expect(podStub.Spec.Containers).To(Equal(rewrittenContainers))
 
-		g.Expect(podStub.Labels[controllers.LabelImageRewrittenName]).To(Equal("true"))
+		g.Expect(podStub.Labels[controllers.LabelManagedName]).To(Equal("true"))
 
 		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("a", true)]).To(Equal("original-init"))
 		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("b", false)]).To(Equal("original"))
@@ -65,6 +69,9 @@ func TestRewriteImages(t *testing.T) {
 		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("d", false)]).To(Equal("185.145.250.247:30042/alpine"))
 		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("e", false)]).To(Equal("185.145.250.247:30042/alpine:latest"))
 		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("f", false)]).To(Equal(""))
+
+		ir.RewriteImages(&podStub, false)
+		g.Expect(podStub.Annotations[controllers.AnnotationRewriteImagesName]).To(Equal("true"))
 	})
 }
 
@@ -80,7 +87,7 @@ func TestRewriteImagesWithIgnore(t *testing.T) {
 				regexp.MustCompile("alpine:latest"),
 			},
 		}
-		ir.RewriteImages(&podStub)
+		ir.RewriteImages(&podStub, true)
 
 		rewrittenInitContainers := []corev1.Container{
 			{Name: "a", Image: "original-init"},
@@ -97,7 +104,7 @@ func TestRewriteImagesWithIgnore(t *testing.T) {
 		g.Expect(podStub.Spec.InitContainers).To(Equal(rewrittenInitContainers))
 		g.Expect(podStub.Spec.Containers).To(Equal(rewrittenContainers))
 
-		g.Expect(podStub.Labels[controllers.LabelImageRewrittenName]).To(Equal("true"))
+		g.Expect(podStub.Labels[controllers.LabelManagedName]).To(Equal("true"))
 
 		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("a", true)]).To(Equal(""))
 		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("b", false)]).To(Equal(""))

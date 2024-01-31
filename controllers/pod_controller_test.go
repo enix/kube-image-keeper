@@ -24,7 +24,7 @@ var podStub = corev1.Pod{
 			registry.ContainerAnnotationKey("c", false): "busybox",
 		},
 		Labels: map[string]string{
-			LabelImageRewrittenName: "true",
+			LabelManagedName: "true",
 		},
 	},
 	Spec: corev1.PodSpec{
