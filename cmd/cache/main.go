@@ -110,6 +110,12 @@ func main() {
 	mgr.GetWebhookServer().Register("/mutate-core-v1-pod", &webhook.Admission{Handler: &imageRewriter})
 	//+kubebuilder:scaffold:builder
 
+	err = mgr.Add(&kuikenixiov1.PodInitializer{Client: mgr.GetClient()})
+	if err != nil {
+		setupLog.Error(err, "unable to setup PodInitializer")
+		os.Exit(1)
+	}
+
 	if err := mgr.AddHealthzCheck("healthz", controllers.MakeChecker(controllers.Healthz)); err != nil {
 		setupLog.Error(err, "unable to set up health check")
 		os.Exit(1)
