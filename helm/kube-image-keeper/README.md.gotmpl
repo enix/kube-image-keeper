@@ -19,7 +19,7 @@ In v1.3.0, we removed the finalizer `pod.kuik.enix.io/finalizer` from pods that 
 To avoid having these pods stuck in `Terminating` state after a delete action or a rolling update, you will need to manually remove the finalizer from these pods once you upgrade to 1.3.0.
 This can be achieved using the following command:
 
-```
+```bash
 kubectl get pods --all-namespaces -l kuik.enix.io/images-rewritten=true -o json | jq '.items[].metadata.finalizers=null' | kubectl replace -f -
 ```
 
@@ -67,7 +67,7 @@ We investigated other options, and we didn't find any that would quite fit our r
 
 ## Supported Kubernetes versions
 
-kuik has been developed for, and tested with, Kubernetes 1.21 to 1.24; but the code doesn't use any deprecated (or new) feature or API, and should work with newer versions as well. (Community users have reported success with Kubernetes 1.26).
+kuik has been developed for, and tested with, Kubernetes 1.24 to 1.28; but the code doesn't use any deprecated (or new) feature or API, and should work with newer versions as well.
 
 ## How it works
 
@@ -80,6 +80,7 @@ One **controller** watches pods, and when it notices new images, it creates `Cac
 Another **controller** watches these `CachedImage` custom resources, and copies images from source registries to kuik's caching registry accordingly.
 
 Here is what our images look like when using kuik:
+
 ```bash
 $ kubectl get pods -o custom-columns=NAME:metadata.name,IMAGES:spec.containers[*].image
 NAME                   IMAGES
@@ -131,7 +132,6 @@ kube-image-keeper-proxy-54lzk                    1m           19Mi
 
 Refer to the [dedicated documentation](https://github.com/enix/kube-image-keeper/blob/main/docs/metrics.md).
 
-
 ## Installation
 
 1. Make sure that you have cert-manager installed. If not, check its [installation page](https://cert-manager.io/docs/installation/) (it's fine to use the `kubectl apply` one-liner, and no further configuration is required).
@@ -147,6 +147,8 @@ helm upgrade --install \
 That's it!
 
 Our container images are available across multiple registries for reliability. You can find them on [Github Container Registry](https://github.com/enix/kube-image-keeper/pkgs/container/kube-image-keeper), [Quay](https://quay.io/repository/enix/kube-image-keeper) and [DockerHub](https://hub.docker.com/r/enix/kube-image-keeper).
+
+CAUTION: If you use a storage backend that runs in the same cluster as kuik but in a different namespace, ensure you filter-out the storage backend's pods. Failure to do so may lead to interdependency issues, making it impossible to start both kuik and its storage backend if either encounters an issue.
 
 {{ template "chart.valuesSection" . }}
 
