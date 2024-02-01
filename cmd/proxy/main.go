@@ -36,7 +36,6 @@ func initFlags() {
 	}
 	flag.StringVar(&proxyAddr, "bind-address", ":8082", "The address the proxy registry endpoint binds to.")
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
-	flag.StringVar(&kubeconfig, "kubeconfig", "", "Absolute path to the kubeconfig file")
 	flag.StringVar(&registry.Endpoint, "registry-endpoint", "kube-image-keeper-registry:5000", "The address of the registry where cached images are stored.")
 	flag.IntVar(&rateLimitQPS, "kube-api-rate-limit-qps", 0, "Kubernetes API request rate limit")
 	flag.IntVar(&rateLimitBurst, "kube-api-rate-limit-burst", 0, "Kubernetes API request burst")

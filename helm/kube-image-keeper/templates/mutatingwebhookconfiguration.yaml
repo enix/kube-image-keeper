@@ -48,3 +48,23 @@ webhooks:
     resources:
     - pods
   sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: {{ include "kube-image-keeper.fullname" . }}-webhook
+      namespace: {{ .Release.Namespace }}
+      path: /mutate-kuik-enix-io-v1alpha1-cachedimage
+  failurePolicy: Fail
+  name: mcachedimage.kb.io
+  rules:
+  - apiGroups:
+    - kuik.enix.io
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - cachedimages
+  sideEffects: None
