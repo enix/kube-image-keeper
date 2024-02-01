@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/x509"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/distribution/reference"
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -71,6 +73,45 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	log.Info("reconciling cachedimage")
+
+	// Handle images with an invalid name
+	sanitizedName, err := getSanitizedName(&cachedImage)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if sanitizedName != cachedImage.Name {
+		var existingCachedImage kuikenixiov1alpha1.CachedImage
+		if err := r.Get(ctx, types.NamespacedName{Name: sanitizedName}, &existingCachedImage); err != nil {
+			if apierrors.IsNotFound(err) {
+				log.Info("recreating CachedImage with an appropriate name", "newName", sanitizedName)
+				newCachedImage := cachedImage.DeepCopy()
+				newCachedImage.Name = sanitizedName
+				newCachedImage.ResourceVersion = ""
+				newCachedImage.UID = ""
+				if err := r.Create(ctx, newCachedImage); err != nil {
+					return ctrl.Result{}, err
+				}
+			} else {
+				return ctrl.Result{}, err
+			}
+		} else {
+			log.Info("patching CachedImage from CachedImage with an invalid name", "newName", sanitizedName)
+			existingCachedImage.Spec = cachedImage.Spec
+			if err := r.Update(ctx, &existingCachedImage); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+		log.Info("removing finalizer and deleting CachedImage with an invalid name")
+		controllerutil.RemoveFinalizer(&cachedImage, cachedImageFinalizerName)
+		if err := r.Update(ctx, &cachedImage); err != nil {
+			return ctrl.Result{}, err
+		}
+		if err := r.Delete(ctx, &cachedImage); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
 
 	// Remove image from registry when CachedImage is being deleted, finalizer is removed after it
 	if !cachedImage.ObjectMeta.DeletionTimestamp.IsZero() {
@@ -191,6 +232,20 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	log.Info("reconciled cachedimage")
 	return ctrl.Result{}, nil
+}
+
+func getSanitizedName(cachedImage *kuikenixiov1alpha1.CachedImage) (string, error) {
+	ref, err := reference.ParseAnyReference(cachedImage.Spec.SourceImage)
+	if err != nil {
+		return "", err
+	}
+
+	sanitizedName := registry.SanitizeName(ref.String())
+	if !strings.Contains(cachedImage.Spec.SourceImage, ":") {
+		sanitizedName += "-latest"
+	}
+
+	return sanitizedName, nil
 }
 
 func (r *CachedImageReconciler) cacheImage(cachedImage *kuikenixiov1alpha1.CachedImage) error {

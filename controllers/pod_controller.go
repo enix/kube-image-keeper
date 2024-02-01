@@ -10,7 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/docker/distribution/reference"
+	"github.com/distribution/reference"
 	kuikenixiov1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	corev1 "k8s.io/api/core/v1"
@@ -229,18 +229,11 @@ func cachedImageFromSourceImage(sourceImage string) (*kuikenixiov1alpha1.CachedI
 	if !strings.Contains(sourceImage, ":") {
 		sanitizedName += "-latest"
 	}
-	named, err := reference.ParseNormalizedNamed(ref.String())
-	if err != nil {
-		return nil, err
-	}
 
 	cachedImage := kuikenixiov1alpha1.CachedImage{
 		TypeMeta: metav1.TypeMeta{APIVersion: kuikenixiov1alpha1.GroupVersion.String(), Kind: "CachedImage"},
 		ObjectMeta: metav1.ObjectMeta{
 			Name: sanitizedName,
-			Labels: map[string]string{
-				kuikenixiov1alpha1.RepositoryLabelName: registry.RepositoryLabel(named.Name()),
-			},
 		},
 		Spec: kuikenixiov1alpha1.CachedImageSpec{
 			SourceImage: sourceImage,

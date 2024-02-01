@@ -11,6 +11,26 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
+      path: /mutate-kuik-enix-io-v1alpha1-cachedimage
+  failurePolicy: Fail
+  name: mcachedimage.kb.io
+  rules:
+  - apiGroups:
+    - kuik.enix.io
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - cachedimages
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
       path: /mutate-core-v1-pod
   failurePolicy: Fail
   name: mpod.kb.io

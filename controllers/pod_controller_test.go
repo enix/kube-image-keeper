@@ -146,9 +146,6 @@ func Test_cachedImageFromSourceImage(t *testing.T) {
 			g.Expect(cachedImage.Spec.ExpiresAt).To(BeNil())
 			g.Expect(cachedImage.Spec.PullSecretNames).To(BeEmpty())
 			g.Expect(cachedImage.Spec.PullSecretsNamespace).To(BeEmpty())
-			g.Expect(cachedImage.Labels).To(Equal(map[string]string{
-				kuikenixiov1alpha1.RepositoryLabelName: registry.RepositoryLabel(tt.expectedRepository),
-			}))
 		})
 	}
 }
