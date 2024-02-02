@@ -196,6 +196,24 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	}
 
+	named, err := cachedImage.Repository()
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	repositoryName := named.Name()
+	repository := kuikv1alpha1.Repository{ObjectMeta: metav1.ObjectMeta{Name: registry.SanitizeName(repositoryName)}}
+	operation, err := controllerutil.CreateOrPatch(ctx, r.Client, &repository, func() error {
+		repository.Spec.Name = repositoryName
+		return nil
+	})
+
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	log.Info("repository reconcilied", "repository", klog.KObj(&repository), "operation", operation)
+
 	// Adding image to registry
 	log.Info("caching image")
 	isCached, err := registry.ImageIsCached(cachedImage.Spec.SourceImage)
@@ -230,7 +248,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
-	log.Info("reconciled cachedimage")
+	log.Info("cachedimage reconciled")
 	return ctrl.Result{}, nil
 }
 
@@ -249,10 +267,11 @@ func getSanitizedName(cachedImage *kuikv1alpha1.CachedImage) (string, error) {
 }
 
 func (r *CachedImageReconciler) cacheImage(cachedImage *kuikv1alpha1.CachedImage) error {
-	pullSecrets, err := registry.GetPullSecrets(r.ApiReader, cachedImage.Spec.PullSecretsNamespace, cachedImage.Spec.PullSecretNames)
+	pullSecrets, err := cachedImage.GetPullSecrets(r.ApiReader)
 	if err != nil {
 		return err
 	}
+
 	return registry.CacheImage(cachedImage.Spec.SourceImage, pullSecrets, r.Architectures, r.InsecureRegistries, r.RootCAs)
 }
 
