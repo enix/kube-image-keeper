@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	"github.com/distribution/reference"
-	kuikenixiov1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
+	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/metrics"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/gin-gonic/gin"
@@ -239,13 +239,13 @@ func (p *Proxy) proxyRegistry(c *gin.Context, endpoint string, endpointIsOrigin 
 	return proxyError
 }
 
-func (p *Proxy) getCachedImage(registryDomain string, repositoryName string) (*kuikenixiov1alpha1.CachedImage, error) {
+func (p *Proxy) getCachedImage(registryDomain string, repositoryName string) (*kuikv1alpha1.CachedImage, error) {
 	repositoryLabel := registry.RepositoryLabel(registryDomain + "/" + repositoryName)
-	cachedImages := &kuikenixiov1alpha1.CachedImageList{}
+	cachedImages := &kuikv1alpha1.CachedImageList{}
 
 	klog.InfoS("listing CachedImages", "repositoryLabel", repositoryLabel)
 	if err := p.k8sClient.List(context.Background(), cachedImages, client.MatchingLabels{
-		kuikenixiov1alpha1.RepositoryLabelName: repositoryLabel,
+		kuikv1alpha1.RepositoryLabelName: repositoryLabel,
 	}, client.Limit(1)); err != nil {
 		return nil, err
 	}
@@ -259,7 +259,7 @@ func (p *Proxy) getCachedImage(registryDomain string, repositoryName string) (*k
 	return &cachedImage, nil
 }
 
-func (p *Proxy) getKeychains(cachedImage *kuikenixiov1alpha1.CachedImage) ([]authn.Keychain, error) {
+func (p *Proxy) getKeychains(cachedImage *kuikv1alpha1.CachedImage) ([]authn.Keychain, error) {
 	pullSecrets, err := registry.GetPullSecrets(p.k8sClient, cachedImage.Spec.PullSecretsNamespace, cachedImage.Spec.PullSecretNames)
 	if err != nil {
 		return nil, err
@@ -268,7 +268,7 @@ func (p *Proxy) getKeychains(cachedImage *kuikenixiov1alpha1.CachedImage) ([]aut
 	return registry.GetKeychains(cachedImage.Spec.SourceImage, pullSecrets)
 }
 
-func (p *Proxy) getAuthentifiedTransport(cachedImage *kuikenixiov1alpha1.CachedImage, originRegistry string) (http.RoundTripper, error) {
+func (p *Proxy) getAuthentifiedTransport(cachedImage *kuikv1alpha1.CachedImage, originRegistry string) (http.RoundTripper, error) {
 	imageRef, err := name.ParseReference(cachedImage.Spec.SourceImage)
 	if err != nil {
 		return nil, err
