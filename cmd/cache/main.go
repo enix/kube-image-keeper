@@ -113,6 +113,13 @@ func main() {
 		setupLog.Error(err, "unable to create webhook", "webhook", "CachedImage")
 		os.Exit(1)
 	}
+	if err = (&controllers.RepositoryReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Repository")
+		os.Exit(1)
+	}
 	//+kubebuilder:scaffold:builder
 
 	err = mgr.Add(&kuikenixiov1.PodInitializer{Client: mgr.GetClient()})
