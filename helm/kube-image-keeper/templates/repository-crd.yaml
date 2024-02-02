@@ -36,6 +36,12 @@ spec:
             properties:
               name:
                 type: string
+              pullSecretNames:
+                items:
+                  type: string
+                type: array
+              pullSecretsNamespace:
+                type: string
             required:
             - name
             type: object

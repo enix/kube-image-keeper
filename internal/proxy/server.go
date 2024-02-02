@@ -260,7 +260,7 @@ func (p *Proxy) getCachedImage(registryDomain string, repositoryName string) (*k
 }
 
 func (p *Proxy) getKeychains(cachedImage *kuikv1alpha1.CachedImage) ([]authn.Keychain, error) {
-	pullSecrets, err := registry.GetPullSecrets(p.k8sClient, cachedImage.Spec.PullSecretsNamespace, cachedImage.Spec.PullSecretNames)
+	pullSecrets, err := cachedImage.GetPullSecrets(p.k8sClient)
 	if err != nil {
 		return nil, err
 	}

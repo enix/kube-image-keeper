@@ -6,7 +6,9 @@ import (
 
 // RepositorySpec defines the desired state of Repository
 type RepositorySpec struct {
-	Name string `json:"name"`
+	Name                 string   `json:"name"`
+	PullSecretNames      []string `json:"pullSecretNames,omitempty"`
+	PullSecretsNamespace string   `json:"pullSecretsNamespace,omitempty"`
 }
 
 // RepositoryStatus defines the observed state of Repository

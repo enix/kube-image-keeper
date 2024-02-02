@@ -56,12 +56,6 @@ spec:
               expiresAt:
                 format: date-time
                 type: string
-              pullSecretNames:
-                items:
-                  type: string
-                type: array
-              pullSecretsNamespace:
-                type: string
               retain:
                 type: boolean
               sourceImage:
