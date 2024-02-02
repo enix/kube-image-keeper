@@ -17,7 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	kuikenixiov1 "github.com/enix/kube-image-keeper/api/v1"
-	kuikenixiov1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
+	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
 	"github.com/enix/kube-image-keeper/controllers"
 	"github.com/enix/kube-image-keeper/internal"
 	"github.com/enix/kube-image-keeper/internal/registry"
@@ -109,7 +109,7 @@ func main() {
 		ProxyPort:    proxyPort,
 	}
 	mgr.GetWebhookServer().Register("/mutate-core-v1-pod", &webhook.Admission{Handler: &imageRewriter})
-	if err = (&kuikenixiov1alpha1.CachedImage{}).SetupWebhookWithManager(mgr); err != nil {
+	if err = (&kuikv1alpha1.CachedImage{}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "CachedImage")
 		os.Exit(1)
 	}

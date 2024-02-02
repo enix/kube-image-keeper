@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	"github.com/enix/kube-image-keeper/api/v1alpha1"
-	kuikenixiov1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
+	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/registry"
 )
 
@@ -67,7 +67,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	log := log.
 		FromContext(ctx)
 
-	var cachedImage kuikenixiov1alpha1.CachedImage
+	var cachedImage kuikv1alpha1.CachedImage
 	if err := r.Get(ctx, req.NamespacedName, &cachedImage); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -81,7 +81,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	if sanitizedName != cachedImage.Name {
-		var existingCachedImage kuikenixiov1alpha1.CachedImage
+		var existingCachedImage kuikv1alpha1.CachedImage
 		if err := r.Get(ctx, types.NamespacedName{Name: sanitizedName}, &existingCachedImage); err != nil {
 			if apierrors.IsNotFound(err) {
 				log.Info("recreating CachedImage with an appropriate name", "newName", sanitizedName)
@@ -234,7 +234,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	return ctrl.Result{}, nil
 }
 
-func getSanitizedName(cachedImage *kuikenixiov1alpha1.CachedImage) (string, error) {
+func getSanitizedName(cachedImage *kuikv1alpha1.CachedImage) (string, error) {
 	ref, err := reference.ParseAnyReference(cachedImage.Spec.SourceImage)
 	if err != nil {
 		return "", err
@@ -248,7 +248,7 @@ func getSanitizedName(cachedImage *kuikenixiov1alpha1.CachedImage) (string, erro
 	return sanitizedName, nil
 }
 
-func (r *CachedImageReconciler) cacheImage(cachedImage *kuikenixiov1alpha1.CachedImage) error {
+func (r *CachedImageReconciler) cacheImage(cachedImage *kuikv1alpha1.CachedImage) error {
 	pullSecrets, err := registry.GetPullSecrets(r.ApiReader, cachedImage.Spec.PullSecretsNamespace, cachedImage.Spec.PullSecretNames)
 	if err != nil {
 		return err
@@ -283,7 +283,7 @@ func (r *CachedImageReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrent
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&kuikenixiov1alpha1.CachedImage{}).
+		For(&kuikv1alpha1.CachedImage{}).
 		Watches(
 			&source.Kind{Type: &corev1.Pod{}},
 			handler.EnqueueRequestsFromMapFunc(r.cachedImagesRequestFromPod),
@@ -316,7 +316,7 @@ func (r *CachedImageReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrent
 }
 
 // updatePodCount update CachedImage UsedBy status
-func (r *CachedImageReconciler) updatePodCount(ctx context.Context, cachedImage *kuikenixiov1alpha1.CachedImage) (requeue bool, err error) {
+func (r *CachedImageReconciler) updatePodCount(ctx context.Context, cachedImage *kuikv1alpha1.CachedImage) (requeue bool, err error) {
 	var podsList corev1.PodList
 	if err = r.List(ctx, &podsList, client.MatchingFields{cachedImageOwnerKey: cachedImage.Name}); err != nil && !apierrors.IsNotFound(err) {
 		return

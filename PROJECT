@@ -2,7 +2,7 @@
 # This file is used to track the info used to scaffold your project
 # and allow the plugins properly work.
 # More info: https://book.kubebuilder.io/reference/project-config.html
-domain: kuik.enix.io
+domain: enix.io
 layout:
 - go.kubebuilder.io/v3
 projectName: kube-image-keeper
@@ -12,8 +12,8 @@ resources:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: kuik.enix.io
-  group: kuik.enix.io
+  domain: enix.io
+  group: kuik
   kind: CachedImage
   path: github.com/enix/kube-image-keeper/api/v1alpha1
   version: v1alpha1
