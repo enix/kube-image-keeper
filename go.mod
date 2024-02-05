@@ -5,7 +5,7 @@ go 1.20
 require (
 	github.com/awslabs/amazon-ecr-credential-helper/ecr-login v0.0.0-20230519004202-7f2db5bd753e
 	github.com/distribution/reference v0.5.0
-	github.com/docker/cli v24.0.7+incompatible
+	github.com/docker/cli v25.0.2+incompatible
 	github.com/docker/distribution v2.8.3+incompatible
 	github.com/docker/docker v24.0.6+incompatible
 	github.com/docker/go-connections v0.4.0
