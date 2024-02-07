@@ -55,6 +55,12 @@ func (r *RepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	log.Info("reconciling repository")
 
+	var cachedImageList kuikv1alpha1.CachedImageList
+	if err := r.List(ctx, &cachedImageList, client.MatchingFields{repositoryOwnerKey: repository.Name}); err != nil && !apierrors.IsNotFound(err) {
+		return ctrl.Result{}, err
+	}
+	repository.Status.Images = len(cachedImageList.Items)
+
 	if !repository.ObjectMeta.DeletionTimestamp.IsZero() {
 		r.UpdateStatus(ctx, &repository, []metav1.Condition{{
 			Type:    typeReadyRepository,
@@ -64,10 +70,6 @@ func (r *RepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}})
 
 		if controllerutil.ContainsFinalizer(&repository, repositoryFinalizerName) {
-			var cachedImageList kuikv1alpha1.CachedImageList
-			if err := r.List(ctx, &cachedImageList, client.MatchingFields{repositoryOwnerKey: repository.Name}); err != nil && !apierrors.IsNotFound(err) {
-				return ctrl.Result{}, err
-			}
 
 			log.Info("repository is deleting", "cachedImages", len(cachedImageList.Items))
 			if len(cachedImageList.Items) > 0 {
@@ -163,6 +165,15 @@ func (r *RepositoryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(r.repositoryWithDeletingCachedImages),
 			builder.WithPredicates(p),
 		).
+		Watches(
+			&source.Kind{Type: &kuikv1alpha1.CachedImage{}},
+			handler.EnqueueRequestsFromMapFunc(requestRepositoryFromCachedImage),
+			builder.WithPredicates(predicate.Funcs{
+				CreateFunc: func(e event.CreateEvent) bool {
+					return true
+				},
+			}),
+		).
 		Complete(r)
 }
 
@@ -174,6 +185,11 @@ func (r *RepositoryReconciler) repositoryWithDeletingCachedImages(obj client.Obj
 		return nil
 	}
 
+	return requestRepositoryFromCachedImage(cachedImage)
+}
+
+func requestRepositoryFromCachedImage(obj client.Object) []ctrl.Request {
+	cachedImage := obj.(*kuikv1alpha1.CachedImage)
 	repositoryName, ok := cachedImage.Labels[kuikv1alpha1.RepositoryLabelName]
 	if !ok {
 		return nil
