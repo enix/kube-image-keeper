@@ -33,8 +33,10 @@ import (
 	"github.com/enix/kube-image-keeper/internal/registry"
 )
 
-// https://book.kubebuilder.io/reference/using-finalizers.html
-const cachedImageFinalizerName = "cachedimage.kuik.enix.io/finalizer"
+const (
+	cachedImageFinalizerName = "cachedimage.kuik.enix.io/finalizer"
+	repositoryOwnerKey       = ".metadata.repositoryOwner"
+)
 
 // CachedImageReconciler reconciles a CachedImage object
 type CachedImageReconciler struct {
@@ -111,6 +113,37 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
+	}
+
+	// Create or patch related repository
+	named, err := cachedImage.Repository()
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	repositoryName := named.Name()
+	repository := kuikv1alpha1.Repository{ObjectMeta: metav1.ObjectMeta{Name: registry.SanitizeName(repositoryName)}}
+	operation, err := controllerutil.CreateOrPatch(ctx, r.Client, &repository, func() error {
+		repository.Spec.Name = repositoryName
+		return nil
+	})
+
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	log.Info("repository updated", "repository", klog.KObj(&repository), "operation", operation)
+
+	// Set owner reference
+	owner := &kuikv1alpha1.Repository{}
+	if err := r.Get(context.Background(), client.ObjectKeyFromObject(&repository), owner); err != nil {
+		return ctrl.Result{}, err
+	}
+	if err := controllerutil.SetOwnerReference(owner, &cachedImage, r.Scheme); err != nil {
+		return ctrl.Result{}, err
+	}
+	if err := r.Update(ctx, &cachedImage); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// Remove image from registry when CachedImage is being deleted, finalizer is removed after it
@@ -195,24 +228,6 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return ctrl.Result{RequeueAfter: time.Until(expiresAt.Time)}, nil
 		}
 	}
-
-	named, err := cachedImage.Repository()
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	repositoryName := named.Name()
-	repository := kuikv1alpha1.Repository{ObjectMeta: metav1.ObjectMeta{Name: registry.SanitizeName(repositoryName)}}
-	operation, err := controllerutil.CreateOrPatch(ctx, r.Client, &repository, func() error {
-		repository.Spec.Name = repositoryName
-		return nil
-	})
-
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	log.Info("repository reconcilied", "repository", klog.KObj(&repository), "operation", operation)
 
 	// Adding image to registry
 	log.Info("caching image")

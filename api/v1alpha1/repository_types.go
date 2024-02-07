@@ -13,11 +13,20 @@ type RepositorySpec struct {
 
 // RepositoryStatus defines the observed state of Repository
 type RepositoryStatus struct {
+	Phase string `json:"phase,omitempty"`
+	//+listType=map
+	//+listMapKey=type
+	//+patchStrategy=merge
+	//+patchMergeKey=type
+	//+optional
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 }
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 //+kubebuilder:resource:scope=Cluster,shortName=repo
+//+kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.phase"
+//+kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // Repository is the Schema for the repositories API
 type Repository struct {
