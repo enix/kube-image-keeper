@@ -21,6 +21,9 @@ spec:
     - jsonPath: .status.phase
       name: Status
       type: string
+    - jsonPath: .status.images
+      name: Images
+      type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -129,6 +132,8 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              images:
+                type: integer
               phase:
                 type: string
             type: object

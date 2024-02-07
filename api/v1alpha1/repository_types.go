@@ -13,7 +13,8 @@ type RepositorySpec struct {
 
 // RepositoryStatus defines the observed state of Repository
 type RepositoryStatus struct {
-	Phase string `json:"phase,omitempty"`
+	Images int    `json:"images,omitempty"`
+	Phase  string `json:"phase,omitempty"`
 	//+listType=map
 	//+listMapKey=type
 	//+patchStrategy=merge
@@ -26,6 +27,7 @@ type RepositoryStatus struct {
 //+kubebuilder:subresource:status
 //+kubebuilder:resource:scope=Cluster,shortName=repo
 //+kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.phase"
+//+kubebuilder:printcolumn:name="Images",type="string",JSONPath=".status.images"
 //+kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // Repository is the Schema for the repositories API
