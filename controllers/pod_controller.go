@@ -158,7 +158,7 @@ func (r *PodReconciler) podsWithDeletingCachedImages(obj client.Object) []ctrl.R
 	cachedImage := obj.(*kuikv1alpha1.CachedImage)
 	var currentCachedImage kuikv1alpha1.CachedImage
 	// wait for the CachedImage to be really deleted
-	if err := r.Get(context.Background(), types.NamespacedName{Name: cachedImage.Name}, &currentCachedImage); err == nil || !apierrors.IsNotFound(err) {
+	if err := r.Get(context.Background(), client.ObjectKeyFromObject(cachedImage), &currentCachedImage); err == nil || !apierrors.IsNotFound(err) {
 		return make([]ctrl.Request, 0)
 	}
 
@@ -179,8 +179,7 @@ func (r *PodReconciler) podsWithDeletingCachedImages(obj client.Object) []ctrl.R
 			if cachedImage.Spec.SourceImage == value {
 				log.Info("image in use", "pod", pod.Namespace+"/"+pod.Name)
 				res := make([]ctrl.Request, 1)
-				res[0].Name = pod.Name
-				res[0].Namespace = pod.Namespace
+				res[0].NamespacedName = client.ObjectKeyFromObject(&pod)
 				return res
 			}
 		}
