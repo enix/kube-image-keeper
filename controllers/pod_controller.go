@@ -5,13 +5,14 @@ import (
 	_ "crypto/sha256"
 	"strings"
 
+	"golang.org/x/exp/maps"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/docker/distribution/reference"
-	kuikenixiov1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
+	"github.com/distribution/reference"
+	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -20,6 +21,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -28,7 +30,8 @@ import (
 )
 
 const cachedImageOwnerKey = ".metadata.podOwner"
-const LabelImageRewrittenName = "kuik.enix.io/images-rewritten"
+const LabelManagedName = "kuik.enix.io/managed"
+const AnnotationRewriteImagesName = "kuik.enix.io/rewrite-images"
 
 // PodReconciler reconciles a Pod object
 type PodReconciler struct {
@@ -48,7 +51,7 @@ type PodReconciler struct {
 // the user.
 //
 // For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.11.2/pkg/reconcile
+// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
 func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
@@ -59,21 +62,38 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 
 	log.Info("reconciling pod")
 
-	cachedImages := desiredCachedImages(ctx, &pod)
-	serviceAccountImagePullSecrets, err := r.imagePullSecretNamesFromPodServiceAccount(ctx, &pod)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
 	// On pod deletion
 	if !pod.DeletionTimestamp.IsZero() {
 		log.Info("pod is deleting")
 		return ctrl.Result{}, nil
 	}
 
+	cachedImages := desiredCachedImages(ctx, &pod)
+	repositories, err := r.desiredRepositories(ctx, &pod, cachedImages)
+	if err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
 	// On pod creation and update
+	for _, repository := range repositories {
+		repo := repository.DeepCopy()
+
+		operation, err := controllerutil.CreateOrPatch(ctx, r.Client, repo, func() error {
+			repo.Spec.Name = repository.Spec.Name
+			repo.Spec.PullSecretNames = repository.Spec.PullSecretNames
+			repo.Spec.PullSecretsNamespace = repository.Spec.PullSecretsNamespace
+			return nil
+		})
+
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		log.Info("repository reconcilied", "repository", klog.KObj(&repository), "operation", operation)
+	}
+
 	for _, cachedImage := range cachedImages {
-		var ci kuikenixiov1alpha1.CachedImage
+		var ci kuikv1alpha1.CachedImage
 		err := r.Get(ctx, client.ObjectKeyFromObject(&cachedImage), &ci)
 		if err != nil && !apierrors.IsNotFound(err) {
 			return ctrl.Result{}, err
@@ -85,8 +105,6 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			continue
 		}
 
-		cachedImage.Spec.PullSecretNames = append(cachedImage.Spec.PullSecretNames, serviceAccountImagePullSecrets...)
-
 		// Create or update CachedImage depending on weather it already exists or not
 		if apierrors.IsNotFound(err) {
 			err = r.Create(ctx, &cachedImage)
@@ -96,8 +114,6 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		} else {
 			patch := client.MergeFrom(ci.DeepCopy())
 
-			ci.Spec.PullSecretNames = cachedImage.Spec.PullSecretNames
-			ci.Spec.PullSecretsNamespace = cachedImage.Spec.PullSecretsNamespace
 			ci.Spec.SourceImage = cachedImage.Spec.SourceImage
 
 			if err = r.Patch(ctx, &ci, patch); err != nil {
@@ -108,7 +124,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		log.Info("cachedimage patched", "cachedImage", klog.KObj(&cachedImage), "sourceImage", cachedImage.Spec.SourceImage)
 	}
 
-	log.Info("reconciled pod")
+	log.Info("pod reconciled")
 	return ctrl.Result{}, nil
 }
 
@@ -122,11 +138,11 @@ func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1.Pod{}, builder.WithPredicates(predicate.NewPredicateFuncs(func(object client.Object) bool {
-			_, ok := object.GetLabels()[LabelImageRewrittenName]
+			_, ok := object.GetLabels()[LabelManagedName]
 			return ok
 		}))).
 		Watches(
-			&source.Kind{Type: &kuikenixiov1alpha1.CachedImage{}},
+			&source.Kind{Type: &kuikv1alpha1.CachedImage{}},
 			handler.EnqueueRequestsFromMapFunc(r.podsWithDeletingCachedImages),
 			builder.WithPredicates(p),
 		).
@@ -139,15 +155,15 @@ func (r *PodReconciler) podsWithDeletingCachedImages(obj client.Object) []ctrl.R
 		WithName("controller-runtime.manager.controller.pod.deletingCachedImages").
 		WithValues("cachedImage", klog.KObj(obj))
 
-	cachedImage := obj.(*kuikenixiov1alpha1.CachedImage)
-	var currentCachedImage kuikenixiov1alpha1.CachedImage
+	cachedImage := obj.(*kuikv1alpha1.CachedImage)
+	var currentCachedImage kuikv1alpha1.CachedImage
 	// wait for the CachedImage to be really deleted
-	if err := r.Get(context.Background(), types.NamespacedName{Name: cachedImage.Name}, &currentCachedImage); err == nil || !apierrors.IsNotFound(err) {
+	if err := r.Get(context.Background(), client.ObjectKeyFromObject(cachedImage), &currentCachedImage); err == nil || !apierrors.IsNotFound(err) {
 		return make([]ctrl.Request, 0)
 	}
 
 	var podList corev1.PodList
-	podRequirements, _ := labels.NewRequirement(LabelImageRewrittenName, selection.Equals, []string{"true"})
+	podRequirements, _ := labels.NewRequirement(LabelManagedName, selection.Equals, []string{"true"})
 	selector := labels.NewSelector()
 	selector = selector.Add(*podRequirements)
 	if err := r.List(context.Background(), &podList, &client.ListOptions{
@@ -163,8 +179,7 @@ func (r *PodReconciler) podsWithDeletingCachedImages(obj client.Object) []ctrl.R
 			if cachedImage.Spec.SourceImage == value {
 				log.Info("image in use", "pod", pod.Namespace+"/"+pod.Name)
 				res := make([]ctrl.Request, 1)
-				res[0].Name = pod.Name
-				res[0].Namespace = pod.Namespace
+				res[0].NamespacedName = client.ObjectKeyFromObject(&pod)
 				return res
 			}
 		}
@@ -173,27 +188,44 @@ func (r *PodReconciler) podsWithDeletingCachedImages(obj client.Object) []ctrl.R
 	return make([]ctrl.Request, 0)
 }
 
-func desiredCachedImages(ctx context.Context, pod *corev1.Pod) []kuikenixiov1alpha1.CachedImage {
-	pullSecretNames := []string{}
+func (r *PodReconciler) desiredRepositories(ctx context.Context, pod *corev1.Pod, cachedImages []kuikv1alpha1.CachedImage) ([]kuikv1alpha1.Repository, error) {
+	repositories := map[string]kuikv1alpha1.Repository{}
 
-	for _, pullSecret := range pod.Spec.ImagePullSecrets {
-		pullSecretNames = append(pullSecretNames, pullSecret.Name)
+	pullSecretNames, err := r.imagePullSecretNamesFromPod(ctx, pod)
+	if err != nil {
+		return nil, err
 	}
 
+	for _, cachedImage := range cachedImages {
+		named, err := cachedImage.Repository()
+		if err != nil {
+			return nil, err
+		}
+		repositoryName := named.Name()
+		repositories[repositoryName] = kuikv1alpha1.Repository{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: registry.SanitizeName(repositoryName),
+			},
+			Spec: kuikv1alpha1.RepositorySpec{
+				Name:                 repositoryName,
+				PullSecretNames:      pullSecretNames,
+				PullSecretsNamespace: pod.Namespace,
+			},
+		}
+	}
+
+	return maps.Values(repositories), nil
+}
+
+func desiredCachedImages(ctx context.Context, pod *corev1.Pod) []kuikv1alpha1.CachedImage {
 	cachedImages := desiredCachedImagesForContainers(ctx, pod.Spec.Containers, pod.Annotations, false)
 	cachedImages = append(cachedImages, desiredCachedImagesForContainers(ctx, pod.Spec.InitContainers, pod.Annotations, true)...)
-
-	for i := range cachedImages {
-		cachedImages[i].Spec.PullSecretNames = pullSecretNames
-		cachedImages[i].Spec.PullSecretsNamespace = pod.Namespace
-	}
-
 	return cachedImages
 }
 
-func desiredCachedImagesForContainers(ctx context.Context, containers []corev1.Container, annotations map[string]string, initContainer bool) []kuikenixiov1alpha1.CachedImage {
+func desiredCachedImagesForContainers(ctx context.Context, containers []corev1.Container, annotations map[string]string, initContainer bool) []kuikv1alpha1.CachedImage {
 	log := log.FromContext(ctx)
-	cachedImages := []kuikenixiov1alpha1.CachedImage{}
+	cachedImages := []kuikv1alpha1.CachedImage{}
 
 	for _, container := range containers {
 		annotationKey := registry.ContainerAnnotationKey(container.Name, initContainer)
@@ -218,7 +250,7 @@ func desiredCachedImagesForContainers(ctx context.Context, containers []corev1.C
 	return cachedImages
 }
 
-func cachedImageFromSourceImage(sourceImage string) (*kuikenixiov1alpha1.CachedImage, error) {
+func cachedImageFromSourceImage(sourceImage string) (*kuikv1alpha1.CachedImage, error) {
 	ref, err := reference.ParseAnyReference(sourceImage)
 	if err != nil {
 		return nil, err
@@ -228,20 +260,13 @@ func cachedImageFromSourceImage(sourceImage string) (*kuikenixiov1alpha1.CachedI
 	if !strings.Contains(sourceImage, ":") {
 		sanitizedName += "-latest"
 	}
-	named, err := reference.ParseNormalizedNamed(ref.String())
-	if err != nil {
-		return nil, err
-	}
 
-	cachedImage := kuikenixiov1alpha1.CachedImage{
-		TypeMeta: metav1.TypeMeta{APIVersion: kuikenixiov1alpha1.GroupVersion.String(), Kind: "CachedImage"},
+	cachedImage := kuikv1alpha1.CachedImage{
+		TypeMeta: metav1.TypeMeta{APIVersion: kuikv1alpha1.GroupVersion.String(), Kind: "CachedImage"},
 		ObjectMeta: metav1.ObjectMeta{
 			Name: sanitizedName,
-			Labels: map[string]string{
-				kuikenixiov1alpha1.RepositoryLabelName: registry.RepositoryLabel(named.Name()),
-			},
 		},
-		Spec: kuikenixiov1alpha1.CachedImageSpec{
+		Spec: kuikv1alpha1.CachedImageSpec{
 			SourceImage: sourceImage,
 		},
 	}
@@ -249,20 +274,21 @@ func cachedImageFromSourceImage(sourceImage string) (*kuikenixiov1alpha1.CachedI
 	return &cachedImage, nil
 }
 
-func (r *PodReconciler) imagePullSecretNamesFromPodServiceAccount(ctx context.Context, pod *corev1.Pod) ([]string, error) {
+func (r *PodReconciler) imagePullSecretNamesFromPod(ctx context.Context, pod *corev1.Pod) ([]string, error) {
 	if pod.Spec.ServiceAccountName == "" {
 		return []string{}, nil
 	}
 
 	var serviceAccount corev1.ServiceAccount
 	serviceAccountNamespacedName := types.NamespacedName{Namespace: pod.Namespace, Name: pod.Spec.ServiceAccountName}
-	if err := r.Get(ctx, serviceAccountNamespacedName, &serviceAccount); err != nil {
+	if err := r.Get(ctx, serviceAccountNamespacedName, &serviceAccount); err != nil && !apierrors.IsNotFound(err) {
 		return []string{}, err
 	}
 
-	imagePullSecretNames := make([]string, len(serviceAccount.ImagePullSecrets))
+	imagePullSecrets := append(pod.Spec.ImagePullSecrets, serviceAccount.ImagePullSecrets...)
+	imagePullSecretNames := make([]string, len(imagePullSecrets))
 
-	for i, imagePullSecret := range serviceAccount.ImagePullSecrets {
+	for i, imagePullSecret := range imagePullSecrets {
 		imagePullSecretNames[i] = imagePullSecret.Name
 	}
 

@@ -12,9 +12,7 @@ type CachedImageSpec struct {
 	// +optional
 	ExpiresAt *metav1.Time `json:"expiresAt,omitempty"`
 	// +optional
-	Retain               bool     `json:"retain,omitempty"`
-	PullSecretNames      []string `json:"pullSecretNames,omitempty"`
-	PullSecretsNamespace string   `json:"pullSecretsNamespace,omitempty"`
+	Retain bool `json:"retain,omitempty"`
 }
 
 type PodReference struct {
@@ -31,7 +29,7 @@ type UsedBy struct {
 // CachedImageStatus defines the observed state of CachedImage
 type CachedImageStatus struct {
 	IsCached bool   `json:"isCached,omitempty"`
-	UsedBy   UsedBy `json:"usedBy,omitempty" `
+	UsedBy   UsedBy `json:"usedBy,omitempty"`
 }
 
 //+kubebuilder:object:root=true

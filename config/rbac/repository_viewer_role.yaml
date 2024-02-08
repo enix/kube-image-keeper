@@ -1,20 +1,20 @@
-# permissions for end users to view cachedimages.
+# permissions for end users to view repositories.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   labels:
     app.kubernetes.io/name: clusterrole
-    app.kubernetes.io/instance: cachedimage-viewer-role
+    app.kubernetes.io/instance: repository-viewer-role
     app.kubernetes.io/component: rbac
-    app.kubernetes.io/created-by: kuik
-    app.kubernetes.io/part-of: kuik
+    app.kubernetes.io/created-by: kube-image-keeper
+    app.kubernetes.io/part-of: kube-image-keeper
     app.kubernetes.io/managed-by: kustomize
-  name: cachedimage-viewer-role
+  name: repository-viewer-role
 rules:
 - apiGroups:
   - kuik.enix.io
   resources:
-  - cachedimages
+  - repositories
   verbs:
   - get
   - list
@@ -22,6 +22,6 @@ rules:
 - apiGroups:
   - kuik.enix.io
   resources:
-  - cachedimages/status
+  - repositories/status
   verbs:
   - get

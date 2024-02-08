@@ -2,6 +2,7 @@ package v1
 
 import (
 	_ "crypto/sha256"
+	"errors"
 	"regexp"
 	"testing"
 
@@ -40,7 +41,11 @@ func TestRewriteImages(t *testing.T) {
 		ir := ImageRewriter{
 			ProxyPort: 4242,
 		}
-		ir.RewriteImages(&podStub)
+
+		ir.RewriteImages(&podStub, false)
+		g.Expect(podStub.Annotations[controllers.AnnotationRewriteImagesName]).To(Equal("false"))
+
+		ir.RewriteImages(&podStub, true)
 
 		rewrittenInitContainers := []corev1.Container{
 			{Name: "a", Image: "localhost:4242/original-init"},
@@ -57,7 +62,7 @@ func TestRewriteImages(t *testing.T) {
 		g.Expect(podStub.Spec.InitContainers).To(Equal(rewrittenInitContainers))
 		g.Expect(podStub.Spec.Containers).To(Equal(rewrittenContainers))
 
-		g.Expect(podStub.Labels[controllers.LabelImageRewrittenName]).To(Equal("true"))
+		g.Expect(podStub.Labels[controllers.LabelManagedName]).To(Equal("true"))
 
 		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("a", true)]).To(Equal("original-init"))
 		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("b", false)]).To(Equal("original"))
@@ -65,6 +70,9 @@ func TestRewriteImages(t *testing.T) {
 		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("d", false)]).To(Equal("185.145.250.247:30042/alpine"))
 		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("e", false)]).To(Equal("185.145.250.247:30042/alpine:latest"))
 		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("f", false)]).To(Equal(""))
+
+		ir.RewriteImages(&podStub, false)
+		g.Expect(podStub.Annotations[controllers.AnnotationRewriteImagesName]).To(Equal("true"))
 	})
 }
 
@@ -80,7 +88,7 @@ func TestRewriteImagesWithIgnore(t *testing.T) {
 				regexp.MustCompile("alpine:latest"),
 			},
 		}
-		ir.RewriteImages(&podStub)
+		ir.RewriteImages(&podStub, true)
 
 		rewrittenInitContainers := []corev1.Container{
 			{Name: "a", Image: "original-init"},
@@ -97,7 +105,7 @@ func TestRewriteImagesWithIgnore(t *testing.T) {
 		g.Expect(podStub.Spec.InitContainers).To(Equal(rewrittenInitContainers))
 		g.Expect(podStub.Spec.Containers).To(Equal(rewrittenContainers))
 
-		g.Expect(podStub.Labels[controllers.LabelImageRewrittenName]).To(Equal("true"))
+		g.Expect(podStub.Labels[controllers.LabelManagedName]).To(Equal("true"))
 
 		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("a", true)]).To(Equal(""))
 		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("b", false)]).To(Equal(""))
@@ -122,7 +130,7 @@ func TestInjectDecoder(t *testing.T) {
 	})
 }
 
-func Test_isImageIgnored(t *testing.T) {
+func Test_isImageRewritable(t *testing.T) {
 	emptyRegexps := []*regexp.Regexp{}
 	someRegexps := []*regexp.Regexp{
 		regexp.MustCompile("alpine"),
@@ -133,37 +141,37 @@ func Test_isImageIgnored(t *testing.T) {
 		name    string
 		image   string
 		regexps []*regexp.Regexp
-		ignored bool
+		err     error
 	}{
 		{
 			name:    "No regex",
 			image:   "alpine",
 			regexps: emptyRegexps,
-			ignored: false,
+			err:     nil,
 		},
 		{
 			name:    "No regex with digest",
 			image:   "alpine:latest@sha256:5b161f051d017e55d358435f295f5e9a297e66158f136321d9b04520ec6c48a3",
 			regexps: emptyRegexps,
-			ignored: true,
+			err:     errImageContainsDigests,
 		},
 		{
 			name:    "Match first regex",
 			image:   "alpine",
 			regexps: someRegexps,
-			ignored: true,
+			err:     errors.New("image matches alpine"),
 		},
 		{
 			name:    "Match second regex",
 			image:   "nginx:latest",
 			regexps: someRegexps,
-			ignored: true,
+			err:     errors.New("image matches .*:latest"),
 		},
 		{
 			name:    "Match no regex",
 			image:   "nginx",
 			regexps: someRegexps,
-			ignored: false,
+			err:     nil,
 		},
 	}
 
@@ -174,11 +182,16 @@ func Test_isImageIgnored(t *testing.T) {
 				IgnoreImages: tt.regexps,
 			}
 
-			ignored := imageRewriter.isImageIgnored(&corev1.Container{
+			err := imageRewriter.isImageRewritable(&corev1.Container{
 				Image: tt.image,
 			})
 
-			g.Expect(ignored).To(Equal(tt.ignored))
+			if tt.err == nil {
+				g.Expect(err).To(BeNil())
+			} else {
+				g.Expect(err).To(Equal(tt.err))
+			}
+
 		})
 	}
 }

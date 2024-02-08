@@ -53,12 +53,6 @@ spec:
               expiresAt:
                 format: date-time
                 type: string
-              pullSecretNames:
-                items:
-                  type: string
-                type: array
-              pullSecretsNamespace:
-                type: string
               retain:
                 type: boolean
               sourceImage:
@@ -92,10 +86,4 @@ spec:
     storage: true
     subresources:
       status: {}
-status:
-  acceptedNames:
-    kind: ""
-    plural: ""
-  conditions: []
-  storedVersions: []
 {{- end -}}

@@ -17,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	kuikenixiov1 "github.com/enix/kube-image-keeper/api/v1"
+	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
 	"github.com/enix/kube-image-keeper/controllers"
 	"github.com/enix/kube-image-keeper/internal"
 	"github.com/enix/kube-image-keeper/internal/registry"
@@ -108,7 +109,24 @@ func main() {
 		ProxyPort:    proxyPort,
 	}
 	mgr.GetWebhookServer().Register("/mutate-core-v1-pod", &webhook.Admission{Handler: &imageRewriter})
+	if err = (&kuikv1alpha1.CachedImage{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "CachedImage")
+		os.Exit(1)
+	}
+	if err = (&controllers.RepositoryReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Repository")
+		os.Exit(1)
+	}
 	//+kubebuilder:scaffold:builder
+
+	err = mgr.Add(&kuikenixiov1.PodInitializer{Client: mgr.GetClient()})
+	if err != nil {
+		setupLog.Error(err, "unable to setup PodInitializer")
+		os.Exit(1)
+	}
 
 	if err := mgr.AddHealthzCheck("healthz", controllers.MakeChecker(controllers.Healthz)); err != nil {
 		setupLog.Error(err, "unable to set up health check")

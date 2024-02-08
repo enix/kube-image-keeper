@@ -146,6 +146,8 @@ helm upgrade --install \
 
 That's it!
 
+Our container images are available across multiple registries for reliability. You can find them on [Github Container Registry](https://github.com/enix/kube-image-keeper/pkgs/container/kube-image-keeper), [Quay](https://quay.io/repository/enix/kube-image-keeper) and [DockerHub](https://hub.docker.com/r/enix/kube-image-keeper).
+
 {{ template "chart.valuesSection" . }}
 
 ## Installation with plain YAML files
@@ -184,18 +186,84 @@ helm upgrade --install \
 There are 3 ways to tell kuik which pods it should manage (or, conversely, which ones it should ignore).
 
 - If a pod has the label `kube-image-keeper.enix.io/image-caching-policy=ignore`, kuik will ignore the pod (it will not rewrite its image references).
-- If a pod is in an ignored Namespace, it will also be ignored. Namespaces can be ignored by setting the Helm value `controllers.webhook.ignoredNamespaces`, which defaults to `[kube-system]`. (Note: this feature relies on the [NamespaceDefaultLabelName](https://kubernetes.io/docs/concepts/services-networking/network-policies/#targeting-a-namespace-by-its-name) feature gate to work.)
+- If a pod is in an ignored Namespace, it will also be ignored. Namespaces can be ignored by setting the Helm value `controllers.webhook.ignoredNamespaces` (`kube-system` and the kuik namespace will be ignored whatever the value of this parameter). (Note: this feature relies on the [NamespaceDefaultLabelName](https://kubernetes.io/docs/concepts/services-networking/network-policies/#targeting-a-namespace-by-its-name) feature gate to work.)
 - Finally, kuik will only work on pods matching a specific selector. By default, the selector is empty, which means "match all the pods". The selector can be set with the Helm value `controllers.webhook.objectSelector.matchExpressions`.
 
 This logic isn't implemented by the kuik controllers or webhook directly, but through Kubernetes' standard webhook object selectors. In other words, these parameters end up in the `MutatingWebhookConfiguration` template to filter which pods get presented to kuik's webhook. When the webhook rewrites the images for a pod, it adds a label to that pod, and the kuik controllers then rely on that label to know which `CachedImages` resources to create.
 
 Keep in mind that kuik will ignore pods scheduled into its own namespace.
 
-### Cache persistence & garbage collection
+### Cache persistence
 
 Persistence is disabled by default. You can enable it by setting the Helm value `registry.persistence.enabled=true`. This will create a PersistentVolumeClaim with a default size of 20 GiB. You can change that size by setting the value `registry.persistence.size`. Keep in mind that enabling persistence isn't enough to provide high availability of the registry! If you want kuik to be highly available, please refer to the [high availability guide](https://github.com/enix/kube-image-keeper/blob/main/docs/high-availability.md).
 
 Note that persistence requires your cluster to have some PersistentVolumes. If you don't have PersistentVolumes, kuik's registry Pod will remain `Pending` and your images won't be cached (but they will still be served transparently by kuik's image proxy).
+
+### Retain policy
+
+Sometimes, you want images to stay cached even when they are not used anymore (for instance when you run a workload for a fixed amount of time, stop it, and run it again later). You can choose to prevent `CachedImages` from expiring by manually setting the `spec.retain` flag to `true` like shown below:
+
+```yaml
+apiVersion: kuik.enix.io/v1alpha1
+kind: CachedImage
+metadata:
+  name: docker.io-library-nginx-1.25
+spec:
+  retain: true # here
+  sourceImage: nginx:1.25
+```
+
+### Multi-arch cluster / Non-amd64 architectures
+
+By default, kuik only caches the `amd64` variant of an image. To cache more/other architectures, you need to set the `architectures` field in your helm values.
+
+Example:
+
+```yaml
+architectures: [amd64, arm]
+```
+
+Kuik will only cache available architectures for an image, but will not crash if the architecture doesn't exist.
+
+No manual action is required when migrating an amd64-only cluster from v1.3.0 to v1.4.0.
+
+### Corporate proxy
+
+To configure kuik to work behind a corporate proxy, you can set the well known `http_proxy` and `https_proxy` environment variables (upper and lowercase variant both works) through helm values `proxy.env` and `controllers.env` like shown below:
+
+```yaml
+controllers:
+  env:
+    - name: http_proxy
+      value: https://proxy.mycompany.org:3128
+    - name: https_proxy
+      value: https://proxy.mycompany.org:3128
+proxy:
+  env:
+    - name: http_proxy
+      value: https://proxy.mycompany.org:3128
+    - name: https_proxy
+      value: https://proxy.mycompany.org:3128
+```
+
+Be careful that both the proxy and the controllers need to access the kubernetes API, so you might need to define the `no_proxy` variable as well to ignore the kubernetes API in case it is not reachable from your proxy (which is true most of the time).
+
+### Insecure registries & self-signed certificates
+
+In some cases, you may want to use images from self-hosted registries that are insecure (without TLS or with an invalid certificate for instance) or using a self-signed certificate. By default, kuik will not allow to cache images from those registries for security reasons, even though you configured your container runtime (e.g. Docker, containerd) to do so. However you can choose to trust a list of insecure registries to pull from using the helm value `insecureRegistries`. If you use a self-signed certificate you can store the root certificate authority in a secret and reference it with the helm value `rootCertificateAuthorities`. Here is an example of the use of those two values:
+
+```yaml
+insecureRegistries:
+  - http://some-registry.com
+  - https://some-other-registry.com
+
+rootCertificateAuthorities:
+  secretName: some-secret
+  keys:
+    - root.pem
+```
+
+You can of course use as many insecure registries or root certificate authorities as you want. In the case of a self-signed certificate, you can either use the `insecureRegistries` or the `rootCertificateAuthorities` value, but trusting the root certificate will always be more secure than allowing insecure registries.
 
 ## Garbage collection and limitations
 
@@ -231,6 +299,7 @@ controllers:
 ### Private images are a bit less private
 
 Imagine the following scenario:
+
 - pods A and B use a private image, `example.com/myimage:latest`
 - pod A correctly references `imagePullSecrets, but pod B does not
 
@@ -242,10 +311,13 @@ Howevever, when using kuik, once an image has been pulled and stored in kuik's r
 
 With kuik, all image pulls (except in the namespaces excluded from kuik) go through kuik's registry proxy, which runs on each node thanks to a DaemonSet. When a node gets added to a Kubernetes cluster (for instance, by the cluster autoscaler), a kuik registry proxy Pod gets scheduled on that node, but it will take a brief moment to start. During that time, all other image pulls will fail. Thanks to Kubernetes automatic retry mechanisms, they will eventually succeed, but on new nodes, you may see Pods in `ErrImagePull` or `ImagePullBackOff` status for a minute before everything works correctly. If you are using cluster autoscaling and try to achieve very fast scale-up times, this is something that you might want to keep in mind.
 
-
 ### Garbage collection issue
 
 We use Docker Distribution in Kuik, along with the integrated garbage collection tool. There is a bug that occurs when untagged images are pushed into the registry, causing it to crash. It's possible to end up in a situation where the registry is in read-only mode and becomes unusable. Until a permanent solution is found, we advise keeping the value `registry.garbageCollection.deleteUntagged` set to false.
+
+### Images with digest
+
+As of today, there is no way to manage container images based on a digest. The rational behind this limitation is that a digest is an image manifest hash, and the manifest contains the registry URL associated with the image. Thus, pushing the image to another registry (our cache registry) changes its digest and as a consequence, it is not anymore referenced by its original digest. Digest validation prevent from pushing a manifest with an invalid digest. Therefore, we currently ignore all images based on a digest, those images will not be rewritten nor put in cache to prevent malfunctionning of kuik.
 
 
 ## License

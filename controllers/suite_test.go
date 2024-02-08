@@ -14,6 +14,7 @@ import (
 	"github.com/docker/go-connections/nat"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -24,7 +25,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
-	kuikenixiov1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
+	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	//+kubebuilder:scaffold:imports
 )
@@ -118,7 +119,7 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
 
-	err = kuikenixiov1alpha1.AddToScheme(scheme.Scheme)
+	err = kuikv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = corev1.AddToScheme(scheme.Scheme)

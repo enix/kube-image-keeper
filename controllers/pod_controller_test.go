@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/enix/kube-image-keeper/api/v1alpha1"
-	kuikenixiov1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
+	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -24,7 +24,7 @@ var podStub = corev1.Pod{
 			registry.ContainerAnnotationKey("c", false): "busybox",
 		},
 		Labels: map[string]string{
-			LabelImageRewrittenName: "true",
+			LabelManagedName: "true",
 		},
 	},
 	Spec: corev1.PodSpec{
@@ -35,17 +35,6 @@ var podStub = corev1.Pod{
 			{Name: "b", Image: "nginx:1.22"},
 			{Name: "c", Image: "busybox:1.35"},
 		},
-	},
-}
-
-var serviceAccountStub = corev1.ServiceAccount{
-	ObjectMeta: metav1.ObjectMeta{
-		Name:      "test",
-		Namespace: podStub.Namespace,
-	},
-	ImagePullSecrets: []corev1.LocalObjectReference{
-		{Name: "service-account-pull-secret"},
-		{Name: "service-account-pull-secret-2"},
 	},
 }
 
@@ -75,13 +64,13 @@ func TestDesiredCachedImages(t *testing.T) {
 			name: "basic",
 			pod:  podStub,
 			cachedImages: []v1alpha1.CachedImage{
-				{Spec: kuikenixiov1alpha1.CachedImageSpec{
+				{Spec: kuikv1alpha1.CachedImageSpec{
 					SourceImage: "nginx",
 				}},
-				{Spec: kuikenixiov1alpha1.CachedImageSpec{
+				{Spec: kuikv1alpha1.CachedImageSpec{
 					SourceImage: "busybox",
 				}},
-				{Spec: kuikenixiov1alpha1.CachedImageSpec{
+				{Spec: kuikv1alpha1.CachedImageSpec{
 					SourceImage: "alpine",
 				}},
 			},
@@ -95,14 +84,6 @@ func TestDesiredCachedImages(t *testing.T) {
 			g.Expect(cachedImages).To(HaveLen(len(tt.cachedImages)))
 			for i, cachedImage := range cachedImages {
 				g.Expect(cachedImage.Spec.SourceImage).To(Equal(tt.cachedImages[i].Spec.SourceImage))
-				g.Expect(cachedImage.Spec.PullSecretsNamespace).To(Equal(tt.pod.Namespace))
-
-				pullSecretNames := []string{}
-				for _, pullSecret := range tt.pod.Spec.ImagePullSecrets {
-					pullSecretNames = append(pullSecretNames, pullSecret.Name)
-				}
-				g.Expect(cachedImage.Spec.PullSecretNames).To(ConsistOf(pullSecretNames))
-
 			}
 		})
 	}
@@ -144,11 +125,6 @@ func Test_cachedImageFromSourceImage(t *testing.T) {
 			g.Expect(cachedImage.Name).To(Equal(tt.expectedName))
 			g.Expect(cachedImage.Spec.SourceImage).To(Equal(tt.sourceImage))
 			g.Expect(cachedImage.Spec.ExpiresAt).To(BeNil())
-			g.Expect(cachedImage.Spec.PullSecretNames).To(BeEmpty())
-			g.Expect(cachedImage.Spec.PullSecretsNamespace).To(BeEmpty())
-			g.Expect(cachedImage.Labels).To(Equal(map[string]string{
-				kuikenixiov1alpha1.RepositoryLabelName: registry.RepositoryLabel(tt.expectedRepository),
-			}))
 		})
 	}
 }
@@ -172,7 +148,7 @@ var _ = Describe("Pod Controller", func() {
 		podStubNotRewritten.ResourceVersion = ""
 
 		By("Deleting all cached images")
-		Expect(k8sClient.DeleteAllOf(context.Background(), &kuikenixiov1alpha1.CachedImage{})).Should(Succeed())
+		Expect(k8sClient.DeleteAllOf(context.Background(), &kuikv1alpha1.CachedImage{})).Should(Succeed())
 	})
 
 	Context("Pod with containers and init containers", func() {
@@ -180,8 +156,8 @@ var _ = Describe("Pod Controller", func() {
 			By("Creating a pod")
 			Expect(k8sClient.Create(context.Background(), &podStub)).Should(Succeed())
 
-			fetched := &kuikenixiov1alpha1.CachedImageList{}
-			Eventually(func() []kuikenixiov1alpha1.CachedImage {
+			fetched := &kuikv1alpha1.CachedImageList{}
+			Eventually(func() []kuikv1alpha1.CachedImage {
 				_ = k8sClient.List(context.Background(), fetched)
 				return fetched.Items
 			}, timeout, interval).Should(HaveLen(len(podStub.Spec.Containers) + len(podStub.Spec.InitContainers)))
@@ -199,8 +175,8 @@ var _ = Describe("Pod Controller", func() {
 			By("Deleting previously created pod")
 			Expect(k8sClient.Delete(context.Background(), &podStub)).Should(Succeed())
 
-			Eventually(func() []kuikenixiov1alpha1.CachedImage {
-				expiringCachedImages := []kuikenixiov1alpha1.CachedImage{}
+			Eventually(func() []kuikv1alpha1.CachedImage {
+				expiringCachedImages := []kuikv1alpha1.CachedImage{}
 				_ = k8sClient.List(context.Background(), fetched)
 				for _, cachedImage := range fetched.Items {
 					if cachedImage.Spec.ExpiresAt != nil {
@@ -214,33 +190,11 @@ var _ = Describe("Pod Controller", func() {
 			By("Creating a pod without rewriting images")
 			Expect(k8sClient.Create(context.Background(), &podStubNotRewritten)).Should(Succeed())
 
-			fetched := &kuikenixiov1alpha1.CachedImageList{}
-			Eventually(func() []kuikenixiov1alpha1.CachedImage {
+			fetched := &kuikv1alpha1.CachedImageList{}
+			Eventually(func() []kuikv1alpha1.CachedImage {
 				_ = k8sClient.List(context.Background(), fetched)
 				return fetched.Items
 			}, timeout, interval).Should(HaveLen(0))
-		})
-		It("Should create CachedImages with imagePullSecrets from Pod's ServiceAccount", func() {
-			By("Creating a Pod with a ServiceAccount")
-			Expect(k8sClient.Create(context.Background(), &serviceAccountStub)).Should(Succeed())
-
-			podStub.Spec.ServiceAccountName = serviceAccountStub.Name
-			Expect(k8sClient.Create(context.Background(), &podStub)).Should(Succeed())
-
-			fetched := &kuikenixiov1alpha1.CachedImageList{}
-			Eventually(func() []kuikenixiov1alpha1.CachedImage {
-				_ = k8sClient.List(context.Background(), fetched)
-				return fetched.Items
-			}, timeout, interval).Should(HaveLen(len(podStub.Spec.Containers) + len(podStub.Spec.InitContainers)))
-
-			imagePullSecretNames := make([]string, len(serviceAccountStub.ImagePullSecrets))
-			for i, imagePullSecretName := range serviceAccountStub.ImagePullSecrets {
-				imagePullSecretNames[i] = imagePullSecretName.Name
-			}
-
-			for _, cachedImage := range fetched.Items {
-				Expect(cachedImage.Spec.PullSecretNames).Should(ContainElements(imagePullSecretNames))
-			}
 		})
 	})
 })

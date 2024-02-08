@@ -1,6 +1,12 @@
 apiVersion: kuik.enix.io/v1alpha1
 kind: CachedImage
 metadata:
+  labels:
+    app.kubernetes.io/name: cachedimage
+    app.kubernetes.io/instance: cachedimage-sample
+    app.kubernetes.io/part-of: kuik
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: kuik
   name: cachedimage-sample
 spec:
   image: library/nginx:latest

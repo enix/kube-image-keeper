@@ -22,7 +22,7 @@ controllers:
   replicas: 2
   image:
     # -- Controller image repository. Also available: `quay.io/enix/kube-image-keeper`
-    repository: enix/kube-image-keeper
+    repository: ghcr.io/enix/kube-image-keeper
     # -- Controller image pull policy
     pullPolicy: IfNotPresent
     # -- Controller image tag. Default chart appVersion
@@ -72,8 +72,7 @@ controllers:
       memory: "512Mi"
   webhook:
     # -- Don't enable image caching for pods scheduled into these namespaces
-    ignoredNamespaces:
-      - kube-system
+    ignoredNamespaces: []
     # -- Don't enable image caching if the image match the following regexes
     ignoredImages: []
     # -- If true, create the issuer used to issue the webhook certificate
@@ -100,7 +99,7 @@ controllers:
 proxy:
   image:
     # -- Proxy image repository. Also available: `quay.io/enix/kube-image-keeper`
-    repository: enix/kube-image-keeper
+    repository: ghcr.io/enix/kube-image-keeper
     # -- Proxy image pull policy
     pullPolicy: IfNotPresent
     # -- Proxy image tag. Default chart appVersion

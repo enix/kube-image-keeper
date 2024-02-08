@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/x509"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/distribution/reference"
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -27,12 +29,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	"github.com/enix/kube-image-keeper/api/v1alpha1"
-	kuikenixiov1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
+	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/registry"
 )
 
-// https://book.kubebuilder.io/reference/using-finalizers.html
-const cachedImageFinalizerName = "cachedimage.kuik.enix.io/finalizer"
+const (
+	cachedImageFinalizerName = "cachedimage.kuik.enix.io/finalizer"
+	repositoryOwnerKey       = ".metadata.repositoryOwner"
+)
 
 // CachedImageReconciler reconciles a CachedImage object
 type CachedImageReconciler struct {
@@ -60,17 +64,86 @@ type CachedImageReconciler struct {
 // the user.
 //
 // For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.11.2/pkg/reconcile
+// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
 func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := log.
-		FromContext(ctx)
+	log := log.FromContext(ctx)
 
-	var cachedImage kuikenixiov1alpha1.CachedImage
+	var cachedImage kuikv1alpha1.CachedImage
 	if err := r.Get(ctx, req.NamespacedName, &cachedImage); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	log.Info("reconciling cachedimage")
+
+	// Handle images with an invalid name
+	sanitizedName, err := getSanitizedName(&cachedImage)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if sanitizedName != cachedImage.Name {
+		var existingCachedImage kuikv1alpha1.CachedImage
+		if err := r.Get(ctx, types.NamespacedName{Name: sanitizedName}, &existingCachedImage); err != nil {
+			if apierrors.IsNotFound(err) {
+				log.Info("recreating CachedImage with an appropriate name", "newName", sanitizedName)
+				newCachedImage := cachedImage.DeepCopy()
+				newCachedImage.Name = sanitizedName
+				newCachedImage.ResourceVersion = ""
+				newCachedImage.UID = ""
+				if err := r.Create(ctx, newCachedImage); err != nil {
+					return ctrl.Result{}, err
+				}
+			} else {
+				return ctrl.Result{}, err
+			}
+		} else {
+			log.Info("patching CachedImage from CachedImage with an invalid name", "newName", sanitizedName)
+			existingCachedImage.Spec = cachedImage.Spec
+			if err := r.Update(ctx, &existingCachedImage); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+		log.Info("removing finalizer and deleting CachedImage with an invalid name")
+		controllerutil.RemoveFinalizer(&cachedImage, cachedImageFinalizerName)
+		if err := r.Update(ctx, &cachedImage); err != nil {
+			return ctrl.Result{}, err
+		}
+		if err := r.Delete(ctx, &cachedImage); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// Create or patch related repository
+	named, err := cachedImage.Repository()
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	repositoryName := named.Name()
+	repository := kuikv1alpha1.Repository{ObjectMeta: metav1.ObjectMeta{Name: registry.SanitizeName(repositoryName)}}
+	operation, err := controllerutil.CreateOrPatch(ctx, r.Client, &repository, func() error {
+		repository.Spec.Name = repositoryName
+		return nil
+	})
+
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	log.Info("repository updated", "repository", klog.KObj(&repository), "operation", operation)
+
+	// Set owner reference
+	owner := &kuikv1alpha1.Repository{}
+	if err := r.Get(context.Background(), client.ObjectKeyFromObject(&repository), owner); err != nil {
+		return ctrl.Result{}, err
+	}
+	if err := controllerutil.SetOwnerReference(owner, &cachedImage, r.Scheme); err != nil {
+		return ctrl.Result{}, err
+	}
+	if err := r.Update(ctx, &cachedImage); err != nil {
+		return ctrl.Result{}, err
+	}
 
 	// Remove image from registry when CachedImage is being deleted, finalizer is removed after it
 	if !cachedImage.ObjectMeta.DeletionTimestamp.IsZero() {
@@ -133,6 +206,9 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err != nil && !apierrors.IsNotFound(err) {
 			return ctrl.Result{}, err
 		}
+		if err := r.Get(ctx, req.NamespacedName, &cachedImage); err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
 	}
 
 	// Delete expired CachedImage and schedule deletion for expiring ones
@@ -162,8 +238,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	if !isCached {
 		r.Recorder.Eventf(&cachedImage, "Normal", "Caching", "Start caching image %s", cachedImage.Spec.SourceImage)
-		keychain := registry.NewKubernetesKeychain(r.ApiReader, cachedImage.Spec.PullSecretsNamespace, cachedImage.Spec.PullSecretNames)
-		if err := registry.CacheImage(cachedImage.Spec.SourceImage, keychain, r.Architectures, r.InsecureRegistries, r.RootCAs); err != nil {
+		if err := r.cacheImage(&cachedImage); err != nil {
 			log.Error(err, "failed to cache image")
 			r.Recorder.Eventf(&cachedImage, "Warning", "CacheFailed", "Failed to cache image %s, reason: %s", cachedImage.Spec.SourceImage, err)
 			return ctrl.Result{}, err
@@ -171,9 +246,6 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			log.Info("image cached")
 			r.Recorder.Eventf(&cachedImage, "Normal", "Cached", "Successfully cached image %s", cachedImage.Spec.SourceImage)
 			imagePutInCache.Inc()
-			if err := r.Get(ctx, req.NamespacedName, &cachedImage); err != nil {
-				return ctrl.Result{}, client.IgnoreNotFound(err)
-			}
 		}
 	} else {
 		log.Info("image already present in cache, ignoring")
@@ -190,8 +262,31 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
-	log.Info("reconciled cachedimage")
+	log.Info("cachedimage reconciled")
 	return ctrl.Result{}, nil
+}
+
+func getSanitizedName(cachedImage *kuikv1alpha1.CachedImage) (string, error) {
+	ref, err := reference.ParseAnyReference(cachedImage.Spec.SourceImage)
+	if err != nil {
+		return "", err
+	}
+
+	sanitizedName := registry.SanitizeName(ref.String())
+	if !strings.Contains(cachedImage.Spec.SourceImage, ":") {
+		sanitizedName += "-latest"
+	}
+
+	return sanitizedName, nil
+}
+
+func (r *CachedImageReconciler) cacheImage(cachedImage *kuikv1alpha1.CachedImage) error {
+	pullSecrets, err := cachedImage.GetPullSecrets(r.ApiReader)
+	if err != nil {
+		return err
+	}
+
+	return registry.CacheImage(cachedImage.Spec.SourceImage, pullSecrets, r.Architectures, r.InsecureRegistries, r.RootCAs)
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -199,7 +294,7 @@ func (r *CachedImageReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrent
 	// Create an index to list Pods by CachedImage
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &corev1.Pod{}, cachedImageOwnerKey, func(rawObj client.Object) []string {
 		pod := rawObj.(*corev1.Pod)
-		if _, ok := pod.Labels[LabelImageRewrittenName]; !ok {
+		if _, ok := pod.Labels[LabelManagedName]; !ok {
 			return []string{}
 		}
 
@@ -221,7 +316,7 @@ func (r *CachedImageReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrent
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&kuikenixiov1alpha1.CachedImage{}).
+		For(&kuikv1alpha1.CachedImage{}).
 		Watches(
 			&source.Kind{Type: &corev1.Pod{}},
 			handler.EnqueueRequestsFromMapFunc(r.cachedImagesRequestFromPod),
@@ -254,7 +349,7 @@ func (r *CachedImageReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrent
 }
 
 // updatePodCount update CachedImage UsedBy status
-func (r *CachedImageReconciler) updatePodCount(ctx context.Context, cachedImage *kuikenixiov1alpha1.CachedImage) (requeue bool, err error) {
+func (r *CachedImageReconciler) updatePodCount(ctx context.Context, cachedImage *kuikv1alpha1.CachedImage) (requeue bool, err error) {
 	var podsList corev1.PodList
 	if err = r.List(ctx, &podsList, client.MatchingFields{cachedImageOwnerKey: cachedImage.Name}); err != nil && !apierrors.IsNotFound(err) {
 		return

@@ -72,3 +72,29 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - kuik.enix.io
+  resources:
+  - repositories
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kuik.enix.io
+  resources:
+  - repositories/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - kuik.enix.io
+  resources:
+  - repositories/status
+  verbs:
+  - get
+  - patch
+  - update
