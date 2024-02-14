@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"regexp"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -94,7 +95,16 @@ func (r *RepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			if err := r.List(ctx, &cachedImageList, client.MatchingFields{repositoryOwnerKey: repository.Name}); err != nil && !apierrors.IsNotFound(err) {
 				return ctrl.Result{}, err
 			}
+
+			regexps, err := repository.CompileUpdateFilters()
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+
 			for _, cachedImage := range cachedImageList.Items {
+				if !isImageFilteredForUpdate(cachedImage.Spec.SourceImage, regexps) {
+					continue
+				}
 				patch := client.MergeFrom(cachedImage.DeepCopy())
 				if cachedImage.Annotations == nil {
 					cachedImage.Annotations = map[string]string{}
@@ -102,6 +112,7 @@ func (r *RepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				cachedImage.Annotations[cachedImageAnnotationForceUpdateName] = "true"
 				r.Patch(ctx, &cachedImage, patch)
 			}
+
 			repository.Status.LastUpdate = metav1.NewTime(time.Now())
 		}
 	}
@@ -220,4 +231,18 @@ func requestRepositoryFromCachedImage(obj client.Object) []ctrl.Request {
 	}
 
 	return []ctrl.Request{{NamespacedName: types.NamespacedName{Name: repositoryName}}}
+}
+
+func isImageFilteredForUpdate(imageName string, regexps []regexp.Regexp) bool {
+	if len(regexps) == 0 {
+		return true
+	}
+
+	for _, regexp := range regexps {
+		if regexp.Match([]byte(imageName)) {
+			return true
+		}
+	}
+
+	return false
 }

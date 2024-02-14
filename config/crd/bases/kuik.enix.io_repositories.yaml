@@ -55,6 +55,10 @@ spec:
                 type: array
               pullSecretsNamespace:
                 type: string
+              updateFilters:
+                items:
+                  type: string
+                type: array
               updateInterval:
                 type: string
             required:

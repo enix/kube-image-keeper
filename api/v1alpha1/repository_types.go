@@ -10,7 +10,7 @@ type RepositorySpec struct {
 	PullSecretNames      []string         `json:"pullSecretNames,omitempty"`
 	PullSecretsNamespace string           `json:"pullSecretsNamespace,omitempty"`
 	UpdateInterval       *metav1.Duration `json:"updateInterval,omitempty"`
-	// UpdateFilters        []string         `json:"updateFilters,omitempty"`
+	UpdateFilters        []string         `json:"updateFilters,omitempty"`
 }
 
 // RepositoryStatus defines the observed state of Repository
