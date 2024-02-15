@@ -218,6 +218,13 @@ registry:
     schedule: "0 0 * * 0"
     # -- If true, delete untagged manifests. Default to false since there is a known bug in **docker distribution** garbage collect job.
     deleteUntagged: false
+    image:
+      # -- Cronjob image repository
+      repository: bitnami/kubectl
+      # -- Cronjob image pull policy
+      pullPolicy: IfNotPresent
+      # -- Cronjob image tag. Default 'latest'
+      tag: "latest"
   service:
     # -- Registry service type
     type: ClusterIP
