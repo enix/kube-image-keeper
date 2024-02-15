@@ -62,8 +62,25 @@ spec:
           status:
             description: CachedImageStatus defines the observed state of CachedImage
             properties:
+              availableUpstream:
+                type: boolean
+              digest:
+                type: string
               isCached:
                 type: boolean
+              lastSeenUpstream:
+                format: date-time
+                type: string
+              lastSuccessfulPull:
+                format: date-time
+                type: string
+              lastSync:
+                format: date-time
+                type: string
+              upToDate:
+                type: boolean
+              upstreamDigest:
+                type: string
               usedBy:
                 properties:
                   count:

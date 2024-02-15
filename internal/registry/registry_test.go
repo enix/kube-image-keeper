@@ -10,11 +10,10 @@ import (
 	"testing"
 
 	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/ghttp"
-	corev1 "k8s.io/api/core/v1"
-	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 )
 
 var mockedDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
@@ -238,33 +237,12 @@ func Test_CacheImage(t *testing.T) {
 			image: "alpine",
 		},
 		{
-			name:    "Basic",
-			image:   "*****",
-			wantErr: "couldn't parse image name: invalid reference format",
-			errType: errors.New(""),
-		},
-		{
-			name:       "Image not found",
-			image:      "image-not-found",
-			httpStatus: http.StatusNotFound,
-			wantErr:    "could not find source image",
-			errType:    utilerrors.NewAggregate([]error{errors.New("")}),
-		},
-		{
-			name:         "Unauthorized",
-			image:        "alpine",
-			httpStatus:   http.StatusUnauthorized,
-			httpResponse: "unauthorized",
-			wantErr:      "unauthorized",
-			errType:      utilerrors.NewAggregate([]error{&transport.Error{}}),
-		},
-		{
 			name:            "Could not write",
 			image:           "alpine",
 			putHttpStatus:   http.StatusUnauthorized,
 			putHttpResponse: "unauthorized",
 			wantErr:         "unauthorized",
-			errType:         utilerrors.NewAggregate([]error{&transport.Error{}}),
+			errType:         &transport.Error{},
 		},
 	}
 
@@ -330,7 +308,15 @@ func Test_CacheImage(t *testing.T) {
 			)
 
 			Endpoint = cacheRegistry.Addr()
-			err := CacheImage(originRegistry.Addr()+"/"+tt.image, []corev1.Secret{}, []string{"amd64"}, []string{}, nil)
+			imageName := originRegistry.Addr() + "/" + tt.image
+
+			sourceRef, err := name.ParseReference(imageName)
+			g.Expect(err).To(BeNil())
+
+			desc, err := remote.Get(sourceRef)
+			g.Expect(err).To(BeNil())
+
+			err = CacheImage(imageName, desc, []string{"amd64"})
 			if tt.wantErr != "" {
 				g.Expect(err).To(BeAssignableToTypeOf(tt.errType))
 				g.Expect(err).To(MatchError(ContainSubstring(tt.wantErr)))

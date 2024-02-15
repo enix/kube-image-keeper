@@ -26,6 +26,8 @@ import (
 var Endpoint = ""
 var Protocol = "http://"
 
+var ErrNotFound = errors.New("could not find source image")
+
 // See https://github.com/kubernetes/apimachinery/blob/v0.20.6/pkg/util/validation/validation.go#L198
 var sanitizeNameRegex = regexp.MustCompile(`[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*`)
 
@@ -71,6 +73,21 @@ func parseLocalReference(imageName string) (name.Reference, error) {
 	return name.ParseReference(destName, name.Insecure)
 }
 
+func options(ref name.Reference, keychain authn.Keychain, insecureRegistries []string, rootCAs *x509.CertPool) []remote.Option {
+	auth := remote.WithAuthFromKeychain(keychain)
+	opts := []remote.Option{auth}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{RootCAs: rootCAs}
+
+	if slices.Contains(insecureRegistries, ref.Context().Registry.RegistryStr()) {
+		transport.TLSClientConfig.InsecureSkipVerify = true
+	}
+
+	opts = append(opts, remote.WithTransport(transport))
+
+	return opts
+}
+
 func ImageIsCached(imageName string) (bool, error) {
 	reference, err := parseLocalReference(imageName)
 	if err != nil {
@@ -102,51 +119,9 @@ func DeleteImage(imageName string) error {
 	return remote.Delete(digest)
 }
 
-func CacheImage(imageName string, pullSecrets []corev1.Secret, architectures []string, insecureRegistries []string, rootCAs *x509.CertPool) error {
-	keychains, err := GetKeychains(imageName, pullSecrets)
-	if err != nil {
-		return err
-	}
-
-	var cacheErrors []error
-	for _, keychain := range keychains {
-		err := cacheImageWithKeychain(imageName, keychain, architectures, insecureRegistries, rootCAs)
-		if err == nil { // stops at the first success
-			return nil
-		}
-		cacheErrors = append(cacheErrors, err)
-	}
-
-	return utilerrors.NewAggregate(cacheErrors)
-
-}
-
-func cacheImageWithKeychain(imageName string, keychain authn.Keychain, architectures []string, insecureRegistries []string, rootCAs *x509.CertPool) error {
+func CacheImage(imageName string, desc *remote.Descriptor, architectures []string) error {
 	destRef, err := parseLocalReference(imageName)
 	if err != nil {
-		return err
-	}
-	sourceRef, err := name.ParseReference(imageName)
-	if err != nil {
-		return err
-	}
-
-	auth := remote.WithAuthFromKeychain(keychain)
-	opts := []remote.Option{auth}
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.TLSClientConfig = &tls.Config{RootCAs: rootCAs}
-
-	if slices.Contains(insecureRegistries, sourceRef.Context().Registry.RegistryStr()) {
-		transport.TLSClientConfig.InsecureSkipVerify = true
-	}
-
-	opts = append(opts, remote.WithTransport(transport))
-
-	desc, err := remote.Get(sourceRef, opts...)
-	if err != nil {
-		if errIsImageNotFound(err) {
-			return errors.New("could not find source image")
-		}
 		return err
 	}
 
@@ -180,6 +155,47 @@ func cacheImageWithKeychain(imageName string, keychain authn.Keychain, architect
 	}
 
 	return nil
+}
+
+func GetLocalDescriptor(imageName string) (*remote.Descriptor, error) {
+	ref, err := parseLocalReference(imageName)
+	if err != nil {
+		return nil, err
+	}
+
+	descriptor, err := remote.Get(ref)
+	if err != nil {
+		return nil, err
+	}
+
+	return descriptor, nil
+}
+
+func GetDescriptor(imageName string, pullSecrets []corev1.Secret, insecureRegistries []string, rootCAs *x509.CertPool) (*remote.Descriptor, error) {
+	keychains, err := GetKeychains(imageName, pullSecrets)
+	if err != nil {
+		return nil, err
+	}
+
+	sourceRef, err := name.ParseReference(imageName)
+	if err != nil {
+		return nil, err
+	}
+
+	var cacheErrors []error
+	for _, keychain := range keychains {
+		opts := options(sourceRef, keychain, insecureRegistries, rootCAs)
+		desc, err := remote.Get(sourceRef, opts...)
+
+		if err == nil { // stops at the first success
+			return desc, nil
+		} else if errIsImageNotFound(err) {
+			err = ErrNotFound
+		}
+		cacheErrors = append(cacheErrors, err)
+	}
+
+	return nil, utilerrors.NewAggregate(cacheErrors)
 }
 
 func SanitizeName(image string) string {

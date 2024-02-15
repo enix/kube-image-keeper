@@ -51,6 +51,12 @@ spec:
                 type: array
               pullSecretsNamespace:
                 type: string
+              updateFilters:
+                items:
+                  type: string
+                type: array
+              updateInterval:
+                type: string
             required:
             - name
             type: object
@@ -130,6 +136,9 @@ spec:
                 x-kubernetes-list-type: map
               images:
                 type: integer
+              lastUpdate:
+                format: date-time
+                type: string
               phase:
                 type: string
             type: object

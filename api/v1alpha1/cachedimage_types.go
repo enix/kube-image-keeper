@@ -30,6 +30,15 @@ type UsedBy struct {
 type CachedImageStatus struct {
 	IsCached bool   `json:"isCached,omitempty"`
 	UsedBy   UsedBy `json:"usedBy,omitempty"`
+
+	Digest             string      `json:"digest,omitempty"`
+	UpstreamDigest     string      `json:"upstreamDigest,omitempty"`
+	UpToDate           bool        `json:"upToDate,omitempty"`
+	LastSync           metav1.Time `json:"lastSync,omitempty"`
+	LastSuccessfulPull metav1.Time `json:"lastSuccessfulPull,omitempty"`
+
+	AvailableUpstream bool        `json:"availableUpstream,omitempty"`
+	LastSeenUpstream  metav1.Time `json:"lastSeenUpstream,omitempty"`
 }
 
 //+kubebuilder:object:root=true
