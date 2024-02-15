@@ -6,15 +6,18 @@ import (
 
 // RepositorySpec defines the desired state of Repository
 type RepositorySpec struct {
-	Name                 string   `json:"name"`
-	PullSecretNames      []string `json:"pullSecretNames,omitempty"`
-	PullSecretsNamespace string   `json:"pullSecretsNamespace,omitempty"`
+	Name                 string           `json:"name"`
+	PullSecretNames      []string         `json:"pullSecretNames,omitempty"`
+	PullSecretsNamespace string           `json:"pullSecretsNamespace,omitempty"`
+	UpdateInterval       *metav1.Duration `json:"updateInterval,omitempty"`
+	// UpdateFilters        []string         `json:"updateFilters,omitempty"`
 }
 
 // RepositoryStatus defines the observed state of Repository
 type RepositoryStatus struct {
-	Images int    `json:"images,omitempty"`
-	Phase  string `json:"phase,omitempty"`
+	Images     int         `json:"images,omitempty"`
+	Phase      string      `json:"phase,omitempty"`
+	LastUpdate metav1.Time `json:"lastUpdate,omitempty"`
 	//+listType=map
 	//+listMapKey=type
 	//+patchStrategy=merge

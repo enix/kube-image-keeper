@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -86,6 +87,25 @@ func (r *RepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, nil
 	}
 
+	if repository.Spec.UpdateInterval != nil {
+		nextUpdate := repository.Status.LastUpdate.Add(repository.Spec.UpdateInterval.Duration)
+		if time.Now().After(nextUpdate) {
+			log.Info("updating repository")
+			if err := r.List(ctx, &cachedImageList, client.MatchingFields{repositoryOwnerKey: repository.Name}); err != nil && !apierrors.IsNotFound(err) {
+				return ctrl.Result{}, err
+			}
+			for _, cachedImage := range cachedImageList.Items {
+				patch := client.MergeFrom(cachedImage.DeepCopy())
+				if cachedImage.Annotations == nil {
+					cachedImage.Annotations = map[string]string{}
+				}
+				cachedImage.Annotations[cachedImageAnnotationForceUpdateName] = "true"
+				r.Patch(ctx, &cachedImage, patch)
+			}
+			repository.Status.LastUpdate = metav1.NewTime(time.Now())
+		}
+	}
+
 	err := r.UpdateStatus(ctx, &repository, []metav1.Condition{{
 		Type:    typeReadyRepository,
 		Status:  metav1.ConditionTrue,
@@ -103,6 +123,10 @@ func (r *RepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if err := r.Update(ctx, &repository); err != nil {
 			return ctrl.Result{}, err
 		}
+	}
+
+	if repository.Spec.UpdateInterval != nil {
+		return ctrl.Result{RequeueAfter: repository.Spec.UpdateInterval.Duration}, nil
 	}
 
 	return ctrl.Result{}, nil

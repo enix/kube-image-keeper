@@ -9,6 +9,7 @@ import (
 
 	"github.com/distribution/reference"
 	"github.com/go-logr/logr"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -34,8 +35,9 @@ import (
 )
 
 const (
-	cachedImageFinalizerName = "cachedimage.kuik.enix.io/finalizer"
-	repositoryOwnerKey       = ".metadata.repositoryOwner"
+	cachedImageFinalizerName             = "cachedimage.kuik.enix.io/finalizer"
+	cachedImageAnnotationForceUpdateName = "cachedimage.kuik.enix.io/forceUpdate"
+	repositoryOwnerKey                   = ".metadata.repositoryOwner"
 )
 
 // CachedImageReconciler reconciles a CachedImage object
@@ -228,17 +230,30 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	}
 
-	// Adding image to registry
-	log.Info("caching image")
-	isCached, err := registry.ImageIsCached(cachedImage.Spec.SourceImage)
+	// Removing forceUpdate annotation
+	forceUpdate := cachedImage.Annotations[cachedImageAnnotationForceUpdateName]
+	patch := client.MergeFrom(cachedImage.DeepCopy())
+	if forceUpdate == "true" {
+		delete(cachedImage.Annotations, cachedImageAnnotationForceUpdateName)
+	}
+	err = r.Patch(context.Background(), &cachedImage, patch)
 	if err != nil {
-		log.Error(err, "could not determine if the image present in cache")
 		return ctrl.Result{}, err
 	}
 
+	// Adding image to registry
+	isCached := false
+	if forceUpdate != "true" {
+		isCached, err = registry.ImageIsCached(cachedImage.Spec.SourceImage)
+		if err != nil {
+			log.Error(err, "could not determine if the image present in cache")
+			return ctrl.Result{}, err
+		}
+	}
 	if !isCached {
 		r.Recorder.Eventf(&cachedImage, "Normal", "Caching", "Start caching image %s", cachedImage.Spec.SourceImage)
-		if err := r.cacheImage(&cachedImage); err != nil {
+		err = r.cacheImage(&cachedImage)
+		if err != nil {
 			log.Error(err, "failed to cache image")
 			r.Recorder.Eventf(&cachedImage, "Warning", "CacheFailed", "Failed to cache image %s, reason: %s", cachedImage.Spec.SourceImage, err)
 			return ctrl.Result{}, err
@@ -251,19 +266,27 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		log.Info("image already present in cache, ignoring")
 	}
 
-	// Update CachedImage IsCached status
-	log.Info("updating CachedImage status")
-	cachedImage.Status.IsCached = true
-	err = r.Status().Update(context.Background(), &cachedImage)
-	if err != nil {
-		if statusErr, ok := err.(*errors.StatusError); ok && statusErr.Status().Code == http.StatusConflict {
-			return ctrl.Result{Requeue: true}, nil
-		}
-		return ctrl.Result{}, err
-	}
-
 	log.Info("cachedimage reconciled")
 	return ctrl.Result{}, nil
+}
+
+func updateStatus(c client.Client, cachedImage *kuikv1alpha1.CachedImage, upstreamDescriptor *remote.Descriptor, update func(*kuikv1alpha1.CachedImageStatus)) error {
+	patch := client.MergeFrom(cachedImage.DeepCopy())
+
+	cachedImage.Status.AvailableUpstream = upstreamDescriptor != nil
+	cachedImage.Status.LastSync = metav1.NewTime(time.Now())
+
+	update(&cachedImage.Status)
+
+	if upstreamDescriptor != nil {
+		cachedImage.Status.UpstreamDigest = upstreamDescriptor.Digest.Hex
+		cachedImage.Status.UpToDate = cachedImage.Status.Digest == upstreamDescriptor.Digest.Hex
+	} else {
+		cachedImage.Status.UpstreamDigest = ""
+		cachedImage.Status.UpToDate = false
+	}
+
+	return c.Status().Patch(context.Background(), cachedImage, patch)
 }
 
 func getSanitizedName(cachedImage *kuikv1alpha1.CachedImage) (string, error) {
@@ -286,7 +309,46 @@ func (r *CachedImageReconciler) cacheImage(cachedImage *kuikv1alpha1.CachedImage
 		return err
 	}
 
-	return registry.CacheImage(cachedImage.Spec.SourceImage, pullSecrets, r.Architectures, r.InsecureRegistries, r.RootCAs)
+	desc, err := registry.GetDescriptor(cachedImage.Spec.SourceImage, pullSecrets, r.InsecureRegistries, r.RootCAs)
+
+	statusErr := updateStatus(r.Client, cachedImage, desc, func(status *kuikv1alpha1.CachedImageStatus) {
+		_, err := registry.GetLocalDescriptor(cachedImage.Spec.SourceImage)
+		cachedImage.Status.IsCached = err == nil
+
+		if cachedImage.Status.AvailableUpstream {
+			cachedImage.Status.LastSeenUpstream = metav1.NewTime(time.Now())
+		}
+	})
+
+	if err != nil {
+		return err
+	}
+	if statusErr != nil {
+		return statusErr
+	}
+
+	if cachedImage.Status.UpToDate {
+		return nil
+	}
+
+	err = registry.CacheImage(cachedImage.Spec.SourceImage, desc, r.Architectures)
+
+	statusErr = updateStatus(r.Client, cachedImage, desc, func(status *kuikv1alpha1.CachedImageStatus) {
+		if err == nil {
+			cachedImage.Status.IsCached = true
+			cachedImage.Status.Digest = desc.Digest.Hex
+			cachedImage.Status.LastSuccessfulPull = metav1.NewTime(time.Now())
+		}
+	})
+
+	if err != nil {
+		return err
+	}
+	if statusErr != nil {
+		return statusErr
+	}
+
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
