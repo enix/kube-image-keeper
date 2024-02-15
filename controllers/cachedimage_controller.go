@@ -213,23 +213,6 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	}
 
-	// Delete expired CachedImage and schedule deletion for expiring ones
-	if !expiresAt.IsZero() {
-		if time.Now().After(expiresAt.Time) {
-			log.Info("cachedimage expired, deleting it", "now", time.Now(), "expiresAt", expiresAt)
-			r.Recorder.Eventf(&cachedImage, "Normal", "Expiring", "Image %s has expired, deleting it", cachedImage.Spec.SourceImage)
-			err := r.Delete(ctx, &cachedImage)
-			if err != nil {
-				r.Recorder.Eventf(&cachedImage, "Warning", "ExpiringFailed", "Image %s could not expire: %s", cachedImage.Spec.SourceImage, err)
-				return ctrl.Result{}, err
-			}
-			r.Recorder.Eventf(&cachedImage, "Normal", "Expired", "Image %s successfully expired", cachedImage.Spec.SourceImage)
-			return ctrl.Result{}, nil
-		} else {
-			return ctrl.Result{RequeueAfter: time.Until(expiresAt.Time)}, nil
-		}
-	}
-
 	// Removing forceUpdate annotation
 	forceUpdate := cachedImage.Annotations[cachedImageAnnotationForceUpdateName]
 	patch := client.MergeFrom(cachedImage.DeepCopy())
@@ -264,6 +247,23 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	} else {
 		log.Info("image already present in cache, ignoring")
+	}
+
+	// Delete expired CachedImage and schedule deletion for expiring ones
+	if !expiresAt.IsZero() {
+		if time.Now().After(expiresAt.Time) {
+			log.Info("cachedimage expired, deleting it", "now", time.Now(), "expiresAt", expiresAt)
+			r.Recorder.Eventf(&cachedImage, "Normal", "Expiring", "Image %s has expired, deleting it", cachedImage.Spec.SourceImage)
+			err := r.Delete(ctx, &cachedImage)
+			if err != nil {
+				r.Recorder.Eventf(&cachedImage, "Warning", "ExpiringFailed", "Image %s could not expire: %s", cachedImage.Spec.SourceImage, err)
+				return ctrl.Result{}, err
+			}
+			r.Recorder.Eventf(&cachedImage, "Normal", "Expired", "Image %s successfully expired", cachedImage.Spec.SourceImage)
+			return ctrl.Result{}, nil
+		} else {
+			return ctrl.Result{RequeueAfter: time.Until(expiresAt.Time)}, nil
+		}
 	}
 
 	log.Info("cachedimage reconciled")
