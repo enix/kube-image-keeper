@@ -138,10 +138,12 @@ func Test_isImageRewritable(t *testing.T) {
 	}
 
 	tests := []struct {
-		name    string
-		image   string
-		regexps []*regexp.Regexp
-		err     error
+		name                   string
+		image                  string
+		imagePullPolicy        corev1.PullPolicy
+		ignorePullPolicyAlways bool
+		regexps                []*regexp.Regexp
+		err                    error
 	}{
 		{
 			name:    "No regex",
@@ -173,17 +175,45 @@ func Test_isImageRewritable(t *testing.T) {
 			regexps: someRegexps,
 			err:     nil,
 		},
+		{
+			name:                   "Ignore ImagePullPolicy: Always",
+			image:                  "nginx:1.0.0",
+			imagePullPolicy:        corev1.PullAlways,
+			ignorePullPolicyAlways: true,
+			err:                    errPullPolicyAlways,
+		},
+		{
+			name:                   "Ignore ImagePullPolicy: Always with tag latest",
+			image:                  "nginx:latest",
+			ignorePullPolicyAlways: true,
+			err:                    errPullPolicyAlways,
+		},
+		{
+			name:                   "Ignore ImagePullPolicy: Always without any tag",
+			image:                  "nginx",
+			ignorePullPolicyAlways: true,
+			err:                    errPullPolicyAlways,
+		},
+		{
+			name:                   "Ignore ImagePullPolicy: Always with tag latest but ImagePullPolicy: Never",
+			image:                  "nginx:latest",
+			imagePullPolicy:        corev1.PullNever,
+			ignorePullPolicyAlways: true,
+			err:                    nil,
+		},
 	}
 
 	g := NewWithT(t)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			imageRewriter := ImageRewriter{
-				IgnoreImages: tt.regexps,
+				IgnoreImages:           tt.regexps,
+				IgnorePullPolicyAlways: tt.ignorePullPolicyAlways,
 			}
 
 			err := imageRewriter.isImageRewritable(&corev1.Container{
-				Image: tt.image,
+				Image:           tt.image,
+				ImagePullPolicy: tt.imagePullPolicy,
 			})
 
 			if tt.err == nil {
