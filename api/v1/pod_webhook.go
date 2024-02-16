@@ -27,13 +27,15 @@ import (
 
 var (
 	errImageContainsDigests = errors.New("image contains a digest")
+	errPullPolicyAlways     = errors.New("container is configured with imagePullPolicy: Always")
 )
 
 type ImageRewriter struct {
-	Client       client.Client
-	IgnoreImages []*regexp.Regexp
-	ProxyPort    int
-	decoder      *admission.Decoder
+	Client                 client.Client
+	IgnoreImages           []*regexp.Regexp
+	IgnorePullPolicyAlways bool
+	ProxyPort              int
+	decoder                *admission.Decoder
 }
 
 type PodInitializer struct {
@@ -151,6 +153,14 @@ func (a *ImageRewriter) handleContainer(pod *corev1.Pod, container *corev1.Conta
 func (a *ImageRewriter) isImageRewritable(container *corev1.Container) error {
 	if strings.Contains(container.Image, "@") {
 		return errImageContainsDigests
+	}
+
+	if a.IgnorePullPolicyAlways {
+		pullAlways := container.ImagePullPolicy == corev1.PullAlways
+		isLatestWithoutPullPolicy := container.ImagePullPolicy == "" && (!strings.Contains(container.Image, ":") || strings.HasSuffix(container.Image, ":latest"))
+		if pullAlways || isLatestWithoutPullPolicy {
+			return errPullPolicyAlways
+		}
 	}
 
 	for _, r := range a.IgnoreImages {
