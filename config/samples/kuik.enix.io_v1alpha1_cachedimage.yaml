@@ -9,4 +9,4 @@ metadata:
     app.kubernetes.io/created-by: kuik
   name: cachedimage-sample
 spec:
-  image: library/nginx:latest
+  sourceImage: library/nginx:latest
