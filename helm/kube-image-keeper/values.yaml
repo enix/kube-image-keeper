@@ -4,8 +4,6 @@
 
 # -- Delay in days before deleting an unused CachedImage
 cachedImagesExpiryDelay: 30
-# -- If true, install the CRD
-installCRD: true
 # -- List of architectures to put in cache
 architectures: [amd64]
 # -- Insecure registries to allow to cache and proxify images from
