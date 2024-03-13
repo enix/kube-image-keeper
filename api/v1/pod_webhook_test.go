@@ -195,11 +195,17 @@ func Test_isImageRewritable(t *testing.T) {
 			err:                    errPullPolicyAlways,
 		},
 		{
-			name:                   "Ignore ImagePullPolicy: Always with tag latest but ImagePullPolicy: Never",
+			name:                   "Ignore ImagePullPolicy: Always with tag latest but ImagePullPolicy: IfNotPresent",
 			image:                  "nginx:latest",
-			imagePullPolicy:        corev1.PullNever,
+			imagePullPolicy:        corev1.PullIfNotPresent,
 			ignorePullPolicyAlways: true,
 			err:                    nil,
+		},
+		{
+			name:            "ImagePullPolicy: Never",
+			image:           "nginx:1.0.0",
+			imagePullPolicy: corev1.PullNever,
+			err:             errPullPolicyNever,
 		},
 	}
 

@@ -28,6 +28,7 @@ import (
 var (
 	errImageContainsDigests = errors.New("image contains a digest")
 	errPullPolicyAlways     = errors.New("container is configured with imagePullPolicy: Always")
+	errPullPolicyNever      = errors.New("container is configured with imagePullPolicy: Never")
 )
 
 type ImageRewriter struct {
@@ -153,6 +154,10 @@ func (a *ImageRewriter) handleContainer(pod *corev1.Pod, container *corev1.Conta
 func (a *ImageRewriter) isImageRewritable(container *corev1.Container) error {
 	if strings.Contains(container.Image, "@") {
 		return errImageContainsDigests
+	}
+
+	if container.ImagePullPolicy == corev1.PullNever {
+		return errPullPolicyNever
 	}
 
 	if a.IgnorePullPolicyAlways {
