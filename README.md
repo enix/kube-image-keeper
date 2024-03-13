@@ -54,13 +54,13 @@ kuik has been developed for, and tested with, Kubernetes 1.24 to 1.28; but the c
 
 ## How it works
 
-When a pod is created, kuik's **mutating webhook** rewrites its images on the fly, adding a `localhost:{port}/` prefix (the `port` is 7439 by default, and is configurable).
+When a pod is created, kuik's **mutating webhook** rewrites its images on the fly to point to the local caching registry, adding a `localhost:{port}/` prefix (the `port` is 7439 by default, and is configurable). This means that you don't need to modify/rewrite the source registry url of your manifest/helm chart used to deploy your solution, kuik will take care of it.
 
 On `localhost:{port}`, there is an **image proxy** that serves images from kuik's **caching registry** (when the images have been cached) or directly from the original registry (when the images haven't been cached yet).
 
 One **controller** watches pods, and when it notices new images, it creates `CachedImage` custom resources for these images.
 
-Another **controller** watches these `CachedImage` custom resources, and copies images from source registries to kuik's caching registry accordingly.
+Another **controller** watches these `CachedImage` custom resources, and copies images from source registries to kuik's caching registry accordingly. When images come from a private registry, the controller will use the `imagePullSecrets` from the `CachedImage` spec, those are set from the pod that produced the `CachedImage`.
 
 Here is what our images look like when using kuik:
 
@@ -255,6 +255,10 @@ rootCertificateAuthorities:
 ```
 
 You can of course use as many insecure registries or root certificate authorities as you want. In the case of a self-signed certificate, you can either use the `insecureRegistries` or the `rootCertificateAuthorities` value, but trusting the root certificate will always be more secure than allowing insecure registries.
+
+### Registry UI
+
+For debugging reasons, it may be useful to be able to access the registry through an UI. This can be achieved by enabling the registry UI with the value `registryUI.enabled=true`. The UI will not be publicly available through an ingress, you will need to open a port-forward from port `80`. You can set a custom username and password with values `registryUI.auth.username` (default is `admin`) and `registryUI.auth.password` (empty by default).
 
 ## Garbage collection and limitations
 
