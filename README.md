@@ -178,6 +178,12 @@ This logic isn't implemented by the kuik controllers or webhook directly, but th
 
 Keep in mind that kuik will ignore pods scheduled into its own namespace.
 
+#### Image pull policy
+
+In the case of a container configured with `imagePullPolicy: Never`, the container will always be filtered out as it makes no sense to cache an image that would never be cached and always read from the disk.
+
+In the case of a container configured with `imagePullPolicy: Always`, or with the tag `latest`, or with no tag (defaulting to `latest`), by default, the container will be filtered out in order to keep the default behavior of kubernetes, which is to always pull the new version of the image (thus not using the cache of kuik). This can be disabled by setting the value `controllers.webhook.ignorePullPolicyAlways` to `false`.
+
 ### Cache persistence
 
 Persistence is disabled by default. You can enable it by setting the Helm value `registry.persistence.enabled=true`. This will create a PersistentVolumeClaim with a default size of 20 GiB. You can change that size by setting the value `registry.persistence.size`. Keep in mind that enabling persistence isn't enough to provide high availability of the registry! If you want kuik to be highly available, please refer to the [high availability guide](https://github.com/enix/kube-image-keeper/blob/main/docs/high-availability.md).
