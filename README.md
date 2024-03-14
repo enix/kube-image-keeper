@@ -131,7 +131,7 @@ That's it!
 
 Our container images are available across multiple registries for reliability. You can find them on [Github Container Registry](https://github.com/enix/kube-image-keeper/pkgs/container/kube-image-keeper), [Quay](https://quay.io/repository/enix/kube-image-keeper) and [DockerHub](https://hub.docker.com/r/enix/kube-image-keeper).
 
-CAUTION: If you use a storage backend that runs in the same cluster as kuik but in a different namespace, ensure you filter-out the storage backend's pods. Failure to do so may lead to interdependency issues, making it impossible to start both kuik and its storage backend if either encounters an issue.
+CAUTION: If you use a storage backend that runs in the same cluster as kuik but in a different namespace, be sure to filter the storage backend's pods. Failure to do so may lead to interdependency issues, making it impossible to start both kuik and its storage backend if either encounters an issue.
 
 <!-- VALUES -->
 
