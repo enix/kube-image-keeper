@@ -150,6 +150,10 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Remove image from registry when CachedImage is being deleted, finalizer is removed after it
 	if !cachedImage.ObjectMeta.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(&cachedImage, cachedImageFinalizerName) {
+			if err := r.patchPhase(&cachedImage, "Terminating"); err != nil {
+				return ctrl.Result{}, err
+			}
+
 			log.Info("deleting image from cache")
 			r.Recorder.Eventf(&cachedImage, "Normal", "CleaningUp", "Removing image %s from cache", cachedImage.Spec.SourceImage)
 			if err := registry.DeleteImage(cachedImage.Spec.SourceImage); err != nil {
@@ -239,6 +243,9 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err != nil {
 			log.Error(err, "failed to cache image")
 			r.Recorder.Eventf(&cachedImage, "Warning", "CacheFailed", "Failed to cache image %s, reason: %s", cachedImage.Spec.SourceImage, err)
+			if phaseErr := r.patchPhase(&cachedImage, "ErrImagePull"); phaseErr != nil {
+				return ctrl.Result{}, phaseErr
+			}
 			return ctrl.Result{}, err
 		} else {
 			log.Info("image cached")
@@ -247,6 +254,10 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	} else {
 		log.Info("image already present in cache, ignoring")
+	}
+
+	if err := r.patchPhase(&cachedImage, "Ready"); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// Delete expired CachedImage and schedule deletion for expiring ones
@@ -304,6 +315,10 @@ func getSanitizedName(cachedImage *kuikv1alpha1.CachedImage) (string, error) {
 }
 
 func (r *CachedImageReconciler) cacheImage(cachedImage *kuikv1alpha1.CachedImage) error {
+	if err := r.patchPhase(cachedImage, "Synchronizing"); err != nil {
+		return err
+	}
+
 	pullSecrets, err := cachedImage.GetPullSecrets(r.ApiReader)
 	if err != nil {
 		return err
@@ -331,6 +346,10 @@ func (r *CachedImageReconciler) cacheImage(cachedImage *kuikv1alpha1.CachedImage
 		return nil
 	}
 
+	if err = r.patchPhase(cachedImage, "Pulling"); err != nil {
+		return err
+	}
+
 	err = registry.CacheImage(cachedImage.Spec.SourceImage, desc, r.Architectures)
 
 	statusErr = updateStatus(r.Client, cachedImage, desc, func(status *kuikv1alpha1.CachedImageStatus) {
@@ -349,6 +368,12 @@ func (r *CachedImageReconciler) cacheImage(cachedImage *kuikv1alpha1.CachedImage
 	}
 
 	return nil
+}
+
+func (r *CachedImageReconciler) patchPhase(cachedImage *kuikv1alpha1.CachedImage, phase string) error {
+	patch := client.MergeFrom(cachedImage.DeepCopy())
+	cachedImage.Status.Phase = phase
+	return r.Status().Patch(context.Background(), cachedImage, patch)
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -407,6 +432,12 @@ func (r *CachedImageReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrent
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: maxConcurrentReconciles,
 		}).
+		// prevent from reenquing after status update (produced a infinite loop between ErrImagePull and Synchronizing phases)
+		WithEventFilter(predicate.Or(
+			predicate.GenerationChangedPredicate{},
+			predicate.LabelChangedPredicate{},
+			predicate.AnnotationChangedPredicate{},
+		)).
 		Complete(r)
 }
 
