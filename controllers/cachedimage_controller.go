@@ -81,37 +81,8 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
-	if sanitizedName != cachedImage.Name {
-		var existingCachedImage kuikv1alpha1.CachedImage
-		if err := r.Get(ctx, types.NamespacedName{Name: sanitizedName}, &existingCachedImage); err != nil {
-			if apierrors.IsNotFound(err) {
-				log.Info("recreating CachedImage with an appropriate name", "newName", sanitizedName)
-				newCachedImage := cachedImage.DeepCopy()
-				newCachedImage.Name = sanitizedName
-				newCachedImage.ResourceVersion = ""
-				newCachedImage.UID = ""
-				if err := r.Create(ctx, newCachedImage); err != nil {
-					return ctrl.Result{}, err
-				}
-			} else {
-				return ctrl.Result{}, err
-			}
-		} else {
-			log.Info("patching CachedImage from CachedImage with an invalid name", "newName", sanitizedName)
-			existingCachedImage.Spec = cachedImage.Spec
-			if err := r.Update(ctx, &existingCachedImage); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-		log.Info("removing finalizer and deleting CachedImage with an invalid name")
-		controllerutil.RemoveFinalizer(&cachedImage, cachedImageFinalizerName)
-		if err := r.Update(ctx, &cachedImage); err != nil {
-			return ctrl.Result{}, err
-		}
-		if err := r.Delete(ctx, &cachedImage); err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{}, nil
+	if err := forceName(r.Client, ctx, sanitizedName, &cachedImage, cachedImageFinalizerName); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// Create or patch related repository
