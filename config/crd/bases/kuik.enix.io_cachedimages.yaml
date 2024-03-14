@@ -18,6 +18,9 @@ spec:
   scope: Cluster
   versions:
   - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Status
+      type: string
     - jsonPath: .status.isCached
       name: Cached
       type: boolean
@@ -80,6 +83,8 @@ spec:
                 type: string
               lastSync:
                 format: date-time
+                type: string
+              phase:
                 type: string
               upToDate:
                 type: boolean

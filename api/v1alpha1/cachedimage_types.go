@@ -29,6 +29,7 @@ type UsedBy struct {
 // CachedImageStatus defines the observed state of CachedImage
 type CachedImageStatus struct {
 	IsCached bool   `json:"isCached,omitempty"`
+	Phase    string `json:"phase,omitempty"`
 	UsedBy   UsedBy `json:"usedBy,omitempty"`
 
 	Digest             string      `json:"digest,omitempty"`
@@ -44,6 +45,7 @@ type CachedImageStatus struct {
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 //+kubebuilder:resource:scope=Cluster,shortName=ci
+//+kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.phase"
 //+kubebuilder:printcolumn:name="Cached",type="boolean",JSONPath=".status.isCached"
 //+kubebuilder:printcolumn:name="Retain",type="boolean",JSONPath=".spec.retain"
 //+kubebuilder:printcolumn:name="Expires at",type="string",JSONPath=".spec.expiresAt"
