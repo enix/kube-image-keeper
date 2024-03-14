@@ -22,6 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
+	"github.com/enix/kube-image-keeper/internal/registry"
 )
 
 const (
@@ -58,6 +59,13 @@ func (r *RepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	log.Info("reconciling repository")
+
+	// Handle repositories with an invalid name
+	sanitizedName := registry.SanitizeName(repository.Spec.Name)
+
+	if err := forceName(r.Client, ctx, sanitizedName, &repository, repositoryFinalizerName); err != nil {
+		return ctrl.Result{}, err
+	}
 
 	var cachedImageList kuikv1alpha1.CachedImageList
 	if err := r.List(ctx, &cachedImageList, client.MatchingFields{repositoryOwnerKey: repository.Name}); err != nil && !apierrors.IsNotFound(err) {
