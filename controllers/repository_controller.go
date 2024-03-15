@@ -10,6 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -31,7 +32,8 @@ const (
 // RepositoryReconciler reconciles a Repository object
 type RepositoryReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
 }
 
 //+kubebuilder:rbac:groups=kuik.enix.io,resources=repositories,verbs=get;list;watch;create;update;patch;delete
@@ -64,15 +66,20 @@ func (r *RepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	repository.Status.Images = len(cachedImageList.Items)
 
 	if !repository.ObjectMeta.DeletionTimestamp.IsZero() {
-		r.UpdateStatus(ctx, &repository, []metav1.Condition{{
-			Type:    typeReadyRepository,
-			Status:  metav1.ConditionFalse,
-			Reason:  "AskedForDeletion",
-			Message: "Repository has been asked to be deleted",
-		}})
+		if repository.Status.Phase != "Terminating" {
+			r.Recorder.Eventf(&repository, "Normal", "Terminating", "Waiting for cached images to be deleted")
+			err := r.UpdateStatus(ctx, &repository, []metav1.Condition{{
+				Type:    typeReadyRepository,
+				Status:  metav1.ConditionFalse,
+				Reason:  "Terminating",
+				Message: "Repository has been asked to be deleted",
+			}})
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+		}
 
 		if controllerutil.ContainsFinalizer(&repository, repositoryFinalizerName) {
-
 			log.Info("repository is deleting", "cachedImages", len(cachedImageList.Items))
 			if len(cachedImageList.Items) > 0 {
 				return ctrl.Result{}, nil
@@ -88,13 +95,55 @@ func (r *RepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, nil
 	}
 
+	pullingCount := 0
+	errImagePullCount := 0
+	for _, cachedImage := range cachedImageList.Items {
+		if cachedImage.Status.Phase == cachedImagePhasePulling || cachedImage.Status.Phase == cachedImagePhaseSynchronizing {
+			pullingCount++
+		} else if cachedImage.Status.Phase == cachedImagePhaseErrImagePull {
+			errImagePullCount++
+		}
+	}
+
+	if errImagePullCount > 0 {
+		err := r.UpdateStatus(ctx, &repository, []metav1.Condition{{
+			Type:    typeReadyRepository,
+			Status:  metav1.ConditionFalse,
+			Reason:  "ErrImagePull",
+			Message: "Some images in pull error",
+		}})
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+	} else if pullingCount > 0 {
+		err := r.UpdateStatus(ctx, &repository, []metav1.Condition{{
+			Type:    typeReadyRepository,
+			Status:  metav1.ConditionFalse,
+			Reason:  "Pulling",
+			Message: "Some images are being cached",
+		}})
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+	} else {
+		if repository.Status.Phase != "Ready" {
+			r.Recorder.Eventf(&repository, "Normal", "UpToDate", "All images have been cached")
+		}
+		err := r.UpdateStatus(ctx, &repository, []metav1.Condition{{
+			Type:    typeReadyRepository,
+			Status:  metav1.ConditionTrue,
+			Reason:  "UpToDate",
+			Message: "All images have been cached",
+		}})
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
 	if repository.Spec.UpdateInterval != nil {
 		nextUpdate := repository.Status.LastUpdate.Add(repository.Spec.UpdateInterval.Duration)
 		if time.Now().After(nextUpdate) {
 			log.Info("updating repository")
-			if err := r.List(ctx, &cachedImageList, client.MatchingFields{repositoryOwnerKey: repository.Name}); err != nil && !apierrors.IsNotFound(err) {
-				return ctrl.Result{}, err
-			}
 
 			regexps, err := repository.CompileUpdateFilters()
 			if err != nil {
@@ -115,16 +164,6 @@ func (r *RepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 			repository.Status.LastUpdate = metav1.NewTime(time.Now())
 		}
-	}
-
-	err := r.UpdateStatus(ctx, &repository, []metav1.Condition{{
-		Type:    typeReadyRepository,
-		Status:  metav1.ConditionTrue,
-		Reason:  "Created",
-		Message: "Repository is ready",
-	}})
-	if err != nil {
-		return ctrl.Result{}, err
 	}
 
 	// Add finalizer to keep the Repository during image removal from registry on deletion
@@ -154,7 +193,7 @@ func (r *RepositoryReconciler) UpdateStatus(ctx context.Context, repository *kui
 	if conditionReady.Status == metav1.ConditionTrue {
 		repository.Status.Phase = "Ready"
 	} else if conditionReady.Status == metav1.ConditionFalse {
-		repository.Status.Phase = "Terminating"
+		repository.Status.Phase = conditionReady.Reason
 	} else {
 		repository.Status.Phase = ""
 	}
@@ -169,12 +208,6 @@ func (r *RepositoryReconciler) UpdateStatus(ctx context.Context, repository *kui
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *RepositoryReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	p := predicate.Funcs{
-		DeleteFunc: func(e event.DeleteEvent) bool {
-			return true
-		},
-	}
-
 	// Create an index to list CachedImage by Repository
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &kuikv1alpha1.CachedImage{}, repositoryOwnerKey, func(rawObj client.Object) []string {
 		cachedImage := rawObj.(*kuikv1alpha1.CachedImage)
@@ -198,13 +231,20 @@ func (r *RepositoryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(
 			&source.Kind{Type: &kuikv1alpha1.CachedImage{}},
 			handler.EnqueueRequestsFromMapFunc(r.repositoryWithDeletingCachedImages),
-			builder.WithPredicates(p),
+			builder.WithPredicates(predicate.Funcs{
+				DeleteFunc: func(e event.DeleteEvent) bool {
+					return true
+				},
+			}),
 		).
 		Watches(
 			&source.Kind{Type: &kuikv1alpha1.CachedImage{}},
 			handler.EnqueueRequestsFromMapFunc(requestRepositoryFromCachedImage),
 			builder.WithPredicates(predicate.Funcs{
 				CreateFunc: func(e event.CreateEvent) bool {
+					return true
+				},
+				UpdateFunc: func(e event.UpdateEvent) bool {
 					return true
 				},
 			}),

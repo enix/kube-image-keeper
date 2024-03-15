@@ -40,6 +40,14 @@ const (
 	repositoryOwnerKey                   = ".metadata.repositoryOwner"
 )
 
+const (
+	cachedImagePhaseSynchronizing = "Synchronizing"
+	cachedImagePhasePulling       = "Pulling"
+	cachedImagePhaseErrImagePull  = "ErrImagePull"
+	cachedImagePhaseReady         = "Ready"
+	cachedImagePhaseTerminating   = "Terminating"
+)
+
 // CachedImageReconciler reconciles a CachedImage object
 type CachedImageReconciler struct {
 	client.Client
@@ -150,7 +158,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Remove image from registry when CachedImage is being deleted, finalizer is removed after it
 	if !cachedImage.ObjectMeta.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(&cachedImage, cachedImageFinalizerName) {
-			if err := r.patchPhase(&cachedImage, "Terminating"); err != nil {
+			if err := r.patchPhase(&cachedImage, cachedImagePhaseTerminating); err != nil {
 				return ctrl.Result{}, err
 			}
 
@@ -243,7 +251,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err != nil {
 			log.Error(err, "failed to cache image")
 			r.Recorder.Eventf(&cachedImage, "Warning", "CacheFailed", "Failed to cache image %s, reason: %s", cachedImage.Spec.SourceImage, err)
-			if phaseErr := r.patchPhase(&cachedImage, "ErrImagePull"); phaseErr != nil {
+			if phaseErr := r.patchPhase(&cachedImage, cachedImagePhaseErrImagePull); phaseErr != nil {
 				return ctrl.Result{}, phaseErr
 			}
 			return ctrl.Result{}, err
@@ -256,7 +264,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		log.Info("image already present in cache, ignoring")
 	}
 
-	if err := r.patchPhase(&cachedImage, "Ready"); err != nil {
+	if err := r.patchPhase(&cachedImage, cachedImagePhaseReady); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -315,7 +323,7 @@ func getSanitizedName(cachedImage *kuikv1alpha1.CachedImage) (string, error) {
 }
 
 func (r *CachedImageReconciler) cacheImage(cachedImage *kuikv1alpha1.CachedImage) error {
-	if err := r.patchPhase(cachedImage, "Synchronizing"); err != nil {
+	if err := r.patchPhase(cachedImage, cachedImagePhaseSynchronizing); err != nil {
 		return err
 	}
 
@@ -346,7 +354,7 @@ func (r *CachedImageReconciler) cacheImage(cachedImage *kuikv1alpha1.CachedImage
 		return nil
 	}
 
-	if err = r.patchPhase(cachedImage, "Pulling"); err != nil {
+	if err = r.patchPhase(cachedImage, cachedImagePhasePulling); err != nil {
 		return err
 	}
 
