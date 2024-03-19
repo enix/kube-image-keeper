@@ -302,7 +302,7 @@ jobs:
               exit 1
           fi
           ## Check repository status
-          if [ $(kubectl get repository docker.io-library-nginx -o json | jq '.status.phase') == '"NotReady"' ] ;
+          if [ $(kubectl get repository docker.io-library-nginx -o json | jq '.status.phase') == '"Ready"' ] ;
           then
               echo "Found repository"
           else
