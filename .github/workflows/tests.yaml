@@ -164,7 +164,7 @@ jobs:
               exit 1
           fi
           ## Check repository status
-          if kubectl get repository docker.io-library-nginx -o json | jq '.status.phase == "Ready"' ;
+          if [ $(kubectl get repository docker.io-library-nginx -o json | jq '.status.phase') == '"Ready"' ] ;
           then
               echo "Found repository"
           else
@@ -275,8 +275,6 @@ jobs:
             --set controllers.imagePullSecrets[0].name=harbor-secret --set proxy.image.imagePullSecrets[0].name=harbor-secret --wait --debug
           kubectl rollout status deploy kube-image-keeper-controllers -n kuik-system
           kubectl rollout status ds kube-image-keeper-proxy -n kuik-system
-          kubectl get po -n kuik-system
-          kubectl wait pods -n kuik-system -l app.kubernetes.io/instance=kube-image-keeper --for condition=Ready --timeout=90s
           helm history kube-image-keeper -n kuik-system
 
       - name: Run end-to-end tests
@@ -304,7 +302,7 @@ jobs:
               exit 1
           fi
           ## Check repository status
-          if kubectl get repository docker.io-library-nginx -o json | jq '.status.phase == "NotReady"' ;
+          if [ $(kubectl get repository docker.io-library-nginx -o json | jq '.status.phase') == '"NotReady"' ] ;
           then
               echo "Found repository"
           else
