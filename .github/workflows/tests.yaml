@@ -139,7 +139,7 @@ jobs:
           kubectl wait pods -n kuik-system -l app.kubernetes.io/instance=kube-image-keeper --for condition=Ready --timeout=90s
           helm history kube-image-keeper -n kuik-system
 
-      - name: Run end-to-end tests
+      - name: Deploy test container
         run: |
           set -euo pipefail
           kubectl create deploy nginx --image=nginx:stable-alpine --replicas=2
@@ -149,6 +149,10 @@ jobs:
           kubectl get cachedimages
           echo "kubectl get repository"
           kubectl get repository
+
+      - name: Test cachedimage (CRD)
+        run: |
+          set -euo pipefail
           ## Check if our test image is cached
           if [ $(kubectl get cachedimages docker.io-library-nginx-stable-alpine -o json | jq ".status.isCached") ];
           then
@@ -163,6 +167,10 @@ jobs:
               echo "Error: image cached status is false"
               exit 1
           fi
+
+      - name: Test repository (CRD)
+        run: |
+          set -euo pipefail
           ## Check repository status
           if [ $(kubectl get repository docker.io-library-nginx -o json | jq '.status.phase') == '"Ready"' ] ;
           then
@@ -171,6 +179,10 @@ jobs:
               echo "Error: image repository status is not Ready"
               exit 1
           fi
+
+      - name: Test metrics endpoint
+        run: |
+          set -euo pipefail
           ## Check for kuik's components metrics
           for component in proxy controllers
           do 
@@ -277,7 +289,7 @@ jobs:
           kubectl rollout status ds kube-image-keeper-proxy -n kuik-system
           helm history kube-image-keeper -n kuik-system
 
-      - name: Run end-to-end tests
+      - name: Deploy test container
         run: |
           set -euo pipefail
           kubectl create deploy nginx --image=nginx:stable-alpine --replicas=2
@@ -287,6 +299,10 @@ jobs:
           kubectl get cachedimages
           echo "kubectl get repository"
           kubectl get repository
+
+      - name: Test cachedimage (CRD)
+        run: |
+          set -euo pipefail
           ## Check if our test image is cached
           if [ $(kubectl get cachedimages docker.io-library-nginx-stable-alpine -o json | jq ".status.isCached") ];
           then
@@ -301,6 +317,10 @@ jobs:
               echo "Error: image cached status is false"
               exit 1
           fi
+
+      - name: Test repository (CRD)
+        run: |
+          set -euo pipefail
           ## Check repository status
           if [ $(kubectl get repository docker.io-library-nginx -o json | jq '.status.phase') == '"Ready"' ] ;
           then
@@ -309,6 +329,10 @@ jobs:
               echo "Error: image repository status is not Ready"
               exit 1
           fi
+
+      - name: Test metrics endpoint
+        run: |
+          set -euo pipefail
           ## Check for kuik's components metrics
           for component in proxy controllers
           do 
@@ -337,3 +361,4 @@ jobs:
                fi
             done
           done
+
