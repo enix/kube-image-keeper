@@ -73,8 +73,8 @@ jobs:
           tags: |
             ${{ env.HARBOR_URL }}/${{ env.HARBOR_REPO }}:${{ env.VERSION }}-alpine
 
-  e2e:
-    name: Tests End-to-End on K8s
+  e2e_install:
+    name: Tests End-to-End on K8s (Fresh install)
     needs:
       - build
     runs-on: ubuntu-22.04
@@ -145,9 +145,132 @@ jobs:
           kubectl wait deployment nginx --for condition=Available=True --timeout=30s
           echo "kubectl get cachedimages"
           kubectl get cachedimages
-          if [ $(kubectl get cachedimages -o json | jq ".items[0].status.isCached") ];
+          if [ $(kubectl get cachedimages docker.io-library-nginx-stable-alpine -o json | jq ".status.isCached") ];
           then
-              if [ $(kubectl get cachedimages -o json | jq ".items[0].status.usedBy.count") -eq 2 ];
+              if [ $(kubectl get cachedimages docker.io-library-nginx-stable-alpine -o json | jq ".status.usedBy.count") -eq 2 ];
+              then
+                  echo "Found cached image used by 2 pods"
+              else
+                  echo "Error: pods count should be equal 2"
+                  exit 1
+              fi
+          else
+              echo "Error: image cached status is false"
+              exit 1
+          fi
+          for component in proxy controllers
+          do 
+            echo "Testing $component metrics endpoint"
+            for ip in $(kubectl get po -l "app.kubernetes.io/component=$component" -n kuik-system -o jsonpath='{range .items[*]}{.status.podIP}{"\n"}{end}')
+            do
+               attempts=0
+               success=false
+               while [[ $attempts -lt 3 && $success == false ]]
+               do
+                   response=$(kubectl run curl-pod --image=curlimages/curl --rm -ti --quiet --restart=Never -- curl -s -o /dev/null -w "%{http_code}\n" http://$ip:8080/metrics)
+                   if [[ -z "$response" ]]; then
+                        echo "No HTTP response received from $ip"
+                   elif [[ $response -ge 200 && $response -lt 300 ]]; then
+                        echo "HTTP status code $response is valid for $ip"
+                        success=true
+                   else
+                        echo "HTTP status code $response is not valid for $ip"
+                   fi
+                   attempts=$(( $attempts + 1 ))
+                   sleep 3
+               done
+               if [[ $success == false ]]; then
+                   echo "Failed after 3 attempts for $ip"
+                   exit 1
+               fi
+            done
+          done
+
+  e2e_upgrade:
+    name: Tests End-to-End on K8s (Upgrade)
+    needs:
+      - build
+      - e2e_install
+    runs-on: ubuntu-22.04
+    env:
+      VERSION: ${{ github.run_id }}
+      HARBOR_IMAGE: "harbor.enix.io/kube-image-keeper/kube-image-keeper"
+      HARBOR_REGISTRY: "harbor.enix.io"
+      HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+      HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+    strategy:
+      max-parallel: 6
+      matrix:
+        k8sversion: ["v1.24.15", "v1.25.11", "v1.26.6", "v1.27.3", "v1.28.0", "v1.29.0"]
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup KinD
+        uses: helm/kind-action@v1.9.0
+        with:
+          node_image: kindest/node:${{ matrix.k8sversion }}
+
+      - name: Run cert-manager installation
+        run: |
+          kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.11.0/cert-manager.yaml
+          kubectl wait pods -n cert-manager -l app.kubernetes.io/instance=cert-manager --for condition=Ready --timeout=30s
+
+      - name: Set up chart-testing
+        uses: helm/chart-testing-action@v2.6.1
+
+      - name: Set up helm
+        uses: azure/setup-helm@v4
+        with:
+          version: '3.9.0'
+
+      - name: Run chart-testing (lint)
+        run: |
+          set -euo pipefail
+          ct lint \
+            --charts helm/kube-image-keeper \
+            --chart-repos bitnami=https://charts.bitnami.com/bitnami \
+            --validate-maintainers=false --check-version-increment=false
+
+# Need wait for the next release with flash --skip-clean-up
+#      - name: Run chart-testing (install)
+#        run: |
+#          set -euo pipefail
+#          ct install \
+#            --charts helm/cache-registry \
+#            --helm-extra-set-args "--set controllers.image.tag=latest --set proxy.image.tag=latest"
+
+
+      - name: Run helm (install latest release)
+        run : |
+          set -euo pipefail
+          helm repo add enix https://charts.enix.io/
+          helm repo update
+          helm upgrade --install kube-image-keeper -n kuik-system --create-namespace enix/kube-image-keeper --debug
+          kubectl wait pods -n kuik-system -l app.kubernetes.io/instance=kube-image-keeper --for condition=Ready --timeout=30s
+          kubectl get po -n kuik-system
+
+      - name: Run helm (upgrade)
+        run : |
+          set -euo pipefail
+          kubectl create secret docker-registry harbor-secret -n kuik-system --docker-server=${{ env.HARBOR_REGISTRY }} \
+            --docker-username="$HARBOR_USERNAME" --docker-password="$HARBOR_PASSWORD"
+          helm upgrade --install kube-image-keeper -n kuik-system --create-namespace ./helm/kube-image-keeper \
+            --set controllers.image.tag=$VERSION --set proxy.image.tag=$VERSION \
+            --set controllers.image.repository=$HARBOR_IMAGE --set proxy.image.repository=$HARBOR_IMAGE \
+            --set controllers.imagePullSecrets[0].name=harbor-secret --set proxy.image.imagePullSecrets[0].name=harbor-secret  --debug
+          kubectl wait pods -n kuik-system -l app.kubernetes.io/instance=kube-image-keeper --for condition=Ready --timeout=30s
+
+      - name: Run end-to-end tests
+        run: |
+          set -euo pipefail
+          kubectl create deploy nginx --image=nginx:stable-alpine --replicas=2
+          kubectl wait deployment nginx --for condition=Available=True --timeout=30s
+          echo "kubectl get cachedimages"
+          kubectl get cachedimages
+          if [ $(kubectl get cachedimages docker.io-library-nginx-stable-alpine -o json | jq ".status.isCached") ];
+          then
+              if [ $(kubectl get cachedimages docker.io-library-nginx-stable-alpine -o json | jq ".status.usedBy.count") -eq 2 ];
               then
                   echo "Found cached image used by 2 pods"
               else
