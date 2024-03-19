@@ -1,0 +1,131 @@
+# Default values for kube-image-keeper.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# -- Delay in days before deleting an unused CachedImage
+cachedImagesExpiryDelay: 30
+# -- If true, install the CRD
+installCRD: true
+# -- List of architectures to put in cache
+architectures: [amd64]
+# -- Insecure registries to allow to cache and proxify images from
+insecureRegistries: []
+# -- Root certificate authorities to trust
+rootCertificateAuthorities: {}
+  # secretName: some-secret
+  # keys: []
+
+
+controllers:
+  webhook:
+    # -- Don't enable image caching for pods scheduled into these namespaces
+    ignoredNamespaces:
+      - kube-system
+    objectSelector:
+      # -- Run the webhook if the object has matching labels. (See https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.21/#labelselectorrequirement-v1-meta)
+      matchExpressions: []
+
+proxy:
+  image:
+    # -- Proxy image repository. Also available: `quay.io/enix/kube-image-keeper`
+    repository: enix/kube-image-keeper
+    # -- Proxy image pull policy
+    pullPolicy: IfNotPresent
+    # -- Proxy image tag. Default chart appVersion
+    tag: ""
+  # -- whether to run the proxy daemonset in hostNetwork mode
+  hostNetwork: false
+  # -- hostPort used for the proxy pod
+  hostPort: 7439
+  # -- hostIp used for the proxy pod
+  hostIp: "127.0.0.1"
+  # -- metricsPort used for the proxy pod (to expose prometheus metrics)
+  metricsPort: 8080
+  # -- Verbosity level for the proxy pod
+  verbosity: 1
+  # -- Specify secrets to be used when pulling proxy image
+  imagePullSecrets: []
+  # -- Annotations to add to the proxy pod
+  podAnnotations: {}
+  # -- Security context for the proxy pod
+  podSecurityContext: {}
+  # -- Security context for containers of the proxy pod
+  securityContext: {}
+  # -- Node selector for the proxy pod
+  nodeSelector: {}
+  # -- Toleration for the proxy pod
+  tolerations:
+    - effect: NoSchedule
+      operator: Exists
+    - key: CriticalAddonsOnly
+      operator: Exists
+    - effect: NoExecute
+      operator: Exists
+    - effect: NoExecute
+      key: node.kubernetes.io/not-ready
+      operator: Exists
+    - effect: NoExecute
+      key: node.kubernetes.io/unreachable
+      operator: Exists
+    - effect: NoSchedule
+      key: node.kubernetes.io/disk-pressure
+      operator: Exists
+    - effect: NoSchedule
+      key: node.kubernetes.io/memory-pressure
+      operator: Exists
+    - effect: NoSchedule
+      key: node.kubernetes.io/pid-pressure
+      operator: Exists
+    - effect: NoSchedule
+      key: node.kubernetes.io/unschedulable
+      operator: Exists
+    - effect: NoSchedule
+      key: node.kubernetes.io/network-unavailable
+      operator: Exists
+  # -- Set the PriorityClassName for the proxy pod
+  priorityClassName: system-node-critical
+  # -- Affinity for the proxy pod
+  affinity: {}
+  # -- Extra env variables for the proxy pod
+  env: []
+  # -- Readiness probe definition for the proxy pod
+  readinessProbe:
+    httpGet:
+      path: /v2/
+      port: 7439
+  resources:
+    requests:
+      # -- Cpu requests for the proxy pod
+      cpu: "50m"
+      # -- Memory requests for the proxy pod
+      memory: "50Mi"
+    limits:
+      # -- Cpu limits for the proxy pod
+      cpu: "1"
+      # -- Memory limits for the proxy pod
+      memory: "512Mi"
+  podMonitor:
+    # -- Should a PodMonitor object be installed to scrape kuik proxy metrics. For prometheus-operator (kube-prometheus) users.
+    create: false
+    # -- Target scrape interval set in the PodMonitor
+    scrapeInterval: 60s
+    # -- Target scrape timeout set in the PodMonitor
+    scrapeTimeout: 30s
+    # -- Additional labels to add to PodMonitor objects
+    extraLabels: {}
+    # -- Relabel config for the PodMonitor, see: https://coreos.com/operators/prometheus/docs/latest/api.html#relabelconfig
+    relabelings: []
+  kubeApiRateLimits: {}
+    # -- Try higher values if there's a lot of CRDs installed in the cluster and proxy start takes a long time because of throttling
+    # qps: 5
+    # burst: 10
+
+serviceAccount:
+  # -- Annotations to add to the servicateAccount
+  annotations: {}
+  # -- Name of the serviceAccount
+  name: ""
+
+psp:
+  # -- If True, create the PodSecurityPolicy
+  create: false
