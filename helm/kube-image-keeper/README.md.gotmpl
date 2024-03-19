@@ -8,6 +8,24 @@
 kube-image-keeper (a.k.a. *kuik*, which is pronounced /kwɪk/, like "quick") is a container image caching system for Kubernetes.
 It saves the container images used by your pods in its own local registry so that these images remain available if the original becomes unavailable.
 
+## Upgrading
+
+### From 1.6.0 o 1.7.0
+
+***ACTION REQUIRED***
+
+To follow Helm3 best pratices, we moved `cachedimage` and `repository` custom resources definition from the helm templates directory to the dedicated `crds` directory. 
+This will cause the `cachedimage` CRD to be deleted during the 1.7.0 upgrade.
+
+We advice you to uninstall your helm release, clean the remaining custom resources by removing their finalizer, then reinstall kuik in 1.7.0
+
+You may also recreate the custom resource definition right after the upgrade to 1.7.0 using
+```
+kubectl apply -f https://raw.githubusercontent.com/enix/kube-image-keeper/main/helm/kube-image-keeper/crds/cachedimage-crd.yaml
+kubectl apply -f https://raw.githubusercontent.com/enix/kube-image-keeper/main/helm/kube-image-keeper/crds/repository-crd.yaml
+```
+
+
 ## Why and when is it useful?
 
 At [Enix](https://enix.io/), we manage production Kubernetes clusters both for our internal use and for various customers; sometimes on premises, sometimes in various clouds, public or private. We regularly run into image availability issues, for instance:
