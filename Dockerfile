@@ -1,5 +1,5 @@
 # Build the manager binary
-FROM --platform=${BUILDPLATFORM} golang:1.20-alpine3.17 AS builder
+FROM --platform=${BUILDPLATFORM} golang:1.20-alpine3.19 AS builder
 
 WORKDIR /workspace
 
@@ -40,7 +40,7 @@ RUN --mount=type=cache,target="/root/.cache/go-build" \
     go build -ldflags="$LD_FLAGS" -o manager cmd/cache/main.go && \
     go build -ldflags="$LD_FLAGS" -o registry-proxy cmd/proxy/main.go
 
-FROM alpine:3.17 AS alpine
+FROM alpine:3.19 AS alpine
 
 COPY --from=builder /workspace/manager /usr/local/bin/
 COPY --from=builder /workspace/registry-proxy /usr/local/bin/
