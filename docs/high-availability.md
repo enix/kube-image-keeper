@@ -50,7 +50,7 @@ registry:
       bucket: registry
 ```
 
-Please refer to the [Docker registry S3 documentation](https://github.com/docker/docs/blob/main/registry/storage-drivers/s3.md) for more details.
+Please refer to the [Docker registry S3 documentation](https://github.com/distribution/distribution/blob/main/docs/content/storage-drivers/s3.md) for more details.
 
 Note that when using AWS S3 buckets, you shouldn't prefix the bucket name with `s3://`:
 
