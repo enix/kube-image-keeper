@@ -14,7 +14,7 @@ It saves the container images used by your pods in its own local registry so tha
 
 ***ACTION REQUIRED***
 
-To follow Helm3 best pratices, we moved `cachedimage` and `repository` custom resources definition from the helm templates directory to the dedicated `crds` directory. 
+To follow Helm3 best pratices, we moved `cachedimage` and `repository` custom resources definition from the helm templates directory to the dedicated `crds` directory.
 This will cause the `cachedimage` CRD to be deleted during the 1.7.0 upgrade.
 
 We advice you to uninstall your helm release, clean the remaining custom resources by removing their finalizer, then reinstall kuik in 1.7.0
@@ -194,7 +194,11 @@ There are 3 ways to tell kuik which pods it should manage (or, conversely, which
 
 This logic isn't implemented by the kuik controllers or webhook directly, but through Kubernetes' standard webhook object selectors. In other words, these parameters end up in the `MutatingWebhookConfiguration` template to filter which pods get presented to kuik's webhook. When the webhook rewrites the images for a pod, it adds a label to that pod, and the kuik controllers then rely on that label to know which `CachedImages` resources to create.
 
-Keep in mind that kuik will ignore pods scheduled into its own namespace.
+Keep in mind that kuik will ignore pods scheduled into its own namespace or in the `kube-system` namespace as recommended in the kubernetes documentation ([Avoiding operating on the kube-system namespace](https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/#avoiding-operating-on-the-kube-system-namespace)).
+
+> It is recommended to exclude the namespace where your webhook is running with a namespaceSelector.
+> [...]
+> Accidentally mutating or rejecting requests in the kube-system namespace may cause the control plane components to stop functioning or introduce unknown behavior.
 
 #### Image pull policy
 
