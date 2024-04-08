@@ -27,6 +27,19 @@ jobs:
         id: check-for-cc
         uses: webiny/action-conventional-commits@v1.3.0
 
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@0.18.0
+        with:
+          scan-type: 'fs'
+          ignore-unfixed: true
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
