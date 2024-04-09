@@ -16,6 +16,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -188,7 +189,7 @@ func (p *PodInitializer) Start(ctx context.Context) error {
 	for _, pod := range pods.Items {
 		setupLog.Info("patching " + pod.Namespace + "/" + pod.Name)
 		err := p.Client.Patch(context.Background(), &pod, client.RawPatch(types.JSONPatchType, []byte("[]")))
-		if err != nil {
+		if err != nil && !apierrors.IsNotFound(err) {
 			return err
 		}
 	}
