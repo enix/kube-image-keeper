@@ -1,6 +1,6 @@
 module github.com/enix/kube-image-keeper
 
-go 1.20
+go 1.22
 
 require (
 	github.com/awslabs/amazon-ecr-credential-helper/ecr-login v0.0.0-20230519004202-7f2db5bd753e
