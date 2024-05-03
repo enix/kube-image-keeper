@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/image"
 	dockerClient "github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
 	. "github.com/onsi/ginkgo"
@@ -39,6 +39,7 @@ var testEnv *envtest.Environment
 var ctx context.Context
 var cancel context.CancelFunc
 var registryContainerId string
+var dockerClientApiVersion = os.Getenv("DOCKER_CLIENT_API_VERSION")
 
 func TestAPIs(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -47,12 +48,12 @@ func TestAPIs(t *testing.T) {
 }
 
 func setupRegistry() {
-	client, err := dockerClient.NewClientWithOpts(dockerClient.FromEnv)
+	client, err := dockerClient.NewClientWithOpts(dockerClient.FromEnv, dockerClient.WithVersion(dockerClientApiVersion))
 	Expect(err).NotTo(HaveOccurred())
 
 	// Pull image
 	ctx := context.Background()
-	reader, err := client.ImagePull(ctx, "registry", types.ImagePullOptions{})
+	reader, err := client.ImagePull(ctx, "registry", image.PullOptions{})
 	Expect(err).NotTo(HaveOccurred())
 	_, err = io.Copy(os.Stdout, reader)
 	Expect(err).NotTo(HaveOccurred())
@@ -93,7 +94,7 @@ func setupRegistry() {
 }
 
 func removeRegistry() {
-	client, err := dockerClient.NewClientWithOpts(dockerClient.FromEnv)
+	client, err := dockerClient.NewClientWithOpts(dockerClient.FromEnv, dockerClient.WithVersion(dockerClientApiVersion))
 	Expect(err).NotTo(HaveOccurred())
 
 	err = client.ContainerRemove(context.Background(), registryContainerId, container.RemoveOptions{
