@@ -57,6 +57,11 @@ controllers:
     httpGet:
       path: /readyz
       port: 8081
+  # -- Liveness probe definition for the controllers pod
+  livenessProbe:
+    httpGet:
+      path: /healthz
+      port: 8081
   resources:
     requests:
       # -- Cpu requests for the controller pod
@@ -164,6 +169,11 @@ proxy:
     httpGet:
       path: /v2/
       port: 7439
+  # -- Liveness probe definition for the proxy pod
+  livenessProbe:
+    httpGet:
+      path: /v2/
+      port: 7439
   resources:
     requests:
       # -- Cpu requests for the proxy pod
@@ -236,6 +246,11 @@ registry:
   env: []
   # -- Readiness probe definition for the registry pod
   readinessProbe:
+    httpGet:
+      path: /v2/
+      port: 5000
+    # -- Liveness probe definition for the proxy pod
+  livenessProbe:
     httpGet:
       path: /v2/
       port: 5000

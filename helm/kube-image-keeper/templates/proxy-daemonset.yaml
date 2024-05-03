@@ -95,6 +95,14 @@ spec:
           readinessProbe:
             {{- $readinessProbe | toYaml | nindent 12 }}
           {{- end }}
+          {{- $livenessProbe := deepCopy .Values.proxy.livenessProbe }}
+          {{- if .Values.proxy.hostNetwork }}
+            {{- $livenessProbe := merge $livenessProbe.httpGet (dict "host" "localhost") }}
+          {{- end }}
+          {{- with .Values.proxy.livenessProbe }}
+          livenessProbe:
+            {{- $livenessProbe | toYaml | nindent 12 }}
+          {{- end }}
           {{- with .Values.proxy.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
