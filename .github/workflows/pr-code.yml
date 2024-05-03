@@ -43,6 +43,7 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       ENVTEST_K8S_VERSION: ${{ matrix.kubernetes-version }}
+      DOCKER_CLIENT_API_VERSION: '1.43' # 1.45 is not supported by ubuntu-22.04 GitHub image
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4

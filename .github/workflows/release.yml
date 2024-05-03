@@ -73,6 +73,8 @@ jobs:
   tests:
     name: Tests
     runs-on: ubuntu-22.04
+    env:
+      DOCKER_CLIENT_API_VERSION: '1.43' # 1.45 is not supported by ubuntu-22.04 GitHub image
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -499,7 +501,7 @@ jobs:
         run: |
           from lib import *
           import os
-          
+
           header('semantic-release job outputs')
           info('last      = {}'.format(os.environ['SR_LAST']))
           info('published = {}'.format(os.environ['SR_PUBLISHED']))
@@ -563,7 +565,7 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      
+
       - name: Cache for chart-releaser
         id: cache-cr
         uses: actions/cache@v4
@@ -600,7 +602,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Login to GHCR 
+      - name: Login to GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -653,7 +655,7 @@ jobs:
             ${{ github.repository }}:latest
             ${{ env.QUAY_IMAGE }}:latest
             ${{ env.GHCR_IMAGE }}:latest
-      
+
       - name: Push container images tag (Release)
         uses: docker/build-push-action@v5
         with:
@@ -766,7 +768,7 @@ jobs:
                           links.append({
                               'name': 'GitHub issue #{}'.format(issue.group('id')),
                               'url': issue.group('url')
-                          })        
+                          })
 
                   entry = {
                       'kind': kind,
@@ -806,7 +808,7 @@ jobs:
         run: |
           from lib import *
           import os, yaml, shutil
-          
+
           chart_path = os.path.join(os.environ['WORKSPACE'], 'repository', 'helm', 'kube-image-keeper')
           os.chdir(chart_path)
 
@@ -856,7 +858,7 @@ jobs:
               print(yaml.safe_load(open(yaml_file, 'r')))
 
           header('release the chart')
-          
+
           action('clone helm charts repository')
           charts_repo = os.path.join(os.environ['WORKSPACE'], 'enix-charts')
           run('git', 'clone', 'https://github.com/enix/helm-charts', charts_repo)
