@@ -73,7 +73,7 @@ func setupRegistry() {
 	registryContainerId = resp.ID
 
 	// Start container
-	err = client.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{})
+	err = client.ContainerStart(ctx, resp.ID, container.StartOptions{})
 	Expect(err).NotTo(HaveOccurred())
 
 	// Configure registry endpoint
@@ -96,7 +96,7 @@ func removeRegistry() {
 	client, err := dockerClient.NewClientWithOpts(dockerClient.FromEnv)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = client.ContainerRemove(context.Background(), registryContainerId, types.ContainerRemoveOptions{
+	err = client.ContainerRemove(context.Background(), registryContainerId, container.RemoveOptions{
 		Force: true,
 	})
 	Expect(err).NotTo(HaveOccurred())
