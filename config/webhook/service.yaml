@@ -6,14 +6,15 @@ metadata:
     app.kubernetes.io/name: service
     app.kubernetes.io/instance: webhook-service
     app.kubernetes.io/component: webhook
-    app.kubernetes.io/created-by: kuik
-    app.kubernetes.io/part-of: kuik
+    app.kubernetes.io/created-by: kube-image-keeper
+    app.kubernetes.io/part-of: kube-image-keeper
     app.kubernetes.io/managed-by: kustomize
   name: webhook-service
   namespace: system
 spec:
   ports:
     - port: 443
+      protocol: TCP
       targetPort: 9443
   selector:
     control-plane: controller-manager

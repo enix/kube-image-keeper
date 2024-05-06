@@ -59,13 +59,17 @@ func main() {
 		config, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
 	}
 
-	klog.Info("starting")
-
 	if err != nil {
 		panic(err)
 	}
 
-	restMapper, err := apiutil.NewDynamicRESTMapper(config, apiutil.WithLazyDiscovery)
+	klog.Info("starting")
+
+	httpClient, err := rest.HTTPClientFor(config)
+	if err != nil {
+		panic(err)
+	}
+	restMapper, err := apiutil.NewDynamicRESTMapper(config, httpClient)
 	if err != nil {
 		panic(err)
 	}

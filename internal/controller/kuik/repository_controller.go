@@ -1,4 +1,4 @@
-package controllers
+package kuik
 
 import (
 	"context"
@@ -19,9 +19,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
+	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
+	kuikController "github.com/enix/kube-image-keeper/internal/controller"
 	"github.com/enix/kube-image-keeper/internal/registry"
 )
 
@@ -63,7 +63,7 @@ func (r *RepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	// Handle repositories with an invalid name
 	sanitizedName := registry.SanitizeName(repository.Spec.Name)
 
-	if err := forceName(r.Client, ctx, sanitizedName, &repository, repositoryFinalizerName); err != nil {
+	if err := kuikController.ForceName(r.Client, ctx, sanitizedName, &repository, repositoryFinalizerName); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -237,7 +237,7 @@ func (r *RepositoryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kuikv1alpha1.Repository{}).
 		Watches(
-			&source.Kind{Type: &kuikv1alpha1.CachedImage{}},
+			&kuikv1alpha1.CachedImage{},
 			handler.EnqueueRequestsFromMapFunc(r.repositoryWithDeletingCachedImages),
 			builder.WithPredicates(predicate.Funcs{
 				DeleteFunc: func(e event.DeleteEvent) bool {
@@ -246,7 +246,7 @@ func (r *RepositoryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			}),
 		).
 		Watches(
-			&source.Kind{Type: &kuikv1alpha1.CachedImage{}},
+			&kuikv1alpha1.CachedImage{},
 			handler.EnqueueRequestsFromMapFunc(requestRepositoryFromCachedImage),
 			builder.WithPredicates(predicate.Funcs{
 				CreateFunc: func(e event.CreateEvent) bool {
@@ -260,7 +260,7 @@ func (r *RepositoryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *RepositoryReconciler) repositoryWithDeletingCachedImages(obj client.Object) []ctrl.Request {
+func (r *RepositoryReconciler) repositoryWithDeletingCachedImages(ctx context.Context, obj client.Object) []ctrl.Request {
 	cachedImage := obj.(*kuikv1alpha1.CachedImage)
 	var currentCachedImage kuikv1alpha1.CachedImage
 	// wait for the CachedImage to be really deleted
@@ -268,10 +268,10 @@ func (r *RepositoryReconciler) repositoryWithDeletingCachedImages(obj client.Obj
 		return nil
 	}
 
-	return requestRepositoryFromCachedImage(cachedImage)
+	return requestRepositoryFromCachedImage(ctx, cachedImage)
 }
 
-func requestRepositoryFromCachedImage(obj client.Object) []ctrl.Request {
+func requestRepositoryFromCachedImage(ctx context.Context, obj client.Object) []ctrl.Request {
 	cachedImage := obj.(*kuikv1alpha1.CachedImage)
 	repositoryName, ok := cachedImage.Labels[kuikv1alpha1.RepositoryLabelName]
 	if !ok {

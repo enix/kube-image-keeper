@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/enix/kube-image-keeper/controllers"
+	"github.com/enix/kube-image-keeper/internal/controller/core"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -43,7 +43,7 @@ func TestRewriteImages(t *testing.T) {
 		}
 
 		ir.RewriteImages(&podStub, false)
-		g.Expect(podStub.Annotations[controllers.AnnotationRewriteImagesName]).To(Equal("false"))
+		g.Expect(podStub.Annotations[core.AnnotationRewriteImagesName]).To(Equal("false"))
 
 		ir.RewriteImages(&podStub, true)
 
@@ -62,7 +62,7 @@ func TestRewriteImages(t *testing.T) {
 		g.Expect(podStub.Spec.InitContainers).To(Equal(rewrittenInitContainers))
 		g.Expect(podStub.Spec.Containers).To(Equal(rewrittenContainers))
 
-		g.Expect(podStub.Labels[controllers.LabelManagedName]).To(Equal("true"))
+		g.Expect(podStub.Labels[core.LabelManagedName]).To(Equal("true"))
 
 		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("a", true)]).To(Equal("original-init"))
 		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("b", false)]).To(Equal("original"))
@@ -72,7 +72,7 @@ func TestRewriteImages(t *testing.T) {
 		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("f", false)]).To(Equal(""))
 
 		ir.RewriteImages(&podStub, false)
-		g.Expect(podStub.Annotations[controllers.AnnotationRewriteImagesName]).To(Equal("true"))
+		g.Expect(podStub.Annotations[core.AnnotationRewriteImagesName]).To(Equal("true"))
 	})
 }
 
@@ -105,7 +105,7 @@ func TestRewriteImagesWithIgnore(t *testing.T) {
 		g.Expect(podStub.Spec.InitContainers).To(Equal(rewrittenInitContainers))
 		g.Expect(podStub.Spec.Containers).To(Equal(rewrittenContainers))
 
-		g.Expect(podStub.Labels[controllers.LabelManagedName]).To(Equal("true"))
+		g.Expect(podStub.Labels[core.LabelManagedName]).To(Equal("true"))
 
 		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("a", true)]).To(Equal(""))
 		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("b", false)]).To(Equal(""))

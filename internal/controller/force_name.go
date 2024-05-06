@@ -1,4 +1,4 @@
-package controllers
+package controller
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-func forceName(c client.Client, ctx context.Context, newName string, obj client.Object, finalizerName string) error {
+func ForceName(c client.Client, ctx context.Context, newName string, obj client.Object, finalizerName string) error {
 	log := log.FromContext(ctx)
 	kind := obj.GetObjectKind().GroupVersionKind().Kind
 

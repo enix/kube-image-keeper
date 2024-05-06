@@ -1,4 +1,4 @@
-package controllers
+package kuik
 
 import (
 	"context"
@@ -27,10 +27,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	"github.com/enix/kube-image-keeper/api/v1alpha1"
-	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
+	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
+	kuikController "github.com/enix/kube-image-keeper/internal/controller"
+	"github.com/enix/kube-image-keeper/internal/controller/core"
 	"github.com/enix/kube-image-keeper/internal/registry"
 )
 
@@ -91,7 +91,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
-	if err := forceName(r.Client, ctx, sanitizedName, &cachedImage, cachedImageFinalizerName); err != nil {
+	if err := kuikController.ForceName(r.Client, ctx, sanitizedName, &cachedImage, cachedImageFinalizerName); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -140,7 +140,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				return ctrl.Result{}, err
 			}
 			r.Recorder.Eventf(&cachedImage, "Normal", "CleanedUp", "Image %s successfully removed from cache", cachedImage.Spec.SourceImage)
-			imageRemovedFromCache.Inc()
+			// imageRemovedFromCache.Inc()
 
 			log.Info("removing finalizer")
 			controllerutil.RemoveFinalizer(&cachedImage, cachedImageFinalizerName)
@@ -237,7 +237,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		} else {
 			log.Info("image cached")
 			r.Recorder.Eventf(&cachedImage, "Normal", "Cached", "Successfully cached image %s", cachedImage.Spec.SourceImage)
-			imagePutInCache.Inc()
+			// imagePutInCache.Inc()
 		}
 	} else {
 		log.Info("image already present in cache, ignoring")
@@ -370,9 +370,9 @@ func (r *CachedImageReconciler) patchPhase(cachedImage *kuikv1alpha1.CachedImage
 // SetupWithManager sets up the controller with the Manager.
 func (r *CachedImageReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrentReconciles int) error {
 	// Create an index to list Pods by CachedImage
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &corev1.Pod{}, cachedImageOwnerKey, func(rawObj client.Object) []string {
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &corev1.Pod{}, core.CachedImageOwnerKey, func(rawObj client.Object) []string {
 		pod := rawObj.(*corev1.Pod)
-		if _, ok := pod.Labels[LabelManagedName]; !ok {
+		if _, ok := pod.Labels[core.LabelManagedName]; !ok {
 			return []string{}
 		}
 
@@ -381,7 +381,7 @@ func (r *CachedImageReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrent
 			WithValues("pod", klog.KObj(pod))
 		ctx := logr.NewContext(context.Background(), logger)
 
-		cachedImages := desiredCachedImages(ctx, pod)
+		cachedImages := core.DesiredCachedImages(ctx, pod)
 
 		cachedImageNames := make([]string, len(cachedImages))
 		for _, cachedImage := range cachedImages {
@@ -396,7 +396,7 @@ func (r *CachedImageReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrent
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kuikv1alpha1.CachedImage{}).
 		Watches(
-			&source.Kind{Type: &corev1.Pod{}},
+			&corev1.Pod{},
 			handler.EnqueueRequestsFromMapFunc(r.cachedImagesRequestFromPod),
 			builder.WithPredicates(predicate.Funcs{
 				// GenericFunc: func(e event.GenericEvent) bool {
@@ -412,7 +412,7 @@ func (r *CachedImageReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrent
 			}),
 		).
 		Watches(
-			&source.Kind{Type: &corev1.Pod{}},
+			&corev1.Pod{},
 			handler.EnqueueRequestsFromMapFunc(r.cachedImagesRequestFromPod),
 			builder.WithPredicates(predicate.Funcs{
 				CreateFunc: func(e event.CreateEvent) bool {
@@ -435,19 +435,19 @@ func (r *CachedImageReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrent
 // updatePodCount update CachedImage UsedBy status
 func (r *CachedImageReconciler) updatePodCount(ctx context.Context, cachedImage *kuikv1alpha1.CachedImage) (requeue bool, err error) {
 	var podsList corev1.PodList
-	if err = r.List(ctx, &podsList, client.MatchingFields{cachedImageOwnerKey: cachedImage.Name}); err != nil && !apierrors.IsNotFound(err) {
+	if err = r.List(ctx, &podsList, client.MatchingFields{core.CachedImageOwnerKey: cachedImage.Name}); err != nil && !apierrors.IsNotFound(err) {
 		return
 	}
 
-	pods := []v1alpha1.PodReference{}
+	pods := []kuikv1alpha1.PodReference{}
 	for _, pod := range podsList.Items {
 		if !pod.DeletionTimestamp.IsZero() {
 			continue
 		}
-		pods = append(pods, v1alpha1.PodReference{NamespacedName: pod.Namespace + "/" + pod.Name})
+		pods = append(pods, kuikv1alpha1.PodReference{NamespacedName: pod.Namespace + "/" + pod.Name})
 	}
 
-	cachedImage.Status.UsedBy = v1alpha1.UsedBy{
+	cachedImage.Status.UsedBy = kuikv1alpha1.UsedBy{
 		Pods:  pods,
 		Count: len(pods),
 	}
@@ -463,15 +463,9 @@ func (r *CachedImageReconciler) updatePodCount(ctx context.Context, cachedImage 
 	return
 }
 
-func (r *CachedImageReconciler) cachedImagesRequestFromPod(obj client.Object) []ctrl.Request {
-	log := log.
-		FromContext(context.Background()).
-		WithName("controller-runtime.manager.controller.cachedImage.deletingPods").
-		WithValues("pod", klog.KObj(obj))
-
+func (r *CachedImageReconciler) cachedImagesRequestFromPod(ctx context.Context, obj client.Object) []ctrl.Request {
 	pod := obj.(*corev1.Pod)
-	ctx := logr.NewContext(context.Background(), log)
-	cachedImages := desiredCachedImages(ctx, pod)
+	cachedImages := core.DesiredCachedImages(ctx, pod)
 
 	res := []ctrl.Request{}
 	for _, cachedImage := range cachedImages {

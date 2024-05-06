@@ -2,7 +2,7 @@
 # Image URL to use all building/pushing image targets
 IMG ?= controller:latest
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION ?= 1.26
+ENVTEST_K8S_VERSION ?= 1.27
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -10,6 +10,12 @@ GOBIN=$(shell go env GOPATH)/bin
 else
 GOBIN=$(shell go env GOBIN)
 endif
+
+# CONTAINER_TOOL defines the container tool to be used for building images.
+# Be aware that the target commands are only tested with Docker which is
+# scaffolded by default. However, you might want to replace it to use other
+# tools. (i.e. podman)
+CONTAINER_TOOL ?= docker
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
@@ -59,26 +65,27 @@ vet: ## Run go vet against code.
 .PHONY: test
 test: manifests generate fmt vet envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test -v ./... -covermode=count -coverprofile cover.out
+
 ##@ Build
 
 .PHONY: build
 build: manifests generate fmt vet ## Build manager binary.
-	go build -o bin/manager main.go
+	go build -o bin/manager cmd/cache/main.go
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
-	go run ./main.go
+	go run ./cmd/cache/main.go
 
 # If you wish built the manager image targeting other platforms you can use the --platform flag.
 # (i.e. docker build --platform linux/arm64 ). However, you must enable docker buildKit for it.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 .PHONY: docker-build
 docker-build: test ## Build docker image with the manager.
-	docker build -t ${IMG} .
+	$(CONTAINER_TOOL) build -t ${IMG} .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
-	docker push ${IMG}
+	$(CONTAINER_TOOL) push ${IMG}
 
 # PLATFORMS defines the target platforms for  the manager image be build to provide support to multiple
 # architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:
@@ -91,10 +98,10 @@ PLATFORMS ?= linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
 docker-buildx: test ## Build and push docker image for the manager for cross-platform support
 	# copy existing Dockerfile and insert --platform=${BUILDPLATFORM} into Dockerfile.cross, and preserve the original Dockerfile
 	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
-	- docker buildx create --name project-v3-builder
-	docker buildx use project-v3-builder
-	- docker buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
-	- docker buildx rm project-v3-builder
+	- $(CONTAINER_TOOL) buildx create --name project-v3-builder
+	$(CONTAINER_TOOL) buildx use project-v3-builder
+	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
+	- $(CONTAINER_TOOL) buildx rm project-v3-builder
 	rm Dockerfile.cross
 
 ##@ Deployment
@@ -105,20 +112,20 @@ endif
 
 .PHONY: install
 install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
-	$(KUSTOMIZE) build config/crd | kubectl apply -f -
+	$(KUSTOMIZE) build config/crd | $(KUBECTL) apply -f -
 
 .PHONY: uninstall
 uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
-	$(KUSTOMIZE) build config/crd | kubectl delete --ignore-not-found=$(ignore-not-found) -f -
+	$(KUSTOMIZE) build config/crd | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
 
 .PHONY: deploy
 deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
-	$(KUSTOMIZE) build config/default | kubectl apply -f -
+	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
 
 .PHONY: undeploy
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
-	$(KUSTOMIZE) build config/default | kubectl delete --ignore-not-found=$(ignore-not-found) -f -
+	$(KUSTOMIZE) build config/default | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
 
 ##@ Build Dependencies
 
@@ -128,15 +135,15 @@ $(LOCALBIN):
 	mkdir -p $(LOCALBIN)
 
 ## Tool Binaries
+KUBECTL ?= kubectl
 KUSTOMIZE ?= $(LOCALBIN)/kustomize
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 
 ## Tool Versions
-KUSTOMIZE_VERSION ?= v3.8.7
+KUSTOMIZE_VERSION ?= v5.0.1
 CONTROLLER_TOOLS_VERSION ?= v0.15.0
 
-KUSTOMIZE_INSTALL_SCRIPT ?= "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh"
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary. If wrong version is installed, it will be removed before downloading.
 $(KUSTOMIZE): $(LOCALBIN)
@@ -144,7 +151,7 @@ $(KUSTOMIZE): $(LOCALBIN)
 		echo "$(LOCALBIN)/kustomize version is not expected $(KUSTOMIZE_VERSION). Removing it before installing."; \
 		rm -rf $(LOCALBIN)/kustomize; \
 	fi
-	test -s $(LOCALBIN)/kustomize || { curl -Ss $(KUSTOMIZE_INSTALL_SCRIPT) | bash -s -- $(subst v,,$(KUSTOMIZE_VERSION)) $(LOCALBIN); }
+	test -s $(LOCALBIN)/kustomize || GOBIN=$(LOCALBIN) GO111MODULE=on go install sigs.k8s.io/kustomize/kustomize/v5@$(KUSTOMIZE_VERSION)
 
 .PHONY: controller-gen
 controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary. If wrong version is installed, it will be overwritten.
@@ -155,7 +162,7 @@ $(CONTROLLER_GEN): $(LOCALBIN)
 .PHONY: envtest
 envtest: $(ENVTEST) ## Download envtest-setup locally if necessary.
 $(ENVTEST): $(LOCALBIN)
-	test -s $(LOCALBIN)/setup-envtest || GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.17
+	test -s $(LOCALBIN)/setup-envtest || GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
 
 # This is not used for kubebuilder, but to generate the Helm chart template README.
 .PHONY: helm-docs

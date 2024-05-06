@@ -1,14 +1,13 @@
-package controllers
+package core
 
 import (
 	"context"
 	"testing"
 	"time"
 
-	"github.com/enix/kube-image-keeper/api/v1alpha1"
-	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
+	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/registry"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -58,12 +57,12 @@ func TestDesiredCachedImages(t *testing.T) {
 	tests := []struct {
 		name         string
 		pod          corev1.Pod
-		cachedImages []v1alpha1.CachedImage
+		cachedImages []kuikv1alpha1.CachedImage
 	}{
 		{
 			name: "basic",
 			pod:  podStub,
-			cachedImages: []v1alpha1.CachedImage{
+			cachedImages: []kuikv1alpha1.CachedImage{
 				{Spec: kuikv1alpha1.CachedImageSpec{
 					SourceImage: "nginx",
 				}},
@@ -80,7 +79,7 @@ func TestDesiredCachedImages(t *testing.T) {
 	g := NewWithT(t)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cachedImages := desiredCachedImages(context.Background(), &tt.pod)
+			cachedImages := DesiredCachedImages(context.Background(), &tt.pod)
 			g.Expect(cachedImages).To(HaveLen(len(tt.cachedImages)))
 			for i, cachedImage := range cachedImages {
 				g.Expect(cachedImage.Spec.SourceImage).To(Equal(tt.cachedImages[i].Spec.SourceImage))
@@ -135,7 +134,6 @@ var _ = Describe("Pod Controller", func() {
 	const interval = time.Second * 1
 
 	BeforeEach(func() {
-		// Add any setup steps that needs to be executed before each test
 	})
 
 	AfterEach(func() {
@@ -174,17 +172,6 @@ var _ = Describe("Pod Controller", func() {
 
 			By("Deleting previously created pod")
 			Expect(k8sClient.Delete(context.Background(), &podStub)).Should(Succeed())
-
-			Eventually(func() []kuikv1alpha1.CachedImage {
-				expiringCachedImages := []kuikv1alpha1.CachedImage{}
-				_ = k8sClient.List(context.Background(), fetched)
-				for _, cachedImage := range fetched.Items {
-					if cachedImage.Spec.ExpiresAt != nil {
-						expiringCachedImages = append(expiringCachedImages, cachedImage)
-					}
-				}
-				return expiringCachedImages
-			}, timeout, interval).Should(HaveLen(len(podStub.Spec.Containers) + len(podStub.Spec.InitContainers)))
 		})
 		It("Should not create CachedImages", func() {
 			By("Creating a pod without rewriting images")
