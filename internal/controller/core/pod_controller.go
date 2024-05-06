@@ -1,4 +1,4 @@
-package controllers
+package core
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/distribution/reference"
-	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
+	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -26,10 +26,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
-const cachedImageOwnerKey = ".metadata.podOwner"
+const CachedImageOwnerKey = ".metadata.podOwner"
 const LabelManagedName = "kuik.enix.io/managed"
 const AnnotationRewriteImagesName = "kuik.enix.io/rewrite-images"
 
@@ -68,7 +67,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		return ctrl.Result{}, nil
 	}
 
-	cachedImages := desiredCachedImages(ctx, &pod)
+	cachedImages := DesiredCachedImages(ctx, &pod)
 	repositories, err := r.desiredRepositories(ctx, &pod, cachedImages)
 	if err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -142,23 +141,23 @@ func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			return ok
 		}))).
 		Watches(
-			&source.Kind{Type: &kuikv1alpha1.CachedImage{}},
+			&kuikv1alpha1.CachedImage{},
 			handler.EnqueueRequestsFromMapFunc(r.podsWithDeletingCachedImages),
 			builder.WithPredicates(p),
 		).
 		Complete(r)
 }
 
-func (r *PodReconciler) podsWithDeletingCachedImages(obj client.Object) []ctrl.Request {
+func (r *PodReconciler) podsWithDeletingCachedImages(ctx context.Context, obj client.Object) []ctrl.Request {
 	log := log.
-		FromContext(context.Background()).
+		FromContext(ctx).
 		WithName("controller-runtime.manager.controller.pod.deletingCachedImages").
 		WithValues("cachedImage", klog.KObj(obj))
 
 	cachedImage := obj.(*kuikv1alpha1.CachedImage)
 	var currentCachedImage kuikv1alpha1.CachedImage
 	// wait for the CachedImage to be really deleted
-	if err := r.Get(context.Background(), client.ObjectKeyFromObject(cachedImage), &currentCachedImage); err == nil || !apierrors.IsNotFound(err) {
+	if err := r.Get(ctx, client.ObjectKeyFromObject(cachedImage), &currentCachedImage); err == nil || !apierrors.IsNotFound(err) {
 		return make([]ctrl.Request, 0)
 	}
 
@@ -166,7 +165,7 @@ func (r *PodReconciler) podsWithDeletingCachedImages(obj client.Object) []ctrl.R
 	podRequirements, _ := labels.NewRequirement(LabelManagedName, selection.Equals, []string{"true"})
 	selector := labels.NewSelector()
 	selector = selector.Add(*podRequirements)
-	if err := r.List(context.Background(), &podList, &client.ListOptions{
+	if err := r.List(ctx, &podList, &client.ListOptions{
 		LabelSelector: selector,
 	}); err != nil {
 		log.Error(err, "could not list pods")
@@ -217,7 +216,7 @@ func (r *PodReconciler) desiredRepositories(ctx context.Context, pod *corev1.Pod
 	return maps.Values(repositories), nil
 }
 
-func desiredCachedImages(ctx context.Context, pod *corev1.Pod) []kuikv1alpha1.CachedImage {
+func DesiredCachedImages(ctx context.Context, pod *corev1.Pod) []kuikv1alpha1.CachedImage {
 	cachedImages := desiredCachedImagesForContainers(ctx, pod.Spec.Containers, pod.Annotations, false)
 	cachedImages = append(cachedImages, desiredCachedImagesForContainers(ctx, pod.Spec.InitContainers, pod.Annotations, true)...)
 	return cachedImages

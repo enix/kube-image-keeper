@@ -11,7 +11,7 @@ import (
 
 	_ "crypto/sha256"
 
-	"github.com/enix/kube-image-keeper/controllers"
+	"github.com/enix/kube-image-keeper/internal/controller/core"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/google/go-containerregistry/pkg/name"
 	admissionv1 "k8s.io/api/admission/v1"
@@ -82,10 +82,10 @@ func (a *ImageRewriter) RewriteImages(pod *corev1.Pod, isNewPod bool) []Rewritte
 		pod.Labels = map[string]string{}
 	}
 
-	rewriteImages := pod.Annotations[controllers.AnnotationRewriteImagesName] == "true" || isNewPod
+	rewriteImages := pod.Annotations[core.AnnotationRewriteImagesName] == "true" || isNewPod
 
-	pod.Labels[controllers.LabelManagedName] = "true"
-	pod.Annotations[controllers.AnnotationRewriteImagesName] = fmt.Sprintf("%t", rewriteImages)
+	pod.Labels[core.LabelManagedName] = "true"
+	pod.Annotations[core.AnnotationRewriteImagesName] = fmt.Sprintf("%t", rewriteImages)
 
 	rewrittenImages := []RewrittenImage{}
 

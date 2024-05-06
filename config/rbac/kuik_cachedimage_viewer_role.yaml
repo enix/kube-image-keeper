@@ -1,27 +1,23 @@
-# permissions for end users to edit cachedimages.
+# permissions for end users to view cachedimages.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   labels:
     app.kubernetes.io/name: clusterrole
-    app.kubernetes.io/instance: cachedimage-editor-role
+    app.kubernetes.io/instance: cachedimage-viewer-role
     app.kubernetes.io/component: rbac
-    app.kubernetes.io/created-by: kuik
-    app.kubernetes.io/part-of: kuik
+    app.kubernetes.io/created-by: kube-image-keeper
+    app.kubernetes.io/part-of: kube-image-keeper
     app.kubernetes.io/managed-by: kustomize
-  name: cachedimage-editor-role
+  name: cachedimage-viewer-role
 rules:
 - apiGroups:
   - kuik.enix.io
   resources:
   - cachedimages
   verbs:
-  - create
-  - delete
   - get
   - list
-  - patch
-  - update
   - watch
 - apiGroups:
   - kuik.enix.io

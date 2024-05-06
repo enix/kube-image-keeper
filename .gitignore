@@ -21,6 +21,7 @@ zz_generated.*
 
 # editor and IDE paraphernalia
 .idea
+.vscode
 *.swp
 *.swo
 *~

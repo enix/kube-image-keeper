@@ -1,10 +1,10 @@
-package controllers
+package controller
 
 import (
 	"context"
 	"strconv"
 
-	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
+	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	kuikMetrics "github.com/enix/kube-image-keeper/internal/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 	"sigs.k8s.io/controller-runtime/pkg/client"

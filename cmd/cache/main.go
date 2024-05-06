@@ -16,10 +16,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	kuikenixiov1 "github.com/enix/kube-image-keeper/api/v1"
-	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
-	"github.com/enix/kube-image-keeper/controllers"
+	kuikenixiov1 "github.com/enix/kube-image-keeper/api/core/v1"
+	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal"
+	kuikController "github.com/enix/kube-image-keeper/internal/controller"
+	"github.com/enix/kube-image-keeper/internal/controller/core"
+	"github.com/enix/kube-image-keeper/internal/controller/kuik"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/enix/kube-image-keeper/internal/scheme"
 	//+kubebuilder:scaffold:imports
@@ -85,7 +87,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&controllers.CachedImageReconciler{
+	if err = (&kuik.CachedImageReconciler{
 		Client:             mgr.GetClient(),
 		Scheme:             mgr.GetScheme(),
 		Recorder:           mgr.GetEventRecorderFor("cachedimage-controller"),
@@ -98,7 +100,7 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "CachedImage")
 		os.Exit(1)
 	}
-	if err = (&controllers.PodReconciler{
+	if err = (&core.PodReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
@@ -116,7 +118,7 @@ func main() {
 		setupLog.Error(err, "unable to create webhook", "webhook", "CachedImage")
 		os.Exit(1)
 	}
-	if err = (&controllers.RepositoryReconciler{
+	if err = (&kuik.RepositoryReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorderFor("epository-controller"),
@@ -132,23 +134,23 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := mgr.AddHealthzCheck("healthz", controllers.MakeChecker(controllers.Healthz)); err != nil {
+	if err := mgr.AddHealthzCheck("healthz", kuikController.MakeChecker(kuikController.Healthz)); err != nil {
 		setupLog.Error(err, "unable to set up health check")
 		os.Exit(1)
 	}
-	if err := mgr.AddReadyzCheck("readyz", controllers.MakeChecker(controllers.Readyz)); err != nil {
+	if err := mgr.AddReadyzCheck("readyz", kuikController.MakeChecker(kuikController.Readyz)); err != nil {
 		setupLog.Error(err, "unable to set up ready check")
 		os.Exit(1)
 	}
 
-	controllers.SetLeader(false)
+	kuikController.SetLeader(false)
 	go func() {
 		<-mgr.Elected()
-		controllers.SetLeader(true)
+		kuikController.SetLeader(true)
 	}()
 
-	controllers.ProbeAddr = probeAddr
-	controllers.RegisterMetrics(mgr.GetClient())
+	kuikController.ProbeAddr = probeAddr
+	kuikController.RegisterMetrics(mgr.GetClient())
 
 	setupLog.Info("starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {

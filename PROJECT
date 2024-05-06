@@ -4,7 +4,8 @@
 # More info: https://book.kubebuilder.io/reference/project-config.html
 domain: enix.io
 layout:
-- go.kubebuilder.io/v3
+- go.kubebuilder.io/v4
+multigroup: true
 projectName: kube-image-keeper
 repo: github.com/enix/kube-image-keeper
 resources:
@@ -15,7 +16,7 @@ resources:
   domain: enix.io
   group: kuik
   kind: CachedImage
-  path: github.com/enix/kube-image-keeper/api/v1alpha1
+  path: github.com/enix/kube-image-keeper/api/kuik/v1alpha1
   version: v1alpha1
   webhooks:
     defaulting: true
@@ -35,6 +36,6 @@ resources:
   domain: enix.io
   group: kuik
   kind: Repository
-  path: github.com/enix/kube-image-keeper/api/v1alpha1
+  path: github.com/enix/kube-image-keeper/api/kuik/v1alpha1
   version: v1alpha1
 version: "3"
