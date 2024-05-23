@@ -16,6 +16,11 @@ const subsystem = "controller"
 
 var ProbeAddr = ""
 
+// TODO repo count
+// TODO count try cache controller + status code and upstream registry
+// TODO nombre de re-write et %age
+// TODO gauge pod count par status/cached de cachedimage
+
 var (
 	imagePutInCache = prometheus.NewCounter(
 		prometheus.CounterOpts{
@@ -53,7 +58,7 @@ var (
 
 	cachedImagesMetric = prometheus.BuildFQName(kuikMetrics.Namespace, subsystem, "cached_images")
 	cachedImagesHelp   = "Number of images expected to be cached"
-	cachedImagesDesc   = prometheus.NewDesc(cachedImagesMetric, cachedImagesHelp, []string{"cached", "expiring"}, nil)
+	cachedImagesDesc   = prometheus.NewDesc(cachedImagesMetric, cachedImagesHelp, []string{"cached", "expiring"}, nil) // TODO add status
 )
 
 func RegisterMetrics(client client.Client) {
