@@ -9,10 +9,10 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/distribution/reference"
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
+	"github.com/enix/kube-image-keeper/internal/podutils"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -191,7 +191,7 @@ func (r *PodReconciler) podsWithDeletingCachedImages(obj client.Object) []ctrl.R
 func (r *PodReconciler) desiredRepositories(ctx context.Context, pod *corev1.Pod, cachedImages []kuikv1alpha1.CachedImage) ([]kuikv1alpha1.Repository, error) {
 	repositories := map[string]kuikv1alpha1.Repository{}
 
-	pullSecretNames, err := r.imagePullSecretNamesFromPod(ctx, pod)
+	pullSecretNames, err := podutils.ImagePullSecretNamesFromPod(r.Client, ctx, pod)
 	if err != nil {
 		return nil, err
 	}
@@ -272,25 +272,4 @@ func cachedImageFromSourceImage(sourceImage string) (*kuikv1alpha1.CachedImage, 
 	}
 
 	return &cachedImage, nil
-}
-
-func (r *PodReconciler) imagePullSecretNamesFromPod(ctx context.Context, pod *corev1.Pod) ([]string, error) {
-	if pod.Spec.ServiceAccountName == "" {
-		return []string{}, nil
-	}
-
-	var serviceAccount corev1.ServiceAccount
-	serviceAccountNamespacedName := types.NamespacedName{Namespace: pod.Namespace, Name: pod.Spec.ServiceAccountName}
-	if err := r.Get(ctx, serviceAccountNamespacedName, &serviceAccount); err != nil && !apierrors.IsNotFound(err) {
-		return []string{}, err
-	}
-
-	imagePullSecrets := append(pod.Spec.ImagePullSecrets, serviceAccount.ImagePullSecrets...)
-	imagePullSecretNames := make([]string, len(imagePullSecrets))
-
-	for i, imagePullSecret := range imagePullSecrets {
-		imagePullSecretNames[i] = imagePullSecret.Name
-	}
-
-	return imagePullSecretNames, nil
 }

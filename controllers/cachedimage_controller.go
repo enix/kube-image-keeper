@@ -2,7 +2,6 @@ package controllers
 
 import (
 	"context"
-	"crypto/x509"
 	"net/http"
 	"strings"
 	"time"
@@ -51,13 +50,12 @@ const (
 // CachedImageReconciler reconciles a CachedImage object
 type CachedImageReconciler struct {
 	client.Client
-	Scheme             *runtime.Scheme
-	Recorder           record.EventRecorder
-	ApiReader          client.Reader
-	ExpiryDelay        time.Duration
-	Architectures      []string
-	InsecureRegistries []string
-	RootCAs            *x509.CertPool
+	Scheme            *runtime.Scheme
+	Recorder          record.EventRecorder
+	ApiReader         client.Reader
+	ExpiryDelay       time.Duration
+	Architectures     []string
+	DescriptorFetcher *registry.DescriptorFetcher
 }
 
 //+kubebuilder:rbac:groups=kuik.enix.io,resources=cachedimages,verbs=get;list;watch;create;update;patch;delete
@@ -303,7 +301,7 @@ func (r *CachedImageReconciler) cacheImage(cachedImage *kuikv1alpha1.CachedImage
 		return err
 	}
 
-	desc, err := registry.GetDescriptor(cachedImage.Spec.SourceImage, pullSecrets, r.InsecureRegistries, r.RootCAs)
+	desc, err := r.DescriptorFetcher.Get(cachedImage.Spec.SourceImage, pullSecrets)
 
 	statusErr := updateStatus(r.Client, cachedImage, desc, func(status *kuikv1alpha1.CachedImageStatus) {
 		_, err := registry.GetLocalDescriptor(cachedImage.Spec.SourceImage)

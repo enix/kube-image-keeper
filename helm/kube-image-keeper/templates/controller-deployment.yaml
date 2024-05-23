@@ -45,6 +45,7 @@ spec:
             - -max-concurrent-cached-image-reconciles={{ .Values.controllers.maxConcurrentCachedImageReconciles }}
             - -zap-log-level={{ .Values.controllers.verbosity }}
             - -ignore-pull-policy-always={{- .Values.controllers.webhook.ignorePullPolicyAlways }}
+            - -verify-image-present-in-downstream-registry={{- .Values.controllers.webhook.verifyImagePresentInDownstreamRegistry }}
             {{- range .Values.controllers.webhook.ignoredImages }}
             - -ignore-images={{- . }}
             {{- end }}

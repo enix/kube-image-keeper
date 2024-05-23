@@ -36,6 +36,7 @@ func main() {
 	var expiryDelay uint
 	var proxyPort int
 	var ignoreImages internal.RegexpArrayFlags
+	var verifyImagePresentInDownstreamRegistry bool
 	var ignorePullPolicyAlways bool
 	var architectures internal.ArrayFlags
 	var maxConcurrentCachedImageReconciles int
@@ -50,6 +51,7 @@ func main() {
 	flag.IntVar(&proxyPort, "proxy-port", 8082, "The port on which the registry proxy accepts connections on each host.")
 	flag.Var(&ignoreImages, "ignore-images", "Regex that represents images to be excluded (this flag can be used multiple times).")
 	flag.BoolVar(&ignorePullPolicyAlways, "ignore-pull-policy-always", true, "Ignore containers that are configured with imagePullPolicy: Always")
+	flag.BoolVar(&verifyImagePresentInDownstreamRegistry, "verify-image-present-in-downstream-registry", false, "Verify image presence in downstream registry before rewriting image repository")
 	flag.Var(&architectures, "arch", "Architecture of image to put in cache (this flag can be used multiple times).")
 	flag.StringVar(&registry.Endpoint, "registry-endpoint", "kube-image-keeper-registry:5000", "The address of the registry where cached images are stored.")
 	flag.IntVar(&maxConcurrentCachedImageReconciles, "max-concurrent-cached-image-reconciles", 3, "Maximum number of CachedImages that can be handled and reconciled at the same time (put or removed from cache).")
@@ -85,15 +87,19 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&controllers.CachedImageReconciler{
-		Client:             mgr.GetClient(),
-		Scheme:             mgr.GetScheme(),
-		Recorder:           mgr.GetEventRecorderFor("cachedimage-controller"),
-		ApiReader:          mgr.GetAPIReader(),
-		ExpiryDelay:        time.Duration(expiryDelay*24) * time.Hour,
-		Architectures:      []string(architectures),
+	descriptorFetcher := &registry.DescriptorFetcher{
 		InsecureRegistries: []string(insecureRegistries),
 		RootCAs:            rootCAs,
+	}
+
+	if err = (&controllers.CachedImageReconciler{
+		Client:            mgr.GetClient(),
+		Scheme:            mgr.GetScheme(),
+		Recorder:          mgr.GetEventRecorderFor("cachedimage-controller"),
+		ApiReader:         mgr.GetAPIReader(),
+		ExpiryDelay:       time.Duration(expiryDelay*24) * time.Hour,
+		Architectures:     []string(architectures),
+		DescriptorFetcher: descriptorFetcher,
 	}).SetupWithManager(mgr, maxConcurrentCachedImageReconciles); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "CachedImage")
 		os.Exit(1)
@@ -106,10 +112,12 @@ func main() {
 		os.Exit(1)
 	}
 	imageRewriter := kuikenixiov1.ImageRewriter{
-		Client:                 mgr.GetClient(),
-		IgnoreImages:           ignoreImages,
-		IgnorePullPolicyAlways: ignorePullPolicyAlways,
-		ProxyPort:              proxyPort,
+		Client:                                 mgr.GetClient(),
+		IgnoreImages:                           ignoreImages,
+		IgnorePullPolicyAlways:                 ignorePullPolicyAlways,
+		VerifyImagePresentInDownstreamRegistry: verifyImagePresentInDownstreamRegistry,
+		ProxyPort:                              proxyPort,
+		DescriptorFetcher:                      descriptorFetcher,
 	}
 	mgr.GetWebhookServer().Register("/mutate-core-v1-pod", &webhook.Admission{Handler: &imageRewriter})
 	if err = (&kuikv1alpha1.CachedImage{}).SetupWebhookWithManager(mgr); err != nil {

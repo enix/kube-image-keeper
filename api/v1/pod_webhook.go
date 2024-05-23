@@ -12,6 +12,7 @@ import (
 	_ "crypto/sha256"
 
 	"github.com/enix/kube-image-keeper/controllers"
+	"github.com/enix/kube-image-keeper/internal/podutils"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/google/go-containerregistry/pkg/name"
 	admissionv1 "k8s.io/api/admission/v1"
@@ -27,17 +28,20 @@ import (
 //+kubebuilder:webhook:path=/mutate-core-v1-pod,mutating=true,failurePolicy=fail,sideEffects=None,groups=core,resources=pods,verbs=create;update,versions=v1,name=mpod.kb.io,admissionReviewVersions=v1
 
 var (
-	errImageContainsDigests = errors.New("image contains a digest")
-	errPullPolicyAlways     = errors.New("container is configured with imagePullPolicy: Always")
-	errPullPolicyNever      = errors.New("container is configured with imagePullPolicy: Never")
+	errImageContainsDigests      = errors.New("image contains a digest")
+	errPullPolicyAlways          = errors.New("container is configured with imagePullPolicy: Always")
+	errPullPolicyNever           = errors.New("container is configured with imagePullPolicy: Never")
+	errImageNotPresentDownstream = errors.New("image not present in downstream registry")
 )
 
 type ImageRewriter struct {
-	Client                 client.Client
-	IgnoreImages           []*regexp.Regexp
-	IgnorePullPolicyAlways bool
-	ProxyPort              int
-	decoder                *admission.Decoder
+	Client                                 client.Client
+	IgnoreImages                           []*regexp.Regexp
+	IgnorePullPolicyAlways                 bool
+	VerifyImagePresentInDownstreamRegistry bool
+	ProxyPort                              int
+	decoder                                *admission.Decoder
+	DescriptorFetcher                      *registry.DescriptorFetcher
 }
 
 type PodInitializer struct {
@@ -113,7 +117,7 @@ func (a *ImageRewriter) InjectDecoder(d *admission.Decoder) error {
 }
 
 func (a *ImageRewriter) handleContainer(pod *corev1.Pod, container *corev1.Container, annotationKey string, rewriteImage bool) RewrittenImage {
-	if err := a.isImageRewritable(container); err != nil {
+	if err := a.isImageRewritable(container, pod); err != nil {
 		return RewrittenImage{
 			Original:            container.Image,
 			NotRewrittenBecause: err.Error(),
@@ -152,7 +156,9 @@ func (a *ImageRewriter) handleContainer(pod *corev1.Pod, container *corev1.Conta
 	}
 }
 
-func (a *ImageRewriter) isImageRewritable(container *corev1.Container) error {
+func (a *ImageRewriter) isImageRewritable(container *corev1.Container, pod *corev1.Pod) error {
+	rewritabilityLog := ctrl.Log.WithName("setup.rewritability")
+
 	if strings.Contains(container.Image, "@") {
 		return errImageContainsDigests
 	}
@@ -173,6 +179,35 @@ func (a *ImageRewriter) isImageRewritable(container *corev1.Container) error {
 		if r.MatchString(container.Image) {
 			return fmt.Errorf("image matches %s", r.String())
 		}
+	}
+
+	if a.VerifyImagePresentInDownstreamRegistry {
+		rewritabilityLog.Info(fmt.Sprintf("checking if image %s is present in downstream registry", container.Image))
+		pullSecretNames, err := podutils.ImagePullSecretNamesFromPod(a.Client, context.Background(), pod)
+		if err != nil {
+			rewritabilityLog.Info(fmt.Sprintf("verifyImagePresence: pullSecretNames err %v", err))
+			return fmt.Errorf("failed getting image pull secret names for image presence rewritability check: %v", err)
+		}
+
+		pullSecrets, err := registry.GetPullSecrets(a.Client, pod.Namespace, pullSecretNames)
+		if err != nil {
+			rewritabilityLog.Info(fmt.Sprintf("verifyImagePresence: pullSecrets err %v", err))
+			return fmt.Errorf("failed getting image pull secrets for image presence rewritability check: %v", err)
+		}
+
+		desc, err := a.DescriptorFetcher.Get(container.Image, pullSecrets)
+		if err != nil {
+			// if can determine error, then return errImageNotPresentDownstream in 404 case
+			rewritabilityLog.Info(fmt.Sprintf("verifyImagePresence: get Descriptor err %v", err))
+			return fmt.Errorf("failed getting image descriptor image presence rewritability check: %v", err)
+		}
+		rewritabilityLog.Info(fmt.Sprintf("%+v", desc.URLs))
+
+		// if _, err := a.DescriptorFetcher.Get(container.Image, pullSecrets); err != nil {
+		// 	// if can determine error, then return errImageNotPresentDownstream in 404 case
+		// 	rewritabilityLog.Info(fmt.Sprintf("verifyImagePresence: get Descriptor err %v", err))
+		// 	return fmt.Errorf("failed getting image descriptor image presence rewritability check: %v", err)
+		// }
 	}
 
 	return nil

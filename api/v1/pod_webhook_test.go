@@ -220,7 +220,7 @@ func Test_isImageRewritable(t *testing.T) {
 			err := imageRewriter.isImageRewritable(&corev1.Container{
 				Image:           tt.image,
 				ImagePullPolicy: tt.imagePullPolicy,
-			})
+			}, &corev1.Pod{})
 
 			if tt.err == nil {
 				g.Expect(err).To(BeNil())
