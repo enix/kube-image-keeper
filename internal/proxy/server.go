@@ -39,7 +39,7 @@ func New(k8sClient client.Client, metricsAddr string, insecureRegistries []strin
 	collector := NewCollector()
 	return &Proxy{
 		k8sClient:          k8sClient,
-		engine:             gin.Default(),
+		engine:             gin.New(),
 		collector:          collector,
 		exporter:           metrics.New(collector, metricsAddr),
 		insecureRegistries: insecureRegistries,
@@ -57,14 +57,24 @@ func NewWithEngine(k8sClient client.Client, engine *gin.Engine) *Proxy {
 func (p *Proxy) Serve() *Proxy {
 	r := p.engine
 
-	r.Use(recoveryMiddleware())
-	r.Use(func(c *gin.Context) {
-		c.Next()
-		registry := c.Param("originRegistry")
-		if registry == "" {
-			return
-		}
-		p.collector.IncHTTPCall(registry, c.Writer.Status(), c.GetBool("cacheHit"))
+	r.Use(
+		gin.LoggerWithWriter(gin.DefaultWriter, "/readyz", "/healthz"),
+		recoveryMiddleware(),
+		func(c *gin.Context) {
+			c.Next()
+			registry := c.Param("originRegistry")
+			if registry == "" {
+				return
+			}
+			p.collector.IncHTTPCall(registry, c.Writer.Status(), c.GetBool("cacheHit"))
+		},
+	)
+
+	r.GET("/readyz", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+	r.GET("/healthz", func(c *gin.Context) {
+		c.Status(http.StatusOK)
 	})
 
 	v2 := r.Group("/v2")
@@ -80,7 +90,7 @@ func (p *Proxy) Serve() *Proxy {
 
 			subMatches := pathRegex.FindStringSubmatch(subPath)
 			if subMatches == nil {
-				c.Status(404)
+				c.Status(http.StatusNotFound)
 				return
 			}
 
@@ -134,7 +144,7 @@ func (p *Proxy) Run(proxyAddr string) chan struct{} {
 func (p *Proxy) v2Endpoint(c *gin.Context) {
 	c.Header("Docker-Distribution-Api-Version", "registry/2.0")
 	c.Header("X-Content-Type-Options", "nosniff")
-	c.JSON(200, map[string]string{})
+	c.JSON(http.StatusOK, map[string]string{})
 }
 
 func (p *Proxy) routeProxy(c *gin.Context) {

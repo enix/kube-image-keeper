@@ -167,12 +167,12 @@ proxy:
   # -- Readiness probe definition for the proxy pod
   readinessProbe:
     httpGet:
-      path: /v2/
+      path: /readyz
       port: 7439
   # -- Liveness probe definition for the proxy pod
   livenessProbe:
     httpGet:
-      path: /v2/
+      path: /healthz
       port: 7439
   resources:
     requests:
