@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"context"
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/tls"
@@ -19,8 +20,11 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	"github.com/google/go-containerregistry/pkg/v1/types"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	k8stypes "k8s.io/apimachinery/pkg/types"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/utils/strings/slices"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var Endpoint = ""
@@ -223,4 +227,26 @@ func ContainerAnnotationKey(containerName string, initContainer bool) string {
 	}
 
 	return fmt.Sprintf(template, containerName)
+}
+
+// ImagePullSecretNamesFromPod concatenates pod's and (potentially) associated service account's pull secrets
+func ImagePullSecretNamesFromPod(ctx context.Context, client client.Client, pod *corev1.Pod) ([]string, error) {
+	if pod.Spec.ServiceAccountName == "" {
+		return []string{}, nil
+	}
+
+	var serviceAccount corev1.ServiceAccount
+	serviceAccountNamespacedName := k8stypes.NamespacedName{Namespace: pod.Namespace, Name: pod.Spec.ServiceAccountName}
+	if err := client.Get(ctx, serviceAccountNamespacedName, &serviceAccount); err != nil && !apierrors.IsNotFound(err) {
+		return []string{}, err
+	}
+
+	imagePullSecrets := append(pod.Spec.ImagePullSecrets, serviceAccount.ImagePullSecrets...)
+	imagePullSecretNames := make([]string, len(imagePullSecrets))
+
+	for i, imagePullSecret := range imagePullSecrets {
+		imagePullSecretNames[i] = imagePullSecret.Name
+	}
+
+	return imagePullSecretNames, nil
 }

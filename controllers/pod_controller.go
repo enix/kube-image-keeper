@@ -12,7 +12,6 @@ import (
 
 	"github.com/distribution/reference"
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/v1alpha1"
-	"github.com/enix/kube-image-keeper/internal/podutils"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -191,7 +190,7 @@ func (r *PodReconciler) podsWithDeletingCachedImages(obj client.Object) []ctrl.R
 func (r *PodReconciler) desiredRepositories(ctx context.Context, pod *corev1.Pod, cachedImages []kuikv1alpha1.CachedImage) ([]kuikv1alpha1.Repository, error) {
 	repositories := map[string]kuikv1alpha1.Repository{}
 
-	pullSecretNames, err := podutils.ImagePullSecretNamesFromPod(r.Client, ctx, pod)
+	pullSecretNames, err := registry.ImagePullSecretNamesFromPod(ctx, r.Client, pod)
 	if err != nil {
 		return nil, err
 	}

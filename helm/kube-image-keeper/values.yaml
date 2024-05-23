@@ -75,6 +75,8 @@ controllers:
     ignoredImages: []
     # -- Don't enable image caching if the image is configured with imagePullPolicy: Always
     ignorePullPolicyAlways: true
+    # -- Don't enable image caching if image is absent from remote registry
+    ignoreImageAbsentInRemoteRegistry: true
     # -- If true, create the issuer used to issue the webhook certificate
     createCertificateIssuer: true
     # -- Issuer reference to issue the webhook certificate, ignored if createCertificateIssuer is true
