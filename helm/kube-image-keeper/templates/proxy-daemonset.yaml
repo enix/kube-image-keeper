@@ -77,11 +77,13 @@ spec:
             {{- else }}
             - -bind-address=:{{ .Values.proxy.hostPort }}
             {{- end }}
-          {{- if .Values.rootCertificateAuthorities }}
-          {{- with .Values.proxy.env }}
           env:
+          {{- with .Values.proxy.env }}
             {{- toYaml . | nindent 12 }}
           {{- end }}
+            - name: GIN_MODE
+              value: release
+          {{- if .Values.rootCertificateAuthorities }}
           volumeMounts:
             - mountPath: /etc/ssl/certs/registry-certificate-authorities
               name: registry-certificate-authorities

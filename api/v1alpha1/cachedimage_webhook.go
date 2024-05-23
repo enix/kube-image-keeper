@@ -8,10 +8,7 @@ import (
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
-
-var cachedimagelog = logf.Log.WithName("cachedimage-resource")
 
 func (r *CachedImage) SetupWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
@@ -24,7 +21,6 @@ func (r *CachedImage) SetupWebhookWithManager(mgr ctrl.Manager) error {
 
 func (r *CachedImage) Default(ctx context.Context, obj runtime.Object) error {
 	cachedImage := obj.(*CachedImage)
-	cachedimagelog.Info("defaulting", "name", cachedImage.Name)
 
 	named, err := reference.ParseNormalizedNamed(cachedImage.Spec.SourceImage)
 	if err != nil {
