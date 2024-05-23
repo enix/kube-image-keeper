@@ -94,7 +94,11 @@ func ImageIsCached(imageName string) (bool, error) {
 		return false, err
 	}
 
-	return imageExists(reference)
+	exists, err := imageExists(reference)
+	if err != nil {
+		err = fmt.Errorf("could not determine if the image present in cache: %w", err)
+	}
+	return exists, err
 }
 
 func DeleteImage(imageName string) error {
