@@ -197,9 +197,9 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	// Removing forceUpdate annotation
-	forceUpdate := cachedImage.Annotations[cachedImageAnnotationForceUpdateName]
+	forceUpdate := cachedImage.Annotations[cachedImageAnnotationForceUpdateName] == "true"
 	patch := client.MergeFrom(cachedImage.DeepCopy())
-	if forceUpdate == "true" {
+	if forceUpdate {
 		delete(cachedImage.Annotations, cachedImageAnnotationForceUpdateName)
 	}
 	err = r.Patch(context.Background(), &cachedImage, patch)
@@ -207,16 +207,24 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
-	// Adding image to registry
-	isCached := false
-	if forceUpdate != "true" {
-		isCached, err = registry.ImageIsCached(cachedImage.Spec.SourceImage)
-		if err != nil {
-			log.Error(err, "could not determine if the image present in cache")
-			return ctrl.Result{}, err
-		}
+	isCached, err := registry.ImageIsCached(cachedImage.Spec.SourceImage)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
-	if !isCached {
+
+	err = updateStatusRaw(r.Client, &cachedImage, func(status *kuikv1alpha1.CachedImageStatus) {
+		cachedImage.Status.IsCached = isCached
+	})
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// Adding image to registry
+	putImageInCache := true
+	if isCached && !forceUpdate {
+		putImageInCache = false
+	}
+	if putImageInCache {
 		r.Recorder.Eventf(&cachedImage, "Normal", "Caching", "Start caching image %s", cachedImage.Spec.SourceImage)
 		err = r.cacheImage(&cachedImage)
 		if err != nil {
@@ -261,21 +269,25 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 }
 
 func updateStatus(c client.Client, cachedImage *kuikv1alpha1.CachedImage, upstreamDescriptor *remote.Descriptor, update func(*kuikv1alpha1.CachedImageStatus)) error {
+	return updateStatusRaw(c, cachedImage, func(status *kuikv1alpha1.CachedImageStatus) {
+		cachedImage.Status.AvailableUpstream = upstreamDescriptor != nil
+		cachedImage.Status.LastSync = metav1.NewTime(time.Now())
+
+		update(&cachedImage.Status)
+
+		if upstreamDescriptor != nil {
+			cachedImage.Status.UpstreamDigest = upstreamDescriptor.Digest.Hex
+			cachedImage.Status.UpToDate = cachedImage.Status.Digest == upstreamDescriptor.Digest.Hex
+		} else {
+			cachedImage.Status.UpstreamDigest = ""
+			cachedImage.Status.UpToDate = false
+		}
+	})
+}
+
+func updateStatusRaw(c client.Client, cachedImage *kuikv1alpha1.CachedImage, update func(*kuikv1alpha1.CachedImageStatus)) error {
 	patch := client.MergeFrom(cachedImage.DeepCopy())
-
-	cachedImage.Status.AvailableUpstream = upstreamDescriptor != nil
-	cachedImage.Status.LastSync = metav1.NewTime(time.Now())
-
 	update(&cachedImage.Status)
-
-	if upstreamDescriptor != nil {
-		cachedImage.Status.UpstreamDigest = upstreamDescriptor.Digest.Hex
-		cachedImage.Status.UpToDate = cachedImage.Status.Digest == upstreamDescriptor.Digest.Hex
-	} else {
-		cachedImage.Status.UpstreamDigest = ""
-		cachedImage.Status.UpToDate = false
-	}
-
 	return c.Status().Patch(context.Background(), cachedImage, patch)
 }
 

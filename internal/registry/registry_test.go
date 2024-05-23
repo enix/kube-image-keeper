@@ -145,6 +145,10 @@ func Test_ImageIsCached(t *testing.T) {
 			Endpoint = server.Addr()
 			isCached, err := ImageIsCached(tt.image)
 			if tt.wantErr != "" {
+				err2 := errors.Unwrap(err)
+				if err2 != nil {
+					err = err2
+				}
 				g.Expect(err).To(BeAssignableToTypeOf(tt.errType))
 				g.Expect(err).To(MatchError(ContainSubstring(tt.wantErr)))
 			} else {
