@@ -9,7 +9,7 @@ require (
 	github.com/docker/docker v26.1.3+incompatible
 	github.com/docker/go-connections v0.5.0
 	github.com/gin-gonic/gin v1.10.0
-	github.com/go-logr/logr v1.4.1
+	github.com/go-logr/logr v1.4.2
 	github.com/google/go-containerregistry v0.19.1
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/gomega v1.33.1
