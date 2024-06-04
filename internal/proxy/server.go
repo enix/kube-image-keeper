@@ -21,6 +21,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	"golang.org/x/exp/slices"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -158,7 +159,11 @@ func (p *Proxy) routeProxy(c *gin.Context) {
 
 		cachedImage, err := p.getCachedImage(originRegistry, repository)
 		if err != nil {
-			_ = c.AbortWithError(http.StatusInternalServerError, err)
+			if statusError, isStatus := err.(*apierrors.StatusError); isStatus && statusError.ErrStatus.Code != 0 {
+				_ = c.AbortWithError(int(statusError.ErrStatus.Code), err)
+			} else {
+				_ = c.AbortWithError(http.StatusInternalServerError, err)
+			}
 			return
 		}
 
@@ -173,10 +178,6 @@ func (p *Proxy) routeProxy(c *gin.Context) {
 		}
 
 		err = p.proxyRegistry(c, "https://"+originRegistry, true, transport)
-		if err == nil {
-			return
-		}
-
 		if err != nil {
 			klog.Errorf("could not proxy registry: %s", err)
 			_ = c.AbortWithError(http.StatusInternalServerError, err)
