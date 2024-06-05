@@ -116,7 +116,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	// Set owner reference
 	owner := &kuikv1alpha1.Repository{}
-	if err := r.Get(context.Background(), client.ObjectKeyFromObject(&repository), owner); err != nil {
+	if err := r.Get(ctx, client.ObjectKeyFromObject(&repository), owner); err != nil {
 		return ctrl.Result{}, err
 	}
 	if err := controllerutil.SetOwnerReference(owner, &cachedImage, r.Scheme); err != nil {
@@ -202,7 +202,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if forceUpdate {
 		delete(cachedImage.Annotations, cachedImageAnnotationForceUpdateName)
 	}
-	err = r.Patch(context.Background(), &cachedImage, patch)
+	err = r.Patch(ctx, &cachedImage, patch)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -452,7 +452,7 @@ func (r *CachedImageReconciler) updatePodCount(ctx context.Context, cachedImage 
 		Count: len(pods),
 	}
 
-	err = r.Status().Update(context.Background(), cachedImage)
+	err = r.Status().Update(ctx, cachedImage)
 	if err != nil {
 		if statusErr, ok := err.(*errors.StatusError); ok && statusErr.Status().Code == http.StatusConflict {
 			requeue = true

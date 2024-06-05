@@ -264,7 +264,7 @@ func (r *RepositoryReconciler) repositoryWithDeletingCachedImages(ctx context.Co
 	cachedImage := obj.(*kuikv1alpha1.CachedImage)
 	var currentCachedImage kuikv1alpha1.CachedImage
 	// wait for the CachedImage to be really deleted
-	if err := r.Get(context.Background(), client.ObjectKeyFromObject(cachedImage), &currentCachedImage); err == nil || !apierrors.IsNotFound(err) {
+	if err := r.Get(ctx, client.ObjectKeyFromObject(cachedImage), &currentCachedImage); err == nil || !apierrors.IsNotFound(err) {
 		return nil
 	}
 
