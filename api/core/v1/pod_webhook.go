@@ -175,14 +175,14 @@ func (a *ImageRewriter) isImageRewritable(container *corev1.Container) error {
 func (p *PodInitializer) Start(ctx context.Context) error {
 	setupLog := ctrl.Log.WithName("setup.pods")
 	pods := corev1.PodList{}
-	err := p.Client.List(context.TODO(), &pods)
+	err := p.Client.List(ctx, &pods)
 	if err != nil {
 		return err
 	}
 
 	for _, pod := range pods.Items {
 		setupLog.Info("patching " + pod.Namespace + "/" + pod.Name)
-		err := p.Client.Patch(context.Background(), &pod, client.RawPatch(types.JSONPatchType, []byte("[]")))
+		err := p.Client.Patch(ctx, &pod, client.RawPatch(types.JSONPatchType, []byte("[]")))
 		if err != nil && !apierrors.IsNotFound(err) {
 			return err
 		}
