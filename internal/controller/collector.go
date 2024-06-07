@@ -53,7 +53,7 @@ var (
 
 	cachedImagesMetric = prometheus.BuildFQName(kuikMetrics.Namespace, subsystem, "cached_images")
 	cachedImagesHelp   = "Number of images expected to be cached"
-	cachedImagesDesc   = prometheus.NewDesc(cachedImagesMetric, cachedImagesHelp, []string{"cached", "expiring"}, nil)
+	cachedImagesDesc   = prometheus.NewDesc(cachedImagesMetric, cachedImagesHelp, []string{"status", "cached", "expiring"}, nil)
 )
 
 func RegisterMetrics(client client.Client) {
@@ -68,10 +68,6 @@ func RegisterMetrics(client client.Client) {
 			Client: client,
 		},
 	)
-}
-
-func cachedImagesWithLabelValues(gaugeVec *prometheus.GaugeVec, cachedImage *kuikv1alpha1.CachedImage) prometheus.Gauge {
-	return gaugeVec.WithLabelValues(strconv.FormatBool(cachedImage.Status.IsCached), strconv.FormatBool(cachedImage.Spec.ExpiresAt != nil))
 }
 
 type ControllerCollector struct {
@@ -90,10 +86,11 @@ func (c *ControllerCollector) Collect(ch chan<- prometheus.Metric) {
 				Name: cachedImagesMetric,
 				Help: cachedImagesHelp,
 			},
-			[]string{"cached", "expiring"},
+			[]string{"status", "cached", "expiring"},
 		)
 		for _, cachedImage := range cachedImageList.Items {
-			cachedImagesWithLabelValues(cachedImageGaugeVec, &cachedImage).Inc()
+			cachedImageGauge := cachedImageGaugeVec.WithLabelValues(cachedImage.Status.Phase, strconv.FormatBool(cachedImage.Status.IsCached), strconv.FormatBool(cachedImage.Spec.ExpiresAt != nil))
+			cachedImageGauge.Inc()
 		}
 		cachedImageGaugeVec.Collect(ch)
 	} else {
