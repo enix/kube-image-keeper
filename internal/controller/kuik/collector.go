@@ -1,10 +1,11 @@
-package controller
+package kuik
 
 import (
 	"context"
 	"strconv"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
+	"github.com/enix/kube-image-keeper/internal/controller"
 	kuikMetrics "github.com/enix/kube-image-keeper/internal/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -45,7 +46,7 @@ var (
 		Name:      "up",
 		Help:      "Whether or not this replica is healthy.",
 	}, func() float64 {
-		if err := Healthz(); err != nil {
+		if err := controller.Healthz(); err != nil {
 			return 0
 		}
 		return 1

@@ -140,7 +140,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				return ctrl.Result{}, err
 			}
 			r.Recorder.Eventf(&cachedImage, "Normal", "CleanedUp", "Image %s successfully removed from cache", cachedImage.Spec.SourceImage)
-			// imageRemovedFromCache.Inc()
+			imageRemovedFromCache.Inc()
 
 			log.Info("removing finalizer")
 			controllerutil.RemoveFinalizer(&cachedImage, cachedImageFinalizerName)
@@ -237,7 +237,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		} else {
 			log.Info("image cached")
 			r.Recorder.Eventf(&cachedImage, "Normal", "Cached", "Successfully cached image %s", cachedImage.Spec.SourceImage)
-			// imagePutInCache.Inc()
+			imagePutInCache.Inc()
 		}
 	} else {
 		log.Info("image already present in cache, ignoring")
@@ -399,9 +399,6 @@ func (r *CachedImageReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrent
 			&corev1.Pod{},
 			handler.EnqueueRequestsFromMapFunc(r.cachedImagesRequestFromPod),
 			builder.WithPredicates(predicate.Funcs{
-				// GenericFunc: func(e event.GenericEvent) bool {
-				// 	return true
-				// },
 				DeleteFunc: func(e event.DeleteEvent) bool {
 					pod := e.Object.(*corev1.Pod)
 					var currentPod corev1.Pod
