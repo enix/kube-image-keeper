@@ -15,6 +15,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kuikenixiov1 "github.com/enix/kube-image-keeper/api/core/v1"
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
@@ -112,6 +113,7 @@ func main() {
 		IgnoreImages:           ignoreImages,
 		IgnorePullPolicyAlways: ignorePullPolicyAlways,
 		ProxyPort:              proxyPort,
+		Decoder:                admission.NewDecoder(mgr.GetScheme()),
 	}
 	mgr.GetWebhookServer().Register("/mutate-core-v1-pod", &webhook.Admission{Handler: &imageRewriter})
 	if err = (&kuikv1alpha1.CachedImage{}).SetupWebhookWithManager(mgr); err != nil {

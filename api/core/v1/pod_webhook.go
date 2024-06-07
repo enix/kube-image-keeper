@@ -37,7 +37,7 @@ type ImageRewriter struct {
 	IgnoreImages           []*regexp.Regexp
 	IgnorePullPolicyAlways bool
 	ProxyPort              int
-	decoder                *admission.Decoder
+	Decoder                *admission.Decoder
 }
 
 type PodInitializer struct {
@@ -56,7 +56,7 @@ func (a *ImageRewriter) Handle(ctx context.Context, req admission.Request) admis
 		WithName("webhook.pod")
 
 	pod := &corev1.Pod{}
-	err := a.decoder.Decode(req, pod)
+	err := a.Decoder.Decode(req, pod)
 	if err != nil {
 		return admission.Errored(http.StatusBadRequest, err)
 	}
@@ -104,12 +104,6 @@ func (a *ImageRewriter) RewriteImages(pod *corev1.Pod, isNewPod bool) []Rewritte
 	}
 
 	return rewrittenImages
-}
-
-// InjectDecoder injects the decoder
-func (a *ImageRewriter) InjectDecoder(d *admission.Decoder) error {
-	a.decoder = d
-	return nil
 }
 
 func (a *ImageRewriter) handleContainer(pod *corev1.Pod, container *corev1.Container, annotationKey string, rewriteImage bool) RewrittenImage {

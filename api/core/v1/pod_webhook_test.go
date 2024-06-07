@@ -11,7 +11,6 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 var podStub = corev1.Pod{
@@ -113,20 +112,6 @@ func TestRewriteImagesWithIgnore(t *testing.T) {
 		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("d", false)]).To(Equal("185.145.250.247:30042/alpine"))
 		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("e", false)]).To(Equal(""))
 		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("f", false)]).To(Equal(""))
-	})
-}
-
-func TestInjectDecoder(t *testing.T) {
-	g := NewWithT(t)
-	t.Run("Inject decoder", func(t *testing.T) {
-		ir := ImageRewriter{}
-		decoder := &admission.Decoder{}
-
-		g.Expect(ir.decoder).To(BeNil())
-		err := ir.InjectDecoder(decoder)
-		g.Expect(err).To(Not(HaveOccurred()))
-		g.Expect(ir.decoder).To(Not(BeNil()))
-		g.Expect(ir.decoder).To(Equal(decoder))
 	})
 }
 
