@@ -18,4 +18,4 @@ jobs:
         id: check-for-cc
         uses: ahmadnassri/action-commit-lint@v2
         with:
-          config: conventional
+          config: ./commitlint.config.js
