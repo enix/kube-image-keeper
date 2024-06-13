@@ -2,6 +2,7 @@ package v1alpha1
 
 import (
 	"context"
+	"strings"
 
 	"github.com/distribution/reference"
 	"github.com/enix/kube-image-keeper/internal/registry"
@@ -38,4 +39,18 @@ func (r *CachedImage) GetPullSecrets(apiReader client.Reader) ([]corev1.Secret, 
 	}
 
 	return pullSecrets, nil
+}
+
+func CachedImageNameFromSourceImage(sourceImage string) (string, error) {
+	ref, err := reference.ParseAnyReference(sourceImage)
+	if err != nil {
+		return "", err
+	}
+
+	sanitizedName := registry.SanitizeName(ref.String())
+	if !strings.Contains(sourceImage, ":") {
+		sanitizedName += "-latest"
+	}
+
+	return sanitizedName, nil
 }
