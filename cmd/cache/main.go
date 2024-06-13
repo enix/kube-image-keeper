@@ -151,7 +151,6 @@ func main() {
 		kuik.SetLeader(true)
 	}()
 
-	kuik.ProbeAddr = probeAddr
 	kuik.RegisterMetrics(mgr.GetClient())
 
 	setupLog.Info("starting manager")

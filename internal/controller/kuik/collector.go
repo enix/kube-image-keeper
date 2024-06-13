@@ -15,8 +15,6 @@ import (
 
 const subsystem = "controller"
 
-var ProbeAddr = ""
-
 var (
 	imagePutInCache = prometheus.NewCounter(
 		prometheus.CounterOpts{
