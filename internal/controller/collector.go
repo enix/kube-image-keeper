@@ -4,9 +4,14 @@ import (
 	"context"
 	"strconv"
 
+	"github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
+	"github.com/enix/kube-image-keeper/internal/controller/core"
 	kuikMetrics "github.com/enix/kube-image-keeper/internal/metrics"
+	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/prometheus/client_golang/prometheus"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
@@ -56,6 +61,10 @@ var (
 	repositoriesMetric = prometheus.BuildFQName(kuikMetrics.Namespace, subsystem, "repositories")
 	repositoriesHelp   = "Number of repositories"
 	repositoriesDesc   = prometheus.NewDesc(repositoriesMetric, repositoriesHelp, []string{"status"}, nil)
+
+	containersWithCachedImageMetric = prometheus.BuildFQName(kuikMetrics.Namespace, subsystem, "containers_with_cached_image")
+	containersWithCachedImageHelp   = "Number of containers that have been rewritten to use a cached image"
+	containersWithCachedImageDesc   = prometheus.NewDesc(containersWithCachedImageMetric, containersWithCachedImageHelp, []string{"status", "cached"}, nil)
 )
 
 func RegisterMetrics(client client.Client) {
@@ -79,6 +88,7 @@ type ControllerCollector struct {
 func (c *ControllerCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- cachedImagesDesc
 	ch <- repositoriesDesc
+	ch <- containersWithCachedImageDesc
 }
 
 func (c *ControllerCollector) Collect(ch chan<- prometheus.Metric) {
@@ -92,6 +102,12 @@ func (c *ControllerCollector) Collect(ch chan<- prometheus.Metric) {
 		repositoriesGaugeVec.Collect(ch)
 	} else {
 		log.FromContext(context.Background()).Error(err, "could not collect "+repositoriesMetric+" metric")
+	}
+
+	if containersWithCachedImageGaugeVec, err := c.getContainersWithCachedImageMetric(); err == nil {
+		containersWithCachedImageGaugeVec.Collect(ch)
+	} else {
+		log.FromContext(context.Background()).Error(err, "could not collect "+containersWithCachedImageMetric+" metric")
 	}
 }
 
@@ -109,11 +125,64 @@ func (c *ControllerCollector) getCachedImagesMetric() (*prometheus.GaugeVec, err
 		[]string{"status", "cached", "expiring"},
 	)
 	for _, cachedImage := range cachedImageList.Items {
-		cachedImagesGauge := cachedImagesGaugeVec.WithLabelValues(cachedImage.Status.Phase, strconv.FormatBool(cachedImage.Status.IsCached), strconv.FormatBool(cachedImage.Spec.ExpiresAt != nil))
-		cachedImagesGauge.Inc()
+		cachedImagesGaugeVec.
+			WithLabelValues(cachedImage.Status.Phase, strconv.FormatBool(cachedImage.Status.IsCached), strconv.FormatBool(cachedImage.Spec.ExpiresAt != nil)).
+			Inc()
 	}
 
 	return cachedImagesGaugeVec, nil
+}
+
+func (c *ControllerCollector) getContainersWithCachedImageMetric() (*prometheus.GaugeVec, error) {
+	cachedImageList := &kuikv1alpha1.CachedImageList{}
+	if err := c.List(context.Background(), cachedImageList); err != nil {
+		return nil, err
+	}
+
+	cachedImages := map[string]v1alpha1.CachedImage{}
+	for _, cachedImage := range cachedImageList.Items {
+		cachedImages[cachedImage.Name] = cachedImage
+	}
+
+	podList := &corev1.PodList{}
+	labelSelector := metav1.LabelSelector{
+		MatchLabels: map[string]string{
+			core.LabelManagedName: "true",
+		},
+	}
+	selector, err := metav1.LabelSelectorAsSelector(&labelSelector)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.List(context.Background(), podList, &client.ListOptions{LabelSelector: selector}); err != nil {
+		return nil, err
+	}
+
+	containersWithCachedImageGaugeVec := prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: containersWithCachedImageMetric,
+			Help: containersWithCachedImageHelp,
+		},
+		[]string{"status", "cached"},
+	)
+	for _, pod := range podList.Items {
+		for _, container := range pod.Spec.Containers {
+			annotationKey := registry.ContainerAnnotationKey(container.Name, false)
+			if sourceImage, ok := pod.ObjectMeta.Annotations[annotationKey]; ok {
+				cachedImageName, err := v1alpha1.CachedImageNameFromSourceImage(sourceImage)
+				if err != nil {
+					return nil, err
+				}
+				if cachedImage, ok := cachedImages[cachedImageName]; ok {
+					containersWithCachedImageGaugeVec.
+						WithLabelValues(cachedImage.Status.Phase, strconv.FormatBool(cachedImage.Status.IsCached)).
+						Inc()
+				}
+			}
+		}
+	}
+
+	return containersWithCachedImageGaugeVec, nil
 }
 
 func (c *ControllerCollector) getRepositoriesMetric() (*prometheus.GaugeVec, error) {
@@ -130,8 +199,7 @@ func (c *ControllerCollector) getRepositoriesMetric() (*prometheus.GaugeVec, err
 		[]string{"status"},
 	)
 	for _, repository := range repositoriesList.Items {
-		repositoriesGauge := repositoriesGaugeVec.WithLabelValues(repository.Status.Phase)
-		repositoriesGauge.Inc()
+		repositoriesGaugeVec.WithLabelValues(repository.Status.Phase).Inc()
 	}
 
 	return repositoriesGaugeVec, nil
