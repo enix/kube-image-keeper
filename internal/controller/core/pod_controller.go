@@ -3,7 +3,6 @@ package core
 import (
 	"context"
 	_ "crypto/sha256"
-	"strings"
 
 	"golang.org/x/exp/maps"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -11,7 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/distribution/reference"
+	"github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	corev1 "k8s.io/api/core/v1"
@@ -250,14 +249,9 @@ func desiredCachedImagesForContainers(ctx context.Context, containers []corev1.C
 }
 
 func cachedImageFromSourceImage(sourceImage string) (*kuikv1alpha1.CachedImage, error) {
-	ref, err := reference.ParseAnyReference(sourceImage)
+	sanitizedName, err := v1alpha1.CachedImageNameFromSourceImage(sourceImage)
 	if err != nil {
 		return nil, err
-	}
-
-	sanitizedName := registry.SanitizeName(ref.String())
-	if !strings.Contains(sourceImage, ":") {
-		sanitizedName += "-latest"
 	}
 
 	cachedImage := kuikv1alpha1.CachedImage{
