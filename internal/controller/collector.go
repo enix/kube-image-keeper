@@ -5,7 +5,6 @@ import (
 	"strconv"
 
 	"github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
-	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/controller/core"
 	kuikMetrics "github.com/enix/kube-image-keeper/internal/metrics"
 	"github.com/enix/kube-image-keeper/internal/registry"
@@ -42,7 +41,7 @@ var (
 		Name:      "is_leader",
 		Help:      "Whether or not this replica is a leader. 1 if it is, 0 otherwise.",
 	})
-	up = prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+	Up = prometheus.NewGaugeFunc(prometheus.GaugeOpts{
 		Namespace: kuikMetrics.Namespace,
 		Subsystem: subsystem,
 		Name:      "up",
@@ -74,7 +73,7 @@ func RegisterMetrics(client client.Client) {
 		ImageRemovedFromCache,
 		kuikMetrics.NewInfo(subsystem),
 		isLeader,
-		up,
+		Up,
 		&ControllerCollector{
 			Client: client,
 		},
@@ -112,7 +111,7 @@ func (c *ControllerCollector) Collect(ch chan<- prometheus.Metric) {
 }
 
 func (c *ControllerCollector) getCachedImagesMetric() (*prometheus.GaugeVec, error) {
-	cachedImageList := &kuikv1alpha1.CachedImageList{}
+	cachedImageList := &v1alpha1.CachedImageList{}
 	if err := c.List(context.Background(), cachedImageList); err != nil {
 		return nil, err
 	}
@@ -134,7 +133,7 @@ func (c *ControllerCollector) getCachedImagesMetric() (*prometheus.GaugeVec, err
 }
 
 func (c *ControllerCollector) getContainersWithCachedImageMetric() (*prometheus.GaugeVec, error) {
-	cachedImageList := &kuikv1alpha1.CachedImageList{}
+	cachedImageList := &v1alpha1.CachedImageList{}
 	if err := c.List(context.Background(), cachedImageList); err != nil {
 		return nil, err
 	}
@@ -186,7 +185,7 @@ func (c *ControllerCollector) getContainersWithCachedImageMetric() (*prometheus.
 }
 
 func (c *ControllerCollector) getRepositoriesMetric() (*prometheus.GaugeVec, error) {
-	repositoriesList := &kuikv1alpha1.RepositoryList{}
+	repositoriesList := &v1alpha1.RepositoryList{}
 	if err := c.List(context.Background(), repositoriesList); err != nil {
 		return nil, err
 	}
