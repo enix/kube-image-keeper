@@ -145,13 +145,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	kuik.SetLeader(false)
+	kuikController.SetLeader(false)
 	go func() {
 		<-mgr.Elected()
-		kuik.SetLeader(true)
+		kuikController.SetLeader(true)
 	}()
 
-	kuik.RegisterMetrics(mgr.GetClient())
+	kuikController.RegisterMetrics(mgr.GetClient())
 
 	setupLog.Info("starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {

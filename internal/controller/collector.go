@@ -1,12 +1,10 @@
-package kuik
+package controller
 
 import (
 	"context"
 	"strconv"
 
 	"github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
-	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
-	"github.com/enix/kube-image-keeper/internal/controller"
 	"github.com/enix/kube-image-keeper/internal/controller/core"
 	kuikMetrics "github.com/enix/kube-image-keeper/internal/metrics"
 	"github.com/enix/kube-image-keeper/internal/registry"
@@ -21,7 +19,7 @@ import (
 const subsystem = "controller"
 
 var (
-	imagePutInCache = prometheus.NewCounter(
+	ImagePutInCache = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Namespace: kuikMetrics.Namespace,
 			Subsystem: subsystem,
@@ -29,7 +27,7 @@ var (
 			Help:      "Number of images put in cache successfully",
 		},
 	)
-	imageRemovedFromCache = prometheus.NewCounter(
+	ImageRemovedFromCache = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Namespace: kuikMetrics.Namespace,
 			Subsystem: subsystem,
@@ -43,13 +41,13 @@ var (
 		Name:      "is_leader",
 		Help:      "Whether or not this replica is a leader. 1 if it is, 0 otherwise.",
 	})
-	up = prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+	Up = prometheus.NewGaugeFunc(prometheus.GaugeOpts{
 		Namespace: kuikMetrics.Namespace,
 		Subsystem: subsystem,
 		Name:      "up",
 		Help:      "Whether or not this replica is healthy.",
 	}, func() float64 {
-		if err := controller.Healthz(); err != nil {
+		if err := Healthz(); err != nil {
 			return 0
 		}
 		return 1
@@ -71,11 +69,11 @@ var (
 func RegisterMetrics(client client.Client) {
 	// Register custom metrics with the global prometheus registry
 	metrics.Registry.MustRegister(
-		imagePutInCache,
-		imageRemovedFromCache,
+		ImagePutInCache,
+		ImageRemovedFromCache,
 		kuikMetrics.NewInfo(subsystem),
 		isLeader,
-		up,
+		Up,
 		&ControllerCollector{
 			Client: client,
 		},
@@ -113,7 +111,7 @@ func (c *ControllerCollector) Collect(ch chan<- prometheus.Metric) {
 }
 
 func (c *ControllerCollector) getCachedImagesMetric() (*prometheus.GaugeVec, error) {
-	cachedImageList := &kuikv1alpha1.CachedImageList{}
+	cachedImageList := &v1alpha1.CachedImageList{}
 	if err := c.List(context.Background(), cachedImageList); err != nil {
 		return nil, err
 	}
@@ -135,7 +133,7 @@ func (c *ControllerCollector) getCachedImagesMetric() (*prometheus.GaugeVec, err
 }
 
 func (c *ControllerCollector) getContainersWithCachedImageMetric() (*prometheus.GaugeVec, error) {
-	cachedImageList := &kuikv1alpha1.CachedImageList{}
+	cachedImageList := &v1alpha1.CachedImageList{}
 	if err := c.List(context.Background(), cachedImageList); err != nil {
 		return nil, err
 	}
@@ -187,7 +185,7 @@ func (c *ControllerCollector) getContainersWithCachedImageMetric() (*prometheus.
 }
 
 func (c *ControllerCollector) getRepositoriesMetric() (*prometheus.GaugeVec, error) {
-	repositoriesList := &kuikv1alpha1.RepositoryList{}
+	repositoriesList := &v1alpha1.RepositoryList{}
 	if err := c.List(context.Background(), repositoriesList); err != nil {
 		return nil, err
 	}
