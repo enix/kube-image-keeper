@@ -150,7 +150,7 @@ jobs:
             ${{ env.QUAY_IMAGE }}
 
       - name: Build container images
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: repository
           platforms: linux/amd64,linux/arm64
@@ -163,7 +163,7 @@ jobs:
             ${{ env.HARBOR_URL }}/${{ env.HARBOR_REPO }}:${{ env.VERSION }}
 
       - name: Build alpine container images
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: repository
           platforms: linux/amd64,linux/arm64
@@ -626,7 +626,7 @@ jobs:
             ${{ env.GHCR_IMAGE }}
 
       - name: Build container images
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: repository
           platforms: linux/amd64,linux/arm64
@@ -641,7 +641,7 @@ jobs:
             ${{ env.GHCR_IMAGE }}:${{ env.VERSION }}
 
       - name: Push container images tag (Latest)
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         if: ${{ env.PRERELEASE != 'true' }}
         with:
           context: repository
@@ -657,7 +657,7 @@ jobs:
             ${{ env.GHCR_IMAGE }}:latest
 
       - name: Push container images tag (Release)
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: repository
           platforms: linux/amd64,linux/arm64
@@ -672,7 +672,7 @@ jobs:
             ${{ env.GHCR_IMAGE }}:${{ env.VERSION }}
 
       - name: Push alpine container images tag (Release)
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: repository
           platforms: linux/amd64,linux/arm64
