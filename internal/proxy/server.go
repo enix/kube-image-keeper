@@ -22,6 +22,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	"golang.org/x/exp/slices"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -149,15 +150,15 @@ func (p *Proxy) v2Endpoint(c *gin.Context) {
 }
 
 func (p *Proxy) routeProxy(c *gin.Context) {
-	repository := c.Param("repository")
+	repositoryName := c.Param("repository")
 	originRegistry := c.Param("originRegistry")
 
-	klog.InfoS("proxying request", "repository", repository, "originRegistry", originRegistry)
+	klog.InfoS("proxying request", "repository", repositoryName, "originRegistry", originRegistry)
 
 	if err := p.proxyRegistry(c, registry.Protocol+registry.Endpoint, false, nil); err != nil {
 		klog.InfoS("cached image is not available, proxying origin", "originRegistry", originRegistry, "error", err)
 
-		cachedImage, err := p.getCachedImage(originRegistry, repository)
+		repository, err := p.getRepository(originRegistry, repositoryName)
 		if err != nil {
 			if statusError, isStatus := err.(*apierrors.StatusError); isStatus && statusError.ErrStatus.Code != 0 {
 				_ = c.AbortWithError(int(statusError.ErrStatus.Code), err)
@@ -167,7 +168,7 @@ func (p *Proxy) routeProxy(c *gin.Context) {
 			return
 		}
 
-		transport, err := p.getAuthentifiedTransport(cachedImage, "https://"+originRegistry)
+		transport, err := p.getAuthentifiedTransport(repository, "https://"+originRegistry)
 		if err != nil {
 			_ = c.AbortWithError(http.StatusUnauthorized, err)
 			return
@@ -250,42 +251,33 @@ func (p *Proxy) proxyRegistry(c *gin.Context, endpoint string, endpointIsOrigin 
 	return proxyError
 }
 
-func (p *Proxy) getCachedImage(registryDomain string, repositoryName string) (*kuikv1alpha1.CachedImage, error) {
-	repositoryLabel := registry.RepositoryLabel(registryDomain + "/" + repositoryName)
-	cachedImages := &kuikv1alpha1.CachedImageList{}
+func (p *Proxy) getRepository(registryDomain string, repositoryName string) (*kuikv1alpha1.Repository, error) {
+	sanitizedName := registry.SanitizeName(registryDomain + "/" + repositoryName)
 
-	klog.InfoS("listing CachedImages", "repositoryLabel", repositoryLabel)
-	if err := p.k8sClient.List(context.Background(), cachedImages, client.MatchingLabels{
-		kuikv1alpha1.RepositoryLabelName: repositoryLabel,
-	}, client.Limit(1)); err != nil {
+	repository := &kuikv1alpha1.Repository{}
+	if err := p.k8sClient.Get(context.Background(), types.NamespacedName{Name: sanitizedName}, repository); err != nil {
 		return nil, err
 	}
 
-	if len(cachedImages.Items) == 0 {
-		return nil, errors.New("no CachedImage found for this repository")
-	}
-
-	cachedImage := cachedImages.Items[0] // Images from the same repository should need the same pull-secret
-
-	return &cachedImage, nil
+	return repository, nil
 }
 
-func (p *Proxy) getKeychains(cachedImage *kuikv1alpha1.CachedImage) ([]authn.Keychain, error) {
-	pullSecrets, err := cachedImage.GetPullSecrets(p.k8sClient)
+func (p *Proxy) getKeychains(repository *kuikv1alpha1.Repository) ([]authn.Keychain, error) {
+	pullSecrets, err := repository.GetPullSecrets(p.k8sClient)
 	if err != nil {
 		return nil, err
 	}
 
-	return registry.GetKeychains(cachedImage.Spec.SourceImage, pullSecrets)
+	return registry.GetKeychains(repository.Spec.Name, pullSecrets)
 }
 
-func (p *Proxy) getAuthentifiedTransport(cachedImage *kuikv1alpha1.CachedImage, originRegistry string) (http.RoundTripper, error) {
-	imageRef, err := name.ParseReference(cachedImage.Spec.SourceImage)
+func (p *Proxy) getAuthentifiedTransport(repository *kuikv1alpha1.Repository, originRegistry string) (http.RoundTripper, error) {
+	imageRef, err := name.ParseReference(repository.Spec.Name)
 	if err != nil {
 		return nil, err
 	}
 
-	keychains, err := p.getKeychains(cachedImage)
+	keychains, err := p.getKeychains(repository)
 	if err != nil {
 		return nil, err
 	}

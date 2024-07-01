@@ -23,7 +23,7 @@ func (a *authConfigKeychain) Resolve(target authn.Resource) (authn.Authenticator
 	return authn.FromConfig(a.AuthConfig), nil
 }
 
-func GetKeychains(imageName string, pullSecrets []corev1.Secret) ([]authn.Keychain, error) {
+func GetKeychains(repositoryName string, pullSecrets []corev1.Secret) ([]authn.Keychain, error) {
 	defaultKeyring := &credentialprovider.BasicDockerKeyring{}
 
 	keyring, err := credentialprovidersecrets.MakeDockerKeyring(pullSecrets, defaultKeyring)
@@ -33,7 +33,7 @@ func GetKeychains(imageName string, pullSecrets []corev1.Secret) ([]authn.Keycha
 
 	keychains := []authn.Keychain{}
 
-	named, err := reference.ParseNormalizedNamed(imageName)
+	named, err := reference.ParseNormalizedNamed(repositoryName)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't parse image name: %v", err)
 	}

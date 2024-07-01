@@ -143,7 +143,7 @@ func TestGetKeychains(t *testing.T) {
 
 	tests := []struct {
 		name              string
-		imageName         string
+		repositoryName    string
 		pullSecrets       []corev1.Secret
 		expectedKeychains []authn.Keychain
 		wantErr           error
@@ -166,8 +166,8 @@ func TestGetKeychains(t *testing.T) {
 			expectedKeychains: dockerHubKeychains,
 		},
 		{
-			name:      "Multiple secrets (localhost)",
-			imageName: "localhost:5000/alpine",
+			name:           "Multiple secrets (localhost)",
+			repositoryName: "localhost:5000/alpine",
 			pullSecrets: []corev1.Secret{
 				pullSecrets["foo"],
 				pullSecrets["bar"],
@@ -203,8 +203,8 @@ func TestGetKeychains(t *testing.T) {
 			expectedKeychains: dockerHubKeychains,
 		},
 		{
-			name:      "Multiple secrets in one .dockerconfigjson (localhost)",
-			imageName: "localhost:5000/alpine",
+			name:           "Multiple secrets in one .dockerconfigjson (localhost)",
+			repositoryName: "localhost:5000/alpine",
 			pullSecrets: []corev1.Secret{
 				pullSecrets["foobar"],
 			},
@@ -232,20 +232,20 @@ func TestGetKeychains(t *testing.T) {
 			wantErr: errors.New("unable to parse auth field, must be formatted as base64(username:password)"),
 		},
 		{
-			name:      "Invalid image name",
-			imageName: ":::://::",
-			wantErr:   errors.New("couldn't parse image name: invalid reference format"),
+			name:           "Invalid image name",
+			repositoryName: ":::://::",
+			wantErr:        errors.New("couldn't parse image name: invalid reference format"),
 		},
 	}
 
 	g := NewWithT(t)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.imageName == "" {
-				tt.imageName = "alpine"
+			if tt.repositoryName == "" {
+				tt.repositoryName = "alpine"
 			}
 
-			keychains, err := GetKeychains(tt.imageName, tt.pullSecrets)
+			keychains, err := GetKeychains(tt.repositoryName, tt.pullSecrets)
 
 			if tt.wantErr == nil {
 				g.Expect(err).To(Succeed())

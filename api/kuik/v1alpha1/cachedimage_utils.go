@@ -32,7 +32,7 @@ func (r *CachedImage) GetPullSecrets(apiReader client.Reader) ([]corev1.Secret, 
 		return nil, err
 	}
 
-	pullSecrets, err := registry.GetPullSecrets(apiReader, repository.Spec.PullSecretsNamespace, repository.Spec.PullSecretNames)
+	pullSecrets, err := repository.GetPullSecrets(apiReader)
 	if err != nil {
 		return nil, err
 	}
