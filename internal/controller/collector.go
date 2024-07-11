@@ -19,6 +19,15 @@ import (
 const subsystem = "controller"
 
 var (
+	ImageCachingRequest = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: kuikMetrics.Namespace,
+			Subsystem: subsystem,
+			Name:      "image_caching_request",
+			Help:      "Number of request to cache an image",
+		},
+		[]string{"successful", "upstream_registry"},
+	)
 	ImagePutInCache = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Namespace: kuikMetrics.Namespace,
