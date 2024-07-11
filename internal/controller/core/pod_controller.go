@@ -161,7 +161,13 @@ func (r *PodReconciler) podsWithDeletingCachedImages(ctx context.Context, obj cl
 	}
 
 	var podList corev1.PodList
-	podRequirements, _ := labels.NewRequirement(LabelManagedName, selection.Equals, []string{"true"})
+	podRequirements, err := labels.NewRequirement(LabelManagedName, selection.Equals, []string{"true"})
+	if err != nil {
+		// errors cannot be handled in a better way for now (see https://github.com/kubernetes-sigs/controller-runtime/issues/1996)
+		// maybe we don't need to enqueue all Pods related to this CachedImage but only those in the status UsedBy
+		log.Error(err, "could not list pods")
+		return nil
+	}
 	selector := labels.NewSelector()
 	selector = selector.Add(*podRequirements)
 	if err := r.List(ctx, &podList, &client.ListOptions{
