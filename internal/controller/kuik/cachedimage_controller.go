@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/x509"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -239,8 +240,14 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		putImageInCache = false
 	}
 	if putImageInCache {
+		upstream, err := cachedImage.Upstream()
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
 		r.Recorder.Eventf(&cachedImage, "Normal", "Caching", "Start caching image %s", cachedImage.Spec.SourceImage)
 		err = r.cacheImage(&cachedImage)
+		kuikController.ImageCachingRequest.WithLabelValues(strconv.FormatBool(err == nil), upstream).Inc()
 		if err != nil {
 			log.Error(err, "failed to cache image")
 			r.Recorder.Eventf(&cachedImage, "Warning", "CacheFailed", "Failed to cache image %s, reason: %s", cachedImage.Spec.SourceImage, err)
@@ -401,9 +408,6 @@ func (r *CachedImageReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrent
 			&corev1.Pod{},
 			handler.EnqueueRequestsFromMapFunc(r.cachedImagesRequestFromPod),
 			builder.WithPredicates(predicate.Funcs{
-				// GenericFunc: func(e event.GenericEvent) bool {
-				// 	return true
-				// },
 				DeleteFunc: func(e event.DeleteEvent) bool {
 					pod := e.Object.(*corev1.Pod)
 					var currentPod corev1.Pod
