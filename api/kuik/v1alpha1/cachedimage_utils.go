@@ -21,6 +21,15 @@ func (r *CachedImage) Repository() (reference.Named, error) {
 	return named, nil
 }
 
+func (r *CachedImage) Upstream() (string, error) {
+	named, err := r.Repository()
+	if err != nil {
+		return "", err
+	}
+
+	return reference.Domain(named), nil
+}
+
 func (r *CachedImage) GetPullSecrets(apiReader client.Reader) ([]corev1.Secret, error) {
 	named, err := r.Repository()
 	if err != nil {
