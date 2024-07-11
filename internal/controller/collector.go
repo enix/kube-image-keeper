@@ -19,6 +19,15 @@ import (
 const subsystem = "controller"
 
 var (
+	ImageCachingRequest = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: kuikMetrics.Namespace,
+			Subsystem: subsystem,
+			Name:      "image_caching_request",
+			Help:      "Number of request to cache an image",
+		},
+		[]string{"successful", "upstream_registry"},
+	)
 	ImagePutInCache = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Namespace: kuikMetrics.Namespace,
@@ -69,6 +78,7 @@ var (
 func RegisterMetrics(client client.Client) {
 	// Register custom metrics with the global prometheus registry
 	metrics.Registry.MustRegister(
+		ImageCachingRequest,
 		ImagePutInCache,
 		ImageRemovedFromCache,
 		kuikMetrics.NewInfo(subsystem),
