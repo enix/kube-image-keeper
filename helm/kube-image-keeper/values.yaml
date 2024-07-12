@@ -13,6 +13,14 @@ rootCertificateAuthorities: {}
   # secretName: some-secret
   # keys: []
 
+cloudProviderRegistryAuthentication:
+  ECR:
+    enabled: true
+  GCR:
+    enabled: false
+  ACR:
+    enabled: false
+
 controllers:
   # Maximum number of CachedImages that can be handled and reconciled at the same time (put or remove from cache)
   maxConcurrentCachedImageReconciles: 3
