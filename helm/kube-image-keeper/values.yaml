@@ -230,6 +230,18 @@ registry:
     schedule: "0 0 * * 0"
     # -- If true, delete untagged manifests. Default to false since there is a known bug in **docker distribution** garbage collect job.
     deleteUntagged: false
+    # -- Resources settings for the garbage collector pod
+    resources:
+      requests:
+        # -- Cpu requests for the garbage collector pod
+        cpu: "10m"
+        # -- Memory requests for the garbage collector pod
+        memory: "10Mi"
+      limits:
+        # -- Cpu limits for the garbage collector pod
+        cpu: "1"
+        # -- Memory limits for the garbage collector pod
+        memory: "512Mi"
     image:
       # -- Cronjob image repository
       repository: bitnami/kubectl
