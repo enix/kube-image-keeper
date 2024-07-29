@@ -8,7 +8,9 @@ import (
 	"testing"
 
 	ecrLogin "github.com/awslabs/amazon-ecr-credential-helper/ecr-login"
+
 	"github.com/docker/cli/cli/config"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/google/go-containerregistry/pkg/authn"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -118,27 +120,34 @@ func TestResolve(t *testing.T) {
 }
 
 func TestGetKeychains(t *testing.T) {
-	ecrHelper := authn.NewKeychainFromHelper(ecrLogin.NewECRHelper())
+	gcrHelper, _ := getGCRHelper()
+	gcrKeychain := authn.NewKeychainFromHelper(gcrHelper)
+	ecrKeychain := authn.NewKeychainFromHelper(ecrLogin.NewECRHelper())
+
 	defaultKeychains := []authn.Keychain{
-		ecrHelper,
+		ecrKeychain,
+		gcrKeychain,
 	}
+
 	dockerHubKeychains := []authn.Keychain{
-		ecrHelper,
 		&authConfigKeychain{
 			AuthConfig: authn.AuthConfig{
 				Username: "login",
 				Password: "password",
 			},
 		},
+		ecrKeychain,
+		gcrKeychain,
 	}
 	localKeychains := []authn.Keychain{
-		ecrHelper,
 		&authConfigKeychain{
 			AuthConfig: authn.AuthConfig{
 				Username: "locallogin",
 				Password: "localpassword",
 			},
 		},
+		ecrKeychain,
+		gcrKeychain,
 	}
 
 	tests := []struct {
@@ -246,10 +255,11 @@ func TestGetKeychains(t *testing.T) {
 			}
 
 			keychains, err := GetKeychains(tt.repositoryName, tt.pullSecrets)
+			cmp := cmpopts.IgnoreInterfaces(struct{ authn.Helper }{})
 
 			if tt.wantErr == nil {
 				g.Expect(err).To(Succeed())
-				g.Expect(keychains).To(ConsistOf(tt.expectedKeychains))
+				g.Expect(keychains).To(BeComparableTo(tt.expectedKeychains, cmp))
 			} else {
 				g.Expect(err).To(MatchError(tt.wantErr))
 				g.Expect(keychains).To(BeNil())
