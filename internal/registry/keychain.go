@@ -4,7 +4,12 @@ import (
 	"context"
 	"fmt"
 
+	gcrConfig "github.com/GoogleCloudPlatform/docker-credential-gcr/config"
+	gcrHelper "github.com/GoogleCloudPlatform/docker-credential-gcr/credhelper"
+	gcrStore "github.com/GoogleCloudPlatform/docker-credential-gcr/store"
 	ecrLogin "github.com/awslabs/amazon-ecr-credential-helper/ecr-login"
+	"github.com/docker/docker-credential-helpers/credentials"
+
 	"github.com/distribution/reference"
 	"github.com/google/go-containerregistry/pkg/authn"
 	corev1 "k8s.io/api/core/v1"
@@ -53,7 +58,24 @@ func GetKeychains(repositoryName string, pullSecrets []corev1.Secret) ([]authn.K
 
 	keychains = append(keychains, authn.NewKeychainFromHelper(ecrLogin.NewECRHelper()))
 
+	if gcrHelper, err := getGCRHelper(); err == nil {
+		keychains = append(keychains, authn.NewKeychainFromHelper(gcrHelper))
+	}
+
 	return keychains, nil
+}
+
+func getGCRHelper() (credentials.Helper, error) {
+	store, err := gcrStore.DefaultGCRCredStore()
+	if err != nil {
+		return nil, err
+	}
+	userCfg, err := gcrConfig.LoadUserConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	return gcrHelper.NewGCRCredentialHelper(store, userCfg), nil
 }
 
 func GetPullSecrets(apiReader client.Reader, namespace string, pullSecretNames []string) ([]corev1.Secret, error) {
