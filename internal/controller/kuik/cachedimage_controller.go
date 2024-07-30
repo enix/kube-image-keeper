@@ -107,7 +107,6 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		repository.Spec.Name = repositoryName
 		return nil
 	})
-
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -219,6 +218,23 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
+	// Delete expired CachedImage and schedule deletion for expiring ones
+	if !expiresAt.IsZero() {
+		if time.Now().After(expiresAt.Time) {
+			log.Info("cachedimage expired, deleting it", "now", time.Now(), "expiresAt", expiresAt)
+			r.Recorder.Eventf(&cachedImage, "Normal", "Expiring", "Image %s has expired, deleting it", cachedImage.Spec.SourceImage)
+			err := r.Delete(ctx, &cachedImage)
+			if err != nil {
+				r.Recorder.Eventf(&cachedImage, "Warning", "ExpiringFailed", "Image %s could not expire: %s", cachedImage.Spec.SourceImage, err)
+				return ctrl.Result{}, err
+			}
+			r.Recorder.Eventf(&cachedImage, "Normal", "Expired", "Image %s successfully expired", cachedImage.Spec.SourceImage)
+			return ctrl.Result{}, nil
+		} else {
+			return ctrl.Result{RequeueAfter: time.Until(expiresAt.Time)}, nil
+		}
+	}
+
 	// Adding image to registry
 	putImageInCache := true
 	if isCached && !forceUpdate {
@@ -245,23 +261,6 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	if err := r.patchPhase(&cachedImage, cachedImagePhaseReady); err != nil {
 		return ctrl.Result{}, err
-	}
-
-	// Delete expired CachedImage and schedule deletion for expiring ones
-	if !expiresAt.IsZero() {
-		if time.Now().After(expiresAt.Time) {
-			log.Info("cachedimage expired, deleting it", "now", time.Now(), "expiresAt", expiresAt)
-			r.Recorder.Eventf(&cachedImage, "Normal", "Expiring", "Image %s has expired, deleting it", cachedImage.Spec.SourceImage)
-			err := r.Delete(ctx, &cachedImage)
-			if err != nil {
-				r.Recorder.Eventf(&cachedImage, "Warning", "ExpiringFailed", "Image %s could not expire: %s", cachedImage.Spec.SourceImage, err)
-				return ctrl.Result{}, err
-			}
-			r.Recorder.Eventf(&cachedImage, "Normal", "Expired", "Image %s successfully expired", cachedImage.Spec.SourceImage)
-			return ctrl.Result{}, nil
-		} else {
-			return ctrl.Result{RequeueAfter: time.Until(expiresAt.Time)}, nil
-		}
 	}
 
 	log.Info("cachedimage reconciled")
