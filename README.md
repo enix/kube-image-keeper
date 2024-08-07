@@ -290,7 +290,7 @@ You can of course use as many insecure registries or root certificate authoritie
 
 ### Registry UI
 
-For debugging reasons, it may be useful to be able to access the registry through an UI. This can be achieved by enabling the registry UI with the value `registryUI.enabled=true`. The UI will not be publicly available through an ingress, you will need to open a port-forward from port `80`. You can set a custom username and password with values `registryUI.auth.username` (default is `admin`) and `registryUI.auth.password` (empty by default).
+For debugging reasons, it may be useful to be able to access the registry through an UI. This can be achieved by enabling the registry UI with the value `docker-registry-ui.enabled=true`. The UI will not be publicly available through an ingress, you will need to open a port-forward from port `80`. For more information about the UI and how to configure it, please see https://artifacthub.io/packages/helm/joxit/docker-registry-ui.
 
 ## Garbage collection and limitations
 
