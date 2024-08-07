@@ -25,7 +25,6 @@ kubectl apply -f https://raw.githubusercontent.com/enix/kube-image-keeper/main/h
 kubectl apply -f https://raw.githubusercontent.com/enix/kube-image-keeper/main/helm/kube-image-keeper/crds/repository-crd.yaml
 ```
 
-
 ## Why and when is it useful?
 
 At [Enix](https://enix.io/), we manage production Kubernetes clusters both for our internal use and for various customers; sometimes on premises, sometimes in various clouds, public or private. We regularly run into image availability issues, for instance:
@@ -165,6 +164,17 @@ helm template --namespace kuik-system \
 kubectl create namespace kuik-system
 kubectl apply -f /tmp/kuik.yaml --namespace kuik-system
 ```
+
+## Uninstall kuik (whyyyy? 😢)
+
+We are very proud of kube-image-keeper and we believe that it is an awesome project that should be used as often as possible. However, we understand that it may not fit your needs, that it may contain a bug that occurs only in some very peculiar circumstances or even that you're not sure about how and why to use it. In the 2 first cases, please [open an issue](https://github.com/enix/kube-image-keeper/issues/new), we will be very happy to address your issue or implement a new feature if we think it can make kuik better! In the case you're not sure how and why to use it, and assuming that you've already read the corresponding section of the readme, you can contact us at [contact@enix.fr](mailto:contact@enix.fr). If none of those solution made you happy, we're sad to let you go but here is the uninstall procedure:
+
+- Disable rewriting of the pods by deleting the kuik mutating webhook.
+- Restart pods using cached images, or manually rewrite them, in order to stop using images from the kuik cache.
+- Delete kuik custom resources (`CachedImages` and `Repositories`).
+- Uninstall kuik helm chart.
+
+It is very important to stop using images from kuik before uninstalling. Indeed, if some pods are configured with the `imagePullPolicy: Always` and `.controllers.webhook.ignorePullPolicyAlways` value of the helm chart is set to `false`, then, in a case of a restart of a container (for example in an OOM scenario), the pod would not be able to pull its image anymore and will go in the `ImagePullBackOff` error state until someone manually fix its image.
 
 ## Configuration and customization
 
