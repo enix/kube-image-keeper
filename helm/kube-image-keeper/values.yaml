@@ -303,37 +303,12 @@ registry:
     # -- Annotations to add to the servicateAccount
     annotations: {}
 
-registryUI:
+docker-registry-ui:
   # -- If true, enable the registry user interface
   enabled: false
-  image:
-    # -- Registry UI image repository
-    repository: parabuzzle/craneoperator
-    # -- Registry UI image pull policy
-    pullPolicy: IfNotPresent
-    # -- Registry UI image tag
-    tag: "2.2.5"
-  auth:
-    # -- Registry UI username
-    username: "admin"
-    # -- Registry UI password
-    password: ""
-  # -- CPU / Memory resources requests / limits for the registry UI pod
-  resources: {}
-  # -- Specify secrets to be used when pulling registry UI image
-  imagePullSecrets: []
-  # -- Annotations to add to the registry UI pod
-  podAnnotations: {}
-  # -- Security context for the registry UI pod
-  podSecurityContext: {}
-  # -- Security context for containers of the registry UI pod
-  securityContext: {}
-  # -- Node selector for the registry UI pod
-  nodeSelector: {}
-  # -- Toleration for the registry UI pod
-  tolerations: []
-  # -- Affinity for the registry UI pod
-  affinity: {}
+  ui:
+    proxy: true
+    dockerRegistryUrl: http://kube-image-keeper-registry:5000 
 
 minio:
   # -- If true, install minio as a local storage backend for the registry
