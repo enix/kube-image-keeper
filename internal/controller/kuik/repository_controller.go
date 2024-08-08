@@ -167,10 +167,16 @@ func (r *RepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 					cachedImage.Annotations = map[string]string{}
 				}
 				cachedImage.Annotations[cachedImageAnnotationForceUpdateName] = "true"
-				r.Patch(ctx, &cachedImage, patch)
+				err = r.Patch(ctx, &cachedImage, patch)
+				if err != nil {
+					return ctrl.Result{}, err
+				}
 			}
 
 			repository.Status.LastUpdate = metav1.NewTime(time.Now())
+			if err := r.Status().Update(ctx, &repository); err != nil {
+				return ctrl.Result{}, err
+			}
 		}
 	}
 
