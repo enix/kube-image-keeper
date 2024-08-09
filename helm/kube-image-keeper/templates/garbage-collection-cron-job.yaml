@@ -20,6 +20,10 @@ spec:
         spec:
           serviceAccountName: {{ include "kube-image-keeper.fullname" . }}-registry-restart
           restartPolicy: Never
+          {{- with .Values.registry.garbageCollection.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           containers:
             - name: kubectl
               image: "{{ .Values.registry.garbageCollection.image.repository }}:{{ .Values.registry.garbageCollection.image.tag }}"

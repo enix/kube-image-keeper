@@ -230,6 +230,8 @@ registry:
     schedule: "0 0 * * 0"
     # -- If true, delete untagged manifests. Default to false since there is a known bug in **docker distribution** garbage collect job.
     deleteUntagged: false
+    # -- Specify a nodeSelector for the garbage collector pod
+    nodeSelector: {}
     # -- Resources settings for the garbage collector pod
     resources:
       requests:
