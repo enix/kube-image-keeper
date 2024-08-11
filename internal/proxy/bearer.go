@@ -39,6 +39,9 @@ func (b *Bearer) GetToken() string {
 
 func NewBearer(endpoint string, path string) (*Bearer, error) {
 	response, err := http.Get(endpoint + path)
+	if response != nil && response.Body != nil {
+		defer response.Body.Close()
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -49,6 +52,9 @@ func NewBearer(endpoint string, path string) (*Bearer, error) {
 		url := fmt.Sprintf("%s?service=%s&scope=%s", wwwAuthenticate["realm"], wwwAuthenticate["service"], wwwAuthenticate["scope"])
 
 		response, err := http.Get(url)
+		if response != nil && response.Body != nil {
+			defer response.Body.Close()
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -57,8 +63,6 @@ func NewBearer(endpoint string, path string) (*Bearer, error) {
 		if err != nil {
 			return nil, err
 		}
-
-		response.Body.Close()
 	}
 
 	return &bearer, nil
