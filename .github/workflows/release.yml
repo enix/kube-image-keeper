@@ -814,6 +814,7 @@ jobs:
 
           header('generate chart readme')
 
+          run('make', '-C', '../../', 'helm-docs')
           run(os.environ['HELM_DOCS_PATH'], '--dry-run')
           run(os.environ['HELM_DOCS_PATH'])
 

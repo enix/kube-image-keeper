@@ -32,7 +32,7 @@ jobs:
         run: |
           set -euo pipefail
           ct lint --chart-dirs deploy/charts --target-branch ${{ github.base_ref }} \
-            --validate-maintainers=false --check-version-increment=false 
+            --validate-maintainers=false --check-version-increment=false
 
       # FIXME
       #- name: Create KinD cluster

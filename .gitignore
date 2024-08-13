@@ -28,3 +28,6 @@ zz_generated.*
 
 # helm dependencies
 helm/**/charts/*.tgz
+
+# generated helm README template
+helm/**/README.md.gotmpl
