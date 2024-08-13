@@ -17,7 +17,7 @@ const subsystem = "controller"
 var ProbeAddr = ""
 
 var (
-	imagePutInCache = prometheus.NewCounter(
+	ImagePutInCache = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Namespace: kuikMetrics.Namespace,
 			Subsystem: subsystem,
@@ -25,7 +25,7 @@ var (
 			Help:      "Number of images put in cache successfully",
 		},
 	)
-	imageRemovedFromCache = prometheus.NewCounter(
+	ImageRemovedFromCache = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Namespace: kuikMetrics.Namespace,
 			Subsystem: subsystem,
@@ -59,8 +59,8 @@ var (
 func RegisterMetrics(client client.Client) {
 	// Register custom metrics with the global prometheus registry
 	metrics.Registry.MustRegister(
-		imagePutInCache,
-		imageRemovedFromCache,
+		ImagePutInCache,
+		ImageRemovedFromCache,
 		kuikMetrics.NewInfo(subsystem),
 		isLeader,
 		up,
