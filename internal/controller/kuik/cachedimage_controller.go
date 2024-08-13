@@ -139,7 +139,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				return ctrl.Result{}, err
 			}
 			r.Recorder.Eventf(&cachedImage, "Normal", "CleanedUp", "Image %s successfully removed from cache", cachedImage.Spec.SourceImage)
-			// imageRemovedFromCache.Inc()
+			kuikController.ImageRemovedFromCache.Inc()
 
 			log.Info("removing finalizer")
 			controllerutil.RemoveFinalizer(&cachedImage, cachedImageFinalizerName)
@@ -251,7 +251,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		} else {
 			log.Info("image cached")
 			r.Recorder.Eventf(&cachedImage, "Normal", "Cached", "Successfully cached image %s", cachedImage.Spec.SourceImage)
-			// imagePutInCache.Inc()
+			kuikController.ImagePutInCache.Inc()
 		}
 	} else {
 		log.Info("image already present in cache, ignoring")
