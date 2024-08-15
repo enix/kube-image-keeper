@@ -17,7 +17,7 @@ It saves the container images used by your pods in its own local registry so tha
 To follow Helm3 best pratices, we moved `cachedimage` and `repository` custom resources definition from the helm templates directory to the dedicated `crds` directory.
 This will cause the `cachedimage` CRD to be deleted during the 1.7.0 upgrade.
 
-We advice you to uninstall your helm release, clean the remaining custom resources by removing their finalizer, then reinstall kuik in 1.7.0
+We advise you to uninstall your helm release, clean the remaining custom resources by removing their finalizer, and then reinstall kuik in 1.7.0
 
 You may also recreate the custom resource definition right after the upgrade to 1.7.0 using
 ```
@@ -93,7 +93,7 @@ web-8667899c97-89j2h   localhost:7439/nginx
 web-8667899c97-fl54b   localhost:7439/nginx
 ```
 
-The kuik controllers keep track of how many pods use a given image. When an image isn't used anymore, it is flagged for deletion, and removed one month later. This expiration delay can be configured. You can see kuik's view of your images by looking at the `CachedImages` custom resource:
+The kuik controllers keep track of how many pods use a given image. When an image isn't used anymore, it is flagged for deletion and removed one month later. This expiration delay can be configured. You can see kuik's view of your images by looking at the `CachedImages` custom resource:
 
 ```bash
 $ kubectl get cachedimages
@@ -252,7 +252,7 @@ No manual action is required when migrating an amd64-only cluster from v1.3.0 to
 
 ### Corporate proxy
 
-To configure kuik to work behind a corporate proxy, you can set the well known `http_proxy` and `https_proxy` environment variables (upper and lowercase variant both works) through helm values `proxy.env` and `controllers.env` like shown below:
+To configure kuik to work behind a corporate proxy, you can set the well-known `http_proxy` and `https_proxy` environment variables (upper and lowercase variant both works) through helm values `proxy.env` and `controllers.env` like shown below:
 
 ```yaml
 controllers:
@@ -273,7 +273,7 @@ Be careful that both the proxy and the controllers need to access the kubernetes
 
 ### Insecure registries & self-signed certificates
 
-In some cases, you may want to use images from self-hosted registries that are insecure (without TLS or with an invalid certificate for instance) or using a self-signed certificate. By default, kuik will not allow to cache images from those registries for security reasons, even though you configured your container runtime (e.g. Docker, containerd) to do so. However you can choose to trust a list of insecure registries to pull from using the helm value `insecureRegistries`. If you use a self-signed certificate you can store the root certificate authority in a secret and reference it with the helm value `rootCertificateAuthorities`. Here is an example of the use of those two values:
+In some cases, you may want to use images from self-hosted registries that are insecure (without TLS or with an invalid certificate for instance) or using a self-signed certificate. By default, kuik will not allow to cache images from those registries for security reasons, even though you configured your container runtime (e.g. Docker, containerd) to do so. However, you can choose to trust a list of insecure registries to pull from using the helm value `insecureRegistries`. If you use a self-signed certificate you can store the root certificate authority in a secret and reference it with the helm value `rootCertificateAuthorities`. Here is an example of the use of those two values:
 
 ```yaml
 insecureRegistries:
@@ -294,7 +294,7 @@ For debugging reasons, it may be useful to be able to access the registry throug
 
 ## Garbage collection and limitations
 
-When a CachedImage expires because it is not used anymore by the cluster, the image is deleted from the registry. However, since kuik uses [Docker's registry](https://docs.docker.com/registry/), this only deletes **reference files** like tags. It doesn't delete blobs, which account for most of the used disk space. [Garbage collection](https://docs.docker.com/registry/garbage-collection/) allows removing those blobs and free up space. The garbage collecting job can be configured to run thanks to the `registry.garbageCollectionSchedule` configuration in a cron-like format. It is disabled by default, because running garbage collection without persistence would just wipe out the cache registry.
+When a CachedImage expires because it is not used anymore by the cluster, the image is deleted from the registry. However, since kuik uses [Docker's registry](https://docs.docker.com/registry/), this only deletes **reference files** like tags. It doesn't delete blobs, which account for most of the used disk space. [Garbage collection](https://docs.docker.com/registry/garbage-collection/) allows removing those blobs, freeing up space. The garbage collecting job can be configured to run thanks to the `registry.garbageCollection.schedule` configuration in a cron-like format. It is disabled by default, because running garbage collection without persistence would just wipe out the cache registry.
 
 Garbage collection can only run when the registry is read-only (or stopped), otherwise image corruption may happen. (This is described in the [registry documentation](https://docs.docker.com/registry/garbage-collection/).) Before running garbage collection, kuik stops the registry. During that time, all image pulls are automatically proxified to the source registry so that garbage collection is mostly transparent for cluster nodes.
 
@@ -330,13 +330,13 @@ Imagine the following scenario:
 - pods A and B use a private image, `example.com/myimage:latest`
 - pod A correctly references `imagePullSecrets, but pod B does not
 
-On a normal Kubernetes cluster (without kuik), if pods A and B are on the same node, then pod B will run correctly, even though it doesn't reference `imagePullSecrets`, because the image gets pulled when starting pod A, and once it's available on the node, any other pod can use it. However, if pods A and B are on different nodes, pod B won't start, because it won't be able to pull the private image. Some folks may use that to segregate sensitive image to specific nodes using a combination of taints, tolerations, or node selectors.
+On a normal Kubernetes cluster (without kuik), if pods A and B are on the same node, then pod B will run correctly, even though it doesn't reference `imagePullSecrets`, because the image gets pulled when starting pod A, and once it's available on the node, any other pod can use it. However, if pods A and B are on different nodes, pod B won't start, because it won't be able to pull the private image. Some folks may use that to segregate sensitive images to specific nodes using a combination of taints, tolerations, or node selectors.
 
-Howevever, when using kuik, once an image has been pulled and stored in kuik's registry, it becomes available for any node on the cluster. This means that using taints, tolerations, etc. to limit sensitive images to specific nodes won't work anymore.
+However, when using kuik, once an image has been pulled and stored in kuik's registry, it becomes available for any node on the cluster. This means that using taints, tolerations, etc. to limit sensitive images to specific nodes won't work anymore.
 
 ### Cluster autoscaling delays
 
-With kuik, all image pulls (except in the namespaces excluded from kuik) go through kuik's registry proxy, which runs on each node thanks to a DaemonSet. When a node gets added to a Kubernetes cluster (for instance, by the cluster autoscaler), a kuik registry proxy Pod gets scheduled on that node, but it will take a brief moment to start. During that time, all other image pulls will fail. Thanks to Kubernetes automatic retry mechanisms, they will eventually succeed, but on new nodes, you may see Pods in `ErrImagePull` or `ImagePullBackOff` status for a minute before everything works correctly. If you are using cluster autoscaling and try to achieve very fast scale-up times, this is something that you might want to keep in mind.
+With kuik, all image pulls (except in the namespaces excluded from kuik) go through kuik's registry proxy, which runs on each node thanks to a DaemonSet. When a node gets added to a Kubernetes cluster (for instance, by the cluster autoscaler), a kuik registry proxy Pod gets scheduled on that node, but it will take a brief moment to start. During that time, all other image pulls will fail. Thanks to Kubernetes automatic retry mechanisms, they will eventually succeed, but on new nodes, you may see Pods in `ErrImagePull` or `ImagePullBackOff` status for a minute before everything works correctly. If you are using cluster autoscaling trying to achieve very fast scale-up times, this is something that you might want to keep in mind.
 
 ### Garbage collection issue
 
@@ -344,4 +344,4 @@ We use Docker Distribution in Kuik, along with the integrated garbage collection
 
 ### Images with digest
 
-As of today, there is no way to manage container images based on a digest. The rational behind this limitation is that a digest is an image manifest hash, and the manifest contains the registry URL associated with the image. Thus, pushing the image to another registry (our cache registry) changes its digest and as a consequence, it is not anymore referenced by its original digest. Digest validation prevent from pushing a manifest with an invalid digest. Therefore, we currently ignore all images based on a digest, those images will not be rewritten nor put in cache to prevent malfunctionning of kuik.
+As of today, there is no way to manage container images based on a digest. The rationale behind this limitation is that a digest is an image manifest hash, and the manifest contains the registry URL associated with the image. Thus, pushing the image to another registry (our cache registry) changes its digest and as a consequence, it is no longer referenced by its original digest. Digest validation prevents from pushing a manifest with an invalid digest. Therefore, we currently ignore all images based on a digest. Those images will not be rewritten nor put into the cache to prevent kuik from malfunctioning.
