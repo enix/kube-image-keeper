@@ -181,12 +181,13 @@ func (p *PodInitializer) Start(ctx context.Context) error {
 	}
 
 	for _, pod := range pods.Items {
-		setupLog.Info("patching " + pod.Namespace + "/" + pod.Name)
+		setupLog.Info("patching", "pod", pod.Namespace+"/"+pod.Name)
 		err := p.Client.Patch(ctx, &pod, client.RawPatch(types.JSONPatchType, []byte("[]")))
 		if err != nil && !apierrors.IsNotFound(err) {
-			return err
+			setupLog.Info("patching failed", "pod", pod.Namespace+"/"+pod.Name, "err", err)
 		}
 	}
+	setupLog.Info("completed")
 
 	return nil
 }
