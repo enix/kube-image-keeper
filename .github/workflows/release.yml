@@ -879,7 +879,7 @@ jobs:
           run(os.environ['CR_PATH'], 'upload', '--skip-existing', '--owner', 'adisplayname', '--git-repo', 'helm-charts', cwd=charts_repo)
 
           action('update repository index')
-          run(os.environ['CR_PATH'], 'index', '--push', '-i', 'index.yaml', '--owner', 'adisplayname', '--git-repo', 'helm-charts', cwd=charts_repo)
+          run(os.environ['CR_PATH'], 'index', '--push', '-i', 'index.yaml', '--owner', 'adisplayname', '--git-repo', 'helm-charts', '--pages-index-path','charts', cwd=charts_repo)
 
   cleanup:
     name: Cleanup
