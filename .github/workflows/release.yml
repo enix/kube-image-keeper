@@ -147,7 +147,7 @@ jobs:
   #       with:
   #         images: |
   #           ${{ env.GHCR_IMAGE }}
-  #           ${{ github.repository }}
+  #         # ${{ github.repository }}
   #         # ${{ env.QUAY_IMAGE }}
 
   #     - name: Build container images
@@ -625,8 +625,8 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            ${{ github.repository }}
             ${{ env.GHCR_IMAGE }}
+          # ${{ github.repository }}
           # ${{ env.QUAY_IMAGE }}
 
       - name: Build container images
@@ -640,8 +640,8 @@ jobs:
           push: false
           labels: ${{ steps.meta.outputs.labels }}
           tags: |
-            ${{ github.repository }}:${{ env.VERSION }}
             ${{ env.GHCR_IMAGE }}:${{ env.VERSION }}
+          # ${{ github.repository }}:${{ env.VERSION }}
           # ${{ env.QUAY_IMAGE }}:${{ env.VERSION }}
 
       - name: Push container images tag (Latest)
@@ -656,8 +656,8 @@ jobs:
           push: true
           labels: ${{ steps.meta.outputs.labels }}
           tags: |
-            ${{ github.repository }}:latest
             ${{ env.GHCR_IMAGE }}:latest
+          # ${{ github.repository }}:latest
           # ${{ env.QUAY_IMAGE }}:latest
 
       - name: Push container images tag (Release)
@@ -671,8 +671,8 @@ jobs:
           push: true
           labels: ${{ steps.meta.outputs.labels }}
           tags: |
-            ${{ github.repository }}:${{ env.VERSION }}
             ${{ env.GHCR_IMAGE }}:${{ env.VERSION }}
+          # ${{ github.repository }}:${{ env.VERSION }}
           # ${{ env.QUAY_IMAGE }}:${{ env.VERSION }}
 
       - name: Push alpine container images tag (Release)
@@ -687,8 +687,8 @@ jobs:
           push: true
           labels: ${{ steps.meta.outputs.labels }}
           tags: |
-            ${{ github.repository }}:${{ env.VERSION }}-alpine
             ${{ env.GHCR_IMAGE }}:${{ env.VERSION  }}-alpine
+          # ${{ github.repository }}:${{ env.VERSION }}-alpine
           # ${{ env.QUAY_IMAGE }}:${{ env.VERSION  }}-alpine
 
       - name: Convert Github changelog for Artifacthub
