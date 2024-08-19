@@ -804,8 +804,7 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/repository/.github
           HELM_DOCS_PATH: ${{ github.workspace }}/bin/helm-docs
           CR_PATH: ${{ github.workspace }}/bin/cr
-          # CR_TOKEN: ${{ secrets.CHARTSREPO_GITHUB_TOKEN }}
-          CR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CR_TOKEN: ${{ secrets.CHARTSREPO_GITHUB_TOKEN }}
           CHART_NAME: kube-image-keeper
           VERSION: ${{ needs.release.outputs.version }}
           PRERELEASE: ${{ needs.release.outputs.prerelease }}
