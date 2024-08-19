@@ -24,6 +24,10 @@
       "prerelease": "beta"
     },
     {
+      "name": "develop",
+      "prerelease": "alpha"
+    },
+    {
       "name": "release"
     }
   ]
