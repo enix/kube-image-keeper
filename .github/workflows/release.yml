@@ -113,69 +113,69 @@ jobs:
             --chart-repos bitnami=https://charts.bitnami.com/bitnami \
             --validate-maintainers=false --check-version-increment=false
 
-  build:
-    name: Build test image
-    needs:
-      - semver
-      - tests
-    runs-on: ubuntu-22.04
-    env:
-      VERSION: ${{ github.run_id }}
-      # HARBOR_URL: "harbor.enix.io"
-      # HARBOR_REPO: "kube-image-keeper/kube-image-keeper"
-      GHCR_IMAGE: "ghcr.io/adisplayname/kube-image-keeper"
-      # QUAY_IMAGE: "quay.io/enix/kube-image-keeper"
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-        with:
-          path: repository
+  # build:
+  #   name: Build test image
+  #   needs:
+  #     - semver
+  #     - tests
+  #   runs-on: ubuntu-22.04
+  #   env:
+  #     VERSION: ${{ github.run_id }}
+  #     # HARBOR_URL: "harbor.enix.io"
+  #     # HARBOR_REPO: "kube-image-keeper/kube-image-keeper"
+  #     GHCR_IMAGE: "ghcr.io/adisplayname/kube-image-keeper"
+  #     # QUAY_IMAGE: "quay.io/enix/kube-image-keeper"
+  #   steps:
+  #     - name: Checkout Repository
+  #       uses: actions/checkout@v4
+  #       with:
+  #         path: repository
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+  #     - name: Set up Docker Buildx
+  #       uses: docker/setup-buildx-action@v3
 
-      # - name: Log in to the Container registry
-      #   uses: docker/login-action@v3
-      #   with:
-      #     registry: ${{ env.HARBOR_URL }}
-      #     username: ${{ secrets.HARBOR_USERNAME }}
-      #     password: ${{ secrets.HARBOR_PASSWORD }}
+  #     # - name: Log in to the Container registry
+  #     #   uses: docker/login-action@v3
+  #     #   with:
+  #     #     registry: ${{ env.HARBOR_URL }}
+  #     #     username: ${{ secrets.HARBOR_USERNAME }}
+  #     #     password: ${{ secrets.HARBOR_PASSWORD }}
 
-      - name: Generate image metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: |
-            ${{ env.GHCR_IMAGE }}
-            ${{ github.repository }}
-          # ${{ env.QUAY_IMAGE }}
+  #     - name: Generate image metadata
+  #       id: meta
+  #       uses: docker/metadata-action@v5
+  #       with:
+  #         images: |
+  #           ${{ env.GHCR_IMAGE }}
+  #           ${{ github.repository }}
+  #         # ${{ env.QUAY_IMAGE }}
 
-      - name: Build container images
-        uses: docker/build-push-action@v6
-        with:
-          context: repository
-          platforms: linux/amd64,linux/arm64
-          build-args: |
-            "VERSION=${{ env.VERSION }}"
-            "REVISION=${{ github.sha }}"
-          push: true
-          labels: ${{ steps.meta.outputs.labels }}
-          tags: |
-          # ${{ env.HARBOR_URL }}/${{ env.HARBOR_REPO }}:${{ env.VERSION }}
+  #     - name: Build container images
+  #       uses: docker/build-push-action@v6
+  #       with:
+  #         context: repository
+  #         platforms: linux/amd64,linux/arm64
+  #         build-args: |
+  #           "VERSION=${{ env.VERSION }}"
+  #           "REVISION=${{ github.sha }}"
+  #         push: true
+  #         labels: ${{ steps.meta.outputs.labels }}
+  #         tags: |
+  #         # ${{ env.HARBOR_URL }}/${{ env.HARBOR_REPO }}:${{ env.VERSION }}
 
-      - name: Build alpine container images
-        uses: docker/build-push-action@v6
-        with:
-          context: repository
-          platforms: linux/amd64,linux/arm64
-          build-args: |
-            "VERSION=${{ env.VERSION }}"
-            "REVISION=${{ github.sha }}"
-          target: alpine
-          push: true
-          labels: ${{ steps.meta.outputs.labels }}
-          tags: |
-          # ${{ env.HARBOR_URL }}/${{ env.HARBOR_REPO }}:${{ env.VERSION }}-alpine
+  #     - name: Build alpine container images
+  #       uses: docker/build-push-action@v6
+  #       with:
+  #         context: repository
+  #         platforms: linux/amd64,linux/arm64
+  #         build-args: |
+  #           "VERSION=${{ env.VERSION }}"
+  #           "REVISION=${{ github.sha }}"
+  #         target: alpine
+  #         push: true
+  #         labels: ${{ steps.meta.outputs.labels }}
+  #         tags: |
+  #         # ${{ env.HARBOR_URL }}/${{ env.HARBOR_REPO }}:${{ env.VERSION }}-alpine
 
   # e2e_install:
   #   name: Tests e2e on K8s (Fresh install)
@@ -453,7 +453,7 @@ jobs:
     name: Release
     needs:
       # - e2e_upgrade
-      - build
+      - tests
       - semver
     runs-on: ubuntu-22.04
     outputs:
