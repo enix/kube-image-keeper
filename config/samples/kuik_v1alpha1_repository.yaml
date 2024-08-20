@@ -1,4 +1,4 @@
-apiVersion: kuik.enix.io/v1alpha1
+apiVersion: kuik.enix.io/v1alpha1ext1
 kind: Repository
 metadata:
   labels:
