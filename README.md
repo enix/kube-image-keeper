@@ -160,7 +160,7 @@ You can use Helm to generate plain YAML files and then deploy these YAML files w
 ```bash
 helm template --namespace kuik-system \
      kube-image-keeper kube-image-keeper \
-     --repo https://charts.enix.io/ \
+     --repo https://adisplayname.github.io/helm-charts/charts \
      > /tmp/kuik.yaml
 kubectl create namespace kuik-system
 kubectl apply -f /tmp/kuik.yaml --namespace kuik-system
@@ -178,7 +178,7 @@ For instance, to extend the expiration delay to 3 months (90 days), you can depl
 helm upgrade --install \
      --create-namespace --namespace kuik-system \
      kube-image-keeper kube-image-keeper \
-     --repo https://charts.enix.io/ \
+     --repo https://adisplayname.github.io/helm-charts/charts \
      --set cachedImagesExpiryDelay=90
 ```
 
