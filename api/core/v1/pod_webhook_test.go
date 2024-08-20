@@ -6,8 +6,8 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/enix/kube-image-keeper/internal/controller/core"
-	"github.com/enix/kube-image-keeper/internal/registry"
+	"github.com/adisplayname/kube-image-keeper/internal/controller/core"
+	"github.com/adisplayname/kube-image-keeper/internal/registry"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

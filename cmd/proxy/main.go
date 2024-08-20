@@ -7,10 +7,10 @@ import (
 
 	_ "go.uber.org/automaxprocs"
 
-	"github.com/enix/kube-image-keeper/internal"
-	"github.com/enix/kube-image-keeper/internal/proxy"
-	"github.com/enix/kube-image-keeper/internal/registry"
-	"github.com/enix/kube-image-keeper/internal/scheme"
+	"github.com/adisplayname/kube-image-keeper/internal"
+	"github.com/adisplayname/kube-image-keeper/internal/proxy"
+	"github.com/adisplayname/kube-image-keeper/internal/registry"
+	"github.com/adisplayname/kube-image-keeper/internal/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/flowcontrol"

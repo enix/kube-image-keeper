@@ -12,10 +12,10 @@ import (
 	"regexp"
 	"strings"
 
+	kuikv1alpha1 "github.com/adisplayname/kube-image-keeper/api/kuik/v1alpha1ext1"
+	"github.com/adisplayname/kube-image-keeper/internal/metrics"
+	"github.com/adisplayname/kube-image-keeper/internal/registry"
 	"github.com/distribution/reference"
-	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
-	"github.com/enix/kube-image-keeper/internal/metrics"
-	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/gin-gonic/gin"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"

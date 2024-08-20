@@ -1,9 +1,9 @@
-package v1alpha1
+package v1alpha1ext1
 
 import (
 	"regexp"
 
-	"github.com/enix/kube-image-keeper/internal/registry"
+	"github.com/adisplayname/kube-image-keeper/internal/registry"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )

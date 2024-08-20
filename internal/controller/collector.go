@@ -4,8 +4,8 @@ import (
 	"context"
 	"strconv"
 
-	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
-	kuikMetrics "github.com/enix/kube-image-keeper/internal/metrics"
+	kuikv1alpha1 "github.com/adisplayname/kube-image-keeper/api/kuik/v1alpha1ext1"
+	kuikMetrics "github.com/adisplayname/kube-image-keeper/internal/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"

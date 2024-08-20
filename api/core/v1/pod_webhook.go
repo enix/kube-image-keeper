@@ -11,8 +11,8 @@ import (
 
 	_ "crypto/sha256"
 
-	"github.com/enix/kube-image-keeper/internal/controller/core"
-	"github.com/enix/kube-image-keeper/internal/registry"
+	"github.com/adisplayname/kube-image-keeper/internal/controller/core"
+	"github.com/adisplayname/kube-image-keeper/internal/registry"
 	"github.com/google/go-containerregistry/pkg/name"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"

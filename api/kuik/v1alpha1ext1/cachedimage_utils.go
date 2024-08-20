@@ -1,10 +1,10 @@
-package v1alpha1
+package v1alpha1ext1
 
 import (
 	"context"
 
+	"github.com/adisplayname/kube-image-keeper/internal/registry"
 	"github.com/distribution/reference"
-	"github.com/enix/kube-image-keeper/internal/registry"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"

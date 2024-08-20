@@ -1,10 +1,10 @@
-package v1alpha1
+package v1alpha1ext1
 
 import (
 	"context"
 
+	"github.com/adisplayname/kube-image-keeper/internal/registry"
 	"github.com/distribution/reference"
-	"github.com/enix/kube-image-keeper/internal/registry"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"

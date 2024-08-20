@@ -17,14 +17,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	kuikenixiov1 "github.com/enix/kube-image-keeper/api/core/v1"
-	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
-	"github.com/enix/kube-image-keeper/internal"
-	kuikController "github.com/enix/kube-image-keeper/internal/controller"
-	"github.com/enix/kube-image-keeper/internal/controller/core"
-	"github.com/enix/kube-image-keeper/internal/controller/kuik"
-	"github.com/enix/kube-image-keeper/internal/registry"
-	"github.com/enix/kube-image-keeper/internal/scheme"
+	kuikenixiov1 "github.com/adisplayname/kube-image-keeper/api/core/v1"
+	kuikv1alpha1 "github.com/adisplayname/kube-image-keeper/api/kuik/v1alpha1ext1"
+	"github.com/adisplayname/kube-image-keeper/internal"
+	kuikController "github.com/adisplayname/kube-image-keeper/internal/controller"
+	"github.com/adisplayname/kube-image-keeper/internal/controller/core"
+	"github.com/adisplayname/kube-image-keeper/internal/controller/kuik"
+	"github.com/adisplayname/kube-image-keeper/internal/registry"
+	"github.com/adisplayname/kube-image-keeper/internal/scheme"
 	//+kubebuilder:scaffold:imports
 )
 

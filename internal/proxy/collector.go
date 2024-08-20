@@ -3,7 +3,7 @@ package proxy
 import (
 	"fmt"
 
-	"github.com/enix/kube-image-keeper/internal/metrics"
+	"github.com/adisplayname/kube-image-keeper/internal/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 )
 

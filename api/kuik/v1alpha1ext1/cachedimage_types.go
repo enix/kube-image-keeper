@@ -1,4 +1,4 @@
-package v1alpha1
+package v1alpha1ext1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -26,11 +26,18 @@ type UsedBy struct {
 	Count int `json:"count,omitempty"`
 }
 
+type Progress struct {
+	Total     int64 `json:"total,omitempty"`
+	Available int64 `json:"available,omitempty"`
+}
+
 // CachedImageStatus defines the observed state of CachedImage
 type CachedImageStatus struct {
 	IsCached bool   `json:"isCached,omitempty"`
 	Phase    string `json:"phase,omitempty"`
 	UsedBy   UsedBy `json:"usedBy,omitempty"`
+
+	Progress Progress `json:"progress,omitempty"`
 
 	Digest             string      `json:"digest,omitempty"`
 	UpstreamDigest     string      `json:"upstreamDigest,omitempty"`
