@@ -217,7 +217,7 @@ Note that persistence requires your cluster to have some PersistentVolumes. If y
 Sometimes, you want images to stay cached even when they are not used anymore (for instance when you run a workload for a fixed amount of time, stop it, and run it again later). You can choose to prevent `CachedImages` from expiring by manually setting the `spec.retain` flag to `true` like shown below:
 
 ```yaml
-apiVersion: kuik.enix.io/v1alpha1
+apiVersion: kuik.enix.io/v1alpha1ext1
 kind: CachedImage
 metadata:
   name: docker.io-library-nginx-1.25
