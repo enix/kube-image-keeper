@@ -90,19 +90,19 @@ spec:
                 type: string
               phase:
                 type: string
+              progress:
+                properties:
+                  available:
+                    format: int64
+                    type: integer
+                  total:
+                    format: int64
+                    type: integer
+                type: object
               upToDate:
                 type: boolean
               upstreamDigest:
                 type: string
-              progress:
-                type: object
-                properties:
-                  total:
-                    type: integer
-                    description: Total size of the compressed blob in bytes, including all layers.
-                  available:
-                    type: integer
-                    description: Total downloaded / available size of the compressed blob in bytes, including all layers.
               usedBy:
                 properties:
                   count:
