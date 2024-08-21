@@ -3,7 +3,6 @@ package kuik
 import (
 	"context"
 	"crypto/x509"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -359,7 +358,11 @@ func (r *CachedImageReconciler) cacheImage(cachedImage *kuikv1alpha1.CachedImage
 			needUpdate = true
 		}
 		if needUpdate {
-			fmt.Printf("%s - %d/%d", cachedImage.Spec.SourceImage, update.Complete, update.Total)
+			updateStatus(r.Client, cachedImage, desc, func(status *kuikv1alpha1.CachedImageStatus) {
+				cachedImage.Status.Progress.Total = update.Total
+				cachedImage.Status.Progress.Available = update.Complete
+			})
+
 			lastUpdateTime = time.Now()
 		}
 		lastWriteComplete = update.Complete
