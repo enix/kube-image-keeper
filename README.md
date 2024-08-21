@@ -11,7 +11,7 @@ It saves the container images used by your pods in its own local registry so tha
 ## Upgrading
 
 ### From 1.6.0 o 1.7.0
-
+ 
 ***ACTION REQUIRED***
 
 To follow Helm3 best pratices, we moved `cachedimage` and `repository` custom resources definition from the helm templates directory to the dedicated `crds` directory.
