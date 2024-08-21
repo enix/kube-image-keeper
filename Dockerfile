@@ -27,9 +27,9 @@ ENV CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH}
 ARG VERSION
 ARG REVISION
 ENV LD_FLAGS="\
-    -X 'github.com/enix/kube-image-keeper/internal/metrics.Version=${VERSION}' \
-    -X 'github.com/enix/kube-image-keeper/internal/metrics.Revision=${REVISION}' \
-    -X 'github.com/enix/kube-image-keeper/internal/metrics.BuildDateTime=BUILD_DATE_TIME'"
+    -X 'github.com/adisplayname/kube-image-keeper/internal/metrics.Version=${VERSION}' \
+    -X 'github.com/adisplayname/kube-image-keeper/internal/metrics.Revision=${REVISION}' \
+    -X 'github.com/adisplayname/kube-image-keeper/internal/metrics.BuildDateTime=BUILD_DATE_TIME'"
 
 RUN --mount=type=cache,target="/root/.cache/go-build" \
     BUILD_DATE_TIME=$(date -u +"%Y-%m-%dT%H:%M:%S") && \

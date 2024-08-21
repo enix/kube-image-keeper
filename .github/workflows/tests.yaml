@@ -13,10 +13,10 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       VERSION: ${{ github.run_id }}
-      HARBOR_URL: "harbor.enix.io"
-      HARBOR_REPO: "kube-image-keeper/kube-image-keeper"
-      GHCR_IMAGE: "ghcr.io/enix/kube-image-keeper"
-      QUAY_IMAGE: "quay.io/enix/kube-image-keeper"
+      GHCR_IMAGE: "ghcr.io/adisplayname/kube-image-keeper"
+    # HARBOR_URL: "harbor.enix.io"
+    # HARBOR_REPO: "kube-image-keeper/kube-image-keeper"
+    # QUAY_IMAGE: "quay.io/adisplayname/kube-image-keeper"
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
