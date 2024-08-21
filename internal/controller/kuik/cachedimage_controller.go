@@ -3,12 +3,14 @@ package kuik
 import (
 	"context"
 	"crypto/x509"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/distribution/reference"
 	"github.com/go-logr/logr"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -343,7 +345,26 @@ func (r *CachedImageReconciler) cacheImage(cachedImage *kuikv1alpha1.CachedImage
 		return err
 	}
 
-	err = registry.CacheImage(cachedImage.Spec.SourceImage, desc, r.Architectures)
+	lastUpdateTime := time.Now()
+	lastWriteComplete := int64(0)
+	onUpdated := func(update v1.Update) {
+		needUpdate := false
+		if lastWriteComplete != update.Complete && update.Complete == update.Total {
+			// Update is needed whenever the writing complmetes.
+			needUpdate = true
+		}
+
+		if time.Since(lastUpdateTime).Seconds() >= 5 {
+			// Update is needed if last update is more than 5 seconds ago
+			needUpdate = true
+		}
+		if needUpdate {
+			fmt.Printf("%s - %d/%d", cachedImage.Spec.SourceImage, update.Complete, update.Total)
+			lastUpdateTime = time.Now()
+		}
+		lastWriteComplete = update.Complete
+	}
+	err = registry.CacheImage(cachedImage.Spec.SourceImage, desc, r.Architectures, onUpdated)
 
 	statusErr = updateStatus(r.Client, cachedImage, desc, func(status *kuikv1alpha1.CachedImageStatus) {
 		if err == nil {
