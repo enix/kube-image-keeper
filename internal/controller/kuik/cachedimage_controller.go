@@ -241,7 +241,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 	if putImageInCache {
 		r.Recorder.Eventf(&cachedImage, "Normal", "Caching", "Start caching image %s", cachedImage.Spec.SourceImage)
-		err = r.cacheImage(&cachedImage, log)
+		err = r.cacheImage(&cachedImage)
 		if err != nil {
 			log.Error(err, "failed to cache image")
 			r.Recorder.Eventf(&cachedImage, "Warning", "CacheFailed", "Failed to cache image %s, reason: %s", cachedImage.Spec.SourceImage, err)
@@ -308,7 +308,7 @@ func getSanitizedName(cachedImage *kuikv1alpha1.CachedImage) (string, error) {
 	return sanitizedName, nil
 }
 
-func (r *CachedImageReconciler) cacheImage(cachedImage *kuikv1alpha1.CachedImage, log logr.Logger) error {
+func (r *CachedImageReconciler) cacheImage(cachedImage *kuikv1alpha1.CachedImage) error {
 	if err := r.patchPhase(cachedImage, cachedImagePhaseSynchronizing); err != nil {
 		return err
 	}
@@ -347,7 +347,6 @@ func (r *CachedImageReconciler) cacheImage(cachedImage *kuikv1alpha1.CachedImage
 	lastUpdateTime := time.Now()
 	lastWriteComplete := int64(0)
 	onUpdated := func(update v1.Update) {
-		log.Info("OnUpdate")
 		needUpdate := false
 		if lastWriteComplete != update.Complete && update.Complete == update.Total {
 			// Update is needed whenever the writing complmetes.
@@ -368,8 +367,7 @@ func (r *CachedImageReconciler) cacheImage(cachedImage *kuikv1alpha1.CachedImage
 		}
 		lastWriteComplete = update.Complete
 	}
-	log.Info("Start caching", "SourceImage", cachedImage.Spec.SourceImage, "Destination", desc.URLs)
-	err = registry.CacheImage(cachedImage.Spec.SourceImage, desc, r.Architectures, onUpdated, log)
+	err = registry.CacheImage(cachedImage.Spec.SourceImage, desc, r.Architectures, onUpdated)
 
 	statusErr = updateStatus(r.Client, cachedImage, desc, func(status *kuikv1alpha1.CachedImageStatus) {
 		if err == nil {
