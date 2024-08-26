@@ -128,13 +128,16 @@ func CacheImage(imageName string, desc *remote.Descriptor, architectures []strin
 	log.Info("Get parsed local reference", "Input", imageName)
 	destRef, err := parseLocalReference(imageName)
 	if err != nil {
+		log.Error(err, "Failed to parse local reference")
 		return err
 	}
 
 	switch desc.MediaType {
 	case types.OCIImageIndex, types.DockerManifestList:
+		log.Info("media type matched:", "type", desc.MediaType)
 		index, err := desc.ImageIndex()
 		if err != nil {
+			log.Error(err, "Unable to get image Index")
 			return err
 		}
 
@@ -147,7 +150,9 @@ func CacheImage(imageName string, desc *remote.Descriptor, architectures []strin
 			return true
 		})
 
+		log.Info("Writing out indexes")
 		if err := remote.WriteIndex(destRef, filteredIndex); err != nil {
+			log.Error(err, "Failed to writing out index")
 			return err
 		}
 	default:
