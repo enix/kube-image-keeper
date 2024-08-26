@@ -151,6 +151,7 @@ func CacheImage(imageName string, desc *remote.Descriptor, architectures []strin
 		})
 
 		log.Info("Writing out indexes")
+
 		if err := remote.WriteIndex(destRef, filteredIndex); err != nil {
 			log.Error(err, "Failed to writing out index")
 			return err
