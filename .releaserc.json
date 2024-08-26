@@ -11,8 +11,6 @@
     [
       "@semantic-release/github",
       {
-        "successComment": false,
-        "failTitle": false,
         "assets": [
           "CHANGELOG.md",
           "../assets/*"
@@ -24,10 +22,6 @@
     {
       "name": "main",
       "prerelease": "beta"
-    },
-    {
-      "name": "develop",
-      "prerelease": "alpha"
     },
     {
       "name": "release"
