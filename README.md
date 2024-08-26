@@ -11,7 +11,7 @@ It saves the container images used by your pods in its own local registry so tha
 ## Upgrading
 
 ### From 1.6.0 o 1.7.0
- 
+
 ***ACTION REQUIRED***
 
 To follow Helm3 best pratices, we moved `cachedimage` and `repository` custom resources definition from the helm templates directory to the dedicated `crds` directory.
@@ -160,7 +160,7 @@ You can use Helm to generate plain YAML files and then deploy these YAML files w
 ```bash
 helm template --namespace kuik-system \
      kube-image-keeper kube-image-keeper \
-     --repo https://adisplayname.github.io/helm-charts/charts \
+     --repo https://charts.enix.io/ \
      > /tmp/kuik.yaml
 kubectl create namespace kuik-system
 kubectl apply -f /tmp/kuik.yaml --namespace kuik-system
@@ -178,7 +178,7 @@ For instance, to extend the expiration delay to 3 months (90 days), you can depl
 helm upgrade --install \
      --create-namespace --namespace kuik-system \
      kube-image-keeper kube-image-keeper \
-     --repo https://adisplayname.github.io/helm-charts/charts \
+     --repo https://charts.enix.io/ \
      --set cachedImagesExpiryDelay=90
 ```
 
