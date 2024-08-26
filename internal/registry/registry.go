@@ -132,6 +132,17 @@ func CacheImage(imageName string, desc *remote.Descriptor, architectures []strin
 		return err
 	}
 
+	progressUpdate := make(chan v1.Update, 100)
+	defer close(progressUpdate)
+	go func() {
+		for update := range progressUpdate {
+			log.Info("OnProgress update called")
+			if callback != nil {
+				callback(update)
+			}
+		}
+	}()
+
 	switch desc.MediaType {
 	case types.OCIImageIndex, types.DockerManifestList:
 		log.Info("media type matched:", "type", desc.MediaType)
@@ -152,22 +163,12 @@ func CacheImage(imageName string, desc *remote.Descriptor, architectures []strin
 
 		log.Info("Writing out indexes")
 
-		if err := remote.WriteIndex(destRef, filteredIndex); err != nil {
+		if err := remote.WriteIndex(destRef, filteredIndex, remote.WithProgress(progressUpdate)); err != nil {
 			log.Error(err, "Failed to writing out index")
 			return err
 		}
 	default:
 		log.Info("prep sync update")
-		progressUpdate := make(chan v1.Update, 100)
-
-		go func() {
-			for update := range progressUpdate {
-				log.Info("OnProgress update called")
-				if callback != nil {
-					callback(update)
-				}
-			}
-		}()
 
 		image, err := desc.Image()
 		if err != nil {
