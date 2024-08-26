@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1ext1"
+	kuikv1alpha1ext1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1ext1"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -57,19 +57,19 @@ func TestDesiredCachedImages(t *testing.T) {
 	tests := []struct {
 		name         string
 		pod          corev1.Pod
-		cachedImages []kuikv1alpha1.CachedImage
+		cachedImages []kuikv1alpha1ext1.CachedImage
 	}{
 		{
 			name: "basic",
 			pod:  podStub,
-			cachedImages: []kuikv1alpha1.CachedImage{
-				{Spec: kuikv1alpha1.CachedImageSpec{
+			cachedImages: []kuikv1alpha1ext1.CachedImage{
+				{Spec: kuikv1alpha1ext1.CachedImageSpec{
 					SourceImage: "nginx",
 				}},
-				{Spec: kuikv1alpha1.CachedImageSpec{
+				{Spec: kuikv1alpha1ext1.CachedImageSpec{
 					SourceImage: "busybox",
 				}},
-				{Spec: kuikv1alpha1.CachedImageSpec{
+				{Spec: kuikv1alpha1ext1.CachedImageSpec{
 					SourceImage: "alpine",
 				}},
 			},
@@ -146,7 +146,7 @@ var _ = Describe("Pod Controller", func() {
 		podStubNotRewritten.ResourceVersion = ""
 
 		By("Deleting all cached images")
-		Expect(k8sClient.DeleteAllOf(context.Background(), &kuikv1alpha1.CachedImage{})).Should(Succeed())
+		Expect(k8sClient.DeleteAllOf(context.Background(), &kuikv1alpha1ext1.CachedImage{})).Should(Succeed())
 	})
 
 	Context("Pod with containers and init containers", func() {
@@ -154,8 +154,8 @@ var _ = Describe("Pod Controller", func() {
 			By("Creating a pod")
 			Expect(k8sClient.Create(context.Background(), &podStub)).Should(Succeed())
 
-			fetched := &kuikv1alpha1.CachedImageList{}
-			Eventually(func() []kuikv1alpha1.CachedImage {
+			fetched := &kuikv1alpha1ext1.CachedImageList{}
+			Eventually(func() []kuikv1alpha1ext1.CachedImage {
 				_ = k8sClient.List(context.Background(), fetched)
 				return fetched.Items
 			}, timeout, interval).Should(HaveLen(len(podStub.Spec.Containers) + len(podStub.Spec.InitContainers)))
@@ -177,8 +177,8 @@ var _ = Describe("Pod Controller", func() {
 			By("Creating a pod without rewriting images")
 			Expect(k8sClient.Create(context.Background(), &podStubNotRewritten)).Should(Succeed())
 
-			fetched := &kuikv1alpha1.CachedImageList{}
-			Eventually(func() []kuikv1alpha1.CachedImage {
+			fetched := &kuikv1alpha1ext1.CachedImageList{}
+			Eventually(func() []kuikv1alpha1ext1.CachedImage {
 				_ = k8sClient.List(context.Background(), fetched)
 				return fetched.Items
 			}, timeout, interval).Should(HaveLen(0))

@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1ext1"
+	kuikv1alpha1ext1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1ext1"
 	kuikController "github.com/enix/kube-image-keeper/internal/controller"
 	"github.com/enix/kube-image-keeper/internal/controller/core"
 	"github.com/enix/kube-image-keeper/internal/registry"
@@ -79,7 +79,7 @@ type CachedImageReconciler struct {
 func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
-	var cachedImage kuikv1alpha1.CachedImage
+	var cachedImage kuikv1alpha1ext1.CachedImage
 	if err := r.Get(ctx, req.NamespacedName, &cachedImage); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -103,7 +103,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	repositoryName := named.Name()
-	repository := kuikv1alpha1.Repository{ObjectMeta: metav1.ObjectMeta{Name: registry.SanitizeName(repositoryName)}}
+	repository := kuikv1alpha1ext1.Repository{ObjectMeta: metav1.ObjectMeta{Name: registry.SanitizeName(repositoryName)}}
 	operation, err := controllerutil.CreateOrPatch(ctx, r.Client, &repository, func() error {
 		repository.Spec.Name = repositoryName
 		return nil
@@ -115,7 +115,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	log.Info("repository updated", "repository", klog.KObj(&repository), "operation", operation)
 
 	// Set owner reference
-	owner := &kuikv1alpha1.Repository{}
+	owner := &kuikv1alpha1ext1.Repository{}
 	if err := r.Get(ctx, client.ObjectKeyFromObject(&repository), owner); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -212,7 +212,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
-	err = updateStatusRaw(r.Client, &cachedImage, func(status *kuikv1alpha1.CachedImageStatus) {
+	err = updateStatusRaw(r.Client, &cachedImage, func(status *kuikv1alpha1ext1.CachedImageStatus) {
 		cachedImage.Status.IsCached = isCached
 	})
 	if err != nil {
@@ -271,8 +271,8 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	return ctrl.Result{}, nil
 }
 
-func updateStatus(c client.Client, cachedImage *kuikv1alpha1.CachedImage, upstreamDescriptor *remote.Descriptor, update func(*kuikv1alpha1.CachedImageStatus)) error {
-	return updateStatusRaw(c, cachedImage, func(status *kuikv1alpha1.CachedImageStatus) {
+func updateStatus(c client.Client, cachedImage *kuikv1alpha1ext1.CachedImage, upstreamDescriptor *remote.Descriptor, update func(*kuikv1alpha1ext1.CachedImageStatus)) error {
+	return updateStatusRaw(c, cachedImage, func(status *kuikv1alpha1ext1.CachedImageStatus) {
 		cachedImage.Status.AvailableUpstream = upstreamDescriptor != nil
 		cachedImage.Status.LastSync = metav1.NewTime(time.Now())
 
@@ -288,13 +288,13 @@ func updateStatus(c client.Client, cachedImage *kuikv1alpha1.CachedImage, upstre
 	})
 }
 
-func updateStatusRaw(c client.Client, cachedImage *kuikv1alpha1.CachedImage, update func(*kuikv1alpha1.CachedImageStatus)) error {
+func updateStatusRaw(c client.Client, cachedImage *kuikv1alpha1ext1.CachedImage, update func(*kuikv1alpha1ext1.CachedImageStatus)) error {
 	patch := client.MergeFrom(cachedImage.DeepCopy())
 	update(&cachedImage.Status)
 	return c.Status().Patch(context.Background(), cachedImage, patch)
 }
 
-func getSanitizedName(cachedImage *kuikv1alpha1.CachedImage) (string, error) {
+func getSanitizedName(cachedImage *kuikv1alpha1ext1.CachedImage) (string, error) {
 	ref, err := reference.ParseAnyReference(cachedImage.Spec.SourceImage)
 	if err != nil {
 		return "", err
@@ -308,7 +308,7 @@ func getSanitizedName(cachedImage *kuikv1alpha1.CachedImage) (string, error) {
 	return sanitizedName, nil
 }
 
-func (r *CachedImageReconciler) cacheImage(cachedImage *kuikv1alpha1.CachedImage) error {
+func (r *CachedImageReconciler) cacheImage(cachedImage *kuikv1alpha1ext1.CachedImage) error {
 	if err := r.patchPhase(cachedImage, cachedImagePhaseSynchronizing); err != nil {
 		return err
 	}
@@ -320,7 +320,7 @@ func (r *CachedImageReconciler) cacheImage(cachedImage *kuikv1alpha1.CachedImage
 
 	desc, err := registry.GetDescriptor(cachedImage.Spec.SourceImage, pullSecrets, r.InsecureRegistries, r.RootCAs)
 
-	statusErr := updateStatus(r.Client, cachedImage, desc, func(status *kuikv1alpha1.CachedImageStatus) {
+	statusErr := updateStatus(r.Client, cachedImage, desc, func(status *kuikv1alpha1ext1.CachedImageStatus) {
 		_, err := registry.GetLocalDescriptor(cachedImage.Spec.SourceImage)
 		cachedImage.Status.IsCached = err == nil
 
@@ -358,7 +358,7 @@ func (r *CachedImageReconciler) cacheImage(cachedImage *kuikv1alpha1.CachedImage
 			needUpdate = true
 		}
 		if needUpdate {
-			updateStatus(r.Client, cachedImage, desc, func(status *kuikv1alpha1.CachedImageStatus) {
+			updateStatus(r.Client, cachedImage, desc, func(status *kuikv1alpha1ext1.CachedImageStatus) {
 				cachedImage.Status.Progress.Total = update.Total
 				cachedImage.Status.Progress.Available = update.Complete
 			})
@@ -369,7 +369,7 @@ func (r *CachedImageReconciler) cacheImage(cachedImage *kuikv1alpha1.CachedImage
 	}
 	err = registry.CacheImage(cachedImage.Spec.SourceImage, desc, r.Architectures, onUpdated)
 
-	statusErr = updateStatus(r.Client, cachedImage, desc, func(status *kuikv1alpha1.CachedImageStatus) {
+	statusErr = updateStatus(r.Client, cachedImage, desc, func(status *kuikv1alpha1ext1.CachedImageStatus) {
 		if err == nil {
 			cachedImage.Status.IsCached = true
 			cachedImage.Status.Digest = desc.Digest.Hex
@@ -387,7 +387,7 @@ func (r *CachedImageReconciler) cacheImage(cachedImage *kuikv1alpha1.CachedImage
 	return nil
 }
 
-func (r *CachedImageReconciler) patchPhase(cachedImage *kuikv1alpha1.CachedImage, phase string) error {
+func (r *CachedImageReconciler) patchPhase(cachedImage *kuikv1alpha1ext1.CachedImage, phase string) error {
 	patch := client.MergeFrom(cachedImage.DeepCopy())
 	cachedImage.Status.Phase = phase
 	return r.Status().Patch(context.Background(), cachedImage, patch)
@@ -420,7 +420,7 @@ func (r *CachedImageReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrent
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&kuikv1alpha1.CachedImage{}).
+		For(&kuikv1alpha1ext1.CachedImage{}).
 		Watches(
 			&corev1.Pod{},
 			handler.EnqueueRequestsFromMapFunc(r.cachedImagesRequestFromPod),
@@ -459,21 +459,21 @@ func (r *CachedImageReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrent
 }
 
 // updatePodCount update CachedImage UsedBy status
-func (r *CachedImageReconciler) updatePodCount(ctx context.Context, cachedImage *kuikv1alpha1.CachedImage) (requeue bool, err error) {
+func (r *CachedImageReconciler) updatePodCount(ctx context.Context, cachedImage *kuikv1alpha1ext1.CachedImage) (requeue bool, err error) {
 	var podsList corev1.PodList
 	if err = r.List(ctx, &podsList, client.MatchingFields{core.CachedImageOwnerKey: cachedImage.Name}); err != nil && !apierrors.IsNotFound(err) {
 		return
 	}
 
-	pods := []kuikv1alpha1.PodReference{}
+	pods := []kuikv1alpha1ext1.PodReference{}
 	for _, pod := range podsList.Items {
 		if !pod.DeletionTimestamp.IsZero() {
 			continue
 		}
-		pods = append(pods, kuikv1alpha1.PodReference{NamespacedName: pod.Namespace + "/" + pod.Name})
+		pods = append(pods, kuikv1alpha1ext1.PodReference{NamespacedName: pod.Namespace + "/" + pod.Name})
 	}
 
-	cachedImage.Status.UsedBy = kuikv1alpha1.UsedBy{
+	cachedImage.Status.UsedBy = kuikv1alpha1ext1.UsedBy{
 		Pods:  pods,
 		Count: len(pods),
 	}

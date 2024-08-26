@@ -12,7 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/distribution/reference"
-	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1ext1"
+	kuikv1alpha1ext1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1ext1"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -92,7 +92,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	}
 
 	for _, cachedImage := range cachedImages {
-		var ci kuikv1alpha1.CachedImage
+		var ci kuikv1alpha1ext1.CachedImage
 		err := r.Get(ctx, client.ObjectKeyFromObject(&cachedImage), &ci)
 		if err != nil && !apierrors.IsNotFound(err) {
 			return ctrl.Result{}, err
@@ -141,7 +141,7 @@ func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			return ok
 		}))).
 		Watches(
-			&kuikv1alpha1.CachedImage{},
+			&kuikv1alpha1ext1.CachedImage{},
 			handler.EnqueueRequestsFromMapFunc(r.podsWithDeletingCachedImages),
 			builder.WithPredicates(p),
 		).
@@ -154,8 +154,8 @@ func (r *PodReconciler) podsWithDeletingCachedImages(ctx context.Context, obj cl
 		WithName("controller-runtime.manager.controller.pod.deletingCachedImages").
 		WithValues("cachedImage", klog.KObj(obj))
 
-	cachedImage := obj.(*kuikv1alpha1.CachedImage)
-	var currentCachedImage kuikv1alpha1.CachedImage
+	cachedImage := obj.(*kuikv1alpha1ext1.CachedImage)
+	var currentCachedImage kuikv1alpha1ext1.CachedImage
 	// wait for the CachedImage to be really deleted
 	if err := r.Get(ctx, client.ObjectKeyFromObject(cachedImage), &currentCachedImage); err == nil || !apierrors.IsNotFound(err) {
 		return make([]ctrl.Request, 0)
@@ -187,8 +187,8 @@ func (r *PodReconciler) podsWithDeletingCachedImages(ctx context.Context, obj cl
 	return make([]ctrl.Request, 0)
 }
 
-func (r *PodReconciler) desiredRepositories(ctx context.Context, pod *corev1.Pod, cachedImages []kuikv1alpha1.CachedImage) ([]kuikv1alpha1.Repository, error) {
-	repositories := map[string]kuikv1alpha1.Repository{}
+func (r *PodReconciler) desiredRepositories(ctx context.Context, pod *corev1.Pod, cachedImages []kuikv1alpha1ext1.CachedImage) ([]kuikv1alpha1ext1.Repository, error) {
+	repositories := map[string]kuikv1alpha1ext1.Repository{}
 
 	pullSecretNames, err := r.imagePullSecretNamesFromPod(ctx, pod)
 	if err != nil {
@@ -201,11 +201,11 @@ func (r *PodReconciler) desiredRepositories(ctx context.Context, pod *corev1.Pod
 			return nil, err
 		}
 		repositoryName := named.Name()
-		repositories[repositoryName] = kuikv1alpha1.Repository{
+		repositories[repositoryName] = kuikv1alpha1ext1.Repository{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: registry.SanitizeName(repositoryName),
 			},
-			Spec: kuikv1alpha1.RepositorySpec{
+			Spec: kuikv1alpha1ext1.RepositorySpec{
 				Name:                 repositoryName,
 				PullSecretNames:      pullSecretNames,
 				PullSecretsNamespace: pod.Namespace,
@@ -216,15 +216,15 @@ func (r *PodReconciler) desiredRepositories(ctx context.Context, pod *corev1.Pod
 	return maps.Values(repositories), nil
 }
 
-func DesiredCachedImages(ctx context.Context, pod *corev1.Pod) []kuikv1alpha1.CachedImage {
+func DesiredCachedImages(ctx context.Context, pod *corev1.Pod) []kuikv1alpha1ext1.CachedImage {
 	cachedImages := desiredCachedImagesForContainers(ctx, pod.Spec.Containers, pod.Annotations, false)
 	cachedImages = append(cachedImages, desiredCachedImagesForContainers(ctx, pod.Spec.InitContainers, pod.Annotations, true)...)
 	return cachedImages
 }
 
-func desiredCachedImagesForContainers(ctx context.Context, containers []corev1.Container, annotations map[string]string, initContainer bool) []kuikv1alpha1.CachedImage {
+func desiredCachedImagesForContainers(ctx context.Context, containers []corev1.Container, annotations map[string]string, initContainer bool) []kuikv1alpha1ext1.CachedImage {
 	log := log.FromContext(ctx)
-	cachedImages := []kuikv1alpha1.CachedImage{}
+	cachedImages := []kuikv1alpha1ext1.CachedImage{}
 
 	for _, container := range containers {
 		annotationKey := registry.ContainerAnnotationKey(container.Name, initContainer)
@@ -249,7 +249,7 @@ func desiredCachedImagesForContainers(ctx context.Context, containers []corev1.C
 	return cachedImages
 }
 
-func cachedImageFromSourceImage(sourceImage string) (*kuikv1alpha1.CachedImage, error) {
+func cachedImageFromSourceImage(sourceImage string) (*kuikv1alpha1ext1.CachedImage, error) {
 	ref, err := reference.ParseAnyReference(sourceImage)
 	if err != nil {
 		return nil, err
@@ -260,12 +260,12 @@ func cachedImageFromSourceImage(sourceImage string) (*kuikv1alpha1.CachedImage, 
 		sanitizedName += "-latest"
 	}
 
-	cachedImage := kuikv1alpha1.CachedImage{
-		TypeMeta: metav1.TypeMeta{APIVersion: kuikv1alpha1.GroupVersion.String(), Kind: "CachedImage"},
+	cachedImage := kuikv1alpha1ext1.CachedImage{
+		TypeMeta: metav1.TypeMeta{APIVersion: kuikv1alpha1ext1.GroupVersion.String(), Kind: "CachedImage"},
 		ObjectMeta: metav1.ObjectMeta{
 			Name: sanitizedName,
 		},
-		Spec: kuikv1alpha1.CachedImageSpec{
+		Spec: kuikv1alpha1ext1.CachedImageSpec{
 			SourceImage: sourceImage,
 		},
 	}

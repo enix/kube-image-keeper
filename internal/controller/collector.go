@@ -4,7 +4,7 @@ import (
 	"context"
 	"strconv"
 
-	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1ext1"
+	kuikv1alpha1ext1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1ext1"
 	kuikMetrics "github.com/enix/kube-image-keeper/internal/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -70,7 +70,7 @@ func RegisterMetrics(client client.Client) {
 	)
 }
 
-func cachedImagesWithLabelValues(gaugeVec *prometheus.GaugeVec, cachedImage *kuikv1alpha1.CachedImage) prometheus.Gauge {
+func cachedImagesWithLabelValues(gaugeVec *prometheus.GaugeVec, cachedImage *kuikv1alpha1ext1.CachedImage) prometheus.Gauge {
 	return gaugeVec.WithLabelValues(strconv.FormatBool(cachedImage.Status.IsCached), strconv.FormatBool(cachedImage.Spec.ExpiresAt != nil))
 }
 
@@ -83,7 +83,7 @@ func (c *ControllerCollector) Describe(ch chan<- *prometheus.Desc) {
 }
 
 func (c *ControllerCollector) Collect(ch chan<- prometheus.Metric) {
-	cachedImageList := &kuikv1alpha1.CachedImageList{}
+	cachedImageList := &kuikv1alpha1ext1.CachedImageList{}
 	if err := c.List(context.Background(), cachedImageList); err == nil {
 		cachedImageGaugeVec := prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{

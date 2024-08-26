@@ -20,7 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1ext1"
+	kuikv1alpha1ext1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1ext1"
 	kuikController "github.com/enix/kube-image-keeper/internal/controller"
 	"github.com/enix/kube-image-keeper/internal/registry"
 )
@@ -53,7 +53,7 @@ type RepositoryReconciler struct {
 func (r *RepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
-	var repository kuikv1alpha1.Repository
+	var repository kuikv1alpha1ext1.Repository
 	if err := r.Get(ctx, req.NamespacedName, &repository); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -67,7 +67,7 @@ func (r *RepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, err
 	}
 
-	var cachedImageList kuikv1alpha1.CachedImageList
+	var cachedImageList kuikv1alpha1ext1.CachedImageList
 	if err := r.List(ctx, &cachedImageList, client.MatchingFields{repositoryOwnerKey: repository.Name}); err != nil && !apierrors.IsNotFound(err) {
 		return ctrl.Result{}, err
 	}
@@ -196,7 +196,7 @@ func (r *RepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	return ctrl.Result{}, nil
 }
 
-func (r *RepositoryReconciler) UpdateStatus(ctx context.Context, repository *kuikv1alpha1.Repository, conditions []metav1.Condition) error {
+func (r *RepositoryReconciler) UpdateStatus(ctx context.Context, repository *kuikv1alpha1ext1.Repository, conditions []metav1.Condition) error {
 	log := log.FromContext(ctx)
 
 	for _, condition := range conditions {
@@ -223,12 +223,12 @@ func (r *RepositoryReconciler) UpdateStatus(ctx context.Context, repository *kui
 // SetupWithManager sets up the controller with the Manager.
 func (r *RepositoryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// Create an index to list CachedImage by Repository
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &kuikv1alpha1.CachedImage{}, repositoryOwnerKey, func(rawObj client.Object) []string {
-		cachedImage := rawObj.(*kuikv1alpha1.CachedImage)
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &kuikv1alpha1ext1.CachedImage{}, repositoryOwnerKey, func(rawObj client.Object) []string {
+		cachedImage := rawObj.(*kuikv1alpha1ext1.CachedImage)
 
 		owners := cachedImage.GetOwnerReferences()
 		for _, owner := range owners {
-			if owner.APIVersion != kuikv1alpha1.GroupVersion.String() || owner.Kind != "Repository" {
+			if owner.APIVersion != kuikv1alpha1ext1.GroupVersion.String() || owner.Kind != "Repository" {
 				return nil
 			}
 
@@ -241,9 +241,9 @@ func (r *RepositoryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&kuikv1alpha1.Repository{}).
+		For(&kuikv1alpha1ext1.Repository{}).
 		Watches(
-			&kuikv1alpha1.CachedImage{},
+			&kuikv1alpha1ext1.CachedImage{},
 			handler.EnqueueRequestsFromMapFunc(r.repositoryWithDeletingCachedImages),
 			builder.WithPredicates(predicate.Funcs{
 				DeleteFunc: func(e event.DeleteEvent) bool {
@@ -252,7 +252,7 @@ func (r *RepositoryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			}),
 		).
 		Watches(
-			&kuikv1alpha1.CachedImage{},
+			&kuikv1alpha1ext1.CachedImage{},
 			handler.EnqueueRequestsFromMapFunc(requestRepositoryFromCachedImage),
 			builder.WithPredicates(predicate.Funcs{
 				CreateFunc: func(e event.CreateEvent) bool {
@@ -267,8 +267,8 @@ func (r *RepositoryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func (r *RepositoryReconciler) repositoryWithDeletingCachedImages(ctx context.Context, obj client.Object) []ctrl.Request {
-	cachedImage := obj.(*kuikv1alpha1.CachedImage)
-	var currentCachedImage kuikv1alpha1.CachedImage
+	cachedImage := obj.(*kuikv1alpha1ext1.CachedImage)
+	var currentCachedImage kuikv1alpha1ext1.CachedImage
 	// wait for the CachedImage to be really deleted
 	if err := r.Get(ctx, client.ObjectKeyFromObject(cachedImage), &currentCachedImage); err == nil || !apierrors.IsNotFound(err) {
 		return nil
@@ -278,8 +278,8 @@ func (r *RepositoryReconciler) repositoryWithDeletingCachedImages(ctx context.Co
 }
 
 func requestRepositoryFromCachedImage(ctx context.Context, obj client.Object) []ctrl.Request {
-	cachedImage := obj.(*kuikv1alpha1.CachedImage)
-	repositoryName, ok := cachedImage.Labels[kuikv1alpha1.RepositoryLabelName]
+	cachedImage := obj.(*kuikv1alpha1ext1.CachedImage)
+	repositoryName, ok := cachedImage.Labels[kuikv1alpha1ext1.RepositoryLabelName]
 	if !ok {
 		return nil
 	}

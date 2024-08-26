@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	"github.com/distribution/reference"
-	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1ext1"
+	kuikv1alpha1ext1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1ext1"
 	"github.com/enix/kube-image-keeper/internal/metrics"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/gin-gonic/gin"
@@ -251,10 +251,10 @@ func (p *Proxy) proxyRegistry(c *gin.Context, endpoint string, endpointIsOrigin 
 	return proxyError
 }
 
-func (p *Proxy) getRepository(registryDomain string, repositoryName string) (*kuikv1alpha1.Repository, error) {
+func (p *Proxy) getRepository(registryDomain string, repositoryName string) (*kuikv1alpha1ext1.Repository, error) {
 	sanitizedName := registry.SanitizeName(registryDomain + "/" + repositoryName)
 
-	repository := &kuikv1alpha1.Repository{}
+	repository := &kuikv1alpha1ext1.Repository{}
 	if err := p.k8sClient.Get(context.Background(), types.NamespacedName{Name: sanitizedName}, repository); err != nil {
 		return nil, err
 	}
@@ -262,7 +262,7 @@ func (p *Proxy) getRepository(registryDomain string, repositoryName string) (*ku
 	return repository, nil
 }
 
-func (p *Proxy) getKeychains(repository *kuikv1alpha1.Repository) ([]authn.Keychain, error) {
+func (p *Proxy) getKeychains(repository *kuikv1alpha1ext1.Repository) ([]authn.Keychain, error) {
 	pullSecrets, err := repository.GetPullSecrets(p.k8sClient)
 	if err != nil {
 		return nil, err
@@ -271,7 +271,7 @@ func (p *Proxy) getKeychains(repository *kuikv1alpha1.Repository) ([]authn.Keych
 	return registry.GetKeychains(repository.Spec.Name, pullSecrets)
 }
 
-func (p *Proxy) getAuthentifiedTransport(repository *kuikv1alpha1.Repository, originRegistry string) (http.RoundTripper, error) {
+func (p *Proxy) getAuthentifiedTransport(repository *kuikv1alpha1ext1.Repository, originRegistry string) (http.RoundTripper, error) {
 	imageRef, err := name.ParseReference(repository.Spec.Name)
 	if err != nil {
 		return nil, err

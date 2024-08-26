@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1ext1"
+	kuikv1alpha1ext1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1ext1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -18,20 +18,20 @@ var _ = Describe("CachedImage Controller", func() {
 
 	Context("When creating CachedImages", func() {
 		It("Should expire image that are not retained only", func() {
-			fetched := &kuikv1alpha1.CachedImageList{}
+			fetched := &kuikv1alpha1ext1.CachedImageList{}
 
 			By("Creating an image without the retain flag", func() {
-				Expect(k8sClient.Create(context.Background(), &kuikv1alpha1.CachedImage{
+				Expect(k8sClient.Create(context.Background(), &kuikv1alpha1ext1.CachedImage{
 					ObjectMeta: v1.ObjectMeta{
 						Name: "nginx",
 					},
-					Spec: kuikv1alpha1.CachedImageSpec{
+					Spec: kuikv1alpha1ext1.CachedImageSpec{
 						SourceImage: "nginx",
 					},
 				})).Should(Succeed())
 
-				Eventually(func() []kuikv1alpha1.CachedImage {
-					expiringCachedImages := []kuikv1alpha1.CachedImage{}
+				Eventually(func() []kuikv1alpha1ext1.CachedImage {
+					expiringCachedImages := []kuikv1alpha1ext1.CachedImage{}
 					_ = k8sClient.List(context.Background(), fetched)
 					for _, cachedImage := range fetched.Items {
 						if cachedImage.Spec.ExpiresAt != nil {
@@ -43,19 +43,19 @@ var _ = Describe("CachedImage Controller", func() {
 			})
 
 			By("Creating an expiring image with the retain flag", func() {
-				Expect(k8sClient.Create(context.Background(), &kuikv1alpha1.CachedImage{
+				Expect(k8sClient.Create(context.Background(), &kuikv1alpha1ext1.CachedImage{
 					ObjectMeta: v1.ObjectMeta{
 						Name: "alpine",
 					},
-					Spec: kuikv1alpha1.CachedImageSpec{
+					Spec: kuikv1alpha1ext1.CachedImageSpec{
 						SourceImage: "alpine",
 						Retain:      true,
 						ExpiresAt:   &v1.Time{Time: time.Now().Add(time.Hour)},
 					},
 				})).Should(Succeed())
 
-				Eventually(func() []kuikv1alpha1.CachedImage {
-					expiringCachedImages := []kuikv1alpha1.CachedImage{}
+				Eventually(func() []kuikv1alpha1ext1.CachedImage {
+					expiringCachedImages := []kuikv1alpha1ext1.CachedImage{}
 					_ = k8sClient.List(context.Background(), fetched)
 					for _, cachedImage := range fetched.Items {
 						if cachedImage.Spec.ExpiresAt != nil {
