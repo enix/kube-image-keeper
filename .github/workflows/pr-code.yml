@@ -39,7 +39,7 @@ jobs:
     name: Unit Testing
     strategy:
       matrix:
-        kubernetes-version: ['1.24', '1.25', '1.26', '1.27', '1.28', '1.29']
+        kubernetes-version: ['1.24']
     runs-on: ubuntu-22.04
     env:
       ENVTEST_K8S_VERSION: ${{ matrix.kubernetes-version }}

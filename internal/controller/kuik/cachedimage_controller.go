@@ -368,7 +368,8 @@ func (r *CachedImageReconciler) cacheImage(cachedImage *kuikv1alpha1.CachedImage
 		}
 		lastWriteComplete = update.Complete
 	}
-	err = registry.CacheImage(cachedImage.Spec.SourceImage, desc, r.Architectures, onUpdated)
+	log.Info("Start caching", "SourceImage", cachedImage.Spec.SourceImage, "Destination", desc.URLs)
+	err = registry.CacheImage(cachedImage.Spec.SourceImage, desc, r.Architectures, onUpdated, log)
 
 	statusErr = updateStatus(r.Client, cachedImage, desc, func(status *kuikv1alpha1.CachedImageStatus) {
 		if err == nil {

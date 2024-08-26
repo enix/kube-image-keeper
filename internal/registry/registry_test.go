@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
@@ -320,7 +321,7 @@ func Test_CacheImage(t *testing.T) {
 			desc, err := remote.Get(sourceRef)
 			g.Expect(err).To(BeNil())
 
-			err = CacheImage(imageName, desc, []string{"amd64"}, nil)
+			err = CacheImage(imageName, desc, []string{"amd64"}, nil, logr.Discard())
 			if tt.wantErr != "" {
 				g.Expect(err).To(BeAssignableToTypeOf(tt.errType))
 				g.Expect(err).To(MatchError(ContainSubstring(tt.wantErr)))

@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -123,7 +124,8 @@ func DeleteImage(imageName string) error {
 	return remote.Delete(digest)
 }
 
-func CacheImage(imageName string, desc *remote.Descriptor, architectures []string, callback func(v1.Update)) error {
+func CacheImage(imageName string, desc *remote.Descriptor, architectures []string, callback func(v1.Update), log logr.Logger) error {
+	log.Info("Get parsed local reference", "Input", imageName)
 	destRef, err := parseLocalReference(imageName)
 	if err != nil {
 		return err
@@ -149,11 +151,12 @@ func CacheImage(imageName string, desc *remote.Descriptor, architectures []strin
 			return err
 		}
 	default:
-
+		log.Info("prep sync update")
 		progressUpdate := make(chan v1.Update, 100)
 
 		go func() {
 			for update := range progressUpdate {
+				log.Info("OnProgress update called")
 				if callback != nil {
 					callback(update)
 				}
@@ -165,9 +168,12 @@ func CacheImage(imageName string, desc *remote.Descriptor, architectures []strin
 			return err
 		}
 
+		log.Info("Start sync")
 		if err := remote.Write(destRef, image, remote.WithProgress(progressUpdate)); err != nil {
+			log.Error(err, "Sync erred")
 			return err
 		}
+		log.Info("Sync completed")
 	}
 
 	return nil
