@@ -1,4 +1,4 @@
-module github.com/adisplayname/kube-image-keeper
+module github.com/enix/kube-image-keeper
 
 go 1.22
 
