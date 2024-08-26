@@ -133,7 +133,6 @@ func CacheImage(imageName string, desc *remote.Descriptor, architectures []strin
 	}
 
 	progressUpdate := make(chan v1.Update, 100)
-	defer close(progressUpdate)
 	go func() {
 		for update := range progressUpdate {
 			log.Info("OnProgress update called")
