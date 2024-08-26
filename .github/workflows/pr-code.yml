@@ -74,4 +74,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: code-coverage-report-${{ matrix.kubernetes-version }}
-          path: coverage.html
+          path: coverage.
