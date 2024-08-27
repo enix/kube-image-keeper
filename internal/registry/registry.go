@@ -123,11 +123,20 @@ func DeleteImage(imageName string) error {
 	return remote.Delete(digest)
 }
 
-func CacheImage(imageName string, desc *remote.Descriptor, architectures []string) error {
+func CacheImage(imageName string, desc *remote.Descriptor, architectures []string, callback func(v1.Update)) error {
 	destRef, err := parseLocalReference(imageName)
 	if err != nil {
 		return err
 	}
+
+	progressUpdate := make(chan v1.Update, 100)
+	go func() {
+		for update := range progressUpdate {
+			if callback != nil {
+				callback(update)
+			}
+		}
+	}()
 
 	switch desc.MediaType {
 	case types.OCIImageIndex, types.DockerManifestList:
@@ -145,7 +154,7 @@ func CacheImage(imageName string, desc *remote.Descriptor, architectures []strin
 			return true
 		})
 
-		if err := remote.WriteIndex(destRef, filteredIndex); err != nil {
+		if err := remote.WriteIndex(destRef, filteredIndex, remote.WithProgress(progressUpdate)); err != nil {
 			return err
 		}
 	default:
@@ -153,7 +162,7 @@ func CacheImage(imageName string, desc *remote.Descriptor, architectures []strin
 		if err != nil {
 			return err
 		}
-		if err := remote.Write(destRef, image); err != nil {
+		if err := remote.Write(destRef, image, remote.WithProgress(progressUpdate)); err != nil {
 			return err
 		}
 	}
