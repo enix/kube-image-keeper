@@ -348,16 +348,11 @@ func (r *CachedImageReconciler) cacheImage(cachedImage *kuikv1alpha1.CachedImage
 	lastWriteComplete := int64(0)
 	onUpdated := func(update v1.Update) {
 		needUpdate := false
-		if lastWriteComplete != update.Complete && update.Complete == update.Total {
-			// Update is needed whenever the writing complmetes.
-			needUpdate = true
-		}
+		
+		isCompleted := lastWriteComplete != update.Complete && update.Complete == update.Total
 
-		if time.Since(lastUpdateTime).Seconds() >= 5 {
-			// Update is needed if last update is more than 5 seconds ago
-			needUpdate = true
-		}
-		if needUpdate {
+		if time.Since(lastUpdateTime).Seconds() >= 5 || isCompleted {
+			// Update is needed if last update is more than 5 seconds ago, or the current progress indicates the remote writing has just completed.
 			updateStatus(r.Client, cachedImage, desc, func(status *kuikv1alpha1.CachedImageStatus) {
 				cachedImage.Status.Progress.Total = update.Total
 				cachedImage.Status.Progress.Available = update.Complete
