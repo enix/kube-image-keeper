@@ -6,17 +6,25 @@ import (
 
 // RepositorySpec defines the desired state of Repository
 type RepositorySpec struct {
-	Name                 string           `json:"name"`
-	PullSecretNames      []string         `json:"pullSecretNames,omitempty"`
-	PullSecretsNamespace string           `json:"pullSecretsNamespace,omitempty"`
-	UpdateInterval       *metav1.Duration `json:"updateInterval,omitempty"`
-	UpdateFilters        []string         `json:"updateFilters,omitempty"`
+	// Name is the path of the repository (for instance enix/kube-image-keeper)
+	Name string `json:"name"`
+	// PullSecretNames is the names of pull secret to use to pull CachedImages of this Repository
+	PullSecretNames []string `json:"pullSecretNames,omitempty"`
+	// PullSecretsNamespace is the namespace where pull secrets can be found for CachedImages of this Repository
+	PullSecretsNamespace string `json:"pullSecretsNamespace,omitempty"`
+	// UpdateInterval is the interval in human readable format (1m, 1h, 1d...) at which matched CachedImages from this Repository are updated (see spec.UpdateFilters)
+	UpdateInterval *metav1.Duration `json:"updateInterval,omitempty"`
+	// UpdateFilters is a list of regexps that need to match (at least one of them) the .spec.SourceImage of a CachedImage from this Repository to update it at regular interval
+	UpdateFilters []string `json:"updateFilters,omitempty"`
 }
 
 // RepositoryStatus defines the observed state of Repository
 type RepositoryStatus struct {
-	Images     int         `json:"images,omitempty"`
-	Phase      string      `json:"phase,omitempty"`
+	// Images is the count of CachedImages that come from this repository
+	Images int `json:"images,omitempty"`
+	// Phase is the current phase of this repository
+	Phase string `json:"phase,omitempty"`
+	// LastUpdate is the last time images of this repository has been updated
 	LastUpdate metav1.Time `json:"lastUpdate,omitempty"`
 	//+listType=map
 	//+listMapKey=type

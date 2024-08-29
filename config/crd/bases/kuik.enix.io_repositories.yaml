@@ -52,18 +52,29 @@ spec:
             description: RepositorySpec defines the desired state of Repository
             properties:
               name:
+                description: Name is the path of the repository (for instance enix/kube-image-keeper)
                 type: string
               pullSecretNames:
+                description: PullSecretNames is the names of pull secret to use to
+                  pull CachedImages of this Repository
                 items:
                   type: string
                 type: array
               pullSecretsNamespace:
+                description: PullSecretsNamespace is the namespace where pull secrets
+                  can be found for CachedImages of this Repository
                 type: string
               updateFilters:
+                description: UpdateFilters is a list of regexps that need to match
+                  (at least one of them) the .spec.SourceImage of a CachedImage from
+                  this Repository to update it at regular interval
                 items:
                   type: string
                 type: array
               updateInterval:
+                description: UpdateInterval is the interval in human readable format
+                  (1m, 1h, 1d...) at which matched CachedImages from this Repository
+                  are updated (see spec.UpdateFilters)
                 type: string
             required:
             - name
@@ -144,11 +155,16 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               images:
+                description: Images is the count of CachedImages that come from this
+                  repository
                 type: integer
               lastUpdate:
+                description: LastUpdate is the last time images of this repository
+                  has been updated
                 format: date-time
                 type: string
               phase:
+                description: Phase is the current phase of this repository
                 type: string
             type: object
         type: object

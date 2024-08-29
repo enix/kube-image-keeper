@@ -60,11 +60,16 @@ spec:
             description: CachedImageSpec defines the desired state of CachedImage
             properties:
               expiresAt:
+                description: ExpiresAt is the time when the image should be deleted
+                  from cache if not in use (unset when the image is used again)
                 format: date-time
                 type: string
               retain:
+                description: Retain defines if the image should be retained in cache
+                  even when not used (will prevent ExpiresAt to be populated)
                 type: boolean
               sourceImage:
+                description: SourceImage is the path of the image to cache
                 type: string
             required:
             - sourceImage
@@ -73,37 +78,59 @@ spec:
             description: CachedImageStatus defines the observed state of CachedImage
             properties:
               availableUpstream:
+                description: AvailableUpstream indicate whether if the referenced
+                  image is available upstream or not
                 type: boolean
               digest:
+                description: Digest is the digest of the cached image
                 type: string
               isCached:
+                description: IsCached indicate whether the image is already cached
+                  or not
                 type: boolean
               lastSeenUpstream:
+                description: LastSeenUpstream is the last time the referenced image
+                  has been seen upstream
                 format: date-time
                 type: string
               lastSuccessfulPull:
+                description: LastSuccessfulPull is the last time the upstream image
+                  has been successfully cached
                 format: date-time
                 type: string
               lastSync:
+                description: LastSync is the last time the remote image digest has
+                  been checked
                 format: date-time
                 type: string
               phase:
+                description: Phase is the current phase of the image
                 type: string
               upToDate:
+                description: UpToDate indicate whether if the cached image is up to
+                  date with the upstream one or not
                 type: boolean
               upstreamDigest:
+                description: UpstreamDigest is the upstream image digest
                 type: string
               usedBy:
+                description: UsedBy is the list of pods using this image
                 properties:
                   count:
                     description: |-
+                      Count is the number of pods using this image
+
+
                       jsonpath function .length() is not implemented, so the count field is required to display pods count in additionalPrinterColumns
                       see https://github.com/kubernetes-sigs/controller-tools/issues/447
                     type: integer
                   pods:
+                    description: Pods is a list of reference to pods using this CachedImage
                     items:
                       properties:
                         namespacedName:
+                          description: NamespacedName is the namespaced name of a
+                            pod (namespace/name)
                           type: string
                       type: object
                     type: array
