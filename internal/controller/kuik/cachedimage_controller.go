@@ -347,8 +347,6 @@ func (r *CachedImageReconciler) cacheImage(cachedImage *kuikv1alpha1.CachedImage
 	lastUpdateTime := time.Now()
 	lastWriteComplete := int64(0)
 	onUpdated := func(update v1.Update) {
-		needUpdate := false
-		
 		isCompleted := lastWriteComplete != update.Complete && update.Complete == update.Total
 
 		if time.Since(lastUpdateTime).Seconds() >= 5 || isCompleted {
