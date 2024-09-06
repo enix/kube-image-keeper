@@ -90,6 +90,15 @@ spec:
                 type: string
               phase:
                 type: string
+              progress:
+                properties:
+                  available:
+                    format: int64
+                    type: integer
+                  total:
+                    format: int64
+                    type: integer
+                type: object
               upToDate:
                 type: boolean
               upstreamDigest:
