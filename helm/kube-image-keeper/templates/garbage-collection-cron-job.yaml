@@ -15,7 +15,7 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 3
-      activeDeadlineSeconds: 600
+      activeDeadlineSeconds: {{ .Values.registry.garbageCollection.activeDeadlineSeconds }}
       template:
         spec:
           serviceAccountName: {{ include "kube-image-keeper.fullname" . }}-registry-restart
