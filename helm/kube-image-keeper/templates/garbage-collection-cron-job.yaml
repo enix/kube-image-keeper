@@ -24,6 +24,14 @@ spec:
           nodeSelector:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          {{- with .Values.registry.garbageCollection.affinity }}
+          affinity:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.registry.garbageCollection.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           containers:
             - name: kubectl
               image: "{{ .Values.registry.garbageCollection.image.repository }}:{{ .Values.registry.garbageCollection.image.tag }}"
