@@ -48,8 +48,16 @@ spec:
                   key: secret
             - name: REGISTRY_STORAGE_DELETE_ENABLED
               value: "true"
+            {{- if (not (empty .Values.registry.persistence.s3))}}
             - name: REGISTRY_STORAGE
               value: s3
+            {{- end}}
+            {{- if (not (empty .Values.registry.persistence.gcs))}}
+            - name: REGISTRY_STORAGE
+              value: gcs
+            - name: REGISTRY_STORAGE_GCS_KEYFILE
+              value: "/etc/registry/keys/credentials.json"
+            {{- end}}
             {{- if .Values.registry.serviceMonitor.create }}
             - name: REGISTRY_HTTP_DEBUG_ADDR
               value: 0.0.0.0:5001
@@ -70,11 +78,16 @@ spec:
             - name: {{ printf "%s_%s" "REGISTRY_STORAGE_S3" ($k | upper) }}
               value: {{ $v | quote }}
             {{- end }}
+            {{- range $k, $v := omit .Values.registry.persistence.gcs }}
+            - name: {{ printf "%s_%s" "REGISTRY_STORAGE_GCS" ($k | upper) }}
+              value: {{ $v | quote }}
+            {{- end }}
             {{- if .Values.registry.persistence.disableS3Redirections }}
             - name: REGISTRY_STORAGE_REDIRECT_DISABLE
               value: "true"
             {{- end }}
             {{- end }}
+            {{- if (not (empty .Values.registry.persistence.s3ExistingSecret)) }}
             {{ $s3KeysSecretName := .Values.registry.persistence.s3ExistingSecret | default "kube-image-keeper-s3-registry-keys" }}
             - name: REGISTRY_STORAGE_S3_ACCESSKEY
               valueFrom:
@@ -86,10 +99,17 @@ spec:
                 secretKeyRef:
                   name: {{ $s3KeysSecretName }}
                   key: secretKey
+            {{- end }}
             {{- range .Values.registry.env }}
             - name: {{ .name }}
               value: {{ .value | quote }}
             {{- end }}
+          {{- if .Values.registry.persistence.gcsExistingSecret }}
+          volumeMounts:
+            - name: gcs-key
+              mountPath: /etc/registry/keys
+              readOnly: true
+          {{- end }}
           {{- with .Values.registry.readinessProbe }}
           readinessProbe:
             {{- toYaml . | nindent 12 }}
@@ -98,6 +118,12 @@ spec:
           livenessProbe:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+      {{- with .Values.registry.persistence.gcsExistingSecret }}
+      volumes:
+        - name: gcs-key
+          secret:
+            secretName: {{ . }}
+      {{- end }}
       {{- with .Values.registry.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
