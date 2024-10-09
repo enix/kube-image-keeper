@@ -110,6 +110,7 @@ jobs:
           ct lint \
             --charts helm/kube-image-keeper \
             --chart-repos bitnami=https://charts.bitnami.com/bitnami \
+            --chart-repos joxit=https://helm.joxit.dev \
             --validate-maintainers=false --check-version-increment=false
 
   build:
@@ -219,6 +220,7 @@ jobs:
           ct lint \
             --charts helm/kube-image-keeper \
             --chart-repos bitnami=https://charts.bitnami.com/bitnami \
+            --chart-repos joxit=https://helm.joxit.dev \
             --validate-maintainers=false --check-version-increment=false
 
       - name: Run helm (install)
@@ -351,6 +353,7 @@ jobs:
           ct lint \
             --charts helm/kube-image-keeper \
             --chart-repos bitnami=https://charts.bitnami.com/bitnami \
+            --chart-repos joxit=https://helm.joxit.dev \
             --validate-maintainers=false --check-version-increment=false
 
       - name: Run helm (install latest release)
@@ -562,6 +565,7 @@ jobs:
       - name: Helm repository deps
         run: |
           helm repo add bitnami https://charts.bitnami.com/bitnami
+          helm repo add joxit https://helm.joxit.dev
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

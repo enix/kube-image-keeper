@@ -129,6 +129,7 @@ jobs:
           ct lint \
             --charts helm/kube-image-keeper \
             --chart-repos bitnami=https://charts.bitnami.com/bitnami \
+            --chart-repos joxit=https://helm.joxit.dev \
             --validate-maintainers=false --check-version-increment=false
 
 # Need wait for the next release with flash --skip-clean-up
@@ -156,7 +157,7 @@ jobs:
         run: |
           set -euo pipefail
           kubectl create deploy nginx --image=nginx:stable-alpine --replicas=2
-          kubectl rollout status deploy nginx 
+          kubectl rollout status deploy nginx
           kubectl wait deployment nginx --for condition=Available=True --timeout=30s
           echo "kubectl get cachedimage"
           kubectl get cachedimages
@@ -198,7 +199,7 @@ jobs:
           set -euo pipefail
           ## Check for kuik's components metrics
           for component in proxy controllers
-          do 
+          do
             echo "Testing $component metrics endpoint"
             for ip in $(kubectl get po -l "app.kubernetes.io/component=$component" -n kuik-system -o jsonpath='{range .items[*]}{.status.podIP}{"\n"}{end}')
             do
@@ -269,6 +270,7 @@ jobs:
           ct lint \
             --charts helm/kube-image-keeper \
             --chart-repos bitnami=https://charts.bitnami.com/bitnami \
+            --chart-repos joxit=https://helm.joxit.dev \
             --validate-maintainers=false --check-version-increment=false
 
 # Need wait for the next release with flash --skip-clean-up
@@ -306,7 +308,7 @@ jobs:
         run: |
           set -euo pipefail
           kubectl create deploy nginx --image=nginx:stable-alpine --replicas=2
-          kubectl rollout status deploy nginx 
+          kubectl rollout status deploy nginx
           kubectl wait deployment nginx --for condition=Available=True --timeout=30s
           echo "kubectl get cachedimage"
           kubectl get cachedimages
@@ -348,7 +350,7 @@ jobs:
           set -euo pipefail
           ## Check for kuik's components metrics
           for component in proxy controllers
-          do 
+          do
             echo "Testing $component metrics endpoint"
             for ip in $(kubectl get po -l "app.kubernetes.io/component=$component" -n kuik-system -o jsonpath='{range .items[*]}{.status.podIP}{"\n"}{end}')
             do
@@ -374,4 +376,3 @@ jobs:
                fi
             done
           done
-
