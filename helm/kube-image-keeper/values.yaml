@@ -324,7 +324,7 @@ docker-registry-ui:
   enabled: false
   ui:
     proxy: true
-    dockerRegistryUrl: http://kube-image-keeper-registry:5000 
+    dockerRegistryUrl: http://kube-image-keeper-registry:5000
 
 minio:
   # -- If true, install minio as a local storage backend for the registry
