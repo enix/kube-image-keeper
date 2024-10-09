@@ -232,6 +232,10 @@ registry:
     deleteUntagged: false
     # -- Specify a nodeSelector for the garbage collector pod
     nodeSelector: {}
+    # -- Affinity for the garbage collector pod
+    affinity: {}
+    # -- Toleration for the garbage collector pod
+    tolerations: []
     # -- Deadline for the whole job
     activeDeadlineSeconds: 600
     # -- Resources settings for the garbage collector pod
