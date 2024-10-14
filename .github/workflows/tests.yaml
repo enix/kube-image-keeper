@@ -28,7 +28,7 @@ jobs:
         uses: webiny/action-conventional-commits@v1.3.0
 
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@0.25.0
+        uses: aquasecurity/trivy-action@0.27.0
         with:
           scan-type: 'fs'
           ignore-unfixed: true
