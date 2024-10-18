@@ -35,6 +35,7 @@ var (
 type ImageRewriter struct {
 	Client                 client.Client
 	IgnoreImages           []*regexp.Regexp
+	AcceptImages           []*regexp.Regexp
 	IgnorePullPolicyAlways bool
 	ProxyPort              int
 	Decoder                *admission.Decoder
@@ -167,6 +168,15 @@ func (a *ImageRewriter) isImageRewritable(container *corev1.Container) error {
 		if r.MatchString(container.Image) {
 			return fmt.Errorf("image matches %s", r.String())
 		}
+	}
+
+	if len(a.AcceptImages) > 0 {
+		for _, r := range a.AcceptImages {
+			if r.MatchString(container.Image) {
+				return nil
+			}
+		}
+		return fmt.Errorf("image does not match any existing rules (--accept-images not empty)")
 	}
 
 	return nil

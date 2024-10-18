@@ -78,6 +78,8 @@ controllers:
     ignoredNamespaces: []
     # -- Don't enable image caching if the image match the following regexes
     ignoredImages: []
+    # -- Enable image caching only if the image matches the following regexes (only applies when not empty)
+    acceptedImages: []
     # -- Don't enable image caching if the image is configured with imagePullPolicy: Always
     ignorePullPolicyAlways: true
     # -- If true, create the issuer used to issue the webhook certificate

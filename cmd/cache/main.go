@@ -39,6 +39,7 @@ func main() {
 	var expiryDelay uint
 	var proxyPort int
 	var ignoreImages internal.RegexpArrayFlags
+	var acceptImages internal.RegexpArrayFlags
 	var ignorePullPolicyAlways bool
 	var architectures internal.ArrayFlags
 	var maxConcurrentCachedImageReconciles int
@@ -52,6 +53,7 @@ func main() {
 	flag.UintVar(&expiryDelay, "expiry-delay", 30, "The delay in days before deleting an unused CachedImage.")
 	flag.IntVar(&proxyPort, "proxy-port", 8082, "The port on which the registry proxy accepts connections on each host.")
 	flag.Var(&ignoreImages, "ignore-images", "Regex that represents images to be excluded (this flag can be used multiple times).")
+	flag.Var(&acceptImages, "accept-images", "Regex that represents images to be whitelisted (this flag can be used multiple times).")
 	flag.BoolVar(&ignorePullPolicyAlways, "ignore-pull-policy-always", true, "Ignore containers that are configured with imagePullPolicy: Always")
 	flag.Var(&architectures, "arch", "Architecture of image to put in cache (this flag can be used multiple times).")
 	flag.StringVar(&registry.Endpoint, "registry-endpoint", "kube-image-keeper-registry:5000", "The address of the registry where cached images are stored.")
@@ -111,6 +113,7 @@ func main() {
 	imageRewriter := kuikenixiov1.ImageRewriter{
 		Client:                 mgr.GetClient(),
 		IgnoreImages:           ignoreImages,
+		AcceptImages:           acceptImages,
 		IgnorePullPolicyAlways: ignorePullPolicyAlways,
 		ProxyPort:              proxyPort,
 		Decoder:                admission.NewDecoder(mgr.GetScheme()),

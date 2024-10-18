@@ -48,6 +48,9 @@ spec:
             {{- range .Values.controllers.webhook.ignoredImages }}
             - -ignore-images={{- . }}
             {{- end }}
+            {{- range .Values.controllers.webhook.acceptedImages }}
+            - -accept-images={{- . }}
+            {{- end }}
             {{- range .Values.architectures }}
             - -arch={{- . }}
             {{- end }}
