@@ -115,6 +115,45 @@ func TestRewriteImagesWithIgnore(t *testing.T) {
 	})
 }
 
+func TestRewriteImagesWithAccept(t *testing.T) {
+	podStub := *podStub.DeepCopy()
+
+	g := NewWithT(t)
+	t.Run("Rewrite image", func(t *testing.T) {
+		ir := ImageRewriter{
+			ProxyPort: 4242,
+			AcceptImages: []*regexp.Regexp{
+				regexp.MustCompile("185.145.250.247\\:30042"),
+			},
+		}
+		ir.RewriteImages(&podStub, true)
+
+		rewrittenInitContainers := []corev1.Container{
+			{Name: "a", Image: "original-init"},
+		}
+
+		rewrittenContainers := []corev1.Container{
+			{Name: "b", Image: "original"},
+			{Name: "c", Image: "localhost:1313/original-2"},
+			{Name: "d", Image: "localhost:4242/185.145.250.247-30042/alpine"},
+			{Name: "e", Image: "localhost:4242/185.145.250.247-30042/alpine:latest"},
+			{Name: "f", Image: "invalid:image:8080"},
+		}
+
+		g.Expect(podStub.Spec.InitContainers).To(Equal(rewrittenInitContainers))
+		g.Expect(podStub.Spec.Containers).To(Equal(rewrittenContainers))
+
+		g.Expect(podStub.Labels[core.LabelManagedName]).To(Equal("true"))
+
+		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("a", true)]).To(Equal(""))
+		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("b", false)]).To(Equal(""))
+		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("c", false)]).To(Equal(""))
+		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("d", false)]).To(Equal("185.145.250.247:30042/alpine"))
+		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("e", false)]).To(Equal("185.145.250.247:30042/alpine:latest"))
+		g.Expect(podStub.Annotations[registry.ContainerAnnotationKey("f", false)]).To(Equal(""))
+	})
+}
+
 func Test_isImageRewritable(t *testing.T) {
 	emptyRegexps := []*regexp.Regexp{}
 	someRegexps := []*regexp.Regexp{
