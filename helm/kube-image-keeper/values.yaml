@@ -208,7 +208,7 @@ registry:
     # -- Registry image pull policy
     pullPolicy: IfNotPresent
     # -- Registry image tag
-    tag: "2.8.3"
+    tag: "2.8"
   # -- Number of replicas for the registry pod
   replicas: 1
   persistence:
