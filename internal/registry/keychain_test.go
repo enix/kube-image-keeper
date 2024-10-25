@@ -8,8 +8,10 @@ import (
 	"testing"
 
 	ecrLogin "github.com/awslabs/amazon-ecr-credential-helper/ecr-login"
+	"github.com/chrismellard/docker-credential-acr-env/pkg/credhelper"
 	"github.com/docker/cli/cli/config"
 	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/v1/google"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -118,28 +120,22 @@ func TestResolve(t *testing.T) {
 }
 
 func TestGetKeychains(t *testing.T) {
-	ecrHelper := authn.NewKeychainFromHelper(ecrLogin.NewECRHelper())
 	defaultKeychains := []authn.Keychain{
-		ecrHelper,
+		google.Keychain,
+		authn.NewKeychainFromHelper(credhelper.NewACRCredentialsHelper()),
 	}
-	dockerHubKeychains := []authn.Keychain{
-		ecrHelper,
-		&authConfigKeychain{
-			AuthConfig: authn.AuthConfig{
-				Username: "login",
-				Password: "password",
-			},
+	dockerHubKeychains := append(defaultKeychains, &authConfigKeychain{
+		AuthConfig: authn.AuthConfig{
+			Username: "login",
+			Password: "password",
 		},
-	}
-	localKeychains := []authn.Keychain{
-		ecrHelper,
-		&authConfigKeychain{
-			AuthConfig: authn.AuthConfig{
-				Username: "locallogin",
-				Password: "localpassword",
-			},
+	})
+	localKeychains := append(defaultKeychains, &authConfigKeychain{
+		AuthConfig: authn.AuthConfig{
+			Username: "locallogin",
+			Password: "localpassword",
 		},
-	}
+	})
 
 	tests := []struct {
 		name              string
@@ -256,6 +252,18 @@ func TestGetKeychains(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("Not from Amazon ECR", func(t *testing.T) {
+		keychains, err := GetKeychains("alpine", []corev1.Secret{})
+		g.Expect(err).To(BeNil())
+		g.Expect(keychains).ToNot(ContainElement(authn.NewKeychainFromHelper(ecrLogin.NewECRHelper())))
+	})
+
+	t.Run("From Amazon ECR", func(t *testing.T) {
+		keychains, err := GetKeychains("000000000000.dkr.ecr.eu-west-1.amazonaws.com/some-image", []corev1.Secret{})
+		g.Expect(err).To(BeNil())
+		g.Expect(keychains).To(ContainElement(authn.NewKeychainFromHelper(ecrLogin.NewECRHelper())))
+	})
 }
 
 func TestGetPullSecrets(t *testing.T) {
