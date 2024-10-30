@@ -222,7 +222,7 @@ registry:
     storageClass: null
     # -- Registry persistent volume size
     size: 20Gi
-    # -- External S3 configuration (needed only if you don't enable minio) (see https://github.com/docker/docs/blob/main/registry/storage-drivers/s3.md)
+    # -- External S3 configuration (needed only if you don't enable minio) (see https://github.com/distribution/distribution/blob/main/docs/content/storage-drivers/s3.md)
     s3: {}
     s3ExistingSecret: ""
     # -- Disable blobs redirection to S3 bucket (useful if your S3 instance is not accessible from kubelet)
@@ -231,6 +231,9 @@ registry:
     gcs: {}
     # use service account secret in JSON format
     gcsExistingSecret: ""
+    # -- Azure configuration (see https://github.com/distribution/distribution/blob/main/docs/content/storage-drivers/azure.md)
+    azure: {}
+    azureExistingSecret: ""
   garbageCollection:
     # -- Garbage collector cron schedule. Use standard crontab format.
     schedule: "0 0 * * 0"

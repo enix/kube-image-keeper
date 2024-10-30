@@ -48,15 +48,19 @@ spec:
                   key: secret
             - name: REGISTRY_STORAGE_DELETE_ENABLED
               value: "true"
-            {{- if (not (empty .Values.registry.persistence.s3))}}
+            {{- if (not (empty .Values.registry.persistence.s3)) }}
             - name: REGISTRY_STORAGE
               value: s3
             {{- end}}
-            {{- if (not (empty .Values.registry.persistence.gcs))}}
+            {{- if (not (empty .Values.registry.persistence.gcs)) }}
             - name: REGISTRY_STORAGE
               value: gcs
             - name: REGISTRY_STORAGE_GCS_KEYFILE
               value: "/etc/registry/keys/credentials.json"
+            {{- end}}
+            {{- if (not (empty .Values.registry.persistence.azure)) }}
+            - name: REGISTRY_STORAGE
+              value: azure
             {{- end}}
             {{- if .Values.registry.serviceMonitor.create }}
             - name: REGISTRY_HTTP_DEBUG_ADDR
@@ -78,8 +82,12 @@ spec:
             - name: {{ printf "%s_%s" "REGISTRY_STORAGE_S3" ($k | upper) }}
               value: {{ $v | quote }}
             {{- end }}
-            {{- range $k, $v := omit .Values.registry.persistence.gcs }}
+            {{- range $k, $v := .Values.registry.persistence.gcs }}
             - name: {{ printf "%s_%s" "REGISTRY_STORAGE_GCS" ($k | upper) }}
+              value: {{ $v | quote }}
+            {{- end }}
+            {{- range $k, $v := omit .Values.registry.persistence.azure "accountname" "accountkey" }}
+            - name: {{ printf "%s_%s" "REGISTRY_STORAGE_AZURE" ($k | upper) }}
               value: {{ $v | quote }}
             {{- end }}
             {{- if .Values.registry.persistence.disableS3Redirections }}
@@ -99,6 +107,19 @@ spec:
                 secretKeyRef:
                   name: {{ $s3KeysSecretName }}
                   key: secretKey
+            {{- end }}
+            {{- if (not (empty .Values.registry.persistence.azureExistingSecret)) }}
+            {{ $azureKeysSecretName := .Values.registry.persistence.azureExistingSecret | default "kube-image-keeper-s3-registry-keys" }}
+            - name: REGISTRY_STORAGE_AZURE_ACCOUNTNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $azureKeysSecretName }}
+                  key: accountname
+            - name: REGISTRY_STORAGE_AZURE_ACCOUNTKEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $azureKeysSecretName }}
+                  key: accountkey
             {{- end }}
             {{- range .Values.registry.env }}
             - name: {{ .name }}
