@@ -16,6 +16,7 @@ The registry supports various storage solutions, some of which enable high avail
 | MinIO         |      Yes      | `minio.enabled=true`                |
 | S3-compatible |      Yes      | `registry.persistence.s3=...`       |
 | GCS           |      Yes      | `registry.persistence.gcs=...`      |
+| Azure         |      Yes      | `registry.persistence.azure=...`    |
 
 HA-compatible backends uses a deployment whereas other backends relies on a statefulset.
 
@@ -95,6 +96,28 @@ kubectl create secret generic secret-name \
         --from-literal=credentials.json=${GCS_KEY}
 ```
 
+### Azure
+
+Microsoft Azure can also be used as a storage backend for the registry. Here is an example of values to use Azure:
+
+```yaml
+registry:
+  persistence:
+    azureExistingSecret: secret-name
+    azure:
+      container: registry
+```
+
+Please refer to the [Docker registry documentation](https://distribution.github.io/distribution/about/configuration/) for more details.
+
+Note that you will need to create a Secret holding the associated service account secret:
+
+```
+kubectl create secret generic secret-name \
+        --from-literal=accountname=${ACCOUNTNAME} \
+        --from-literal=accountkey=${ACCOUNTKEY}
+```
+
 ## MinIO
 
 The kuik Helm chart has an optional dependency on the [bitnami MinIO chart](https://artifacthub.io/packages/helm/bitnami/minio). The subchart can be enabled by setting `minio.enabled` to `true`, and it can be configured by passing values under the `minio.*` path; for instance, with the following values YAML:
@@ -126,4 +149,3 @@ kubectl create secret generic minio-root-auth \
 It is NOT necessary to set `registry.persistence.enabled` to `true` to enable persistence through MinIO.
 
 It is NOT necessary to configure the S3 endpoint when using this solution as it will be configured automatically by the chart.
-
