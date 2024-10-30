@@ -6,6 +6,7 @@ import (
 
 	ecrLogin "github.com/awslabs/amazon-ecr-credential-helper/ecr-login"
 	"github.com/awslabs/amazon-ecr-credential-helper/ecr-login/api"
+	"github.com/chrismellard/docker-credential-acr-env/pkg/credhelper"
 	"github.com/distribution/reference"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/v1/google"
@@ -57,6 +58,7 @@ func GetKeychains(repositoryName string, pullSecrets []corev1.Secret) ([]authn.K
 		keychains = append(keychains, authn.NewKeychainFromHelper(ecrLogin.NewECRHelper()))
 	}
 	keychains = append(keychains, google.Keychain)
+	keychains = append(keychains, authn.NewKeychainFromHelper(credhelper.NewACRCredentialsHelper()))
 
 	return keychains, nil
 }
