@@ -100,7 +100,7 @@ jobs:
     strategy:
       max-parallel: 6
       matrix:
-        k8sversion: ["v1.24.17", "v1.25.16", "v1.26.14", "v1.27.11", "v1.28.7", "v1.29.2"]
+        k8sversion: ["v1.24.17", "v1.25.16", "v1.26.15", "v1.27.16", "v1.28.13", "v1.29.8", "v1.30.4", "v1.31.0"]
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -241,7 +241,7 @@ jobs:
     strategy:
       max-parallel: 6
       matrix:
-        k8sversion: ["v1.24.17", "v1.25.16", "v1.26.14", "v1.27.11", "v1.28.7", "v1.29.2"]
+        k8sversion: ["v1.24.17", "v1.25.16", "v1.26.15", "v1.27.16", "v1.28.13", "v1.29.8", "v1.30.4", "v1.31.0"]
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
