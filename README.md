@@ -67,7 +67,7 @@ We investigated other options, and we didn't find any that would quite fit our r
 
 ## Supported Kubernetes versions
 
-kuik has been developed for, and tested with, Kubernetes 1.24 to 1.28; but the code doesn't use any deprecated (or new) feature or API, and should work with newer versions as well.
+kuik has been developed for, and tested with, Kubernetes 1.24 to 1.30; but the code doesn't use any deprecated (or new) feature or API, and should work with newer versions as well.
 
 ## How it works
 
