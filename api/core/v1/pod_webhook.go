@@ -126,14 +126,14 @@ func (a *ImageRewriter) handleContainer(pod *corev1.Pod, container *corev1.Conta
 		} // ignore rewriting invalid images
 	}
 
-	pod.Annotations[annotationKey] = image
-
 	if !rewriteImage {
 		return RewrittenImage{
 			Original:            container.Image,
 			NotRewrittenBecause: "pod doesn't allow to rewrite its images",
 		}
 	}
+
+	pod.Annotations[annotationKey] = image
 
 	sanitizedRegistryName := strings.ReplaceAll(sourceRef.Context().RegistryStr(), ":", "-")
 	image = strings.ReplaceAll(image, sourceRef.Context().RegistryStr(), sanitizedRegistryName)
