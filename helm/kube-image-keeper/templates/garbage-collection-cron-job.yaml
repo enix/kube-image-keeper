@@ -1,3 +1,4 @@
+{{- if .Values.registry.garbageCollection.enabled }}
 {{- if and .Values.registry.garbageCollection.schedule (or .Values.registry.persistence.enabled (eq (include "kube-image-keeper.registry-stateless-mode" .) "true")) }}
 {{- if semverCompare ">=1.21-0" (default .Capabilities.KubeVersion.Version .Values.kubeVersion) -}}
 apiVersion: batch/v1
@@ -60,4 +61,5 @@ spec:
                   kubectl rollout restart sts {{ include "kube-image-keeper.fullname" . }}-registry
                   kubectl rollout status sts {{ include "kube-image-keeper.fullname" . }}-registry
                   {{- end }}
+{{- end }}
 {{- end }}

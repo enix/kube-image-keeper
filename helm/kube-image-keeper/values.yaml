@@ -235,6 +235,7 @@ registry:
     azure: {}
     azureExistingSecret: ""
   garbageCollection:
+    enabled: true
     # -- Garbage collector cron schedule. Use standard crontab format.
     schedule: "0 0 * * 0"
     # -- If true, delete untagged manifests. Default to false since there is a known bug in **docker distribution** garbage collect job.
