@@ -48,7 +48,7 @@ spec:
                   key: secret
             - name: REGISTRY_STORAGE_DELETE_ENABLED
               value: "true"
-            {{- if (not (empty .Values.registry.persistence.s3)) }}
+            {{- if or (not (empty .Values.registry.persistence.s3)) .Values.minio.enabled }}
             - name: REGISTRY_STORAGE
               value: s3
             {{- end}}
