@@ -95,7 +95,7 @@ spec:
               value: "true"
             {{- end }}
             {{- end }}
-            {{- if (not (empty .Values.registry.persistence.s3ExistingSecret)) }}
+            {{- if or (not (empty .Values.registry.persistence.s3ExistingSecret)) .Values.minio.enabled }}
             {{ $s3KeysSecretName := .Values.registry.persistence.s3ExistingSecret | default "kube-image-keeper-s3-registry-keys" }}
             - name: REGISTRY_STORAGE_S3_ACCESSKEY
               valueFrom:
