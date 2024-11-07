@@ -1,9 +1,4 @@
 {{- if eq (include "kube-image-keeper.registry-stateless-mode" .) "false" }}
-
-{{- if and (gt (int .Values.registry.replicas) 1) (ne .Values.registry.persistence.accessModes "ReadWriteMany") -}}
-{{ fail "registry needs a configured S3 endpoint or a PVC which supports ReadWriteMany to enable HA mode (>1 replicas), please enable minio or configure an external S3 endpoint" }}
-{{- end }}
-
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
