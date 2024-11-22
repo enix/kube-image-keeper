@@ -210,6 +210,27 @@ Keep in mind that kuik will ignore pods scheduled into its own namespace or in t
 > [...]
 > Accidentally mutating or rejecting requests in the kube-system namespace may cause the control plane components to stop functioning or introduce unknown behavior.
 
+### Image filtering
+
+Once pods have been filtered, you can filter images present in those pods using `.controllers.webhook.ignoredImages` and `.controllers.webhook.acceptedImages` regexps. Images matching ignored patterns will be removed from the list, and then only images matching accepted patterns (if some are defined) will be rewritten. For instance, given a list of images and a image filtering configuration:
+
+- `docker.io/library/nginx:stable-alpine`
+- `docker.io/library/nginx:1.27`
+- `nixery.dev/curl/kubectl`
+
+```yaml
+controllers:
+  webhook:
+    ignoredImages:
+      - "^.+:[\\w-]*alpine[\\w-]*$"
+    acceptedImages:
+      - "^docker\\.io/.*"
+```
+
+Performing the "ignore" step will remove the matching `docker.io/library/nginx:stable-alpine` image. And performing the accept step will remove the not matching `nixery.dev/curl/kubectl` image. Leaving us with only the `docker.io/library/nginx:1.27` image.
+
+In the case of an empty `acceptedImages`, all images are accepted. In the case of an empty `ignoredImages`, none is ignored.
+
 #### Image pull policy
 
 In the case of a container configured with `imagePullPolicy: Never`, the container will always be filtered out as it makes no sense to cache an image that would never be cached and always read from the disk.
