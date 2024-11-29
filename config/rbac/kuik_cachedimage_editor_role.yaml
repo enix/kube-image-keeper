@@ -3,13 +3,9 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   labels:
-    app.kubernetes.io/name: clusterrole
-    app.kubernetes.io/instance: cachedimage-editor-role
-    app.kubernetes.io/component: rbac
-    app.kubernetes.io/created-by: kube-image-keeper
-    app.kubernetes.io/part-of: kube-image-keeper
+    app.kubernetes.io/name: kube-image-keeper
     app.kubernetes.io/managed-by: kustomize
-  name: cachedimage-editor-role
+  name: kuik-cachedimage-editor-role
 rules:
 - apiGroups:
   - kuik.enix.io

@@ -24,7 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
-//+kubebuilder:webhook:path=/mutate-core-v1-pod,mutating=true,failurePolicy=fail,sideEffects=None,groups=core,resources=pods,verbs=create;update,versions=v1,name=mpod.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate-core-v1-pod,mutating=true,failurePolicy=fail,sideEffects=None,groups=core,resources=pods,verbs=create;update,versions=v1,name=mpod.kb.io,admissionReviewVersions=v1
 
 var (
 	errImageContainsDigests = errors.New("image contains a digest")
@@ -38,7 +38,7 @@ type ImageRewriter struct {
 	AcceptImages           []*regexp.Regexp
 	IgnorePullPolicyAlways bool
 	ProxyPort              int
-	Decoder                *admission.Decoder
+	Decoder                admission.Decoder
 }
 
 type PodInitializer struct {

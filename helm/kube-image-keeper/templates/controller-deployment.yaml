@@ -42,6 +42,7 @@ spec:
             - -expiry-delay={{ .Values.cachedImagesExpiryDelay }}
             - -proxy-port={{ .Values.proxy.hostPort }}
             - -registry-endpoint={{ include "kube-image-keeper.fullname" . }}-registry:5000
+            - -metrics-bind-address=:8080
             - -max-concurrent-cached-image-reconciles={{ .Values.controllers.maxConcurrentCachedImageReconciles }}
             - -zap-log-level={{ .Values.controllers.verbosity }}
             - -ignore-pull-policy-always={{- .Values.controllers.webhook.ignorePullPolicyAlways }}

@@ -12,6 +12,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 )
@@ -56,7 +57,7 @@ var (
 		Name:      "up",
 		Help:      "Whether or not this replica is healthy.",
 	}, func() float64 {
-		if err := Healthz(); err != nil {
+		if err := healthz.Ping(nil); err != nil {
 			return 0
 		}
 		return 1
