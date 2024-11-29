@@ -2,4 +2,4 @@
 resources:
 - kuik_v1alpha1_cachedimage.yaml
 - kuik_v1alpha1_repository.yaml
-#+kubebuilder:scaffold:manifestskustomizesamples
+# +kubebuilder:scaffold:manifestskustomizesamples

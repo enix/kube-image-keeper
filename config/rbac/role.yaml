@@ -49,31 +49,6 @@ rules:
   - kuik.enix.io
   resources:
   - cachedimages
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - kuik.enix.io
-  resources:
-  - cachedimages/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - kuik.enix.io
-  resources:
-  - cachedimages/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - kuik.enix.io
-  resources:
   - repositories
   verbs:
   - create
@@ -86,12 +61,14 @@ rules:
 - apiGroups:
   - kuik.enix.io
   resources:
+  - cachedimages/finalizers
   - repositories/finalizers
   verbs:
   - update
 - apiGroups:
   - kuik.enix.io
   resources:
+  - cachedimages/status
   - repositories/status
   verbs:
   - get
