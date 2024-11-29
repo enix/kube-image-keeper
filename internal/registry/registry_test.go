@@ -72,9 +72,9 @@ func Test_parseLocalReference(t *testing.T) {
 		},
 	}
 
-	g := NewWithT(t)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
 			reference, err := parseLocalReference(tt.image)
 
 			if tt.wantErr != "" {
@@ -122,9 +122,9 @@ func Test_ImageIsCached(t *testing.T) {
 		},
 	}
 
-	g := NewWithT(t)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
 			gh := ghttp.NewGHTTPWithGomega(g)
 			server := ghttp.NewServer()
 			defer server.Close()
@@ -193,9 +193,9 @@ func Test_DeleteImage(t *testing.T) {
 		},
 	}
 
-	g := NewWithT(t)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
 			gh := ghttp.NewGHTTPWithGomega(g)
 			server := ghttp.NewServer()
 			defer server.Close()
@@ -250,9 +250,9 @@ func Test_CacheImage(t *testing.T) {
 		},
 	}
 
-	g := NewWithT(t)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
 			gh := ghttp.NewGHTTPWithGomega(g)
 
 			digestSha := "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
@@ -369,9 +369,9 @@ func TestSanitizeName(t *testing.T) {
 		},
 	}
 
-	g := NewWithT(t)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
 			label := SanitizeName(tt.image)
 			g.Expect(label).To(Equal(tt.expectedSanitizedImage))
 		})
@@ -406,9 +406,9 @@ func TestRepositoryLabel(t *testing.T) {
 		},
 	}
 
-	g := NewWithT(t)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
 			label := RepositoryLabel(tt.repositoryName)
 			g.Expect(label).To(Equal(tt.expectedLabel))
 		})
@@ -462,9 +462,9 @@ func TestContainerAnnotationKey(t *testing.T) {
 		},
 	}
 
-	g := NewWithT(t)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
 			annotationKey := ContainerAnnotationKey(tt.containerName, tt.initContainer)
 			g.Expect(annotationKey).To(Equal(tt.expectedAnnotationKey))
 		})

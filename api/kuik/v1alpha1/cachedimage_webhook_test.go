@@ -11,7 +11,6 @@ import (
 func TestDefault(t *testing.T) {
 	cachedImageStub := CachedImage{}
 
-	g := NewWithT(t)
 	tests := []struct {
 		name                    string
 		sourceImage             string
@@ -37,6 +36,7 @@ func TestDefault(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
 			cachedImage := cachedImageStub.DeepCopy()
 			cachedImage.Spec.SourceImage = tt.sourceImage
 

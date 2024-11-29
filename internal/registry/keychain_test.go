@@ -234,9 +234,9 @@ func TestGetKeychains(t *testing.T) {
 		},
 	}
 
-	g := NewWithT(t)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
 			if tt.repositoryName == "" {
 				tt.repositoryName = "alpine"
 			}
@@ -254,12 +254,14 @@ func TestGetKeychains(t *testing.T) {
 	}
 
 	t.Run("Not from Amazon ECR", func(t *testing.T) {
+		g := NewWithT(t)
 		keychains, err := GetKeychains("alpine", []corev1.Secret{})
 		g.Expect(err).To(BeNil())
 		g.Expect(keychains).ToNot(ContainElement(authn.NewKeychainFromHelper(ecrLogin.NewECRHelper())))
 	})
 
 	t.Run("From Amazon ECR", func(t *testing.T) {
+		g := NewWithT(t)
 		keychains, err := GetKeychains("000000000000.dkr.ecr.eu-west-1.amazonaws.com/some-image", []corev1.Secret{})
 		g.Expect(err).To(BeNil())
 		g.Expect(keychains).To(ContainElement(authn.NewKeychainFromHelper(ecrLogin.NewECRHelper())))
@@ -308,9 +310,9 @@ func TestGetPullSecrets(t *testing.T) {
 		},
 	}
 
-	g := NewWithT(t)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
 			namespace := make([]byte, 10)
 			rand.Read(namespace)
 

@@ -35,8 +35,8 @@ var podStub = corev1.Pod{
 func TestRewriteImages(t *testing.T) {
 	podStub := *podStub.DeepCopy()
 
-	g := NewWithT(t)
 	t.Run("Rewrite image", func(t *testing.T) {
+		g := NewWithT(t)
 		ir := ImageRewriter{
 			ProxyPort: 4242,
 		}
@@ -78,8 +78,8 @@ func TestRewriteImages(t *testing.T) {
 func TestRewriteImagesWithIgnore(t *testing.T) {
 	podStub := *podStub.DeepCopy()
 
-	g := NewWithT(t)
 	t.Run("Rewrite image", func(t *testing.T) {
+		g := NewWithT(t)
 		ir := ImageRewriter{
 			ProxyPort: 4242,
 			IgnoreImages: []*regexp.Regexp{
@@ -118,8 +118,8 @@ func TestRewriteImagesWithIgnore(t *testing.T) {
 func TestRewriteImagesWithAccept(t *testing.T) {
 	podStub := *podStub.DeepCopy()
 
-	g := NewWithT(t)
 	t.Run("Rewrite image", func(t *testing.T) {
+		g := NewWithT(t)
 		ir := ImageRewriter{
 			ProxyPort: 4242,
 			AcceptImages: []*regexp.Regexp{
@@ -233,9 +233,9 @@ func Test_isImageRewritable(t *testing.T) {
 		},
 	}
 
-	g := NewWithT(t)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
 			imageRewriter := ImageRewriter{
 				IgnoreImages:           tt.regexps,
 				IgnorePullPolicyAlways: tt.ignorePullPolicyAlways,
