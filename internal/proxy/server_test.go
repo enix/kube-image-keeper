@@ -89,9 +89,9 @@ func Test_handleOriginRegistryPort(t *testing.T) {
 		},
 	}
 
-	g := NewWithT(t)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
 			originRegistry := handleOriginRegistryPort(tt.originRegistry)
 			g.Expect(originRegistry).To(Equal(tt.expectedOutput))
 		})

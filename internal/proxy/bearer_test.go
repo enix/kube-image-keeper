@@ -35,9 +35,9 @@ func Test_parseWwwAuthenticate(t *testing.T) {
 		},
 	}
 
-	g := NewWithT(t)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
 			wwwAuthenticateHeader := fmt.Sprintf("Bearer realm=\"%s\",service=\"%s\",scope=\"%s\"", tt.realm, tt.service, tt.scope)
 			wwwAuthenticate := parseWwwAuthenticate(wwwAuthenticateHeader)
 			g.Expect(wwwAuthenticate).To(Not(BeNil()))
@@ -93,9 +93,9 @@ func TestNewBearer(t *testing.T) {
 		},
 	}
 
-	g := NewWithT(t)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
 			gh := ghttp.NewGHTTPWithGomega(g)
 			server := ghttp.NewServer()
 			defer server.Close()
@@ -167,6 +167,7 @@ func TestNewBearer(t *testing.T) {
 	}
 
 	t.Run("Fail on first request", func(t *testing.T) {
+		g := NewWithT(t)
 		_, err := NewBearer("http://localhost:100000", "/")
 		g.Expect(err).To(HaveOccurred())
 		g.Expect(err.Error()).To(ContainSubstring("invalid port"))
@@ -174,19 +175,21 @@ func TestNewBearer(t *testing.T) {
 }
 
 func TestGetToken(t *testing.T) {
-	g := NewWithT(t)
 	bearer := &Bearer{AccessToken: "my-access-token"}
 
 	t.Run("Token set", func(t *testing.T) {
+		g := NewWithT(t)
 		g.Expect(bearer.GetToken()).To(Equal(bearer.AccessToken))
 	})
 
 	t.Run("Token and AccessToken set", func(t *testing.T) {
+		g := NewWithT(t)
 		bearer.Token = "my-token"
 		g.Expect(bearer.GetToken()).To(Equal(bearer.Token))
 	})
 
 	t.Run("AccessToken set", func(t *testing.T) {
+		g := NewWithT(t)
 		bearer.AccessToken = ""
 		g.Expect(bearer.GetToken()).To(Equal(bearer.Token))
 	})
