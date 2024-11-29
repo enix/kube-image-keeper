@@ -26,6 +26,8 @@ jobs:
       actions: read
       contents: read
     runs-on: ubuntu-22.04
+    env:
+      TRIVY_DB_REPOSITORY: "public.ecr.aws/aquasecurity/trivy-db:2"
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
