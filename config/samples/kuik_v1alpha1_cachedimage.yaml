@@ -1,9 +1,0 @@
-apiVersion: kuik.enix.io/v1alpha1
-kind: CachedImage
-metadata:
-  labels:
-    app.kubernetes.io/name: kube-image-keeper
-    app.kubernetes.io/managed-by: kustomize
-  name: cachedimage-sample
-spec:
-  # TODO(user): Add fields here

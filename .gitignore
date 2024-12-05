@@ -32,3 +32,6 @@ helm/**/charts/*.tgz
 
 # generated helm README template
 helm/**/README.md.gotmpl
+
+# kustomize resources
+config
