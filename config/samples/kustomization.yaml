@@ -1,5 +1,0 @@
-## Append samples of your project ##
-resources:
-- kuik_v1alpha1_cachedimage.yaml
-- kuik_v1alpha1_repository.yaml
-# +kubebuilder:scaffold:manifestskustomizesamples
