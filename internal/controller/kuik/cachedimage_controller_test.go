@@ -7,8 +7,9 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var _ = Describe("CachedImage Controller", func() {
@@ -22,7 +23,7 @@ var _ = Describe("CachedImage Controller", func() {
 
 			By("Creating an image without the retain flag", func() {
 				Expect(k8sClient.Create(context.Background(), &kuikv1alpha1.CachedImage{
-					ObjectMeta: v1.ObjectMeta{
+					ObjectMeta: metav1.ObjectMeta{
 						Name: "nginx",
 					},
 					Spec: kuikv1alpha1.CachedImageSpec{
@@ -44,13 +45,13 @@ var _ = Describe("CachedImage Controller", func() {
 
 			By("Creating an expiring image with the retain flag", func() {
 				Expect(k8sClient.Create(context.Background(), &kuikv1alpha1.CachedImage{
-					ObjectMeta: v1.ObjectMeta{
+					ObjectMeta: metav1.ObjectMeta{
 						Name: "alpine",
 					},
 					Spec: kuikv1alpha1.CachedImageSpec{
 						SourceImage: "alpine",
 						Retain:      true,
-						ExpiresAt:   &v1.Time{Time: time.Now().Add(time.Hour)},
+						ExpiresAt:   &metav1.Time{Time: time.Now().Add(time.Hour)},
 					},
 				})).Should(Succeed())
 

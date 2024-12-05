@@ -6,7 +6,7 @@ import (
 
 var RepositoryLabelName = "kuik.enix.io/repository"
 
-// CachedImageSpec defines the desired state of CachedImage
+// CachedImageSpec defines the desired state of CachedImage.
 type CachedImageSpec struct {
 	// SourceImage is the path of the image to cache
 	SourceImage string `json:"sourceImage"`
@@ -33,7 +33,7 @@ type UsedBy struct {
 	Count int `json:"count,omitempty"`
 }
 
-// CachedImageStatus defines the observed state of CachedImage
+// CachedImageStatus defines the observed state of CachedImage.
 type CachedImageStatus struct {
 	// IsCached indicate whether the image is already cached or not
 	IsCached bool `json:"isCached,omitempty"`
@@ -59,17 +59,17 @@ type CachedImageStatus struct {
 	LastSeenUpstream metav1.Time `json:"lastSeenUpstream,omitempty"`
 }
 
-//+kubebuilder:object:root=true
-//+kubebuilder:subresource:status
-//+kubebuilder:resource:scope=Cluster,shortName=ci
-//+kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.phase"
-//+kubebuilder:printcolumn:name="Cached",type="boolean",JSONPath=".status.isCached"
-//+kubebuilder:printcolumn:name="Retain",type="boolean",JSONPath=".spec.retain"
-//+kubebuilder:printcolumn:name="Expires at",type="string",JSONPath=".spec.expiresAt"
-//+kubebuilder:printcolumn:name="Pods count",type="integer",JSONPath=".status.usedBy.count"
-//+kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:resource:scope=Cluster,shortName=ci
+// +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.phase"
+// +kubebuilder:printcolumn:name="Cached",type="boolean",JSONPath=".status.isCached"
+// +kubebuilder:printcolumn:name="Retain",type="boolean",JSONPath=".spec.retain"
+// +kubebuilder:printcolumn:name="Expires at",type="string",JSONPath=".spec.expiresAt"
+// +kubebuilder:printcolumn:name="Pods count",type="integer",JSONPath=".status.usedBy.count"
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
-// CachedImage is the Schema for the cachedimages API
+// CachedImage is the Schema for the cachedimages API.
 type CachedImage struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -78,9 +78,9 @@ type CachedImage struct {
 	Status CachedImageStatus `json:"status,omitempty"`
 }
 
-//+kubebuilder:object:root=true
+// +kubebuilder:object:root=true
 
-// CachedImageList contains a list of CachedImage
+// CachedImageList contains a list of CachedImage.
 type CachedImageList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
