@@ -74,7 +74,7 @@ spec:
                 description: UpdateInterval is the interval in human readable format
                   (1m, 1h, 1d...) at which matched CachedImages from this Repository
                   are updated (see spec.UpdateFilters)
-                type: string
+                type: object
             required:
             - name
             type: object

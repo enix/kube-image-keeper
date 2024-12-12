@@ -11,7 +11,7 @@ import (
 )
 
 type DurationOverride struct {
-	time.Duration `protobuf:"varint,1,opt,name=duration,casttype=time.Duration"`
+	time.Duration `json:"-" protobuf:"varint,1,opt,name=duration,casttype=time.Duration"`
 }
 
 // This re-implements metav1.Duration' UnmarshalJSON and adds support for a 'd' (days) suffix
