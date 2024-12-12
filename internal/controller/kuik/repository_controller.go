@@ -2,6 +2,8 @@ package kuik
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"regexp"
 	"time"
 
@@ -149,6 +151,10 @@ func (r *RepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	if repository.Spec.UpdateInterval != nil {
+		if repository.Spec.UpdateInterval.Duration <= 0 {
+			return ctrl.Result{}, errors.New(fmt.Sprintf("invalid UpdateInterval: %s",
+				repository.Spec.UpdateInterval.String()))
+		}
 		nextUpdate := repository.Status.LastUpdate.Add(repository.Spec.UpdateInterval.Duration)
 		if time.Now().After(nextUpdate) {
 			log.Info("updating repository")

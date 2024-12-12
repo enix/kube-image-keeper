@@ -1,8 +1,49 @@
 package v1alpha1
 
 import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strconv"
+	"time"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+type DurationOverride struct {
+	time.Duration `protobuf:"varint,1,opt,name=duration,casttype=time.Duration"`
+}
+
+// This re-implements metav1.Duration' UnmarshalJSON and adds support for a 'd' (days) suffix
+func (d *DurationOverride) UnmarshalJSON(b []byte) error {
+	var str string
+
+	err := json.Unmarshal(b, &str)
+	if err != nil {
+		return err
+	}
+
+	uidx := len(str) - 1 // last char in str
+	if uidx < 1 {
+		return errors.New(fmt.Sprintf("Can't parse interval: %s", str))
+	}
+
+	if string(str[uidx]) == "d" {
+		days, err := strconv.ParseInt(string(str[:uidx]), 10, 64)
+		if err != nil {
+			return err
+		}
+		d.Duration = time.Duration(days) * 24 * time.Hour
+		return nil
+	}
+
+	pd, err := time.ParseDuration(str)
+	if err != nil {
+		return err
+	}
+	d.Duration = pd
+	return nil
+}
 
 // RepositorySpec defines the desired state of Repository
 type RepositorySpec struct {
@@ -13,7 +54,7 @@ type RepositorySpec struct {
 	// PullSecretsNamespace is the namespace where pull secrets can be found for CachedImages of this Repository
 	PullSecretsNamespace string `json:"pullSecretsNamespace,omitempty"`
 	// UpdateInterval is the interval in human readable format (1m, 1h, 1d...) at which matched CachedImages from this Repository are updated (see spec.UpdateFilters)
-	UpdateInterval *metav1.Duration `json:"updateInterval,omitempty"`
+	UpdateInterval *DurationOverride `json:"updateInterval,omitempty"`
 	// UpdateFilters is a list of regexps that need to match (at least one of them) the .spec.SourceImage of a CachedImage from this Repository to update it at regular interval
 	UpdateFilters []string `json:"updateFilters,omitempty"`
 }
