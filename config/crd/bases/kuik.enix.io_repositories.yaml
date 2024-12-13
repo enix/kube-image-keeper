@@ -73,8 +73,8 @@ spec:
                 type: array
               updateInterval:
                 description: UpdateInterval is the interval in human readable format
-                  (1m, 1h, 1d...) at which matched CachedImages from this Repository
-                  are updated (see spec.UpdateFilters)
+                  (1m, 1h...) at which matched CachedImages from this Repository are
+                  updated (see spec.UpdateFilters)
                 type: string
             required:
             - name

@@ -12,7 +12,7 @@ type RepositorySpec struct {
 	PullSecretNames []string `json:"pullSecretNames,omitempty"`
 	// PullSecretsNamespace is the namespace where pull secrets can be found for CachedImages of this Repository
 	PullSecretsNamespace string `json:"pullSecretsNamespace,omitempty"`
-	// UpdateInterval is the interval in human readable format (1m, 1h, 1d...) at which matched CachedImages from this Repository are updated (see spec.UpdateFilters)
+	// UpdateInterval is the interval in human readable format (1m, 1h...) at which matched CachedImages from this Repository are updated (see spec.UpdateFilters)
 	UpdateInterval *metav1.Duration `json:"updateInterval,omitempty"`
 	// UpdateFilters is a list of regexps that need to match (at least one of them) the .spec.SourceImage of a CachedImage from this Repository to update it at regular interval
 	UpdateFilters []string `json:"updateFilters,omitempty"`
