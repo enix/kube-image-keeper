@@ -16,7 +16,7 @@ require (
 	github.com/google/go-containerregistry v0.20.2
 	github.com/gruntwork-io/terratest v0.47.2
 	github.com/onsi/ginkgo/v2 v2.21.0
-	github.com/onsi/gomega v1.35.1
+	github.com/onsi/gomega v1.36.1
 	github.com/prometheus/client_golang v1.20.5
 	github.com/stretchr/testify v1.9.0
 	go.uber.org/automaxprocs v1.6.0
