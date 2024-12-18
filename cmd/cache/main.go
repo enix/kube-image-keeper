@@ -154,7 +154,6 @@ func main() {
 		kuikController.SetLeader(true)
 	}()
 
-	kuikController.ProbeAddr = probeAddr
 	kuikController.RegisterMetrics(mgr.GetClient())
 
 	setupLog.Info("starting manager")
