@@ -18,9 +18,12 @@ And if you enabled minio to provide an S3-compatible storage for the registry, y
 |--------|-------------|
 | kube_image_keeper_controller_build_info | Provide informations about controller version |
 | kube_image_keeper_controller_cached_images | Count of all cached images expired or not |
+| kube_image_keeper_controller_containers_with_cached_image | Number of containers that have been rewritten to use a cached image |
+| kube_image_keeper_controller_image_caching_request | Number of request to cache an image |
 | kube_image_keeper_controller_image_put_in_cache_total | Count of all cached images since controller start |
 | kube_image_keeper_controller_image_removed_from_cache_total | Count of all images removed from the cache since controller start |
 | kube_image_keeper_controller_is_leader | Return 1 if the pod is leader |
+| kube_image_keeper_controller_repositories | Number of repositories |
 | kube_image_keeper_controller_up | Return 1 if the controller is running |
 
 By default, two replicas of the controller are running, and one of them becomes the leader. The value of `cached_images` should be the same across all replicas. However, the values for `put_in_cache` and `removed_from_cache` will increase only for the leader controller. They get reset to zero when the controller restarts, so they should mostly be used as "sign of life", or e.g. to detect when no images get removed from the cache even over multiple weeks or months.
