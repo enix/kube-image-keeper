@@ -45,6 +45,7 @@ spec:
           volumeMounts:
             - mountPath: /var/lib/registry
               name: data
+        {{- if .Values.registry.garbageCollection.enabled }}
         - name: garbage-collector
           image: "{{ .Values.registry.image.repository }}:{{ .Values.registry.image.tag }}"
           imagePullPolicy: {{ .Values.registry.image.pullPolicy }}
@@ -58,6 +59,7 @@ spec:
           volumeMounts:
             - mountPath: /var/lib/registry
               name: data
+        {{- end }}
       {{- end }}
       containers:
         - name: registry
