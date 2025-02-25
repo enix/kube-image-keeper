@@ -278,7 +278,7 @@ registry:
     httpGet:
       path: /v2/
       port: 5000
-    # -- Liveness probe definition for the proxy pod
+  # -- Liveness probe definition for the registry pod
   livenessProbe:
     httpGet:
       path: /v2/
