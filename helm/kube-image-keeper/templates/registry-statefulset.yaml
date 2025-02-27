@@ -33,6 +33,8 @@ spec:
       {{- if .Values.registry.persistence.enabled }}
       initContainers:
         - name: setup-dirs
+          securityContext:
+            {{- toYaml .Values.registry.securityContext | nindent 12 }}
           image: "{{ .Values.registry.image.repository }}:{{ .Values.registry.image.tag }}"
           imagePullPolicy: {{ .Values.registry.image.pullPolicy }}
           command:
@@ -46,6 +48,8 @@ spec:
             - mountPath: /var/lib/registry
               name: data
         - name: garbage-collector
+          securityContext:
+            {{- toYaml .Values.registry.securityContext | nindent 12 }}
           image: "{{ .Values.registry.image.repository }}:{{ .Values.registry.image.tag }}"
           imagePullPolicy: {{ .Values.registry.image.pullPolicy }}
           command:
