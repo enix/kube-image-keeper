@@ -243,6 +243,8 @@ registry:
     podSecurityContext: {}
     # -- Security context for containers of the garbage collector pod
     securityContext: {}
+    # -- Specify secrets to be used when pulling garbage-collector image
+    imagePullSecrets: []
     # -- Specify a nodeSelector for the garbage collector pod
     nodeSelector: {}
     # -- Affinity for the garbage collector pod

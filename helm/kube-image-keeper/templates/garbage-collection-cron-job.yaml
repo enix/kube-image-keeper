@@ -18,6 +18,10 @@ spec:
       activeDeadlineSeconds: {{ .Values.registry.garbageCollection.activeDeadlineSeconds }}
       template:
         spec:
+          {{- with .Values.registry.garbageCollection.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           serviceAccountName: {{ include "kube-image-keeper.fullname" . }}-registry-restart
           restartPolicy: Never
           {{- with .Values.registry.garbageCollection.nodeSelector }}
