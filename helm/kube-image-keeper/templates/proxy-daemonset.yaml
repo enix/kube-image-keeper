@@ -74,6 +74,7 @@ spec:
             {{- if .Values.proxy.hostNetwork }}
             - -bind-address={{ .Values.proxy.hostIp }}:{{ .Values.proxy.hostPort }}
             - -metrics-bind-address={{ .Values.proxy.hostIp }}:{{ .Values.proxy.metricsPort }}
+            - -metrics-secure=false
             {{- else }}
             - -bind-address=:{{ .Values.proxy.hostPort }}
             {{- end }}
