@@ -2,7 +2,6 @@ package kuik
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"regexp"
 	"time"
@@ -152,7 +151,7 @@ func (r *RepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	if repository.Spec.UpdateInterval != nil {
 		if repository.Spec.UpdateInterval.Duration <= 0 {
-			return ctrl.Result{}, errors.New(fmt.Sprintf("invalid UpdateInterval: %s", repository.Spec.UpdateInterval.String()))
+			return ctrl.Result{}, fmt.Errorf("invalid UpdateInterval: %s", repository.Spec.UpdateInterval.String())
 		}
 		nextUpdate := repository.Status.LastUpdate.Add(repository.Spec.UpdateInterval.Duration)
 		if time.Now().After(nextUpdate) {
@@ -232,7 +231,8 @@ func (r *RepositoryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		cachedImage := rawObj.(*kuikv1alpha1.CachedImage)
 
 		owners := cachedImage.GetOwnerReferences()
-		for _, owner := range owners {
+		if len(owners) > 0 {
+			owner := owners[0]
 			if owner.APIVersion != kuikv1alpha1.GroupVersion.String() || owner.Kind != "Repository" {
 				return nil
 			}

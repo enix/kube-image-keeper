@@ -130,7 +130,9 @@ func (p *Proxy) Run(proxyAddr string) chan struct{} {
 			panic(err)
 		}
 		finished <- struct{}{}
-		p.exporter.Shutdown()
+		if err := p.exporter.Shutdown(); err != nil {
+			panic(err)
+		}
 	}()
 
 	go func() {
