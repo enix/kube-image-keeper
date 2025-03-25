@@ -24,6 +24,9 @@ jobs:
           go-version-file: go.mod
           check-latest: true
 
+      - name: Run controller-gen
+        run: make generate
+
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
