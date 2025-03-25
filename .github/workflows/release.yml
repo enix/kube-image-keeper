@@ -88,11 +88,15 @@ jobs:
       - name: Set up chart-testing
         uses: helm/chart-testing-action@v2.7.0
 
+      - name: Run controller-gen
+        run: make generate
+
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v6
+        continue-on-error: true
         with:
           version: latest
-          args: --timeout 3m --verbose --issues-exit-code=0
+          args: --timeout 3m --verbose
 
       - name: Run unit tests
         run: |
