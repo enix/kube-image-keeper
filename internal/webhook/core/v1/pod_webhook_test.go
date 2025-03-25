@@ -123,7 +123,7 @@ func TestRewriteImagesWithAccept(t *testing.T) {
 		ir := ImageRewriter{
 			ProxyPort: 4242,
 			AcceptImages: []*regexp.Regexp{
-				regexp.MustCompile("185.145.250.247\\:30042"),
+				regexp.MustCompile(`185.145.250.247\:30042`),
 			},
 		}
 		ir.RewriteImages(&podStub, true)
@@ -251,7 +251,6 @@ func Test_isImageRewritable(t *testing.T) {
 			} else {
 				g.Expect(err).To(Equal(tt.err))
 			}
-
 		})
 	}
 }

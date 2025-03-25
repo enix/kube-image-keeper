@@ -314,7 +314,8 @@ func TestGetPullSecrets(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			g := NewWithT(t)
 			namespace := make([]byte, 10)
-			rand.Read(namespace)
+			_, err := rand.Read(namespace)
+			g.Expect(err).To(BeNil())
 
 			apiReader := mockClient{produceError: tt.clientProduceError, namespace: string(namespace)}
 			secrets, err := GetPullSecrets(apiReader, string(namespace), tt.pullSecrets)
