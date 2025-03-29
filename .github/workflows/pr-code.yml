@@ -28,7 +28,7 @@ jobs:
         run: make generate
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v7
         with:
           version: latest
           only-new-issues: true
