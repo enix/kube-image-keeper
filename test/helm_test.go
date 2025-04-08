@@ -13,6 +13,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 )
 
 func unmarshal[T any](t *testing.T, data string, obj *T) {
@@ -326,6 +327,76 @@ func TestHelmTemplate(t *testing.T) {
 							},
 						},
 					})
+				}),
+			},
+		},
+		{
+			name: "Disabled ServiceAccount and rbac creation (using default ServiceAccount)",
+			values: map[string]string{
+				"serviceAccount.create": "false",
+				"rbac.create":           "false",
+			},
+			assertions: map[string](func(t *testing.T, output string)){
+				"clusterrole.yaml": nil,
+				"clusterrolebinding.yaml": nil,
+				"controller-deployment.yaml": makeAssertion(func(t *testing.T, obj *appsv1.Deployment) {
+					assert := assert.New(t)
+					require.Len(t, obj.Spec.Template.Spec.Containers, 1)
+					assert.Equal(obj.Spec.Template.Spec.ServiceAccountName, "default")
+				}),
+			},
+		},
+		{
+			name: "Disabled ServiceAccount creation (using custom ServiceAccount name)",
+			values: map[string]string{
+				"fullnameOverride":      "custom-fullname",
+				"serviceAccount.create": "false",
+				"serviceAccount.name":   "serviceaccount123",
+			},
+			assertions: map[string](func(t *testing.T, output string)){
+				"controller-deployment.yaml": makeAssertion(func(t *testing.T, obj *appsv1.Deployment) {
+					assert := assert.New(t)
+					require.Len(t, obj.Spec.Template.Spec.Containers, 1)
+					assert.Equal(obj.Spec.Template.Spec.ServiceAccountName, "serviceaccount123")
+				}),
+				"clusterrole.yaml": makeAssertion(func (t *testing.T, obj *rbacv1.ClusterRole) {
+					assert := assert.New(t)
+					assert.Equal(obj.ObjectMeta.Name, "custom-fullname-controllers")
+				}),
+				"clusterrolebinding.yaml": makeAssertion(func (t *testing.T, obj *rbacv1.ClusterRoleBinding) {
+					assert := assert.New(t)
+					assert.Equal(obj.ObjectMeta.Name, "custom-fullname-controllers")
+					assert.Equal(obj.RoleRef.Name, "custom-fullname-controllers")
+					assert.Equal(obj.Subjects[0].Name, "serviceaccount123")
+				}),
+			},
+		},
+		{
+			name: "Disabled registry ServiceAccount creation (using default ServiceAccount)",
+			values: map[string]string{
+				"registry.serviceAccount.create": "false",
+			},
+			assertions: map[string](func(t *testing.T, output string)){
+				"registry-statefulset.yaml": makeAssertion(func(t *testing.T, obj *appsv1.StatefulSet) {
+					assert := assert.New(t)
+					require.Len(t, obj.Spec.Template.Spec.Containers, 1)
+					assert.Equal(obj.Spec.Template.Spec.ServiceAccountName, "default")
+				}),
+			},
+		},
+		{
+			name: "Use s3 backend, disable registry ServiceAccount creation (using custom registry ServiceAccount name)",
+			values: map[string]string{
+				"registry.serviceAccount.create":               "false",
+				"registry.serviceAccount.name":                 "serviceaccount123",
+				"registry.serviceAccount.persistence.s3.region": "us-west-2",
+				"registry.serviceAccount.persistence.s3.bucket": "kuik-image-cache",
+			},
+			assertions: map[string](func(t *testing.T, output string)){
+				"registry-statefulset.yaml": makeAssertion(func(t *testing.T, obj *appsv1.StatefulSet) {
+					assert := assert.New(t)
+					require.Len(t, obj.Spec.Template.Spec.Containers, 1)
+					assert.Equal(obj.Spec.Template.Spec.ServiceAccountName, "serviceaccount123")
 				}),
 			},
 		},
