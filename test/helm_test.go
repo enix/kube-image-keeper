@@ -400,6 +400,31 @@ func TestHelmTemplate(t *testing.T) {
 				}),
 			},
 		},
+		{
+			name: "Add custom labels and annotations to serviceAccount and registry serviceAccount",
+			values: map[string]string{
+				"serviceAccount.create":                      "true",
+				"serviceAccount.annotations.custom":          "abc",
+				"serviceAccount.extraLabels.foo":             "bar",
+				"registry.serviceAccount.create":             "true",
+				"registry.serviceAccount.annotations.custom": "def",
+				"registry.serviceAccount.extraLabels.baz":    "qux",
+			},
+			assertions: map[string](func(t *testing.T, output string)){
+				"serviceaccount.yaml": makeAssertion(func(t *testing.T, obj *v1.ServiceAccount) {
+					assert := assert.New(t)
+					assert.Equal(obj.ObjectMeta.Annotations["custom"], "abc")
+					assert.Equal(obj.ObjectMeta.Labels["foo"], "bar")
+					assert.Equal(obj.ObjectMeta.Labels["app.kubernetes.io/name"], "kube-image-keeper")
+				}),
+				"registry-serviceaccount.yaml": makeAssertion(func(t *testing.T, obj *v1.ServiceAccount) {
+					assert := assert.New(t)
+					assert.Equal(obj.ObjectMeta.Annotations["custom"], "def")
+					assert.Equal(obj.ObjectMeta.Labels["baz"], "qux")
+					assert.Equal(obj.ObjectMeta.Labels["app.kubernetes.io/name"], "kube-image-keeper")
+				}),
+			},
+		},
 	}
 
 	releaseName := "kube-image-keeper"
