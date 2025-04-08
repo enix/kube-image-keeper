@@ -103,10 +103,32 @@ app.kubernetes.io/component: garbage-collection
 {{- end }}
 
 {{/*
+Create the name of the ClusterRole to use
+*/}}
+{{- define "kube-image-keeper.clusterRoleName" -}}
+{{- printf "%s-%s" (include "kube-image-keeper.fullname" .) "controllers" }}
+{{- end }}
+
+{{/*
 Create the name of the service account to use
 */}}
 {{- define "kube-image-keeper.serviceAccountName" -}}
-{{- default (printf "%s-%s" (include "kube-image-keeper.fullname" .) "controllers") .Values.serviceAccount.name }}
+{{- if .Values.serviceAccount.create -}}
+  {{- default (include "kube-image-keeper.clusterRoleName" .) .Values.serviceAccount.name }}
+{{- else -}}
+  {{- default "default" .Values.serviceAccount.name }}
+{{- end -}}
+{{- end }}
+
+{{/*
+Create the name of the registry service account to use
+*/}}
+{{- define "kube-image-keeper.registry-serviceAccountName" -}}
+{{- if .Values.registry.serviceAccount.create -}}
+  {{- default (printf "%s-%s" (include "kube-image-keeper.fullname" .) "registry") .Values.registry.serviceAccount.name }}
+{{- else -}}
+  {{- default "default" .Values.registry.serviceAccount.name }}
+{{- end -}}
 {{- end }}
 
 {{- define "kube-image-keeper.registry-stateless-mode" -}}

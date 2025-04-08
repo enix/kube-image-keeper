@@ -26,7 +26,7 @@ spec:
       {{- if .Values.registry.priorityClassName }}
       priorityClassName: {{ .Values.registry.priorityClassName | quote }}
       {{- end }}
-      serviceAccountName: {{ include "kube-image-keeper.fullname" . }}-registry
+      serviceAccountName: {{ include "kube-image-keeper.registry-serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.registry.podSecurityContext | nindent 8 }}
       containers:

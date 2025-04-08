@@ -1,8 +1,9 @@
+{{- if .Values.rbac.create }}
 ---
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: {{ include "kube-image-keeper.serviceAccountName" . }}
+  name: {{ include "kube-image-keeper.clusterRoleName" . }}
 rules:
   - apiGroups:
     - ""
@@ -120,7 +121,7 @@ rules:
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: {{ include "kube-image-keeper.serviceAccountName" . }}-leader-election
+  name: {{ include "kube-image-keeper.clusterRoleName" . }}-leader-election
 rules:
   - apiGroups:
     - ""
@@ -153,3 +154,4 @@ rules:
     verbs:
     - create
     - patch
+{{- end }}
