@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func unmarshal[T any](t *testing.T, data string, obj *T) {
@@ -337,7 +337,7 @@ func TestHelmTemplate(t *testing.T) {
 				"rbac.create":           "false",
 			},
 			assertions: map[string](func(t *testing.T, output string)){
-				"clusterrole.yaml": nil,
+				"clusterrole.yaml":        nil,
 				"clusterrolebinding.yaml": nil,
 				"controller-deployment.yaml": makeAssertion(func(t *testing.T, obj *appsv1.Deployment) {
 					assert := assert.New(t)
@@ -359,11 +359,11 @@ func TestHelmTemplate(t *testing.T) {
 					require.Len(t, obj.Spec.Template.Spec.Containers, 1)
 					assert.Equal(obj.Spec.Template.Spec.ServiceAccountName, "serviceaccount123")
 				}),
-				"clusterrole.yaml": makeAssertion(func (t *testing.T, obj *rbacv1.ClusterRole) {
+				"clusterrole.yaml": makeAssertion(func(t *testing.T, obj *rbacv1.ClusterRole) {
 					assert := assert.New(t)
 					assert.Equal(obj.ObjectMeta.Name, "custom-fullname-controllers")
 				}),
-				"clusterrolebinding.yaml": makeAssertion(func (t *testing.T, obj *rbacv1.ClusterRoleBinding) {
+				"clusterrolebinding.yaml": makeAssertion(func(t *testing.T, obj *rbacv1.ClusterRoleBinding) {
 					assert := assert.New(t)
 					assert.Equal(obj.ObjectMeta.Name, "custom-fullname-controllers")
 					assert.Equal(obj.RoleRef.Name, "custom-fullname-controllers")
@@ -387,8 +387,8 @@ func TestHelmTemplate(t *testing.T) {
 		{
 			name: "Use s3 backend, disable registry ServiceAccount creation (using custom registry ServiceAccount name)",
 			values: map[string]string{
-				"registry.serviceAccount.create":               "false",
-				"registry.serviceAccount.name":                 "serviceaccount123",
+				"registry.serviceAccount.create":                "false",
+				"registry.serviceAccount.name":                  "serviceaccount123",
 				"registry.serviceAccount.persistence.s3.region": "us-west-2",
 				"registry.serviceAccount.persistence.s3.bucket": "kuik-image-cache",
 			},
