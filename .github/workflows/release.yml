@@ -96,7 +96,7 @@ jobs:
         continue-on-error: true
         with:
           version: latest
-          args: --timeout 3m --verbose
+          args: --timeout 5m --verbose
 
       - name: Run unit tests
         run: |
