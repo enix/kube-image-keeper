@@ -1,9 +1,0 @@
-dependencies:
-- name: minio
-  repository: https://charts.bitnami.com/bitnami
-  version: 13.2.0
-- name: docker-registry-ui
-  repository: https://helm.joxit.dev
-  version: 1.1.3
-digest: sha256:6388d25ea6877863eeb3e1ac5e85f4da8c5b1032e8eebedde87779d1f1737f55
-generated: "2024-08-07T14:48:17.51529339+02:00"
