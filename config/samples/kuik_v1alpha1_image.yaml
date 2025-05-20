@@ -1,0 +1,9 @@
+apiVersion: kuik.enix.io/v1alpha1
+kind: Image
+metadata:
+  labels:
+    app.kubernetes.io/name: kube-image-keeper
+    app.kubernetes.io/managed-by: kustomize
+  name: image-sample
+spec:
+  # TODO(user): Add fields here
