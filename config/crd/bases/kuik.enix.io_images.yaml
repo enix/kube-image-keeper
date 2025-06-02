@@ -11,10 +11,19 @@ spec:
     kind: Image
     listKind: ImageList
     plural: images
+    shortNames:
+    - img
     singular: image
   scope: Cluster
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.usedBy.count
+      name: Pods count
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: Image is the Schema for the images API.
@@ -39,13 +48,36 @@ spec:
           spec:
             description: ImageSpec defines the desired state of Image.
             properties:
-              foo:
-                description: Foo is an example field of Image. Edit image_types.go
-                  to remove/update
+              name:
+                description: Full name of the image (including its registry and tag)
                 type: string
+            required:
+            - name
             type: object
           status:
             description: ImageStatus defines the observed state of Image.
+            properties:
+              usedBy:
+                description: UsedBy is the list of pods using this image
+                properties:
+                  count:
+                    description: |-
+                      Count is the number of pods using this image
+
+                      jsonpath function .length() is not implemented, so the count field is required to display pods count in additionalPrinterColumns
+                      see https://github.com/kubernetes-sigs/controller-tools/issues/447
+                    type: integer
+                  pods:
+                    description: Pods is a list of reference to pods using this Image
+                    items:
+                      properties:
+                        namespacedName:
+                          description: NamespacedName is the namespaced name of a
+                            pod (namespace/name)
+                          type: string
+                      type: object
+                    type: array
+                type: object
             type: object
         type: object
     served: true
