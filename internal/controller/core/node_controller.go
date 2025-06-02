@@ -3,11 +3,18 @@ package core
 import (
 	"context"
 
+	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
 // NodeReconciler reconciles a Node object
@@ -30,17 +37,105 @@ type NodeReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.4/pkg/reconcile
 func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
+	log := logf.FromContext(ctx)
 
-	// TODO(user): your logic here
+	var node corev1.Node
+	if err := r.Get(ctx, req.NamespacedName, &node); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	images := ImagesFromNode(ctx, &node)
+
+	hasDeletingImages := false
+	for _, image := range images {
+		var img kuikv1alpha1.Image
+		err := r.Get(ctx, client.ObjectKeyFromObject(&image), &img)
+		if err != nil && !apierrors.IsNotFound(err) {
+			return ctrl.Result{}, err
+		}
+
+		if !img.DeletionTimestamp.IsZero() {
+			hasDeletingImages = true
+			// image is already scheduled for deletion, thus we don't have to handle it here and will enqueue it back later
+			log.Info("image is already being deleted, skipping", "image", klog.KObj(&image))
+			continue
+		}
+
+		// create or update Image depending on weather it already exists or not
+		if apierrors.IsNotFound(err) {
+			err = r.Create(ctx, &image)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+		} else {
+			patch := client.MergeFrom(img.DeepCopy())
+
+			img.Spec.Name = image.Spec.Name
+
+			if err = r.Patch(ctx, &img, patch); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+	}
+
+	if hasDeletingImages {
+		log.Info("some images are being deleted, requeuing later")
+		return ctrl.Result{Requeue: true}, nil
+	}
 
 	return ctrl.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *NodeReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	p := predicate.Not(predicate.Funcs{
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			return false
+		},
+	})
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1.Node{}).
 		Named("core-node").
+		Watches(
+			&kuikv1alpha1.Image{},
+			handler.EnqueueRequestsFromMapFunc(r.nodesWithDeletingImages),
+			builder.WithPredicates(p),
+		).
 		Complete(r)
+}
+
+func (r *NodeReconciler) nodesWithDeletingImages(ctx context.Context, obj client.Object) []ctrl.Request {
+	log := logf.
+		FromContext(ctx).
+		WithName("controller-runtime.manager.controller.node.deletingImages").
+		WithValues("image", klog.KObj(obj))
+
+	image := obj.(*kuikv1alpha1.Image)
+	res := make([]ctrl.Request, len(image.Status.AvailableOnNodes.Items))
+
+	for i, item := range image.Status.AvailableOnNodes.Items {
+		log.Info("image in use, reconciling related node", "node", item)
+		res[i].NamespacedName = client.ObjectKey{Namespace: "", Name: item}
+	}
+
+	return res
+}
+
+func ImagesFromNode(ctx context.Context, node *corev1.Node) []kuikv1alpha1.Image {
+	log := logf.FromContext(ctx)
+	images := []kuikv1alpha1.Image{}
+
+	for _, localImage := range node.Status.Images {
+		for _, name := range localImage.Names {
+			image, err := kuikv1alpha1.ImageFromSourceImage(name)
+			if err != nil {
+				log.Error(err, "could not parse image, ignoring")
+				continue
+			}
+			images = append(images, *image)
+		}
+	}
+
+	return images
 }

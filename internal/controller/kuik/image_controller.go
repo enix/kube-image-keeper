@@ -6,15 +6,21 @@ import (
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/controller/core"
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+)
+
+const (
+	ImagesIndexKey = ".metadata.images"
 )
 
 // ImageReconciler reconciles a Image object
@@ -44,8 +50,8 @@ func (r *ImageReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// update Image UsedBy status
-	if requeue, err := r.updatePodCount(ctx, &image); requeue {
+	// update Pods and Nodes status for this Image
+	if requeue, err := r.updateReferenceCount(ctx, &image); requeue {
 		return ctrl.Result{Requeue: true}, nil
 	} else if err != nil {
 		return ctrl.Result{}, err
@@ -56,6 +62,48 @@ func (r *ImageReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ImageReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// create an index to list Pods by Image
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &corev1.Pod{}, ImagesIndexKey, func(rawObj client.Object) []string {
+		pod := rawObj.(*corev1.Pod)
+
+		logger := mgr.GetLogger().
+			WithName("indexer.images.pods").
+			WithValues("pod", klog.KObj(pod))
+		ctx := logr.NewContext(context.Background(), logger)
+
+		images := ImagesFromPod(ctx, pod)
+
+		imageNames := make([]string, len(images))
+		for _, image := range images {
+			imageNames = append(imageNames, image.Name)
+		}
+
+		return imageNames
+	}); err != nil {
+		return err
+	}
+
+	// create an index to list Nodes by Image
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &corev1.Node{}, ImagesIndexKey, func(rawObj client.Object) []string {
+		node := rawObj.(*corev1.Node)
+
+		logger := mgr.GetLogger().
+			WithName("indexer.images.nodes").
+			WithValues("node", klog.KObj(node))
+		ctx := logr.NewContext(context.Background(), logger)
+
+		images := core.ImagesFromNode(ctx, node)
+
+		imageNames := make([]string, len(images))
+		for _, image := range images {
+			imageNames = append(imageNames, image.Name)
+		}
+
+		return imageNames
+	}); err != nil {
+		return err
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kuikv1alpha1.Image{}).
 		Named("kuik-image").
@@ -66,27 +114,45 @@ func (r *ImageReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-// updatePodCount update CachedImage UsedBy status
-func (r *ImageReconciler) updatePodCount(ctx context.Context, cachedImage *kuikv1alpha1.Image) (requeue bool, err error) {
-	var podsList corev1.PodList
-	if err = r.List(ctx, &podsList, client.MatchingFields{core.PodImagesIndexKey: cachedImage.Name}); err != nil && !apierrors.IsNotFound(err) {
+// updateReferenceCount update CachedImage UsedByPods and AvailableOnNodes status
+func (r *ImageReconciler) updateReferenceCount(ctx context.Context, image *kuikv1alpha1.Image) (requeue bool, err error) {
+	var podList corev1.PodList
+	if err = r.List(ctx, &podList, client.MatchingFields{ImagesIndexKey: image.Name}); err != nil && !apierrors.IsNotFound(err) {
 		return
 	}
 
-	pods := []kuikv1alpha1.PodReference{}
-	for _, pod := range podsList.Items {
+	pods := []string{}
+	for _, pod := range podList.Items {
 		if !pod.DeletionTimestamp.IsZero() {
 			continue
 		}
-		pods = append(pods, kuikv1alpha1.PodReference{NamespacedName: pod.Namespace + "/" + pod.Name})
+		pods = append(pods, pod.Namespace+"/"+pod.Name)
 	}
 
-	cachedImage.Status.UsedBy = kuikv1alpha1.UsedBy{
-		Pods:  pods,
+	image.Status.UsedByPods = kuikv1alpha1.ReferencesWithCount{
+		Items: pods,
 		Count: len(pods),
 	}
 
-	err = r.Status().Update(ctx, cachedImage)
+	var nodeList corev1.NodeList
+	if err = r.List(ctx, &nodeList, client.MatchingFields{ImagesIndexKey: image.Name}); err != nil && !apierrors.IsNotFound(err) {
+		return
+	}
+
+	nodes := []string{}
+	for _, node := range nodeList.Items {
+		if !node.DeletionTimestamp.IsZero() {
+			continue
+		}
+		nodes = append(nodes, node.Name)
+	}
+
+	image.Status.AvailableOnNodes = kuikv1alpha1.ReferencesWithCount{
+		Items: nodes,
+		Count: len(nodes),
+	}
+
+	err = r.Status().Update(ctx, image)
 	if err != nil {
 		if statusErr, ok := err.(*errors.StatusError); ok && statusErr.Status().Code == http.StatusConflict {
 			requeue = true
@@ -99,7 +165,7 @@ func (r *ImageReconciler) updatePodCount(ctx context.Context, cachedImage *kuikv
 
 func (r *ImageReconciler) cachedImagesRequestFromPod(ctx context.Context, obj client.Object) []ctrl.Request {
 	pod := obj.(*corev1.Pod)
-	images := core.ImagesFromPod(ctx, pod)
+	images := ImagesFromPod(ctx, pod)
 
 	res := []ctrl.Request{}
 	for _, image := range images {
@@ -111,4 +177,27 @@ func (r *ImageReconciler) cachedImagesRequestFromPod(ctx context.Context, obj cl
 	}
 
 	return res
+}
+
+func ImagesFromPod(ctx context.Context, pod *corev1.Pod) []kuikv1alpha1.Image {
+	images := imagesFromContainers(ctx, pod.Spec.Containers, pod.Annotations)
+	images = append(images, imagesFromContainers(ctx, pod.Spec.InitContainers, pod.Annotations)...)
+	return images
+}
+
+func imagesFromContainers(ctx context.Context, containers []corev1.Container, annotations map[string]string) []kuikv1alpha1.Image {
+	log := logf.FromContext(ctx)
+	images := []kuikv1alpha1.Image{}
+
+	for _, container := range containers {
+		containerLog := log.WithValues("container", container.Name)
+		image, err := kuikv1alpha1.ImageFromSourceImage(container.Image)
+		if err != nil {
+			containerLog.Error(err, "could not create image, ignoring")
+			continue
+		}
+		images = append(images, *image)
+	}
+
+	return images
 }
