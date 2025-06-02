@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"strings"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/go-logr/logr"
@@ -11,8 +12,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
 const (
@@ -48,6 +53,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 
 	images := ImagesFromPod(ctx, &pod)
 
+	hasDeletingImages := false
 	for _, image := range images {
 		var img kuikv1alpha1.Image
 		err := r.Get(ctx, client.ObjectKeyFromObject(&image), &img)
@@ -56,6 +62,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		}
 
 		if !img.DeletionTimestamp.IsZero() {
+			hasDeletingImages = true
 			// Image is already scheduled for deletion, thus we don't have to handle it here and will enqueue it back later
 			log.Info("image is already being deleted, skipping", "image", klog.KObj(&image))
 			continue
@@ -76,6 +83,11 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 				return ctrl.Result{}, err
 			}
 		}
+	}
+
+	if hasDeletingImages {
+		log.Info("some images are being deleted, requeuing later")
+		return ctrl.Result{Requeue: true}, nil
 	}
 
 	return ctrl.Result{}, nil
@@ -104,10 +116,39 @@ func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return err
 	}
 
+	p := predicate.Not(predicate.Funcs{
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			return false
+		},
+	})
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1.Pod{}).
 		Named("core-pod").
+		Watches(
+			&kuikv1alpha1.Image{},
+			handler.EnqueueRequestsFromMapFunc(r.podsWithDeletingImages),
+			builder.WithPredicates(p),
+		).
 		Complete(r)
+}
+
+func (r *PodReconciler) podsWithDeletingImages(ctx context.Context, obj client.Object) []ctrl.Request {
+	log := logf.
+		FromContext(ctx).
+		WithName("controller-runtime.manager.controller.pod.deletingImages").
+		WithValues("cachedImage", klog.KObj(obj))
+
+	image := obj.(*kuikv1alpha1.Image)
+	res := make([]ctrl.Request, len(image.Status.UsedBy.Pods))
+
+	for i, pod := range image.Status.UsedBy.Pods {
+		log.Info("image in use, reconciling related pod", "pod", pod.NamespacedName)
+		name := strings.SplitN(pod.NamespacedName, "/", 2)
+		res[i].NamespacedName = client.ObjectKey{Namespace: name[0], Name: name[1]}
+	}
+
+	return res
 }
 
 func ImagesFromPod(ctx context.Context, pod *corev1.Pod) []kuikv1alpha1.Image {
