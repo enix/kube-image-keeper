@@ -56,18 +56,21 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 		if !img.DeletionTimestamp.IsZero() {
 			hasDeletingImages = true
-			// image is already scheduled for deletion, thus we don't have to handle it here and will enqueue it back later
-			log.Info("image is already being deleted, skipping", "image", klog.KObj(&image))
+			// image is scheduled for deletion, thus we don't have to handle it here and will enqueue it back later
+			log.Info("image is scheduled for deletion, skipping", "image", klog.KObj(&image))
 			continue
 		}
 
 		// create or update Image depending on weather it already exists or not
 		if apierrors.IsNotFound(err) {
+			log.Info("new image found on a node", "image", klog.KObj(&image))
 			err = r.Create(ctx, &image)
 			if err != nil {
 				return ctrl.Result{}, err
 			}
-		} else {
+		} else if img.Spec.Name != image.Spec.Name {
+			log.Info("image found with an invalid name, renaming it", "image", klog.KObj(&image))
+
 			patch := client.MergeFrom(img.DeepCopy())
 
 			img.Spec.Name = image.Spec.Name
@@ -76,6 +79,7 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 				return ctrl.Result{}, err
 			}
 		}
+
 	}
 
 	if hasDeletingImages {
@@ -92,6 +96,11 @@ func (r *NodeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		DeleteFunc: func(e event.DeleteEvent) bool {
 			return false
 		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			newImage := e.ObjectNew.(*kuikv1alpha1.Image)
+			oldImage := e.ObjectOld.(*kuikv1alpha1.Image)
+			return newImage.Spec.Name == oldImage.Spec.Name
+		},
 	})
 
 	return ctrl.NewControllerManagedBy(mgr).
@@ -99,23 +108,17 @@ func (r *NodeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Named("core-node").
 		Watches(
 			&kuikv1alpha1.Image{},
-			handler.EnqueueRequestsFromMapFunc(r.nodesWithDeletingImages),
+			handler.EnqueueRequestsFromMapFunc(r.nodesUsingThisImage),
 			builder.WithPredicates(p),
 		).
 		Complete(r)
 }
 
-func (r *NodeReconciler) nodesWithDeletingImages(ctx context.Context, obj client.Object) []ctrl.Request {
-	log := logf.
-		FromContext(ctx).
-		WithName("controller-runtime.manager.controller.node.deletingImages").
-		WithValues("image", klog.KObj(obj))
-
+func (r *NodeReconciler) nodesUsingThisImage(ctx context.Context, obj client.Object) []ctrl.Request {
 	image := obj.(*kuikv1alpha1.Image)
 	res := make([]ctrl.Request, len(image.Status.AvailableOnNodes.Items))
 
 	for i, item := range image.Status.AvailableOnNodes.Items {
-		log.Info("image in use, reconciling related node", "node", item)
 		res[i].NamespacedName = client.ObjectKey{Namespace: "", Name: item}
 	}
 

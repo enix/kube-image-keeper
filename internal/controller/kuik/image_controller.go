@@ -193,7 +193,7 @@ func imagesFromContainers(ctx context.Context, containers []corev1.Container, an
 		containerLog := log.WithValues("container", container.Name)
 		image, err := kuikv1alpha1.ImageFromSourceImage(container.Image)
 		if err != nil {
-			containerLog.Error(err, "could not create image, ignoring")
+			containerLog.Error(err, "could not parse image, ignoring")
 			continue
 		}
 		images = append(images, *image)
