@@ -191,7 +191,7 @@ func imagesFromContainers(ctx context.Context, containers []corev1.Container, an
 
 	for _, container := range containers {
 		containerLog := log.WithValues("container", container.Name)
-		image, err := kuikv1alpha1.ImageFromSourceImage(container.Image)
+		image, err := kuikv1alpha1.ImageFromReference(container.Image)
 		if err != nil {
 			containerLog.Error(err, "could not parse image, ignoring")
 			continue

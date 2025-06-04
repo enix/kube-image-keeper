@@ -68,12 +68,12 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 			if err != nil {
 				return ctrl.Result{}, err
 			}
-		} else if img.Spec.Name != image.Spec.Name {
-			log.Info("image found with an invalid name, renaming it", "image", klog.KObj(&image))
+		} else if img.Spec.Reference != image.Spec.Reference {
+			log.Info("image found with an invalid reference, patching it", "image", klog.KObj(&image))
 
 			patch := client.MergeFrom(img.DeepCopy())
 
-			img.Spec.Name = image.Spec.Name
+			img.Spec.Reference = image.Spec.Reference
 
 			if err = r.Patch(ctx, &img, patch); err != nil {
 				return ctrl.Result{}, err
@@ -99,7 +99,7 @@ func (r *NodeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			newImage := e.ObjectNew.(*kuikv1alpha1.Image)
 			oldImage := e.ObjectOld.(*kuikv1alpha1.Image)
-			return newImage.Spec.Name == oldImage.Spec.Name
+			return newImage.Spec.Reference == oldImage.Spec.Reference
 		},
 	})
 
@@ -131,7 +131,7 @@ func ImagesFromNode(ctx context.Context, node *corev1.Node) []kuikv1alpha1.Image
 
 	for _, localImage := range node.Status.Images {
 		for _, name := range localImage.Names {
-			image, err := kuikv1alpha1.ImageFromSourceImage(name)
+			image, err := kuikv1alpha1.ImageFromReference(name)
 			if err != nil {
 				log.Error(err, "could not parse image, ignoring")
 				continue

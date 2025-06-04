@@ -1,17 +1,18 @@
 package v1alpha1
 
 import (
+	"fmt"
 	"strings"
 
+	"github.com/cespare/xxhash/v2"
 	"github.com/distribution/reference"
-	"github.com/enix/kube-image-keeper/internal/registry"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // ImageSpec defines the desired state of Image.
 type ImageSpec struct {
-	// Full name of the image (including its registry and tag)
-	Name string `json:"name"`
+	// Reference is a string identifying the image
+	Reference string `json:"reference"`
 }
 
 type ReferencesWithCount struct {
@@ -35,6 +36,7 @@ type ImageStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster,shortName=img
+// +kubebuilder:printcolumn:name="Image",type="string",JSONPath=".spec.reference"
 // +kubebuilder:printcolumn:name="Pods count",type="integer",JSONPath=".status.usedByPods.count"
 // +kubebuilder:printcolumn:name="Nodes count",type="integer",JSONPath=".status.availableOnNodes.count"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
@@ -61,8 +63,8 @@ func init() {
 	SchemeBuilder.Register(&Image{}, &ImageList{})
 }
 
-func ImageFromSourceImage(sourceImage string) (*Image, error) {
-	sanitizedName, err := imageNameFromSourceImage(sourceImage)
+func ImageFromReference(reference string) (*Image, error) {
+	sanitizedName, err := imageNameFromReference(reference)
 	if err != nil {
 		return nil, err
 	}
@@ -73,21 +75,23 @@ func ImageFromSourceImage(sourceImage string) (*Image, error) {
 			Name: sanitizedName,
 		},
 		Spec: ImageSpec{
-			Name: sourceImage,
+			Reference: reference,
 		},
 	}, nil
 }
 
-func imageNameFromSourceImage(sourceImage string) (string, error) {
-	ref, err := reference.ParseAnyReference(sourceImage)
+func imageNameFromReference(referenceStr string) (string, error) {
+	ref, err := reference.ParseAnyReference(referenceStr)
 	if err != nil {
 		return "", err
 	}
 
-	sanitizedName := registry.SanitizeName(ref.String())
-	if !strings.Contains(sourceImage, ":") {
-		sanitizedName += "-latest"
+	referenceStr = ref.String()
+	if !strings.Contains(referenceStr, ":") {
+		referenceStr += "-latest"
 	}
 
-	return sanitizedName, nil
+	h := xxhash.Sum64String(referenceStr)
+
+	return fmt.Sprintf("%016x", h), nil
 }

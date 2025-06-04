@@ -17,6 +17,9 @@ spec:
   scope: Cluster
   versions:
   - additionalPrinterColumns:
+    - jsonPath: .spec.reference
+      name: Image
+      type: string
     - jsonPath: .status.usedByPods.count
       name: Pods count
       type: integer
@@ -51,11 +54,11 @@ spec:
           spec:
             description: ImageSpec defines the desired state of Image.
             properties:
-              name:
-                description: Full name of the image (including its registry and tag)
+              reference:
+                description: Reference is a string identifying the image
                 type: string
             required:
-            - name
+            - reference
             type: object
           status:
             description: ImageStatus defines the observed state of Image.
