@@ -1,0 +1,76 @@
+# Default values for kube-image-keeper.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+manager:
+  # -- Number of manager pods
+  replicas: 2
+  image:
+    # -- Manager image repository. Also available: `quay.io/enix/kube-image-keeper`
+    repository: ghcr.io/enix/kube-image-keeper
+    # -- Manager image pull policy
+    pullPolicy: IfNotPresent
+    # -- Manager image tag. Default chart appVersion
+    tag: ""
+  # -- Manager logging verbosity
+  verbosity: INFO
+  # -- Specify secrets to be used when pulling manager image
+  imagePullSecrets: []
+  # -- Annotations to add to the manager pod
+  podAnnotations: {}
+  # -- Security context for the manager pod
+  podSecurityContext: {}
+  # -- Security context for containers of the manager pod
+  securityContext: {}
+  # -- Node selector for the manager pod
+  nodeSelector: {}
+  # -- Toleration for the manager pod
+  tolerations: []
+  # -- Set the PriorityClassName for the manager pod
+  priorityClassName: ""
+  pdb:
+    # -- Create a PodDisruptionBudget for the manager pod
+    create: false
+    # -- Minimum available pods
+    minAvailable: 1
+    # -- Maximum unavailable pods
+    maxUnavailable: ""
+  # -- Affinity for the manager pod
+  affinity: {}
+  # -- Extra env variables for the manager pod
+  env: []
+  # -- Readiness probe definition for the manager pod
+  readinessProbe:
+    httpGet:
+      path: /readyz
+      port: 8081
+  # -- Liveness probe definition for the manager pod
+  livenessProbe:
+    httpGet:
+      path: /healthz
+      port: 8081
+  resources:
+    requests:
+      # -- Cpu requests for the manager pod
+      cpu: "50m"
+      # -- Memory requests for the manager pod
+      memory: "50Mi"
+    limits:
+      # -- Cpu limits for the manager pod
+      cpu: "1"
+      # -- Memory limits for the manager pod
+      memory: "512Mi"
+
+rbac:
+  # -- Create the ClusterRole and ClusterRoleBinding. If false, need to associate permissions with serviceAccount outside this Helm chart.
+  create: true
+
+serviceAccount:
+  # -- Create the serviceAccount. If false, use serviceAccount with specified name (or "default" if false and name unset.)
+  create: true
+  # -- Name of the serviceAccount (auto-generated if unset and create is true)
+  name: ""
+  # -- Annotations to add to the serviceAccount
+  annotations: {}
+  # -- Additional labels to add to the serviceAccount
+  extraLabels: {}

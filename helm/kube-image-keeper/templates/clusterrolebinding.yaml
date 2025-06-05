@@ -1,0 +1,28 @@
+{{- if .Values.rbac.create }}
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ include "kube-image-keeper.clusterRoleName" . }}
+roleRef:
+  kind: ClusterRole
+  name: {{ include "kube-image-keeper.clusterRoleName" . }}
+  apiGroup: rbac.authorization.k8s.io
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kube-image-keeper.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ include "kube-image-keeper.clusterRoleName" . }}-leader-election
+roleRef:
+  kind: ClusterRole
+  name: {{ include "kube-image-keeper.clusterRoleName" . }}-leader-election
+  apiGroup: rbac.authorization.k8s.io
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kube-image-keeper.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

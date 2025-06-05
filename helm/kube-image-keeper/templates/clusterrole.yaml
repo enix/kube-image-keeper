@@ -1,0 +1,17 @@
+{{- if .Values.rbac.create }}
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ include "kube-image-keeper.clusterRoleName" . }}
+rules:
+  {{- .Files.Get "files/clusterrole-rules.yaml" | nindent 2 }}
+
+---
+
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ include "kube-image-keeper.clusterRoleName" . }}-leader-election
+rules:
+  {{- .Files.Get "files/clusterrole-leader-elec-rules.yaml" | nindent 2 }}
+{{- end }}

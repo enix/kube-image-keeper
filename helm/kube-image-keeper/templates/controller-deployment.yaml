@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kube-image-keeper.fullname" . }}-manager
+  labels:
+    {{- include "kube-image-keeper.manager-labels" . | nindent 4 }}
+spec:
+  {{- with .Values.manager.replicas }}
+  replicas: {{ . }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "kube-image-keeper.manager-selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.manager.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "kube-image-keeper.manager-selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.manager.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "kube-image-keeper.serviceAccountName" . }}
+      {{- if .Values.manager.priorityClassName }}
+      priorityClassName: {{ .Values.manager.priorityClassName | quote }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.manager.podSecurityContext | nindent 8 }}
+      containers:
+        - name: cache-manager
+          securityContext:
+            {{- toYaml .Values.manager.securityContext | nindent 12 }}
+          image: "{{ .Values.manager.image.repository }}:{{ .Values.manager.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.manager.image.pullPolicy }}
+          command:
+            - manager
+            - -leader-elect
+            - -metrics-bind-address=:8080
+            - -metrics-secure=false
+            - -zap-log-level={{ .Values.manager.verbosity }}
+          env:
+            {{- $noProxy := list -}}
+            {{- range .Values.manager.env }}
+            {{- if eq (lower .name) "no_proxy" }}
+            {{- $noProxy = (.value | replace " " "," | splitList ",") -}}
+            {{- else }}
+            - name: {{ .name }}
+              value: {{ .value }}
+            {{- end }}
+            {{- end }}
+            - name: no_proxy
+              value: {{ join "," (prepend $noProxy (printf "%s-registry" (include "kube-image-keeper.fullname" .))) }}
+          {{- with .Values.manager.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.manager.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.manager.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.manager.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.manager.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.manager.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -1,0 +1,18 @@
+{{- if .Values.manager.pdb.create }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "kube-image-keeper.fullname" . }}-manager
+  labels:
+    {{- include "kube-image-keeper.manager-labels" . | nindent 4 }}
+spec:
+  {{- if .Values.manager.pdb.minAvailable }}
+  minAvailable: {{ .Values.manager.pdb.minAvailable }}
+  {{- end }}
+  {{- if .Values.manager.pdb.maxUnavailable }}
+  maxUnavailable: {{ .Values.manager.pdb.maxUnavailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "kube-image-keeper.manager-selectorLabels" . | nindent 6 }}
+{{- end }}
