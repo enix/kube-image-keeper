@@ -3,6 +3,7 @@
 # It should be run by config/default
 resources:
 - bases/kuik.enix.io_images.yaml
+- bases/kuik.enix.io_imagemonitors.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

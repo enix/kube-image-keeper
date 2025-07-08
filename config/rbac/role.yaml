@@ -23,6 +23,7 @@ rules:
 - apiGroups:
   - kuik.enix.io
   resources:
+  - imagemonitors
   - images
   verbs:
   - create
@@ -35,12 +36,14 @@ rules:
 - apiGroups:
   - kuik.enix.io
   resources:
+  - imagemonitors/finalizers
   - images/finalizers
   verbs:
   - update
 - apiGroups:
   - kuik.enix.io
   resources:
+  - imagemonitors/status
   - images/status
   verbs:
   - get
