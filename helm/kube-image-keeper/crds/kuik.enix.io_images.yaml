@@ -16,7 +16,10 @@ spec:
   scope: Cluster
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.reference
+    - jsonPath: .spec.registry
+      name: Registry
+      type: string
+    - jsonPath: .spec.image
       name: Image
       type: string
     - jsonPath: .status.usedByPods.count
@@ -53,11 +56,15 @@ spec:
           spec:
             description: ImageSpec defines the desired state of Image.
             properties:
-              reference:
-                description: Reference is a string identifying the image
+              image:
+                description: Image is a string identifying the image
+                type: string
+              registry:
+                description: Registry is the registry where the image is located
                 type: string
             required:
-            - reference
+            - image
+            - registry
             type: object
           status:
             description: ImageStatus defines the observed state of Image.
@@ -99,6 +106,8 @@ spec:
                 type: object
             type: object
         type: object
+    selectableFields:
+    - jsonPath: .spec.registry
     served: true
     storage: true
     subresources:

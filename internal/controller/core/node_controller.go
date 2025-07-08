@@ -67,12 +67,13 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 			if err != nil {
 				return ctrl.Result{}, err
 			}
-		} else if img.Spec.Reference != image.Spec.Reference {
+		} else if img.Reference() != image.Reference() {
 			log.Info("image found with an invalid reference, patching it", "image", klog.KObj(&image))
 
 			patch := client.MergeFrom(img.DeepCopy())
 
-			img.Spec.Reference = image.Spec.Reference
+			img.Spec.Registry = image.Spec.Registry
+			img.Spec.Image = image.Spec.Image
 
 			if err = r.Patch(ctx, &img, patch); err != nil {
 				return ctrl.Result{}, err
@@ -98,7 +99,7 @@ func (r *NodeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			newImage := e.ObjectNew.(*kuikv1alpha1.Image)
 			oldImage := e.ObjectOld.(*kuikv1alpha1.Image)
-			return newImage.Spec.Reference == oldImage.Spec.Reference
+			return newImage.Reference() == oldImage.Reference()
 		},
 	})
 
