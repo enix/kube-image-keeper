@@ -88,6 +88,27 @@ spec:
                       type: string
                     type: array
                 type: object
+              upstream:
+                description: Upstream is the information about the upstream image
+                properties:
+                  digest:
+                    description: Digest is the digest of the upstream image manifest,
+                      if available
+                    type: string
+                  lastMonitor:
+                    description: LastMonitor is the last time the upstream image was
+                      monitored
+                    format: date-time
+                    type: string
+                  lastSeen:
+                    description: LastSeen is the last time the image was seen upstream
+                    format: date-time
+                    type: string
+                  mediaType:
+                    description: MediaType is the media type of the upstream image
+                      manifest, if available
+                    type: string
+                type: object
               usedByPods:
                 description: UsedByPods is the list of pods using this image
                 properties:

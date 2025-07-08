@@ -28,12 +28,25 @@ type ReferencesWithCount struct {
 	Count int `json:"count,omitempty"`
 }
 
+type Upstream struct {
+	// LastMonitor is the last time the upstream image was monitored
+	LastMonitor metav1.Time `json:"lastMonitor,omitempty"`
+	// LastSeen is the last time the image was seen upstream
+	LastSeen metav1.Time `json:"lastSeen,omitempty"`
+	// Digest is the digest of the upstream image manifest, if available
+	Digest string `json:"digest,omitempty"`
+	// MediaType is the media type of the upstream image manifest, if available
+	MediaType string `json:"mediaType,omitempty"`
+}
+
 // ImageStatus defines the observed state of Image.
 type ImageStatus struct {
 	// UsedByPods is the list of pods using this image
 	UsedByPods ReferencesWithCount `json:"usedByPods,omitempty"`
 	// AvailableOnNodes is the list of nodes that have this image available locally
 	AvailableOnNodes ReferencesWithCount `json:"availableOnNodes,omitempty"`
+	// Upstream is the information about the upstream image
+	Upstream Upstream `json:"upstream,omitempty"`
 }
 
 // +kubebuilder:object:root=true

@@ -4,27 +4,32 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
 // ImageMonitorSpec defines the desired state of ImageMonitor.
+// +required
 type ImageMonitorSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// Foo is an example field of ImageMonitor. Edit imagemonitor_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// Registry is the registry to monitor for image updates, it filters local image to check upstream
+	Registry string `json:"registry"`
+	// Interval is the interval at which the image monitor checks for updates
+	Interval metav1.Duration `json:"interval"`
+	// Burst is the number of images to check in parallel, defaults to 1
+	// +kubebuilder:validation:Minimum=1
+	// +default:value=1
+	Burst int `json:"burst,omitempty"`
 }
 
 // ImageMonitorStatus defines the observed state of ImageMonitor.
 type ImageMonitorStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// LastExecution is the last time the image monitor checked for updates
+	LastExecution metav1.Time `json:"LastExecution,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:resource:scope=Cluster,shortName=imgmon
+// +kubebuilder:printcolumn:name="Registry",type="string",JSONPath=".spec.registry"
+// +kubebuilder:printcolumn:name="Interval",type="string",JSONPath=".spec.interval"
+// +kubebuilder:printcolumn:name="Burst",type="integer",JSONPath=".spec.burst"
+// +kubebuilder:printcolumn:name="Last Execution",type="date",JSONPath=".status.lastExecution"
 
 // ImageMonitor is the Schema for the imagemonitors API.
 type ImageMonitor struct {

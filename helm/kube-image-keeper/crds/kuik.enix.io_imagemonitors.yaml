@@ -10,10 +10,25 @@ spec:
     kind: ImageMonitor
     listKind: ImageMonitorList
     plural: imagemonitors
+    shortNames:
+    - imgmon
     singular: imagemonitor
   scope: Cluster
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .spec.registry
+      name: Registry
+      type: string
+    - jsonPath: .spec.interval
+      name: Interval
+      type: string
+    - jsonPath: .spec.burst
+      name: Burst
+      type: integer
+    - jsonPath: .status.lastExecution
+      name: Last Execution
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: ImageMonitor is the Schema for the imagemonitors API.
@@ -38,13 +53,32 @@ spec:
           spec:
             description: ImageMonitorSpec defines the desired state of ImageMonitor.
             properties:
-              foo:
-                description: Foo is an example field of ImageMonitor. Edit imagemonitor_types.go
-                  to remove/update
+              burst:
+                default: 1
+                description: Burst is the number of images to check in parallel, defaults
+                  to 1
+                minimum: 1
+                type: integer
+              interval:
+                description: Interval is the interval at which the image monitor checks
+                  for updates
                 type: string
+              registry:
+                description: Registry is the registry to monitor for image updates,
+                  it filters local image to check upstream
+                type: string
+            required:
+            - interval
+            - registry
             type: object
           status:
             description: ImageMonitorStatus defines the observed state of ImageMonitor.
+            properties:
+              LastExecution:
+                description: LastExecution is the last time the image monitor checked
+                  for updates
+                format: date-time
+                type: string
             type: object
         type: object
     served: true
