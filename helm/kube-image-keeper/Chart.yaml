@@ -1,6 +1,6 @@
 apiVersion: v2
 name: kube-image-keeper
-description: Your cluster swiss-knife!
+description: The keeper of your images in your cluster!
 type: application
 annotations:
   artifacthub.io/containsSecurityUpdates: "false"
