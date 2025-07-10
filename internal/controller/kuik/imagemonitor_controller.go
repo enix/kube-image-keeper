@@ -13,6 +13,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 const (
@@ -65,8 +66,14 @@ func (r *ImageMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		log.V(1).Info("found images for registry", "count", len(images.Items))
 
 		choices := make([]weightedrand.Choice[kuikv1alpha1.Image, int], len(images.Items))
+		totalCount := 0
 		for _, image := range images.Items {
 			choices = append(choices, weightedrand.NewChoice(image, image.Status.UsedByPods.Count))
+			totalCount += image.Status.UsedByPods.Count
+		}
+		if totalCount == 0 {
+			log.Info("no images to monitor, skipping")
+			return reconcile.Result{RequeueAfter: nextMonitor}, nil
 		}
 		chooser, err := weightedrand.NewChooser(choices...)
 		if err != nil {
