@@ -7,7 +7,6 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - nodes
   - pods
   verbs:
   - get
@@ -16,7 +15,6 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - nodes/status
   - pods/status
   verbs:
   - get

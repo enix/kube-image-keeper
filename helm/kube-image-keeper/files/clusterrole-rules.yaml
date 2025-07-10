@@ -1,7 +1,6 @@
 - apiGroups:
   - ""
   resources:
-  - nodes
   - pods
   verbs:
   - get
@@ -10,7 +9,6 @@
 - apiGroups:
   - ""
   resources:
-  - nodes/status
   - pods/status
   verbs:
   - get

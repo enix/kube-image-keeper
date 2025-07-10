@@ -66,7 +66,7 @@ func (r *ImageMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 		choices := make([]weightedrand.Choice[kuikv1alpha1.Image, int], len(images.Items))
 		for _, image := range images.Items {
-			choices = append(choices, weightedrand.NewChoice(image, image.Status.AvailableOnNodes.Count))
+			choices = append(choices, weightedrand.NewChoice(image, image.Status.UsedByPods.Count))
 		}
 		chooser, err := weightedrand.NewChooser(choices...)
 		if err != nil {

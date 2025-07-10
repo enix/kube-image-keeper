@@ -177,7 +177,6 @@ func (in *ImageSpec) DeepCopy() *ImageSpec {
 func (in *ImageStatus) DeepCopyInto(out *ImageStatus) {
 	*out = *in
 	in.UsedByPods.DeepCopyInto(&out.UsedByPods)
-	in.AvailableOnNodes.DeepCopyInto(&out.AvailableOnNodes)
 	in.Upstream.DeepCopyInto(&out.Upstream)
 }
 

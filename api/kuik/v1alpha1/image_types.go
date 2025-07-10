@@ -43,8 +43,6 @@ type Upstream struct {
 type ImageStatus struct {
 	// UsedByPods is the list of pods using this image
 	UsedByPods ReferencesWithCount `json:"usedByPods,omitempty"`
-	// AvailableOnNodes is the list of nodes that have this image available locally
-	AvailableOnNodes ReferencesWithCount `json:"availableOnNodes,omitempty"`
 	// Upstream is the information about the upstream image
 	Upstream Upstream `json:"upstream,omitempty"`
 }
@@ -56,7 +54,6 @@ type ImageStatus struct {
 // +kubebuilder:printcolumn:name="Registry",type="string",JSONPath=".spec.registry"
 // +kubebuilder:printcolumn:name="Image",type="string",JSONPath=".spec.image"
 // +kubebuilder:printcolumn:name="Pods count",type="integer",JSONPath=".status.usedByPods.count"
-// +kubebuilder:printcolumn:name="Nodes count",type="integer",JSONPath=".status.availableOnNodes.count"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // Image is the Schema for the images API.

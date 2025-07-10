@@ -26,9 +26,6 @@ spec:
     - jsonPath: .status.usedByPods.count
       name: Pods count
       type: integer
-    - jsonPath: .status.availableOnNodes.count
-      name: Nodes count
-      type: integer
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -70,24 +67,6 @@ spec:
           status:
             description: ImageStatus defines the observed state of Image.
             properties:
-              availableOnNodes:
-                description: AvailableOnNodes is the list of nodes that have this
-                  image available locally
-                properties:
-                  count:
-                    description: |-
-                      Count is the number of objects using this image
-
-                      jsonpath function .length() is not implemented, so the count field is required to display objects count in additionalPrinterColumns
-                      see https://github.com/kubernetes-sigs/controller-tools/issues/447
-                    type: integer
-                  items:
-                    description: Items is a list of reference to objects using this
-                      Image
-                    items:
-                      type: string
-                    type: array
-                type: object
               upstream:
                 description: Upstream is the information about the upstream image
                 properties:

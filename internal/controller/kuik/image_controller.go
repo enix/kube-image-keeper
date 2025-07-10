@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
-	"github.com/enix/kube-image-keeper/internal/controller/core"
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -83,27 +82,6 @@ func (r *ImageReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return err
 	}
 
-	// create an index to list Nodes by Image
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &corev1.Node{}, ImagesIndexKey, func(rawObj client.Object) []string {
-		node := rawObj.(*corev1.Node)
-
-		logger := mgr.GetLogger().
-			WithName("indexer.images.nodes").
-			WithValues("node", klog.KObj(node))
-		ctx := logr.NewContext(context.Background(), logger)
-
-		images := core.ImagesFromNode(ctx, node)
-
-		imageNames := make([]string, len(images))
-		for _, image := range images {
-			imageNames = append(imageNames, image.Name)
-		}
-
-		return imageNames
-	}); err != nil {
-		return err
-	}
-
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kuikv1alpha1.Image{}).
 		Named("kuik-image").
@@ -132,24 +110,6 @@ func (r *ImageReconciler) updateReferenceCount(ctx context.Context, image *kuikv
 	image.Status.UsedByPods = kuikv1alpha1.ReferencesWithCount{
 		Items: pods,
 		Count: len(pods),
-	}
-
-	var nodeList corev1.NodeList
-	if err = r.List(ctx, &nodeList, client.MatchingFields{ImagesIndexKey: image.Name}); err != nil && !apierrors.IsNotFound(err) {
-		return
-	}
-
-	nodes := []string{}
-	for _, node := range nodeList.Items {
-		if !node.DeletionTimestamp.IsZero() {
-			continue
-		}
-		nodes = append(nodes, node.Name)
-	}
-
-	image.Status.AvailableOnNodes = kuikv1alpha1.ReferencesWithCount{
-		Items: nodes,
-		Count: len(nodes),
 	}
 
 	err = r.Status().Update(ctx, image)

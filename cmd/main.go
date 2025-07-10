@@ -201,13 +201,6 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "Image")
 		os.Exit(1)
 	}
-	if err = (&corecontroller.NodeReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Node")
-		os.Exit(1)
-	}
 	if err = (&kuikcontroller.ImageMonitorReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
