@@ -52,52 +52,53 @@ func (r *ImageMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	timeAgo := metav1.Now().Sub(imageMonitor.Status.LastExecution.Time)
 	log.Info("reconcile", "lastExecution", imageMonitor.Status.LastExecution)
 
-	nextMonitor := imageMonitor.Spec.Interval.Duration - timeAgo
-	if nextMonitor <= 0 {
-		log.Info("monitoring images", "burst", imageMonitor.Spec.Burst)
-
-		var images kuikv1alpha1.ImageList
-		if err := r.List(ctx, &images, client.MatchingFields{
-			RegristryIndexKey: imageMonitor.Spec.Registry,
-		}); err != nil {
-			return ctrl.Result{}, err
-		}
-
-		log.V(1).Info("found images for registry", "count", len(images.Items))
-
-		choices := make([]weightedrand.Choice[kuikv1alpha1.Image, int], len(images.Items))
-		totalCount := 0
-		for _, image := range images.Items {
-			choices = append(choices, weightedrand.NewChoice(image, image.Status.UsedByPods.Count))
-			totalCount += image.Status.UsedByPods.Count
-		}
-		if totalCount == 0 {
-			log.Info("no images to monitor, skipping")
-			return reconcile.Result{RequeueAfter: nextMonitor}, nil
-		}
-		chooser, err := weightedrand.NewChooser(choices...)
-		if err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to create random chooser: %w", err)
-		}
-
-		for range imageMonitor.Spec.Burst {
-			// FIXME: this can pick the same image multiple times
-			image := chooser.Pick()
-			log.V(1).Info("randomly selected an image to monitor", "image", image.Reference())
-
-			// NOTE: this could fail, but we don't want to retry to prevent reaching the rate-limit
-			r.monitorAnImage(ctx, log, &image)
-		}
-
-		patch := client.MergeFrom(imageMonitor.DeepCopy())
-		imageMonitor.Status.LastExecution = metav1.Now()
-		r.Status().Patch(ctx, &imageMonitor, patch)
-	} else {
-		log.Info("skipping monitoring images", "nextMonitor", nextMonitor)
-		return ctrl.Result{RequeueAfter: nextMonitor}, nil
+	nextMonitorInterval := imageMonitor.Spec.Interval.Duration - timeAgo
+	if nextMonitorInterval > 0 {
+		log.Info("skipping monitoring images", "nextMonitor", nextMonitorInterval)
+		return ctrl.Result{RequeueAfter: nextMonitorInterval}, nil
 	}
 
-	return ctrl.Result{}, nil
+	log.Info("monitoring images", "burst", imageMonitor.Spec.Burst)
+
+	var images kuikv1alpha1.ImageList
+	if err := r.List(ctx, &images, client.MatchingFields{
+		RegristryIndexKey: imageMonitor.Spec.Registry,
+	}); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	log.V(1).Info("found images matching registry", "count", len(images.Items))
+
+	choices := make([]weightedrand.Choice[kuikv1alpha1.Image, int], len(images.Items))
+	totalCount := 0
+	for _, image := range images.Items {
+		choices = append(choices, weightedrand.NewChoice(image, image.Status.UsedByPods.Count))
+		totalCount += image.Status.UsedByPods.Count
+	}
+	if totalCount == 0 {
+		log.Info("no images to monitor, skipping")
+		return reconcile.Result{RequeueAfter: nextMonitorInterval}, nil
+	}
+	chooser, err := weightedrand.NewChooser(choices...)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to create random chooser: %w", err)
+	}
+
+	for range imageMonitor.Spec.Burst {
+		// FIXME: this can pick the same image multiple times
+		image := chooser.Pick()
+
+		// NOTE: this could fail, but we don't want to retry to prevent reaching the rate-limit
+		r.monitorAnImage(ctx, log.WithValues("image", image.Reference()), &image)
+	}
+
+	patch := client.MergeFrom(imageMonitor.DeepCopy())
+	imageMonitor.Status.LastExecution = metav1.Now()
+	r.Status().Patch(ctx, &imageMonitor, patch)
+
+	log.Info("monitored images with success")
+
+	return ctrl.Result{RequeueAfter: nextMonitorInterval}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -120,7 +121,7 @@ func (r *ImageMonitorReconciler) monitorAnImage(ctx context.Context, log logr.Lo
 	patch := client.MergeFrom(image.DeepCopy())
 	defer func() {
 		if err := r.Status().Patch(ctx, image, patch); err != nil {
-			log.Info("failed to patch image status", "image", image.Reference(), "error", err.Error())
+			log.Info("failed to patch image status", "error", err.Error())
 		}
 	}()
 
@@ -128,11 +129,11 @@ func (r *ImageMonitorReconciler) monitorAnImage(ctx context.Context, log logr.Lo
 
 	desc, err := registry.GetDescriptor(image.Reference(), nil, nil)
 	if err != nil {
-		log.Info("failed to get image descriptor, skipping", "image", image.Reference(), "error", err.Error())
+		log.Info("failed to get image descriptor, skipping", "error", err.Error())
 		return
 	}
 
-	log.V(1).Info("image descriptor", "image", image.Reference(), "digest", desc.Digest, "size", desc.Size, "mediaType", desc.MediaType)
+	log.V(1).Info("image descriptor", "digest", desc.Digest, "mediaType", desc.MediaType)
 	image.Status.Upstream.LastSeen = metav1.Now()
 	image.Status.Upstream.Digest = desc.Digest.String()
 }
