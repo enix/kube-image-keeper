@@ -6,6 +6,7 @@ import (
 
 	"github.com/cespare/xxhash/v2"
 	"github.com/distribution/reference"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -78,7 +79,26 @@ func init() {
 	SchemeBuilder.Register(&Image{}, &ImageList{})
 }
 
-func ImageFromReference(reference string) (*Image, error) {
+func ImagesFromPod(pod *corev1.Pod) ([]Image, []error) {
+	return imagesFromContainers(append(pod.Spec.Containers, pod.Spec.InitContainers...))
+}
+
+func imagesFromContainers(containers []corev1.Container) ([]Image, []error) {
+	images := []Image{}
+	errs := []error{}
+
+	for _, container := range containers {
+		image, err := imageFromReference(container.Image)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("could not create image from reference %q: %w", container.Image, err))
+		}
+		images = append(images, *image)
+	}
+
+	return images, errs
+}
+
+func imageFromReference(reference string) (*Image, error) {
 	sanitizedName, err := imageNameFromReference(reference)
 	if err != nil {
 		return nil, err

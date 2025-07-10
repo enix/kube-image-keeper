@@ -48,7 +48,10 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	images := ImagesFromPod(ctx, &pod)
+	images, errs := kuikv1alpha1.ImagesFromPod(&pod)
+	for _, err := range errs {
+		log.Error(err, "failed to create image from pod, ignoring", "pod", klog.KObj(&pod))
+	}
 
 	hasDeletingImages := false
 	for _, image := range images {
@@ -134,27 +137,4 @@ func (r *PodReconciler) podsWithDeletingImages(ctx context.Context, obj client.O
 	}
 
 	return res
-}
-
-func ImagesFromPod(ctx context.Context, pod *corev1.Pod) []kuikv1alpha1.Image {
-	images := imagesFromContainers(ctx, pod.Spec.Containers, pod.Annotations)
-	images = append(images, imagesFromContainers(ctx, pod.Spec.InitContainers, pod.Annotations)...)
-	return images
-}
-
-func imagesFromContainers(ctx context.Context, containers []corev1.Container, annotations map[string]string) []kuikv1alpha1.Image {
-	log := logf.FromContext(ctx)
-	images := []kuikv1alpha1.Image{}
-
-	for _, container := range containers {
-		containerLog := log.WithValues("container", container.Name)
-		image, err := kuikv1alpha1.ImageFromReference(container.Image)
-		if err != nil {
-			containerLog.Error(err, "could not create image, ignoring")
-			continue
-		}
-		images = append(images, *image)
-	}
-
-	return images
 }

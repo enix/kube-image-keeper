@@ -94,7 +94,9 @@ func (r *ImageMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	patch := client.MergeFrom(imageMonitor.DeepCopy())
 	imageMonitor.Status.LastExecution = metav1.Now()
-	r.Status().Patch(ctx, &imageMonitor, patch)
+	if err := r.Status().Patch(ctx, &imageMonitor, patch); err != nil {
+		return ctrl.Result{}, err
+	}
 
 	log.Info("monitored images with success")
 
