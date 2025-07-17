@@ -6,8 +6,8 @@ manager:
   # -- Number of manager pods
   replicas: 2
   image:
-    # -- Manager image repository. Also available: `quay.io/enix/kube-image-keeper`
-    repository: ghcr.io/enix/kube-image-keeper
+    # -- Manager image repository
+    repository: quay.io/enix/kube-image-keeper
     # -- Manager image pull policy
     pullPolicy: IfNotPresent
     # -- Manager image tag. Default chart appVersion
