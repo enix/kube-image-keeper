@@ -1,0 +1,129 @@
+name: Build
+
+on:
+  workflow_call:
+    secrets:
+      REPO_LOGIN:
+        required: true
+      REPO_TOKEN:
+        required: true
+      GH_TOKEN_PUBLISH_HELM_CHART:
+        required: true
+    inputs:
+      REPO_IMAGE:
+        required: true
+        type: string
+      REPO_CHART:
+        required: true
+        type: string
+      VERSION:
+        required: true
+        type: string
+      PRERELEASE:
+        required: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  containers:
+    name: Containers
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: quay.io
+          username: ${{ secrets.REPO_LOGIN }}
+          password: ${{ secrets.REPO_TOKEN }}
+
+      - name: Generate image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          labels: |
+            org.opencontainers.image.version=${{ inputs.VERSION }}
+            org.opencontainers.image.ref.name=${{ inputs.REPO_IMAGE }}:${{ inputs.VERSION }}
+
+      - name: Build & push container images (Alpine)
+        uses: docker/build-push-action@v6
+        with:
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            "VERSION=${{ inputs.VERSION }}"
+            "REVISION=${{ github.sha }}"
+          target: alpine
+          push: true
+          labels: ${{ steps.meta.outputs.labels }}
+          tags: |
+            ${{ inputs.REPO_IMAGE }}:${{ inputs.VERSION }}-alpine
+
+      - name: Build & push container images
+        uses: docker/build-push-action@v6
+        with:
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            "VERSION=${{ inputs.VERSION }}"
+            "REVISION=${{ github.sha }}"
+          push: true
+          cache-from: type=registry,ref=${{ inputs.REPO_IMAGE }}:${{ inputs.VERSION }}-alpine
+          labels: ${{ steps.meta.outputs.labels }}
+          tags: |
+            ${{ inputs.REPO_IMAGE }}:${{ inputs.VERSION }}
+            ${{ inputs.PRERELEASE != 'true' && format('{0}:latest', inputs.REPO_IMAGE) || '' }}
+
+  chart:
+    name: Chart
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set the prerelease artifacthub annotation
+        run: |
+          yq e '.annotations["artifacthub.io/prerelease"] = "${{ inputs.PRERELEASE }}"' -i ./helm/kube-image-keeper/Chart.yaml
+
+      - name: Build helm chart
+        uses: appany/helm-oci-chart-releaser@v0.4.2
+        with:
+          path: helm/kube-image-keeper
+          name: kube-image-keeper
+          repository: enix/charts
+          tag: ${{ inputs.VERSION }}
+          app_version: ${{ inputs.VERSION }}
+          registry: quay.io
+          registry_username: ${{ secrets.REPO_LOGIN }}
+          registry_password: ${{ secrets.REPO_TOKEN }}
+          update_dependencies: "true"
+
+      - name: Setup Oras
+        uses: oras-project/setup-oras@v1
+
+      - name: Generate Helm index and push it
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN_PUBLISH_HELM_CHART }}
+          REPO_LOGIN: ${{ secrets.REPO_LOGIN }}
+          REPO_TOKEN: ${{ secrets.REPO_TOKEN }}
+        run: |
+          # Create repo index file:
+          helm repo index .
+
+          # Replace HTTP URL by OCI URL
+          yq e ".entries.kube-image-keeper[0].urls[0] = \"oci://${{ inputs.REPO_CHART }}:${{ inputs.VERSION }}\"" -i index.yaml
+
+          # Push index on kube-image-keeper repo:
+          mv index.yaml index-latest.yaml
+
+          echo "${REPO_TOKEN}" | oras login --username "${REPO_LOGIN}" --password-stdin quay.io
+          oras push ${{ inputs.REPO_CHART }}:index-latest.yaml --artifact-type application/yaml index-latest.yaml:application/yaml
+
+          # Trigger index publish
+          gh workflow run helmchart-publish.yml -f index_path=enix/charts/kube-image-keeper:index-latest.yaml --repo enix/helm-charts
