@@ -20,49 +20,49 @@ const (
 	RegristryIndexKey = ".spec.registry"
 )
 
-// ImageMonitorReconciler reconciles a ImageMonitor object
-type ImageMonitorReconciler struct {
+// RegistryMonitorReconciler reconciles a RegistryMonitor object
+type RegistryMonitorReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=kuik.enix.io,resources=imagemonitors,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=kuik.enix.io,resources=imagemonitors/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=kuik.enix.io,resources=imagemonitors/finalizers,verbs=update
+// +kubebuilder:rbac:groups=kuik.enix.io,resources=registrymonitors,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=kuik.enix.io,resources=registrymonitors/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=kuik.enix.io,resources=registrymonitors/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 // TODO(user): Modify the Reconcile function to compare the state specified by
-// the ImageMonitor object against the actual cluster state, and then
+// the RegistryMonitor object against the actual cluster state, and then
 // perform operations to make the cluster state reflect the state specified by
 // the user.
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.4/pkg/reconcile
-func (r *ImageMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
-	var imageMonitor kuikv1alpha1.ImageMonitor
-	if err := r.Get(ctx, req.NamespacedName, &imageMonitor); err != nil {
+	var registryMonitor kuikv1alpha1.RegistryMonitor
+	if err := r.Get(ctx, req.NamespacedName, &registryMonitor); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	log = log.WithValues("registry", imageMonitor.Spec.Registry)
+	log = log.WithValues("registry", registryMonitor.Spec.Registry)
 
-	timeAgo := metav1.Now().Sub(imageMonitor.Status.LastExecution.Time)
-	log.Info("reconcile", "lastExecution", imageMonitor.Status.LastExecution)
+	timeAgo := metav1.Now().Sub(registryMonitor.Status.LastExecution.Time)
+	log.Info("reconcile", "lastExecution", registryMonitor.Status.LastExecution)
 
-	nextMonitorInterval := imageMonitor.Spec.Interval.Duration - timeAgo
+	nextMonitorInterval := registryMonitor.Spec.Interval.Duration - timeAgo
 	if nextMonitorInterval > 0 {
 		log.Info("skipping monitoring images", "nextMonitor", nextMonitorInterval)
 		return ctrl.Result{RequeueAfter: nextMonitorInterval}, nil
 	}
 
-	log.Info("monitoring images", "burst", imageMonitor.Spec.Burst)
+	log.Info("monitoring images", "burst", registryMonitor.Spec.Burst)
 
 	var images kuikv1alpha1.ImageList
 	if err := r.List(ctx, &images, client.MatchingFields{
-		RegristryIndexKey: imageMonitor.Spec.Registry,
+		RegristryIndexKey: registryMonitor.Spec.Registry,
 	}); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -84,7 +84,7 @@ func (r *ImageMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, fmt.Errorf("failed to create random chooser: %w", err)
 	}
 
-	for range imageMonitor.Spec.Burst {
+	for range registryMonitor.Spec.Burst {
 		// FIXME: this can pick the same image multiple times
 		image := chooser.Pick()
 
@@ -92,9 +92,9 @@ func (r *ImageMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		r.monitorAnImage(ctx, log.WithValues("image", image.Reference()), &image)
 	}
 
-	patch := client.MergeFrom(imageMonitor.DeepCopy())
-	imageMonitor.Status.LastExecution = metav1.Now()
-	if err := r.Status().Patch(ctx, &imageMonitor, patch); err != nil {
+	patch := client.MergeFrom(registryMonitor.DeepCopy())
+	registryMonitor.Status.LastExecution = metav1.Now()
+	if err := r.Status().Patch(ctx, &registryMonitor, patch); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -104,7 +104,7 @@ func (r *ImageMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *ImageMonitorReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *RegistryMonitorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// create an index to list Images by registry
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &kuikv1alpha1.Image{}, RegristryIndexKey, func(rawObj client.Object) []string {
 		image := rawObj.(*kuikv1alpha1.Image)
@@ -114,12 +114,12 @@ func (r *ImageMonitorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return err
 	}
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&kuikv1alpha1.ImageMonitor{}).
-		Named("kuik-imagemonitor").
+		For(&kuikv1alpha1.RegistryMonitor{}).
+		Named("kuik-registrymonitor").
 		Complete(r)
 }
 
-func (r *ImageMonitorReconciler) monitorAnImage(ctx context.Context, log logr.Logger, image *kuikv1alpha1.Image) {
+func (r *RegistryMonitorReconciler) monitorAnImage(ctx context.Context, log logr.Logger, image *kuikv1alpha1.Image) {
 	patch := client.MergeFrom(image.DeepCopy())
 	defer func() {
 		if err := r.Status().Patch(ctx, image, patch); err != nil {

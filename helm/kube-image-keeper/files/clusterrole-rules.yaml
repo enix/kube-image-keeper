@@ -15,8 +15,8 @@
 - apiGroups:
   - kuik.enix.io
   resources:
-  - imagemonitors
   - images
+  - registrymonitors
   verbs:
   - create
   - delete
@@ -28,15 +28,15 @@
 - apiGroups:
   - kuik.enix.io
   resources:
-  - imagemonitors/finalizers
   - images/finalizers
+  - registrymonitors/finalizers
   verbs:
   - update
 - apiGroups:
   - kuik.enix.io
   resources:
-  - imagemonitors/status
   - images/status
+  - registrymonitors/status
   verbs:
   - get
   - patch

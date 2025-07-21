@@ -1,19 +1,18 @@
----
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.17.2
-  name: imagemonitors.kuik.enix.io
+  name: registrymonitors.kuik.enix.io
 spec:
   group: kuik.enix.io
   names:
-    kind: ImageMonitor
-    listKind: ImageMonitorList
-    plural: imagemonitors
+    kind: RegistryMonitor
+    listKind: RegistryMonitorList
+    plural: registrymonitors
     shortNames:
     - imgmon
-    singular: imagemonitor
+    singular: registrymonitor
   scope: Cluster
   versions:
   - additionalPrinterColumns:
@@ -32,7 +31,7 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: ImageMonitor is the Schema for the imagemonitors API.
+        description: RegistryMonitor is the Schema for the registrymonitors API.
         properties:
           apiVersion:
             description: |-
@@ -52,7 +51,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: ImageMonitorSpec defines the desired state of ImageMonitor.
+            description: RegistryMonitorSpec defines the desired state of RegistryMonitor.
             properties:
               burst:
                 default: 1
@@ -73,7 +72,7 @@ spec:
             - registry
             type: object
           status:
-            description: ImageMonitorStatus defines the observed state of ImageMonitor.
+            description: RegistryMonitorStatus defines the observed state of RegistryMonitor.
             properties:
               LastExecution:
                 description: LastExecution is the last time the image monitor checked
