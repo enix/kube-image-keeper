@@ -29,15 +29,23 @@ type ReferencesWithCount struct {
 	Count int `json:"count,omitempty"`
 }
 
+type ImageStatusUpstream string
+
+const (
+	ImageStatusUpstreamAvailable   = ImageStatusUpstream("Available")
+	ImageStatusUpstreamUnavailable = ImageStatusUpstream("Unavailable")
+	ImageStatusUpstreamInvalidAuth = ImageStatusUpstream("InvalidAuth")
+)
+
 type Upstream struct {
 	// LastMonitor is the last time a monitoring task for the upstream image was was started
 	LastMonitor metav1.Time `json:"lastMonitor,omitempty"`
 	// LastSeen is the last time the image was seen upstream
 	LastSeen metav1.Time `json:"lastSeen,omitempty"`
+	// Status is the status of the last finished monitoring task
+	Status ImageStatusUpstream `json:"status,omitempty"`
 	// Digest is the digest of the upstream image manifest, if available
 	Digest string `json:"digest,omitempty"`
-	// MediaType is the media type of the upstream image manifest, if available
-	MediaType string `json:"mediaType,omitempty"`
 }
 
 // ImageStatus defines the observed state of Image.
@@ -55,6 +63,7 @@ type ImageStatus struct {
 // +kubebuilder:printcolumn:name="Registry",type="string",JSONPath=".spec.registry"
 // +kubebuilder:printcolumn:name="Image",type="string",JSONPath=".spec.image"
 // +kubebuilder:printcolumn:name="Pods count",type="integer",JSONPath=".status.usedByPods.count"
+// +kubebuilder:printcolumn:name="Upstream status",type="string",JSONPath=".status.upstream.status"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // Image is the Schema for the images API.

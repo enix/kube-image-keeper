@@ -26,6 +26,9 @@ spec:
     - jsonPath: .status.usedByPods.count
       name: Pods count
       type: integer
+    - jsonPath: .status.upstream.status
+      name: Upstream status
+      type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -83,9 +86,9 @@ spec:
                     description: LastSeen is the last time the image was seen upstream
                     format: date-time
                     type: string
-                  mediaType:
-                    description: MediaType is the media type of the upstream image
-                      manifest, if available
+                  status:
+                    description: Status is the status of the last finished monitoring
+                      task
                     type: string
                 type: object
               usedByPods:

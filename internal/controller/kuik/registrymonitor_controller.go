@@ -2,12 +2,15 @@ package kuik
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"slices"
 	"time"
 
 	"github.com/alitto/pond/v2"
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/registry"
+	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
@@ -18,7 +21,7 @@ import (
 )
 
 const (
-	RegristryIndexKey = ".spec.registry"
+	RegistryIndexKey = ".spec.registry"
 )
 
 // RegistryMonitorReconciler reconciles a RegistryMonitor object
@@ -58,7 +61,7 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	var images kuikv1alpha1.ImageList
 	if err := r.List(ctx, &images, client.MatchingFields{
-		RegristryIndexKey: registryMonitor.Spec.Registry,
+		RegistryIndexKey: registryMonitor.Spec.Registry,
 	}); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -93,7 +96,7 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 // SetupWithManager sets up the controller with the Manager.
 func (r *RegistryMonitorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// create an index to list Images by registry
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &kuikv1alpha1.Image{}, RegristryIndexKey, func(rawObj client.Object) []string {
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &kuikv1alpha1.Image{}, RegistryIndexKey, func(rawObj client.Object) []string {
 		image := rawObj.(*kuikv1alpha1.Image)
 
 		return []string{image.Spec.Registry}
@@ -122,21 +125,25 @@ func (r *RegistryMonitorReconciler) monitorAnImage(ctx context.Context, image *k
 	}
 
 	patch = client.MergeFrom(image.DeepCopy())
-	defer func() {
-		if err := r.Status().Patch(ctx, image, patch); err != nil {
-			log.V(1).Info("failed to patch image status", "error", err.Error())
-		}
-		log.V(1).Info("image monitored with success")
-	}()
-
 	desc, err := registry.GetDescriptor(image.Reference(), nil, nil)
 	if err != nil {
-		log.V(1).Info("failed to get image descriptor, skipping", "error", err.Error())
-		return
+		var te *transport.Error
+		if errors.As(err, &te) && (te.StatusCode == http.StatusForbidden || te.StatusCode == http.StatusUnauthorized) {
+			image.Status.Upstream.Status = kuikv1alpha1.ImageStatusUpstreamInvalidAuth
+		} else {
+			image.Status.Upstream.Status = kuikv1alpha1.ImageStatusUpstreamUnavailable
+		}
+	} else {
+		image.Status.Upstream.LastSeen = metav1.Now()
+		image.Status.Upstream.Digest = desc.Digest.String()
+		image.Status.Upstream.Status = kuikv1alpha1.ImageStatusUpstreamAvailable
 	}
 
-	image.Status.Upstream.LastSeen = metav1.Now()
-	image.Status.Upstream.Digest = desc.Digest.String()
+	if errStatus := r.Status().Patch(ctx, image, patch); errStatus != nil {
+		log.V(1).Info("failed to patch image status", "error", errStatus.Error())
+	} else {
+		log.V(1).Info("image monitored with success")
+	}
 
 	// TODO: add to SetupWithManager Watches(&source.Channel{Source: eventChannel}, &handler.EnqueueRequestForObject{})
 	// push an event in the channel when this function is done
