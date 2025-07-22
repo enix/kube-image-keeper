@@ -54,6 +54,10 @@ spec:
             {{- end }}
             - name: no_proxy
               value: {{ join "," (prepend $noProxy (printf "%s-registry" (include "kube-image-keeper.fullname" .))) }}
+          ports:
+            - containerPort: 8080
+              name: metrics
+              protocol: TCP
           {{- with .Values.manager.readinessProbe }}
           readinessProbe:
             {{- toYaml . | nindent 12 }}

@@ -60,6 +60,17 @@ manager:
       cpu: "1"
       # -- Memory limits for the manager pod
       memory: "512Mi"
+  podMonitor:
+    # -- Should a PodMonitor object be installed to scrape kuik manager metrics. For prometheus-operator (kube-prometheus) users.
+    create: false
+    # -- Target scrape interval set in the PodMonitor
+    scrapeInterval: 60s
+    # -- Target scrape timeout set in the PodMonitor
+    scrapeTimeout: 30s
+    # -- Additional labels to add to PodMonitor objects
+    extraLabels: {}
+    # -- Relabel config for the PodMonitor, see: https://coreos.com/operators/prometheus/docs/latest/api.html#relabelconfig
+    relabelings: []
 
 rbac:
   # -- Create the ClusterRole and ClusterRoleBinding. If false, need to associate permissions with serviceAccount outside this Helm chart.

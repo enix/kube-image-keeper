@@ -91,16 +91,18 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		logImage := logf.Log.WithValues("controller", "imagemonitor", "image", klog.KObj(&image), "reference", image.Reference()).V(1)
 		logImage.Info("queuing image for monitoring")
 
-		monitorPool.Submit(func() {
+		monitorPool.SubmitErr(func() error {
 			logImage.Info("monitoring image")
 			if err := r.monitorAnImage(logf.IntoContext(context.Background(), logImage), &image); err != nil {
 				logImage.Info("failed to monitor image", "error", err.Error())
+				return err
 			}
 			logImage.Info("image monitored with success")
+			return nil
 		})
 	}
 
-	log.Info("queued images for monitoring with success")
+	log.Info("queued images for monitoring with success", "completed", monitorPool.CompletedTasks(), "failed", monitorPool.FailedTasks())
 
 	return ctrl.Result{RequeueAfter: registryMonitor.Spec.Interval.Duration / time.Duration(registryMonitor.Spec.MaxPerInterval)}, nil
 }
