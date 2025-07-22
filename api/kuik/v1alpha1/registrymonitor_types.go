@@ -9,27 +9,28 @@ import (
 type RegistryMonitorSpec struct {
 	// Registry is the registry to monitor for image updates, it filters local image to check upstream
 	Registry string `json:"registry"`
-	// Interval is the interval at which the image monitor checks for updates
-	Interval metav1.Duration `json:"interval"`
-	// Burst is the number of images to check in parallel, defaults to 1
+	// Parallel is the number of images to check in parallel, defaults to 1
 	// +kubebuilder:validation:Minimum=1
 	// +default:value=1
-	Burst int `json:"burst,omitempty"`
+	Parallel int `json:"parallel"`
+	// MaxPerInterval is the maximum number of images to check for the given interval, defaults to 1
+	// +kubebuilder:validation:Minimum=1
+	// +default:value=1
+	MaxPerInterval int `json:"maxPerInterval"`
+	// Interval is the interval at which the image monitor checks for updates
+	Interval metav1.Duration `json:"interval"`
 }
 
 // RegistryMonitorStatus defines the observed state of RegistryMonitor.
-type RegistryMonitorStatus struct {
-	// LastExecution is the last time the image monitor checked for updates
-	LastExecution metav1.Time `json:"LastExecution,omitempty"`
-}
+type RegistryMonitorStatus struct{}
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster,shortName=regmon
 // +kubebuilder:printcolumn:name="Registry",type="string",JSONPath=".spec.registry"
+// +kubebuilder:printcolumn:name="Parallel",type="integer",JSONPath=".spec.parallel"
+// +kubebuilder:printcolumn:name="MaxPerInterval",type="integer",JSONPath=".spec.maxPerInterval"
 // +kubebuilder:printcolumn:name="Interval",type="string",JSONPath=".spec.interval"
-// +kubebuilder:printcolumn:name="Burst",type="integer",JSONPath=".spec.burst"
-// +kubebuilder:printcolumn:name="Last Execution",type="date",JSONPath=".status.lastExecution"
 
 // RegistryMonitor is the Schema for the registrymonitors API.
 type RegistryMonitor struct {

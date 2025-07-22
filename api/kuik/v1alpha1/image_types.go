@@ -30,7 +30,7 @@ type ReferencesWithCount struct {
 }
 
 type Upstream struct {
-	// LastMonitor is the last time the upstream image was monitored
+	// LastMonitor is the last time a monitoring task for the upstream image was was started
 	LastMonitor metav1.Time `json:"lastMonitor,omitempty"`
 	// LastSeen is the last time the image was seen upstream
 	LastSeen metav1.Time `json:"lastSeen,omitempty"`

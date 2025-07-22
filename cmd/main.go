@@ -21,6 +21,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	"github.com/alitto/pond/v2"
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	corecontroller "github.com/enix/kube-image-keeper/internal/controller/core"
 	kuikcontroller "github.com/enix/kube-image-keeper/internal/controller/kuik"
@@ -203,8 +204,9 @@ func main() {
 	}
 
 	if err = (&kuikcontroller.RegistryMonitorReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:       mgr.GetClient(),
+		Scheme:       mgr.GetScheme(),
+		MonitorsPool: pond.NewPool(1),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "RegistryMonitor")
 		os.Exit(1)

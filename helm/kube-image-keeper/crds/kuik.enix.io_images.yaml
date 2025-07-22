@@ -74,8 +74,8 @@ spec:
                       if available
                     type: string
                   lastMonitor:
-                    description: LastMonitor is the last time the upstream image was
-                      monitored
+                    description: LastMonitor is the last time a monitoring task for
+                      the upstream image was was started
                     format: date-time
                     type: string
                   lastSeen:

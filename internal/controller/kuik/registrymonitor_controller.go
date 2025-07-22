@@ -2,18 +2,19 @@ package kuik
 
 import (
 	"context"
-	"fmt"
+	"slices"
+	"time"
 
+	"github.com/alitto/pond/v2"
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/registry"
-	"github.com/go-logr/logr"
-	"github.com/mroth/weightedrand/v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 const (
@@ -23,7 +24,8 @@ const (
 // RegistryMonitorReconciler reconciles a RegistryMonitor object
 type RegistryMonitorReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme       *runtime.Scheme
+	MonitorsPool pond.Pool
 }
 
 // +kubebuilder:rbac:groups=kuik.enix.io,resources=registrymonitors,verbs=get;list;watch;create;update;patch;delete
@@ -48,17 +50,11 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	log = log.WithValues("registry", registryMonitor.Spec.Registry)
-
-	timeAgo := metav1.Now().Sub(registryMonitor.Status.LastExecution.Time)
-	log.Info("reconcile", "lastExecution", registryMonitor.Status.LastExecution)
-
-	nextMonitorInterval := registryMonitor.Spec.Interval.Duration - timeAgo
-	if nextMonitorInterval > 0 {
-		log.Info("skipping monitoring images", "nextMonitor", nextMonitorInterval)
-		return ctrl.Result{RequeueAfter: nextMonitorInterval}, nil
+	if registryMonitor.Spec.Parallel > 0 && registryMonitor.Spec.Parallel != r.MonitorsPool.MaxConcurrency() {
+		r.MonitorsPool.Resize(registryMonitor.Spec.Parallel)
 	}
 
-	log.Info("monitoring images", "burst", registryMonitor.Spec.Burst)
+	log.Info("queuing images for monitoring")
 
 	var images kuikv1alpha1.ImageList
 	if err := r.List(ctx, &images, client.MatchingFields{
@@ -67,40 +63,31 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, err
 	}
 
-	log.V(1).Info("found images matching registry", "count", len(images.Items))
+	slices.SortFunc(images.Items, func(i, j kuikv1alpha1.Image) int {
+		return i.Status.Upstream.LastMonitor.Compare(j.Status.Upstream.LastMonitor.Time)
+	})
 
-	choices := make([]weightedrand.Choice[kuikv1alpha1.Image, int], len(images.Items))
-	totalCount := 0
+	monitoredDuringInterval := 0
+	intervalStart := time.Now().Add(-registryMonitor.Spec.Interval.Duration)
 	for _, image := range images.Items {
-		choices = append(choices, weightedrand.NewChoice(image, image.Status.UsedByPods.Count))
-		totalCount += image.Status.UsedByPods.Count
-	}
-	if totalCount == 0 {
-		log.Info("no images to monitor, skipping")
-		return reconcile.Result{RequeueAfter: nextMonitorInterval}, nil
-	}
-	chooser, err := weightedrand.NewChooser(choices...)
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to create random chooser: %w", err)
+		if !(image.Status.Upstream.LastMonitor.IsZero() || image.Status.Upstream.LastMonitor.Time.Before(intervalStart)) {
+			monitoredDuringInterval++
+		}
 	}
 
-	for range registryMonitor.Spec.Burst {
-		// FIXME: this can pick the same image multiple times
-		image := chooser.Pick()
+	log.Info("found images matching registry", "count", len(images.Items), "monitoredDuringInterval", monitoredDuringInterval)
 
-		// NOTE: this could fail, but we don't want to retry to prevent reaching the rate-limit
-		r.monitorAnImage(ctx, log.WithValues("image", image.Reference()), &image)
+	for i := range min(min(registryMonitor.Spec.MaxPerInterval-monitoredDuringInterval, registryMonitor.Spec.Parallel), len(images.Items)) {
+		image := images.Items[i]
+		log.V(1).Info("queuing image for monitoring", "image", image.Reference())
+		r.MonitorsPool.Submit(func() {
+			r.monitorAnImage(context.Background(), &image)
+		})
 	}
 
-	patch := client.MergeFrom(registryMonitor.DeepCopy())
-	registryMonitor.Status.LastExecution = metav1.Now()
-	if err := r.Status().Patch(ctx, &registryMonitor, patch); err != nil {
-		return ctrl.Result{}, err
-	}
+	log.Info("queued images for monitoring with success")
 
-	log.Info("monitored images with success")
-
-	return ctrl.Result{RequeueAfter: nextMonitorInterval}, nil
+	return ctrl.Result{RequeueAfter: registryMonitor.Spec.Interval.Duration / time.Duration(registryMonitor.Spec.MaxPerInterval)}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -116,26 +103,48 @@ func (r *RegistryMonitorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kuikv1alpha1.RegistryMonitor{}).
 		Named("kuik-registrymonitor").
+		WithOptions(controller.Options{
+			// This MUST stay 1, as we are using a pool to manage concurrency per registry monitor
+			MaxConcurrentReconciles: 1,
+		}).
 		Complete(r)
 }
 
-func (r *RegistryMonitorReconciler) monitorAnImage(ctx context.Context, log logr.Logger, image *kuikv1alpha1.Image) {
+func (r *RegistryMonitorReconciler) monitorAnImage(ctx context.Context, image *kuikv1alpha1.Image) {
+	log := logf.FromContext(ctx).WithValues("controller", "imagemonitor", "image", klog.KObj(image), "reference", image.Reference())
+
+	log.V(1).Info("monitoring image", "image", image.Reference())
 	patch := client.MergeFrom(image.DeepCopy())
-	defer func() {
-		if err := r.Status().Patch(ctx, image, patch); err != nil {
-			log.Info("failed to patch image status", "error", err.Error())
-		}
-	}()
-
 	image.Status.Upstream.LastMonitor = metav1.Now()
-
-	desc, err := registry.GetDescriptor(image.Reference(), nil, nil)
-	if err != nil {
-		log.Info("failed to get image descriptor, skipping", "error", err.Error())
+	if err := r.Status().Patch(ctx, image, patch); err != nil {
+		log.V(1).Info("failed to patch image status", "error", err.Error())
 		return
 	}
 
-	log.V(1).Info("image descriptor", "digest", desc.Digest, "mediaType", desc.MediaType)
+	patch = client.MergeFrom(image.DeepCopy())
+	defer func() {
+		if err := r.Status().Patch(ctx, image, patch); err != nil {
+			log.V(1).Info("failed to patch image status", "error", err.Error())
+		}
+		log.V(1).Info("image monitored with success")
+	}()
+
+	desc, err := registry.GetDescriptor(image.Reference(), nil, nil)
+	if err != nil {
+		log.V(1).Info("failed to get image descriptor, skipping", "error", err.Error())
+		return
+	}
+
 	image.Status.Upstream.LastSeen = metav1.Now()
 	image.Status.Upstream.Digest = desc.Digest.String()
+
+	// TODO: add to SetupWithManager Watches(&source.Channel{Source: eventChannel}, &handler.EnqueueRequestForObject{})
+	// push an event in the channel when this function is done
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
