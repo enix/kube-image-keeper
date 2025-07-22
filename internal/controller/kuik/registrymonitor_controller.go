@@ -3,6 +3,7 @@ package kuik
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"time"
@@ -82,9 +83,15 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	for i := range min(min(registryMonitor.Spec.MaxPerInterval-monitoredDuringInterval, registryMonitor.Spec.Parallel), len(images.Items)) {
 		image := images.Items[i]
-		log.V(1).Info("queuing image for monitoring", "image", image.Reference())
+		logImage := logf.Log.WithValues("controller", "imagemonitor", "image", klog.KObj(&image), "reference", image.Reference()).V(1)
+		logImage.Info("queuing image for monitoring")
+
 		r.MonitorsPool.Submit(func() {
-			r.monitorAnImage(context.Background(), &image)
+			logImage.Info("monitoring image")
+			if err := r.monitorAnImage(logf.IntoContext(context.Background(), logImage), &image); err != nil {
+				logImage.Info("failed to monitor image", "error", err.Error())
+			}
+			logImage.Info("image monitored with success")
 		})
 	}
 
@@ -113,18 +120,15 @@ func (r *RegistryMonitorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *RegistryMonitorReconciler) monitorAnImage(ctx context.Context, image *kuikv1alpha1.Image) {
-	log := logf.FromContext(ctx).WithValues("controller", "imagemonitor", "image", klog.KObj(image), "reference", image.Reference())
-
-	log.V(1).Info("monitoring image", "image", image.Reference())
+func (r *RegistryMonitorReconciler) monitorAnImage(ctx context.Context, image *kuikv1alpha1.Image) error {
 	patch := client.MergeFrom(image.DeepCopy())
 	image.Status.Upstream.LastMonitor = metav1.Now()
 	if err := r.Status().Patch(ctx, image, patch); err != nil {
-		log.V(1).Info("failed to patch image status", "error", err.Error())
-		return
+		return fmt.Errorf("failed to patch image status: %w", err)
 	}
 
 	patch = client.MergeFrom(image.DeepCopy())
+
 	desc, err := registry.GetDescriptor(image.Reference(), nil, nil)
 	if err != nil {
 		var te *transport.Error
@@ -140,10 +144,14 @@ func (r *RegistryMonitorReconciler) monitorAnImage(ctx context.Context, image *k
 	}
 
 	if errStatus := r.Status().Patch(ctx, image, patch); errStatus != nil {
-		log.V(1).Info("failed to patch image status", "error", errStatus.Error())
-	} else {
-		log.V(1).Info("image monitored with success")
+		return fmt.Errorf("failed to patch image status: %w", errStatus)
 	}
+
+	if err != nil {
+		return err
+	}
+
+	return nil
 
 	// TODO: add to SetupWithManager Watches(&source.Channel{Source: eventChannel}, &handler.EnqueueRequestForObject{})
 	// push an event in the channel when this function is done
