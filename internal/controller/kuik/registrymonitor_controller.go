@@ -29,7 +29,7 @@ const (
 type RegistryMonitorReconciler struct {
 	client.Client
 	Scheme       *runtime.Scheme
-	MonitorsPool pond.Pool
+	MonitorPools map[string]pond.Pool
 }
 
 // +kubebuilder:rbac:groups=kuik.enix.io,resources=registrymonitors,verbs=get;list;watch;create;update;patch;delete
@@ -54,8 +54,13 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	log = log.WithValues("registry", registryMonitor.Spec.Registry)
-	if registryMonitor.Spec.Parallel > 0 && registryMonitor.Spec.Parallel != r.MonitorsPool.MaxConcurrency() {
-		r.MonitorsPool.Resize(registryMonitor.Spec.Parallel)
+	monitorPool, ok := r.MonitorPools[registryMonitor.Name]
+	if !ok {
+		monitorPool = pond.NewPool(registryMonitor.Spec.Parallel)
+		r.MonitorPools[registryMonitor.Name] = monitorPool
+	} else if registryMonitor.Spec.Parallel != monitorPool.MaxConcurrency() {
+		log.V(1).Info("resizing monitor pool", "current", monitorPool.MaxConcurrency(), "new", registryMonitor.Spec.Parallel)
+		monitorPool.Resize(registryMonitor.Spec.Parallel)
 	}
 
 	log.Info("queuing images for monitoring")
@@ -86,7 +91,7 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		logImage := logf.Log.WithValues("controller", "imagemonitor", "image", klog.KObj(&image), "reference", image.Reference()).V(1)
 		logImage.Info("queuing image for monitoring")
 
-		r.MonitorsPool.Submit(func() {
+		monitorPool.Submit(func() {
 			logImage.Info("monitoring image")
 			if err := r.monitorAnImage(logf.IntoContext(context.Background(), logImage), &image); err != nil {
 				logImage.Info("failed to monitor image", "error", err.Error())
