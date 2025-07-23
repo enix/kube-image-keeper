@@ -10,6 +10,7 @@ import (
 
 	"github.com/alitto/pond/v2"
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
+	kuikcontroller "github.com/enix/kube-image-keeper/internal/controller"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -91,15 +92,18 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		logImage := logf.Log.WithValues("controller", "imagemonitor", "image", klog.KObj(&image), "reference", image.Reference()).V(1)
 		logImage.Info("queuing image for monitoring")
 
-		monitorPool.SubmitErr(func() error {
+		err := monitorPool.Go(func() {
 			logImage.Info("monitoring image")
 			if err := r.monitorAnImage(logf.IntoContext(context.Background(), logImage), &image); err != nil {
 				logImage.Info("failed to monitor image", "error", err.Error())
-				return err
+				kuikcontroller.Metrics.MonitoringTaskFailed(registryMonitor.Name)
 			}
 			logImage.Info("image monitored with success")
-			return nil
+			kuikcontroller.Metrics.MonitoringTaskSucceded(registryMonitor.Name)
 		})
+		if err != nil {
+			logImage.Error(err, "failed to queue image for monitoring")
+		}
 	}
 
 	log.Info("queued images for monitoring with success", "completed", monitorPool.CompletedTasks(), "failed", monitorPool.FailedTasks())

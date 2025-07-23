@@ -8,19 +8,20 @@ import (
 )
 
 type kuikMetrics struct {
-	collectors []prometheus.Collector
+	collectors      []prometheus.Collector
+	monitoringTasks *prometheus.CounterVec
 }
 
 var Metrics kuikMetrics
 
 func (m *kuikMetrics) Register(elected <-chan struct{}) {
-	const subsystem = "manager"
+	const subsystemManager = "manager"
 
-	m.addCollector(info.NewInfoCollector(subsystem))
+	m.addCollector(info.NewInfoCollector(subsystemManager))
 
 	m.addCollector(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
 		Namespace: info.MetricsNamespace,
-		Subsystem: subsystem,
+		Subsystem: subsystemManager,
 		Name:      "is_leader",
 		Help:      "Whether or not this replica is a leader. 1 if it is, 0 otherwise.",
 	}, func() float64 {
@@ -34,7 +35,7 @@ func (m *kuikMetrics) Register(elected <-chan struct{}) {
 
 	m.addCollector(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
 		Namespace: info.MetricsNamespace,
-		Subsystem: subsystem,
+		Subsystem: subsystemManager,
 		Name:      "up",
 		Help:      "Whether or not this replica is healthy.",
 	}, func() float64 {
@@ -44,9 +45,30 @@ func (m *kuikMetrics) Register(elected <-chan struct{}) {
 		return 1
 	}))
 
+	const subsystemRegistryMonitor = "registry_monitor"
+
+	m.monitoringTasks = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: info.MetricsNamespace,
+			Subsystem: subsystemRegistryMonitor,
+			Name:      "tasks_total",
+			Help:      "Total number of image monitoring tasks, labeled by registry and status.",
+		},
+		[]string{"registry", "status"},
+	)
+	m.addCollector(m.monitoringTasks)
+
 	metrics.Registry.MustRegister(m.collectors...)
 }
 
 func (m *kuikMetrics) addCollector(collector prometheus.Collector) {
 	m.collectors = append(m.collectors, collector)
+}
+
+func (m *kuikMetrics) MonitoringTaskSucceded(registry string) {
+	m.monitoringTasks.WithLabelValues(registry, "success").Inc()
+}
+
+func (m *kuikMetrics) MonitoringTaskFailed(registry string) {
+	m.monitoringTasks.WithLabelValues(registry, "failure").Inc()
 }
