@@ -85,3 +85,21 @@ serviceAccount:
   annotations: {}
   # -- Additional labels to add to the serviceAccount
   extraLabels: {}
+
+registryMonitors:
+  defaultSpec:
+    # -- Time window during which maxPerInterval limits the number of monitoring tasks. (e.g., 6h, 30m)
+    interval: 6h
+    # -- Maximum monitoring tasks to run in the given interval and for a given registry.
+    maxPerInterval: 100
+    # -- Maximum monitoring tasks to run in parallel for a given registry.
+    parallel: 10
+  # -- RegistryMonitors to create on install and upgrade, if name is not provided, defaults to registry value.
+  items:
+    - name: docker.io
+      registry: docker.io
+      interval: 6h
+      maxPerInterval: 100
+      parallel: 10
+    - registry: quay.io
+    - registry: ghcr.io

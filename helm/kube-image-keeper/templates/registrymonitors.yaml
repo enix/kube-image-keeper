@@ -1,0 +1,13 @@
+{{- $defaultSpec := .Values.registryMonitors.defaultSpec }}
+{{- range .Values.registryMonitors.items }}
+apiVersion: kuik.enix.io/v1alpha1
+kind: RegistryMonitor
+metadata:
+  name: {{ .name | default .registry }}
+spec:
+  registry: {{ .registry }}
+  interval: {{ .interval | default $defaultSpec.interval }}
+  maxPerInterval: {{ .maxPerInterval | default $defaultSpec.maxPerInterval }}
+  parallel: {{ .parallel | default $defaultSpec.parallel }}
+---
+{{- end }}
