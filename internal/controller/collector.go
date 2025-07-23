@@ -1,9 +1,14 @@
 package controller
 
 import (
+	"context"
+
+	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/info"
 	"github.com/prometheus/client_golang/prometheus"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 )
 
@@ -14,7 +19,7 @@ type kuikMetrics struct {
 
 var Metrics kuikMetrics
 
-func (m *kuikMetrics) Register(elected <-chan struct{}) {
+func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client) {
 	const subsystemManager = "manager"
 
 	m.addCollector(info.NewInfoCollector(subsystemManager))
@@ -58,6 +63,48 @@ func (m *kuikMetrics) Register(elected <-chan struct{}) {
 	)
 	m.addCollector(m.monitoringTasks)
 
+	m.addCollector(NewGenericCollector(
+		prometheus.Opts{
+			Namespace: info.MetricsNamespace,
+			Subsystem: subsystemRegistryMonitor,
+			Name:      "images",
+			Help:      "Number of images monitored, labeled by registry and status.",
+		},
+		prometheus.GaugeValue,
+		[]string{"registry", "status"},
+		func(collect func(value float64, labels ...string)) {
+			imageList := &kuikv1alpha1.ImageList{}
+			if err := client.List(context.Background(), imageList); err != nil {
+				logf.Log.Error(err, "failed to list images for metrics")
+				return
+			}
+
+			images := make(map[string]map[string]float64)
+			for _, image := range imageList.Items {
+				registry := image.Spec.Registry
+				if _, exists := images[registry]; !exists {
+					images[registry] = make(map[string]float64)
+				}
+
+				status := string(image.Status.Upstream.Status)
+				if status == "" {
+					status = "Unknown"
+				}
+
+				if _, exists := images[registry][status]; !exists {
+					images[registry][status] = 0
+				}
+
+				images[registry][status]++
+			}
+
+			for registry, statuses := range images {
+				for status, count := range statuses {
+					collect(count, registry, status)
+				}
+			}
+		}))
+
 	metrics.Registry.MustRegister(m.collectors...)
 }
 
@@ -71,4 +118,35 @@ func (m *kuikMetrics) MonitoringTaskSucceded(registry string) {
 
 func (m *kuikMetrics) MonitoringTaskFailed(registry string) {
 	m.monitoringTasks.WithLabelValues(registry, "failure").Inc()
+}
+
+type GenericCollector struct {
+	desc              *prometheus.Desc
+	valueType         prometheus.ValueType
+	collectorCallback func(collect func(value float64, labels ...string))
+}
+
+func (g *GenericCollector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- g.desc
+}
+
+func (g *GenericCollector) Collect(ch chan<- prometheus.Metric) {
+	g.collectorCallback(func(value float64, labels ...string) {
+		ch <- prometheus.MustNewConstMetric(g.desc, g.valueType, value, labels...)
+	})
+}
+
+func NewGenericCollector(opts prometheus.Opts, valueType prometheus.ValueType, labels []string, collectorCallback func(collect func(value float64, labels ...string))) prometheus.Collector {
+	desc := prometheus.NewDesc(
+		prometheus.BuildFQName(opts.Namespace, opts.Subsystem, opts.Name),
+		opts.Help,
+		labels,
+		opts.ConstLabels,
+	)
+
+	return &GenericCollector{
+		desc:              desc,
+		valueType:         valueType,
+		collectorCallback: collectorCallback,
+	}
 }

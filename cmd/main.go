@@ -239,7 +239,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	controller.Metrics.Register(mgr.Elected())
+	controller.Metrics.Register(mgr.Elected(), mgr.GetClient())
 
 	setupLog.Info("starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
