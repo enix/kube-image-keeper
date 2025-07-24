@@ -45,26 +45,7 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- define "kube-image-keeper.manager-labels" -}}
 {{ include "kube-image-keeper.labels" . }}
 app.kubernetes.io/component: manager
-{{- end }}
-
-{{- define "kube-image-keeper.proxy-labels" -}}
-{{ include "kube-image-keeper.labels" . }}
-app.kubernetes.io/component: proxy
-{{- end }}
-
-{{- define "kube-image-keeper.registry-labels" -}}
-{{ include "kube-image-keeper.labels" . }}
-app.kubernetes.io/component: registry
-{{- end }}
-
-{{- define "kube-image-keeper.registry-ui-labels" -}}
-{{ include "kube-image-keeper.labels" . }}
-app.kubernetes.io/component: registry-ui
-{{- end }}
-
-{{- define "kube-image-keeper.garbage-collection-labels" -}}
-{{ include "kube-image-keeper.labels" . }}
-app.kubernetes.io/component: garbage-collection
+control-plane: controller-manager
 {{- end }}
 
 {{/*
@@ -78,28 +59,6 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "kube-image-keeper.manager-selectorLabels" -}}
 {{ include "kube-image-keeper.selectorLabels" . }}
 app.kubernetes.io/component: manager
-control-plane: controller-manager
-{{- end }}
-
-{{- define "kube-image-keeper.proxy-selectorLabels" -}}
-{{ include "kube-image-keeper.selectorLabels" . }}
-app.kubernetes.io/component: proxy
-control-plane: controller-manager
-{{- end }}
-
-{{- define "kube-image-keeper.registry-selectorLabels" -}}
-{{ include "kube-image-keeper.selectorLabels" . }}
-app.kubernetes.io/component: registry
-{{- end }}
-
-{{- define "kube-image-keeper.registry-ui-selectorLabels" -}}
-{{ include "kube-image-keeper.selectorLabels" . }}
-app.kubernetes.io/component: registry-ui
-{{- end }}
-
-{{- define "kube-image-keeper.garbage-collection-selectorLabels" -}}
-{{ include "kube-image-keeper.selectorLabels" . }}
-app.kubernetes.io/component: garbage-collection
 {{- end }}
 
 {{/*
