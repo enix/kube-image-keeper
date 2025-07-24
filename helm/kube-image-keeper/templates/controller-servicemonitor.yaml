@@ -1,22 +1,22 @@
-{{- if .Values.manager.podMonitor.create }}
+{{- if .Values.manager.serviceMonitor.create }}
 apiVersion: monitoring.coreos.com/v1
-kind: PodMonitor
+kind: ServiceMonitor
 metadata:
   name: {{ include "kube-image-keeper.fullname" . }}-manager
   labels:
     {{- include "kube-image-keeper.manager-labels" . | nindent 4 }}
-    {{- with .Values.manager.podMonitor.extraLabels }}
+    {{- with .Values.manager.serviceMonitor.extraLabels }}
     {{- . | toYaml | trim | nindent 4 }}
     {{- end }}
 spec:
   selector:
     matchLabels:
       {{- include "kube-image-keeper.manager-selectorLabels" . | nindent 6 }}
-  podMetricsEndpoints:
-  - port: metrics
-    interval: {{ .Values.manager.podMonitor.scrapeInterval }}
-    scrapeTimeout: {{ .Values.manager.podMonitor.scrapeTimeout }}
-    {{- with .Values.manager.podMonitor.relabelings }}
+  endpoints:
+  - port: http
+    interval: {{ .Values.manager.serviceMonitor.scrapeInterval }}
+    scrapeTimeout: {{ .Values.manager.serviceMonitor.scrapeTimeout }}
+    {{- with .Values.manager.serviceMonitor.relabelings }}
     relabelings:
     {{- . | toYaml | nindent 4 }}
     {{- end }}
