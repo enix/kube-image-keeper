@@ -55,6 +55,7 @@ spec:
             description: RegistryMonitorSpec defines the desired state of RegistryMonitor.
             properties:
               interval:
+                default: 10m
                 description: Interval is the interval at which the image monitor checks
                   for updates
                 type: string

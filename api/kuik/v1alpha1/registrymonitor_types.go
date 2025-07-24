@@ -18,6 +18,7 @@ type RegistryMonitorSpec struct {
 	// +default:value=1
 	MaxPerInterval int `json:"maxPerInterval"`
 	// Interval is the interval at which the image monitor checks for updates
+	// +default:value="10m"
 	Interval metav1.Duration `json:"interval"`
 }
 
