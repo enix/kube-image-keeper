@@ -34,6 +34,7 @@ type ImageStatusUpstream string
 const (
 	ImageStatusUpstreamAvailable   = ImageStatusUpstream("Available")
 	ImageStatusUpstreamUnavailable = ImageStatusUpstream("Unavailable")
+	ImageStatusUpstreamUnreachable = ImageStatusUpstream("Unreachable")
 	ImageStatusUpstreamInvalidAuth = ImageStatusUpstream("InvalidAuth")
 )
 
@@ -42,7 +43,10 @@ type Upstream struct {
 	LastMonitor metav1.Time `json:"lastMonitor,omitempty"`
 	// LastSeen is the last time the image was seen upstream
 	LastSeen metav1.Time `json:"lastSeen,omitempty"`
+	// LastError is the last error encountered while trying to monitor the upstream image
+	LastError string `json:"lastError,omitempty"`
 	// Status is the status of the last finished monitoring task
+	// +kubebuilder:validation:Enum=Available;Unavailable;Unreachable;InvalidAuth
 	Status ImageStatusUpstream `json:"status,omitempty"`
 	// Digest is the digest of the upstream image manifest, if available
 	Digest string `json:"digest,omitempty"`

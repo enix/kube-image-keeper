@@ -77,6 +77,10 @@ spec:
                     description: Digest is the digest of the upstream image manifest,
                       if available
                     type: string
+                  lastError:
+                    description: LastError is the last error encountered while trying
+                      to monitor the upstream image
+                    type: string
                   lastMonitor:
                     description: LastMonitor is the last time a monitoring task for
                       the upstream image was was started
@@ -89,6 +93,11 @@ spec:
                   status:
                     description: Status is the status of the last finished monitoring
                       task
+                    enum:
+                    - Available
+                    - Unavailable
+                    - Unreachable
+                    - InvalidAuth
                     type: string
                 type: object
               usedByPods:

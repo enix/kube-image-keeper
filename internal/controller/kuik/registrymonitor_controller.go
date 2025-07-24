@@ -142,16 +142,22 @@ func (r *RegistryMonitorReconciler) monitorAnImage(ctx context.Context, image *k
 
 	desc, err := registry.GetDescriptor(image.Reference(), nil, nil)
 	if err != nil {
+		image.Status.Upstream.LastError = err.Error()
 		var te *transport.Error
-		if errors.As(err, &te) && (te.StatusCode == http.StatusForbidden || te.StatusCode == http.StatusUnauthorized) {
-			image.Status.Upstream.Status = kuikv1alpha1.ImageStatusUpstreamInvalidAuth
+		if errors.As(err, &te) {
+			if te.StatusCode == http.StatusForbidden || te.StatusCode == http.StatusUnauthorized {
+				image.Status.Upstream.Status = kuikv1alpha1.ImageStatusUpstreamInvalidAuth
+			} else {
+				image.Status.Upstream.Status = kuikv1alpha1.ImageStatusUpstreamUnavailable
+			}
 		} else {
-			image.Status.Upstream.Status = kuikv1alpha1.ImageStatusUpstreamUnavailable
+			image.Status.Upstream.Status = kuikv1alpha1.ImageStatusUpstreamUnreachable
 		}
 	} else {
 		image.Status.Upstream.LastSeen = metav1.Now()
-		image.Status.Upstream.Digest = desc.Digest.String()
+		image.Status.Upstream.LastError = ""
 		image.Status.Upstream.Status = kuikv1alpha1.ImageStatusUpstreamAvailable
+		image.Status.Upstream.Digest = desc.Digest.String()
 	}
 
 	if errStatus := r.Status().Patch(ctx, image, patch); errStatus != nil {
