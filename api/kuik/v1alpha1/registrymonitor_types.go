@@ -22,13 +22,25 @@ type RegistryMonitorSpec struct {
 	Interval metav1.Duration `json:"interval"`
 }
 
+type RegistryStatus string
+
+const (
+	RegistryStatusUp   = RegistryStatus("Up")
+	RegistryStatusDown = RegistryStatus("Down")
+)
+
 // RegistryMonitorStatus defines the observed state of RegistryMonitor.
-type RegistryMonitorStatus struct{}
+type RegistryMonitorStatus struct {
+	// RegistryStatus is the status of the registry being monitored
+	// +kubebuilder:validation:Enum=Up;Down
+	RegistryStatus RegistryStatus `json:"registryStatus"`
+}
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster,shortName=regmon
 // +kubebuilder:printcolumn:name="Registry",type="string",JSONPath=".spec.registry"
+// +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.registryStatus"
 // +kubebuilder:printcolumn:name="Parallel",type="integer",JSONPath=".spec.parallel"
 // +kubebuilder:printcolumn:name="MaxPerInterval",type="integer",JSONPath=".spec.maxPerInterval"
 // +kubebuilder:printcolumn:name="Interval",type="string",JSONPath=".spec.interval"

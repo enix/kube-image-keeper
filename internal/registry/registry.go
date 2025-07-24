@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -37,17 +38,42 @@ func GetDescriptor(imageName string, insecureRegistries []string, rootCAs *x509.
 	return remote.Get(sourceRef, opts...)
 }
 
-func options(ref name.Reference, keychain authn.Keychain, insecureRegistries []string, rootCAs *x509.CertPool) []remote.Option {
-	auth := remote.WithAuthFromKeychain(keychain)
-	opts := []remote.Option{auth}
+func HealthCheck(registry string, insecureRegistries []string, rootCAs *x509.CertPool) error {
+	client := &http.Client{
+		Transport: unauthenticatedTransport(registry, insecureRegistries, rootCAs),
+		Timeout:   5 * time.Second, // TODO: make this configurable
+	}
+
+	url := "https://" + registry + "/v2/"
+
+	resp, err := client.Head(url)
+	if err != nil {
+		return err
+	}
+
+	_ = resp.Body.Close()
+
+	if slices.Contains([]int{http.StatusOK, http.StatusUnauthorized, http.StatusForbidden}, resp.StatusCode) {
+		return nil
+	}
+	return fmt.Errorf("unexpected status: %d", resp.StatusCode)
+}
+
+func unauthenticatedTransport(registry string, insecureRegistries []string, rootCAs *x509.CertPool) *http.Transport {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = &tls.Config{RootCAs: rootCAs}
 
-	if slices.Contains(insecureRegistries, ref.Context().Registry.RegistryStr()) {
+	if slices.Contains(insecureRegistries, registry) {
 		transport.TLSClientConfig.InsecureSkipVerify = true
 	}
 
-	opts = append(opts, remote.WithTransport(transport))
+	return transport
+}
 
-	return opts
+func options(ref name.Reference, keychain authn.Keychain, insecureRegistries []string, rootCAs *x509.CertPool) []remote.Option {
+	transport := unauthenticatedTransport(ref.Context().RegistryStr(), insecureRegistries, rootCAs)
+	return []remote.Option{
+		remote.WithAuthFromKeychain(keychain),
+		remote.WithTransport(transport),
+	}
 }

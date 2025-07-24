@@ -20,6 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 const (
@@ -86,6 +87,21 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	log.Info("found images matching registry", "count", len(images.Items), "monitoredDuringInterval", monitoredDuringInterval)
+
+	patch := client.MergeFrom(registryMonitor.DeepCopy())
+	registryMonitor.Status.RegistryStatus = kuikv1alpha1.RegistryStatusUp
+	err := registry.HealthCheck(registryMonitor.Spec.Registry, nil, nil)
+	if err != nil {
+		registryMonitor.Status.RegistryStatus = kuikv1alpha1.RegistryStatusDown
+	}
+
+	if errStatus := r.Status().Patch(ctx, &registryMonitor, patch); errStatus != nil {
+		return reconcile.Result{}, fmt.Errorf("failed to patch registrymonitor status: %w", errStatus)
+	}
+
+	if err != nil {
+		return reconcile.Result{}, fmt.Errorf("registry seems to be down, skipping monitoring of images: %w", err)
+	}
 
 	for i := range min(min(registryMonitor.Spec.MaxPerInterval-monitoredDuringInterval, registryMonitor.Spec.Parallel), len(images.Items)) {
 		image := images.Items[i]
