@@ -96,10 +96,9 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			logImage.Info("monitoring image")
 			if err := r.monitorAnImage(logf.IntoContext(context.Background(), logImage), &image); err != nil {
 				logImage.Info("failed to monitor image", "error", err.Error())
-				kuikcontroller.Metrics.MonitoringTaskFailed(registryMonitor.Name)
 			}
 			logImage.Info("image monitored with success")
-			kuikcontroller.Metrics.MonitoringTaskSucceded(registryMonitor.Name)
+			kuikcontroller.Metrics.MonitoringTaskCompleted(registryMonitor.Name, image.Status.Upstream.Status)
 		})
 		if err != nil {
 			logImage.Error(err, "failed to queue image for monitoring")

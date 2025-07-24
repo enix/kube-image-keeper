@@ -86,11 +86,7 @@ func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client) {
 					images[registry] = make(map[string]float64)
 				}
 
-				status := string(image.Status.Upstream.Status)
-				if status == "" {
-					status = "Unknown"
-				}
-
+				status := image.Status.Upstream.Status.ToString()
 				if _, exists := images[registry][status]; !exists {
 					images[registry][status] = 0
 				}
@@ -112,12 +108,8 @@ func (m *kuikMetrics) addCollector(collector prometheus.Collector) {
 	m.collectors = append(m.collectors, collector)
 }
 
-func (m *kuikMetrics) MonitoringTaskSucceded(registry string) {
-	m.monitoringTasks.WithLabelValues(registry, "success").Inc()
-}
-
-func (m *kuikMetrics) MonitoringTaskFailed(registry string) {
-	m.monitoringTasks.WithLabelValues(registry, "failure").Inc()
+func (m *kuikMetrics) MonitoringTaskCompleted(registry string, status kuikv1alpha1.ImageStatusUpstream) {
+	m.monitoringTasks.WithLabelValues(registry, status.ToString()).Inc()
 }
 
 type GenericCollector struct {

@@ -92,6 +92,14 @@ func init() {
 	SchemeBuilder.Register(&Image{}, &ImageList{})
 }
 
+func (i ImageStatusUpstream) ToString() string {
+	value := string(i)
+	if value == "" {
+		value = "unknown"
+	}
+	return strings.ToLower(value)
+}
+
 func ImagesFromPod(pod *corev1.Pod) ([]Image, []error) {
 	return imagesFromContainers(append(pod.Spec.Containers, pod.Spec.InitContainers...))
 }
