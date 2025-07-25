@@ -50,6 +50,7 @@ type RegistryMonitorStatus struct {
 // +kubebuilder:printcolumn:name="Parallel",type="integer",JSONPath=".spec.parallel"
 // +kubebuilder:printcolumn:name="MaxPerInterval",type="integer",JSONPath=".spec.maxPerInterval"
 // +kubebuilder:printcolumn:name="Interval",type="string",JSONPath=".spec.interval"
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // RegistryMonitor is the Schema for the registrymonitors API.
 type RegistryMonitor struct {
