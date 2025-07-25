@@ -1,6 +1,8 @@
 package v1alpha1
 
 import (
+	"strings"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -34,6 +36,10 @@ type RegistryMonitorStatus struct {
 	// RegistryStatus is the status of the registry being monitored
 	// +kubebuilder:validation:Enum=Up;Down
 	RegistryStatus RegistryStatus `json:"registryStatus"`
+	// LastMonitor is the last time the registry health was checked
+	LastMonitor metav1.Time `json:"lastMonitor,omitempty"`
+	// LastError is the last error encountered while trying to health check the registry
+	LastError string `json:"lastError,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -65,4 +71,12 @@ type RegistryMonitorList struct {
 
 func init() {
 	SchemeBuilder.Register(&RegistryMonitor{}, &RegistryMonitorList{})
+}
+
+func (r RegistryStatus) ToString() string {
+	value := string(r)
+	if value == "" {
+		value = "unknown"
+	}
+	return strings.ToLower(value)
 }

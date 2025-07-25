@@ -89,10 +89,13 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	log.Info("found images matching registry", "count", len(images.Items), "monitoredDuringInterval", monitoredDuringInterval)
 
 	patch := client.MergeFrom(registryMonitor.DeepCopy())
+	registryMonitor.Status.LastMonitor = metav1.Now()
 	registryMonitor.Status.RegistryStatus = kuikv1alpha1.RegistryStatusUp
+	registryMonitor.Status.LastError = ""
 	err := registry.HealthCheck(registryMonitor.Spec.Registry, nil, nil)
 	if err != nil {
 		registryMonitor.Status.RegistryStatus = kuikv1alpha1.RegistryStatusDown
+		registryMonitor.Status.LastError = err.Error()
 	}
 
 	if errStatus := r.Status().Patch(ctx, &registryMonitor, patch); errStatus != nil {

@@ -87,6 +87,15 @@ spec:
           status:
             description: RegistryMonitorStatus defines the observed state of RegistryMonitor.
             properties:
+              lastError:
+                description: LastError is the last error encountered while trying
+                  to health check the registry
+                type: string
+              lastMonitor:
+                description: LastMonitor is the last time the registry health was
+                  checked
+                format: date-time
+                type: string
               registryStatus:
                 description: RegistryStatus is the status of the registry being monitored
                 enum:
