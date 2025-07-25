@@ -106,7 +106,7 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return reconcile.Result{}, fmt.Errorf("registry seems to be down, skipping monitoring of images: %w", err)
 	}
 
-	for i := range min(min(registryMonitor.Spec.MaxPerInterval-monitoredDuringInterval, registryMonitor.Spec.Parallel), len(images.Items)) {
+	for i := range min(min(registryMonitor.Spec.MaxPerInterval-monitoredDuringInterval, len(images.Items)-monitoredDuringInterval), registryMonitor.Spec.Parallel) {
 		image := images.Items[i]
 		logImage := logf.Log.WithValues("controller", "imagemonitor", "image", klog.KObj(&image), "reference", image.Reference()).V(1)
 		logImage.Info("queuing image for monitoring")
