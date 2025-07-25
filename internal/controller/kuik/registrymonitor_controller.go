@@ -165,6 +165,8 @@ func (r *RegistryMonitorReconciler) monitorAnImage(ctx context.Context, image *k
 		if errors.As(err, &te) {
 			if te.StatusCode == http.StatusForbidden || te.StatusCode == http.StatusUnauthorized {
 				image.Status.Upstream.Status = kuikv1alpha1.ImageStatusUpstreamInvalidAuth
+			} else if te.StatusCode == http.StatusTooManyRequests {
+				image.Status.Upstream.Status = kuikv1alpha1.ImageStatusUpstreamQuotaExceeded
 			} else {
 				image.Status.Upstream.Status = kuikv1alpha1.ImageStatusUpstreamUnavailable
 			}

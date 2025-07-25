@@ -97,6 +97,7 @@ spec:
                     - Unavailable
                     - Unreachable
                     - InvalidAuth
+                    - QuotaExceeded
                     type: string
                 type: object
               usedByPods:
