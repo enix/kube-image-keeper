@@ -84,6 +84,9 @@ func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client) {
 				registry := image.Spec.Registry
 				if _, exists := images[registry]; !exists {
 					images[registry] = make(map[string]float64)
+					for _, status := range kuikv1alpha1.ImageStatusUpstreamList {
+						images[registry][status.ToString()] = 0
+					}
 				}
 
 				status := image.Status.Upstream.Status.ToString()
@@ -131,6 +134,14 @@ func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client) {
 
 func (m *kuikMetrics) addCollector(collector prometheus.Collector) {
 	m.collectors = append(m.collectors, collector)
+}
+
+func (m *kuikMetrics) InitMonitoringTaskRegistry(registry string) {
+	for _, status := range kuikv1alpha1.ImageStatusUpstreamList {
+		if status != kuikv1alpha1.ImageStatusUpstreamUnknown {
+			m.monitoringTasks.WithLabelValues(registry, status.ToString()).Add(0)
+		}
+	}
 }
 
 func (m *kuikMetrics) MonitoringTaskCompleted(registry string, status kuikv1alpha1.ImageStatusUpstream) {

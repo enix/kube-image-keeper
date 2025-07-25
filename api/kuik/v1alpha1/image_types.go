@@ -37,7 +37,17 @@ const (
 	ImageStatusUpstreamUnreachable   = ImageStatusUpstream("Unreachable")
 	ImageStatusUpstreamInvalidAuth   = ImageStatusUpstream("InvalidAuth")
 	ImageStatusUpstreamQuotaExceeded = ImageStatusUpstream("QuotaExceeded")
+	ImageStatusUpstreamUnknown       = ImageStatusUpstream("")
 )
+
+var ImageStatusUpstreamList = []ImageStatusUpstream{
+	ImageStatusUpstreamAvailable,
+	ImageStatusUpstreamUnavailable,
+	ImageStatusUpstreamUnreachable,
+	ImageStatusUpstreamInvalidAuth,
+	ImageStatusUpstreamQuotaExceeded,
+	ImageStatusUpstreamUnknown,
+}
 
 type Upstream struct {
 	// LastMonitor is the last time a monitoring task for the upstream image was was started

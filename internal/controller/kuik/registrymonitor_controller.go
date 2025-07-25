@@ -60,6 +60,7 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	if !ok {
 		monitorPool = pond.NewPool(registryMonitor.Spec.Parallel)
 		r.MonitorPools[registryMonitor.Name] = monitorPool
+		kuikcontroller.Metrics.InitMonitoringTaskRegistry(registryMonitor.Spec.Registry)
 	} else if registryMonitor.Spec.Parallel != monitorPool.MaxConcurrency() {
 		log.V(1).Info("resizing monitor pool", "current", monitorPool.MaxConcurrency(), "new", registryMonitor.Spec.Parallel)
 		monitorPool.Resize(registryMonitor.Spec.Parallel)
@@ -121,7 +122,7 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 				logImage.Info("failed to monitor image", "error", err.Error())
 			}
 			logImage.Info("image monitored with success")
-			kuikcontroller.Metrics.MonitoringTaskCompleted(registryMonitor.Name, image.Status.Upstream.Status)
+			kuikcontroller.Metrics.MonitoringTaskCompleted(registryMonitor.Spec.Registry, image.Status.Upstream.Status)
 		})
 		if err != nil {
 			logImage.Error(err, "failed to queue image for monitoring")
