@@ -1,13 +1,14 @@
 {{- $defaultSpec := .Values.registryMonitors.defaultSpec }}
-{{- range .Values.registryMonitors.items }}
+{{- range $registry, $value := .Values.registryMonitors.items }}
+{{- $spec := $value | default dict }}
 apiVersion: kuik.enix.io/v1alpha1
 kind: RegistryMonitor
 metadata:
-  name: {{ .name | default .registry }}
+  name: {{ $spec.name | default (regexReplaceAll "^[-\\.]+|[-\\.]+$" (regexReplaceAll "[.-]{2,}" (regexReplaceAll "[^a-z0-9-.]" ($registry | lower) "-") "-") "") }}
 spec:
-  registry: {{ .registry }}
-  interval: {{ .interval | default $defaultSpec.interval }}
-  maxPerInterval: {{ .maxPerInterval | default $defaultSpec.maxPerInterval }}
-  parallel: {{ .parallel | default $defaultSpec.parallel }}
+  registry: {{ $registry }}
+  interval: {{ $spec.interval | default $defaultSpec.interval }}
+  maxPerInterval: {{ $spec.maxPerInterval | default $defaultSpec.maxPerInterval }}
+  parallel: {{ $spec.parallel | default $defaultSpec.parallel }}
 ---
 {{- end }}
