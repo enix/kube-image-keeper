@@ -32,17 +32,21 @@ func (i *InfoCollector) Collect(ch chan<- prometheus.Metric) {
 func NewInfoCollector(subsystem string) prometheus.Collector {
 	infoMetric := prometheus.BuildFQName(MetricsNamespace, subsystem, "build_info")
 	infoHelp := "A metric with a constant '1' value labeled with version, revision, build date, Go version, Go OS, and Go architecture"
-	infoConstLabels := prometheus.Labels{
+	infoConstLabels := prometheus.Labels(GetInfo())
+	infoDesc := prometheus.NewDesc(infoMetric, infoHelp, nil, infoConstLabels)
+
+	return &InfoCollector{
+		metric: prometheus.MustNewConstMetric(infoDesc, prometheus.GaugeValue, float64(1)),
+	}
+}
+
+func GetInfo() map[string]string {
+	return map[string]string{
 		"version":   Version,
 		"revision":  Revision,
 		"built":     BuildDateTime,
 		"goversion": runtime.Version(),
 		"goos":      runtime.GOOS,
 		"goarch":    runtime.GOARCH,
-	}
-	infoDesc := prometheus.NewDesc(infoMetric, infoHelp, nil, infoConstLabels)
-
-	return &InfoCollector{
-		metric: prometheus.MustNewConstMetric(infoDesc, prometheus.GaugeValue, float64(1)),
 	}
 }

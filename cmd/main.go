@@ -26,6 +26,7 @@ import (
 	"github.com/enix/kube-image-keeper/internal/controller"
 	corecontroller "github.com/enix/kube-image-keeper/internal/controller/core"
 	kuikcontroller "github.com/enix/kube-image-keeper/internal/controller/kuik"
+	"github.com/enix/kube-image-keeper/internal/info"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -241,7 +242,12 @@ func main() {
 
 	controller.Metrics.Register(mgr.Elected(), mgr.GetClient())
 
-	setupLog.Info("starting manager")
+	setupLogWithInfoValues := setupLog.V(0)
+	for key, value := range info.GetInfo() {
+		setupLogWithInfoValues = setupLogWithInfoValues.WithValues(key, value)
+	}
+
+	setupLogWithInfoValues.Info("starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
