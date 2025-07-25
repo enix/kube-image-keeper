@@ -44,9 +44,11 @@ func HealthCheck(registry string, insecureRegistries []string, rootCAs *x509.Cer
 		Timeout:   5 * time.Second, // TODO: make this configurable
 	}
 
+	// TODO: support http:// too
 	url := "https://" + registry + "/v2/"
 
-	resp, err := client.Head(url)
+	// TODO: use HEAD by default, and make it configurable (ghcr.io does not support HEAD)
+	resp, err := client.Get(url)
 	if err != nil {
 		return err
 	}
