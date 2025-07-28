@@ -4,6 +4,7 @@ import (
 	"crypto/sha1"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -12,7 +13,12 @@ import (
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
+	corev1 "k8s.io/api/core/v1"
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 )
+
+var ErrNotFound = errors.New("could not find source image")
 
 func ContainerAnnotationKey(containerName string, initContainer bool) string {
 	template := "original-image-%s"
@@ -27,15 +33,31 @@ func ContainerAnnotationKey(containerName string, initContainer bool) string {
 	return fmt.Sprintf(template, containerName)
 }
 
-func GetDescriptor(imageName string, insecureRegistries []string, rootCAs *x509.CertPool) (*remote.Descriptor, error) {
+func GetDescriptor(imageName string, pullSecrets []corev1.Secret, insecureRegistries []string, rootCAs *x509.CertPool) (*remote.Descriptor, error) {
+	keychains, err := GetKeychains(imageName, pullSecrets)
+	if err != nil {
+		return nil, err
+	}
+
 	sourceRef, err := name.ParseReference(imageName)
 	if err != nil {
 		return nil, err
 	}
 
-	anonymousKeychain := authn.NewMultiKeychain()
-	opts := options(sourceRef, anonymousKeychain, insecureRegistries, rootCAs)
-	return remote.Get(sourceRef, opts...)
+	cacheErrors := []error{}
+	for _, keychain := range keychains {
+		opts := options(sourceRef, keychain, insecureRegistries, rootCAs)
+		desc, err := remote.Get(sourceRef, opts...)
+
+		if err == nil { // stops at the first success
+			return desc, nil
+		} else if errIsImageNotFound(err) {
+			err = ErrNotFound
+		}
+		cacheErrors = append(cacheErrors, err)
+	}
+
+	return nil, utilerrors.NewAggregate(cacheErrors)
 }
 
 func HealthCheck(registry string, insecureRegistries []string, rootCAs *x509.CertPool) error {
@@ -78,4 +100,13 @@ func options(ref name.Reference, keychain authn.Keychain, insecureRegistries []s
 		remote.WithAuthFromKeychain(keychain),
 		remote.WithTransport(transport),
 	}
+}
+
+func errIsImageNotFound(err error) bool {
+	if err, ok := err.(*transport.Error); ok {
+		if err.StatusCode == http.StatusNotFound {
+			return true
+		}
+	}
+	return false
 }

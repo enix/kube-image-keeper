@@ -163,34 +163,42 @@ func (r *RegistryMonitorReconciler) monitorAnImage(ctx context.Context, image *k
 
 	patch = client.MergeFrom(image.DeepCopy())
 
-	desc, err := registry.GetDescriptor(image.Reference(), nil, nil)
-	if err != nil {
+	var lastErr error
+	if pullSecrets, err := image.GetPullSecrets(ctx, r.Client); err != nil {
+		image.Status.Upstream.Status = kuikv1alpha1.ImageStatusUpstreamInvalidAuth
 		image.Status.Upstream.LastError = err.Error()
-		var te *transport.Error
-		if errors.As(err, &te) {
-			if te.StatusCode == http.StatusForbidden || te.StatusCode == http.StatusUnauthorized {
-				image.Status.Upstream.Status = kuikv1alpha1.ImageStatusUpstreamInvalidAuth
-			} else if te.StatusCode == http.StatusTooManyRequests {
-				image.Status.Upstream.Status = kuikv1alpha1.ImageStatusUpstreamQuotaExceeded
+		lastErr = err
+	} else {
+		desc, err := registry.GetDescriptor(image.Reference(), pullSecrets, nil, nil)
+		if err != nil {
+			image.Status.Upstream.LastError = err.Error()
+			lastErr = err
+			var te *transport.Error
+			if errors.As(err, &te) {
+				if te.StatusCode == http.StatusForbidden || te.StatusCode == http.StatusUnauthorized {
+					image.Status.Upstream.Status = kuikv1alpha1.ImageStatusUpstreamInvalidAuth
+				} else if te.StatusCode == http.StatusTooManyRequests {
+					image.Status.Upstream.Status = kuikv1alpha1.ImageStatusUpstreamQuotaExceeded
+				} else {
+					image.Status.Upstream.Status = kuikv1alpha1.ImageStatusUpstreamUnavailable
+				}
 			} else {
-				image.Status.Upstream.Status = kuikv1alpha1.ImageStatusUpstreamUnavailable
+				image.Status.Upstream.Status = kuikv1alpha1.ImageStatusUpstreamUnreachable
 			}
 		} else {
-			image.Status.Upstream.Status = kuikv1alpha1.ImageStatusUpstreamUnreachable
+			image.Status.Upstream.LastSeen = metav1.Now()
+			image.Status.Upstream.LastError = ""
+			image.Status.Upstream.Status = kuikv1alpha1.ImageStatusUpstreamAvailable
+			image.Status.Upstream.Digest = desc.Digest.String()
 		}
-	} else {
-		image.Status.Upstream.LastSeen = metav1.Now()
-		image.Status.Upstream.LastError = ""
-		image.Status.Upstream.Status = kuikv1alpha1.ImageStatusUpstreamAvailable
-		image.Status.Upstream.Digest = desc.Digest.String()
 	}
 
 	if errStatus := r.Status().Patch(ctx, image, patch); errStatus != nil {
 		return fmt.Errorf("failed to patch image status: %w", errStatus)
 	}
 
-	if err != nil {
-		return err
+	if lastErr != nil {
+		return lastErr
 	}
 
 	return nil
