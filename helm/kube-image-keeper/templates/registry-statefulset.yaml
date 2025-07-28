@@ -47,6 +47,7 @@ spec:
           volumeMounts:
             - mountPath: /var/lib/registry
               name: data
+        {{- if .Values.registry.garbageCollection.enabled }}
         - name: garbage-collector
           securityContext:
             {{- toYaml .Values.registry.securityContext | nindent 12 }}
@@ -62,6 +63,7 @@ spec:
           volumeMounts:
             - mountPath: /var/lib/registry
               name: data
+        {{- end }}
       {{- end }}
       containers:
         - name: registry
