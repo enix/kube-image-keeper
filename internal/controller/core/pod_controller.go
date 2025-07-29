@@ -2,11 +2,13 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/cespare/xxhash/v2"
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -86,7 +88,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			spec.Registry = image.Spec.Registry
 			err := r.Create(ctx, &kuikv1alpha1.RegistryMonitor{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: image.Spec.Registry,
+					GenerateName: fmt.Sprintf("%016x-", xxhash.Sum64String(spec.Registry)),
 				},
 				Spec: *spec,
 			})
