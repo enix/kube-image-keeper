@@ -34,7 +34,7 @@ type PodReconciler struct {
 	defaultRegistryMonitorSpec kuikv1alpha1.RegistryMonitorSpec
 }
 
-// +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups=core,resources=pods;secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=pods/status,verbs=get
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
