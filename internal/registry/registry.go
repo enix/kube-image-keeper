@@ -44,7 +44,7 @@ func GetDescriptor(imageName string, pullSecrets []corev1.Secret, insecureRegist
 		return nil, err
 	}
 
-	cacheErrors := []error{}
+	errs := []error{}
 	for _, keychain := range keychains {
 		opts := options(sourceRef, keychain, insecureRegistries, rootCAs)
 		desc, err := remote.Get(sourceRef, opts...)
@@ -54,10 +54,10 @@ func GetDescriptor(imageName string, pullSecrets []corev1.Secret, insecureRegist
 		} else if errIsImageNotFound(err) {
 			err = ErrNotFound
 		}
-		cacheErrors = append(cacheErrors, err)
+		errs = append(errs, err)
 	}
 
-	return nil, utilerrors.NewAggregate(cacheErrors)
+	return nil, utilerrors.NewAggregate(errs)
 }
 
 func HealthCheck(registry string, insecureRegistries []string, rootCAs *x509.CertPool) error {

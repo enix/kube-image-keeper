@@ -31,7 +31,7 @@ spec:
       securityContext:
         {{- toYaml .Values.manager.podSecurityContext | nindent 8 }}
       containers:
-        - name: cache-manager
+        - name: manager
           securityContext:
             {{- toYaml .Values.manager.securityContext | nindent 12 }}
           image: "{{ .Values.manager.image.repository }}:{{ .Values.manager.image.tag | default .Chart.AppVersion }}"

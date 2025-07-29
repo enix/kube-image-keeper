@@ -189,7 +189,7 @@ func (r *PodReconciler) podsWithDeletingImages(ctx context.Context, obj client.O
 	log := logf.
 		FromContext(ctx).
 		WithName("controller-runtime.manager.controller.pod.deletingImages").
-		WithValues("cachedImage", klog.KObj(obj))
+		WithValues("image", klog.KObj(obj))
 
 	image := obj.(*kuikv1alpha1.Image)
 	res := make([]ctrl.Request, len(image.Status.UsedByPods.Items))
