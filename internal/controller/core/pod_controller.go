@@ -2,11 +2,15 @@ package core
 
 import (
 	"context"
+	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -19,13 +23,15 @@ import (
 )
 
 const (
-	PodImagesIndexKey = ".metadata.images"
+	RegistryIndexKey = ".spec.registry"
 )
 
 // PodReconciler reconciles a Pod object
 type PodReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+
+	defaultRegistryMonitorSpec kuikv1alpha1.RegistryMonitorSpec
 }
 
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
@@ -68,6 +74,27 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			continue
 		}
 
+		var registryMonitors kuikv1alpha1.RegistryMonitorList
+		if err := r.List(ctx, &registryMonitors, client.MatchingFields{
+			RegistryIndexKey: image.Spec.Registry,
+		}); err != nil {
+			return ctrl.Result{}, err
+		}
+		if len(registryMonitors.Items) == 0 {
+			log.Info("no registry monitor found for image, creating one with default values", "image", klog.KObj(&image), "registry", image.Spec.Registry)
+			spec := r.defaultRegistryMonitorSpec.DeepCopy()
+			spec.Registry = image.Spec.Registry
+			err := r.Create(ctx, &kuikv1alpha1.RegistryMonitor{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: image.Spec.Registry,
+				},
+				Spec: *spec,
+			})
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+
 		// create or update Image depending on weather it already exists or not
 		if apierrors.IsNotFound(err) {
 			log.Info("new image found on a pod", "image", klog.KObj(&image))
@@ -99,6 +126,43 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// create an index to list RegistryMonitors by registry
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &kuikv1alpha1.RegistryMonitor{}, RegistryIndexKey, func(rawObj client.Object) []string {
+		image := rawObj.(*kuikv1alpha1.RegistryMonitor)
+
+		return []string{image.Spec.Registry}
+	}); err != nil {
+		return err
+	}
+
+	r.defaultRegistryMonitorSpec = kuikv1alpha1.RegistryMonitorSpec{
+		Interval:       metav1.Duration{Duration: 10 * time.Minute},
+		MaxPerInterval: 1,
+		Parallel:       1,
+	}
+
+	if env := os.Getenv("KUIK_REGISTRY_MONITOR_DEFAULT_INTERVAL"); env != "" {
+		interval, err := time.ParseDuration(env)
+		if err != nil {
+			return err
+		}
+		r.defaultRegistryMonitorSpec.Interval = metav1.Duration{Duration: interval}
+	}
+	if env := os.Getenv("KUIK_REGISTRY_MONITOR_DEFAULT_MAX_PER_INTERVAL"); env != "" {
+		maxPerInterval, err := strconv.Atoi(env)
+		if err != nil {
+			return err
+		}
+		r.defaultRegistryMonitorSpec.MaxPerInterval = maxPerInterval
+	}
+	if env := os.Getenv("KUIK_REGISTRY_MONITOR_DEFAULT_PARALLEL"); env != "" {
+		parallel, err := strconv.Atoi(env)
+		if err != nil {
+			return err
+		}
+		r.defaultRegistryMonitorSpec.Parallel = parallel
+	}
+
 	p := predicate.Not(predicate.Funcs{
 		DeleteFunc: func(e event.DeleteEvent) bool {
 			return false

@@ -43,17 +43,16 @@ spec:
             - -metrics-secure=false
             - -zap-log-level={{ .Values.manager.verbosity }}
           env:
-            {{- $noProxy := list -}}
+            - name: KUIK_REGISTRY_MONITOR_DEFAULT_INTERVAL
+              value: "{{ .Values.registryMonitors.defaultSpec.interval }}"
+            - name: KUIK_REGISTRY_MONITOR_DEFAULT_MAX_PER_INTERVAL
+              value: "{{ .Values.registryMonitors.defaultSpec.maxPerInterval }}"
+            - name: KUIK_REGISTRY_MONITOR_DEFAULT_PARALLEL
+              value: "{{ .Values.registryMonitors.defaultSpec.parallel }}"
             {{- range .Values.manager.env }}
-            {{- if eq (lower .name) "no_proxy" }}
-            {{- $noProxy = (.value | replace " " "," | splitList ",") -}}
-            {{- else }}
             - name: {{ .name }}
               value: {{ .value }}
             {{- end }}
-            {{- end }}
-            - name: no_proxy
-              value: {{ join "," (prepend $noProxy (printf "%s-registry" (include "kube-image-keeper.fullname" .))) }}
           ports:
             - containerPort: 8080
               name: metrics
