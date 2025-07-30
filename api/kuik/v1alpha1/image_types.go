@@ -35,21 +35,23 @@ type ReferencesWithCount struct {
 type ImageStatusUpstream string
 
 const (
-	ImageStatusUpstreamAvailable     = ImageStatusUpstream("Available")
-	ImageStatusUpstreamUnavailable   = ImageStatusUpstream("Unavailable")
-	ImageStatusUpstreamUnreachable   = ImageStatusUpstream("Unreachable")
-	ImageStatusUpstreamInvalidAuth   = ImageStatusUpstream("InvalidAuth")
-	ImageStatusUpstreamQuotaExceeded = ImageStatusUpstream("QuotaExceeded")
-	ImageStatusUpstreamUnknown       = ImageStatusUpstream("")
+	ImageStatusUpstreamScheduled         = ImageStatusUpstream("Scheduled")
+	ImageStatusUpstreamAvailable         = ImageStatusUpstream("Available")
+	ImageStatusUpstreamUnavailable       = ImageStatusUpstream("Unavailable")
+	ImageStatusUpstreamUnreachable       = ImageStatusUpstream("Unreachable")
+	ImageStatusUpstreamInvalidAuth       = ImageStatusUpstream("InvalidAuth")
+	ImageStatusUpstreamUnavailableSecret = ImageStatusUpstream("UnavailableSecret")
+	ImageStatusUpstreamQuotaExceeded     = ImageStatusUpstream("QuotaExceeded")
 )
 
 var ImageStatusUpstreamList = []ImageStatusUpstream{
+	ImageStatusUpstreamScheduled,
 	ImageStatusUpstreamAvailable,
 	ImageStatusUpstreamUnavailable,
 	ImageStatusUpstreamUnreachable,
 	ImageStatusUpstreamInvalidAuth,
+	ImageStatusUpstreamUnavailableSecret,
 	ImageStatusUpstreamQuotaExceeded,
-	ImageStatusUpstreamUnknown,
 }
 
 type Upstream struct {
@@ -60,7 +62,8 @@ type Upstream struct {
 	// LastError is the last error encountered while trying to monitor the upstream image
 	LastError string `json:"lastError,omitempty"`
 	// Status is the status of the last finished monitoring task
-	// +kubebuilder:validation:Enum=Available;Unavailable;Unreachable;InvalidAuth;QuotaExceeded
+	// +kubebuilder:validation:Enum=Scheduled;Available;Unavailable;Unreachable;InvalidAuth;UnavailableSecret;QuotaExceeded
+	// +default="Scheduled"
 	Status ImageStatusUpstream `json:"status,omitempty"`
 	// Digest is the digest of the upstream image manifest, if available
 	Digest string `json:"digest,omitempty"`

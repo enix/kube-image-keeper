@@ -138,7 +138,7 @@ func (m *kuikMetrics) addCollector(collector prometheus.Collector) {
 
 func (m *kuikMetrics) InitMonitoringTaskRegistry(registry string) {
 	for _, status := range kuikv1alpha1.ImageStatusUpstreamList {
-		if status != kuikv1alpha1.ImageStatusUpstreamUnknown {
+		if status != kuikv1alpha1.ImageStatusUpstreamScheduled {
 			m.monitoringTasks.WithLabelValues(registry, status.ToString()).Add(0)
 		}
 	}

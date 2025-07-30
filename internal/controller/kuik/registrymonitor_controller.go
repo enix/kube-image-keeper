@@ -165,7 +165,7 @@ func (r *RegistryMonitorReconciler) monitorAnImage(ctx context.Context, image *k
 
 	var lastErr error
 	if pullSecrets, err := image.GetPullSecrets(ctx, r.Client); err != nil {
-		image.Status.Upstream.Status = kuikv1alpha1.ImageStatusUpstreamInvalidAuth
+		image.Status.Upstream.Status = kuikv1alpha1.ImageStatusUpstreamUnavailableSecret
 		image.Status.Upstream.LastError = err.Error()
 		lastErr = err
 	} else {

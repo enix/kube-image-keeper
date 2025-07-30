@@ -90,13 +90,16 @@ spec:
                     format: date-time
                     type: string
                   status:
+                    default: Scheduled
                     description: Status is the status of the last finished monitoring
                       task
                     enum:
+                    - Scheduled
                     - Available
                     - Unavailable
                     - Unreachable
                     - InvalidAuth
+                    - UnavailableSecret
                     - QuotaExceeded
                     type: string
                 type: object
