@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"strconv"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/info"
@@ -59,7 +60,7 @@ func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client) {
 			Name:      "tasks_total",
 			Help:      "Total number of image monitoring tasks, labeled by registry and status.",
 		},
-		[]string{"registry", "status"},
+		[]string{"registry", "status", "unused"},
 	)
 	m.addCollector(m.monitoringTasks)
 
@@ -71,7 +72,7 @@ func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client) {
 			Help:      "Number of images monitored, labeled by registry and status.",
 		},
 		prometheus.GaugeValue,
-		[]string{"registry", "status"},
+		[]string{"registry", "status", "unused"},
 		func(collect func(value float64, labels ...string)) {
 			imageList := &kuikv1alpha1.ImageList{}
 			if err := client.List(context.Background(), imageList); err != nil {
@@ -79,27 +80,28 @@ func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client) {
 				return
 			}
 
-			images := make(map[string]map[string]float64)
+			images := make(map[string]map[string]map[bool]float64)
 			for _, image := range imageList.Items {
 				registry := image.Spec.Registry
 				if _, exists := images[registry]; !exists {
-					images[registry] = make(map[string]float64)
+					images[registry] = make(map[string]map[bool]float64)
 					for _, status := range kuikv1alpha1.ImageStatusUpstreamList {
-						images[registry][status.ToString()] = 0
+						images[registry][status.ToString()] = map[bool]float64{
+							true:  0,
+							false: 0,
+						}
 					}
 				}
 
 				status := image.Status.Upstream.Status.ToString()
-				if _, exists := images[registry][status]; !exists {
-					images[registry][status] = 0
-				}
-
-				images[registry][status]++
+				images[registry][status][image.IsUnused()]++
 			}
 
 			for registry, statuses := range images {
-				for status, count := range statuses {
-					collect(count, registry, status)
+				for status, unuseds := range statuses {
+					for unused, count := range unuseds {
+						collect(count, registry, status, strconv.FormatBool(unused))
+					}
 				}
 			}
 		}))
@@ -139,13 +141,14 @@ func (m *kuikMetrics) addCollector(collector prometheus.Collector) {
 func (m *kuikMetrics) InitMonitoringTaskRegistry(registry string) {
 	for _, status := range kuikv1alpha1.ImageStatusUpstreamList {
 		if status != kuikv1alpha1.ImageStatusUpstreamScheduled {
-			m.monitoringTasks.WithLabelValues(registry, status.ToString()).Add(0)
+			m.monitoringTasks.WithLabelValues(registry, status.ToString(), "true").Add(0)
+			m.monitoringTasks.WithLabelValues(registry, status.ToString(), "false").Add(0)
 		}
 	}
 }
 
-func (m *kuikMetrics) MonitoringTaskCompleted(registry string, status kuikv1alpha1.ImageStatusUpstream) {
-	m.monitoringTasks.WithLabelValues(registry, status.ToString()).Inc()
+func (m *kuikMetrics) MonitoringTaskCompleted(registry string, status kuikv1alpha1.ImageStatusUpstream, unused bool) {
+	m.monitoringTasks.WithLabelValues(registry, status.ToString(), strconv.FormatBool(unused)).Inc()
 }
 
 type GenericCollector struct {

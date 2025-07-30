@@ -122,7 +122,7 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 				logImage.Info("failed to monitor image", "error", err.Error())
 			}
 			logImage.Info("image monitored with success")
-			kuikcontroller.Metrics.MonitoringTaskCompleted(registryMonitor.Spec.Registry, image.Status.Upstream.Status)
+			kuikcontroller.Metrics.MonitoringTaskCompleted(registryMonitor.Spec.Registry, image.Status.Upstream.Status, len(image.Status.UsedByPods.Items) == 0)
 		})
 		if err != nil {
 			logImage.Error(err, "failed to queue image for monitoring")
