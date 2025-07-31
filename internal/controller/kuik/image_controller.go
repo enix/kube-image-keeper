@@ -3,11 +3,13 @@ package kuik
 import (
 	"context"
 	"net/http"
+	"time"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -23,7 +25,8 @@ const (
 // ImageReconciler reconciles a Image object
 type ImageReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme         *runtime.Scheme
+	UnusedImageTTL time.Duration
 }
 
 // +kubebuilder:rbac:groups=kuik.enix.io,resources=images,verbs=get;list;watch;create;update;patch;delete
@@ -40,18 +43,31 @@ type ImageReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.4/pkg/reconcile
 func (r *ImageReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
+	log := logf.FromContext(ctx)
 
 	var image kuikv1alpha1.Image
 	if err := r.Get(ctx, req.NamespacedName, &image); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	log = log.WithValues("reference", image.Reference())
+
 	// update Pods and Nodes status for this Image
 	if requeue, err := r.updateReferenceCount(ctx, &image); requeue {
 		return ctrl.Result{Requeue: true}, nil
 	} else if err != nil {
 		return ctrl.Result{}, err
+	}
+
+	if !image.Status.UnusedSince.IsZero() {
+		if v1.Now().Sub(image.Status.UnusedSince.Time) > r.UnusedImageTTL {
+			log.Info("image is unused for too long, deleting it", "ttl", r.UnusedImageTTL)
+			if err := r.Delete(ctx, &image); err != nil {
+				return ctrl.Result{}, client.IgnoreNotFound(err)
+			}
+		} else {
+			return ctrl.Result{RequeueAfter: r.UnusedImageTTL - time.Since(image.Status.UnusedSince.Time)}, nil
+		}
 	}
 
 	return ctrl.Result{}, nil
@@ -88,7 +104,7 @@ func (r *ImageReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func (r *ImageReconciler) updateReferenceCount(ctx context.Context, image *kuikv1alpha1.Image) (requeue bool, err error) {
 	var podList corev1.PodList
 	if err = r.List(ctx, &podList, client.MatchingFields{ImagesIndexKey: image.Name}); err != nil && !apierrors.IsNotFound(err) {
-		return
+		return false, err
 	}
 
 	pods := []string{}
@@ -104,15 +120,23 @@ func (r *ImageReconciler) updateReferenceCount(ctx context.Context, image *kuikv
 		Count: len(pods),
 	}
 
+	if len(pods) == 0 {
+		if image.Status.UnusedSince.IsZero() {
+			image.Status.UnusedSince = v1.Now()
+		}
+	} else {
+		image.Status.UnusedSince = v1.Time{}
+	}
+
 	err = r.Status().Update(ctx, image)
 	if err != nil {
 		if statusErr, ok := err.(*errors.StatusError); ok && statusErr.Status().Code == http.StatusConflict {
 			requeue = true
 		}
-		return
+		return requeue, err
 	}
 
-	return
+	return false, nil
 }
 
 func (r *ImageReconciler) imagesRequestFromPod(ctx context.Context, obj client.Object) []ctrl.Request {

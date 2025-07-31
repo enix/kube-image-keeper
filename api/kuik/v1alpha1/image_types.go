@@ -75,6 +75,8 @@ type ImageStatus struct {
 	UsedByPods ReferencesWithCount `json:"usedByPods,omitempty"`
 	// Upstream is the information about the upstream image
 	Upstream Upstream `json:"upstream,omitempty"`
+	// UnusedSince is the time when the image was last used by a pod
+	UnusedSince metav1.Time `json:"unusedSince,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -85,6 +87,7 @@ type ImageStatus struct {
 // +kubebuilder:printcolumn:name="Image",type="string",JSONPath=".spec.image"
 // +kubebuilder:printcolumn:name="Pods count",type="integer",JSONPath=".status.usedByPods.count"
 // +kubebuilder:printcolumn:name="Upstream status",type="string",JSONPath=".status.upstream.status"
+// +kubebuilder:printcolumn:name="Unused since",type="date",JSONPath=".status.unusedSince"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // Image is the Schema for the images API.

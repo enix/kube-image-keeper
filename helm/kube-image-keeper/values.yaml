@@ -104,3 +104,6 @@ registryMonitors:
     ghcr.io: {}
     registry.k8s.io: {}
     public.ecr.aws: {}
+
+# -- Delay in days before deleting an Image not used by any pod
+unusedImageTTL: 30

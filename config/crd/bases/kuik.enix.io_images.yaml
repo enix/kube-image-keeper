@@ -29,6 +29,9 @@ spec:
     - jsonPath: .status.upstream.status
       name: Upstream status
       type: string
+    - jsonPath: .status.unusedSince
+      name: Unused since
+      type: date
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -70,6 +73,11 @@ spec:
           status:
             description: ImageStatus defines the observed state of Image.
             properties:
+              unusedSince:
+                description: UnusedSince is the time when the image was last used
+                  by a pod
+                format: date-time
+                type: string
               upstream:
                 description: Upstream is the information about the upstream image
                 properties:
