@@ -50,6 +50,8 @@ func GetKeychains(repositoryName string, pullSecrets []corev1.Secret) ([]authn.K
 		})
 	}
 
+	keychains = append(keychains, authn.DefaultKeychain)
+
 	return keychains, nil
 }
 
