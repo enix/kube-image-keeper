@@ -116,17 +116,23 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		logImage := logf.Log.WithValues("controller", "imagemonitor", "image", klog.KObj(&image), "reference", image.Reference()).V(1)
 		logImage.Info("queuing image for monitoring")
 
-		err := monitorPool.Go(func() {
+		task := monitorPool.Submit(func() {
 			logImage.Info("monitoring image")
 			if err := r.monitorAnImage(logf.IntoContext(context.Background(), logImage), &image); err != nil {
 				logImage.Info("failed to monitor image", "error", err.Error())
 			}
 			logImage.Info("image monitored with success")
+			// TODO: this should be done after task.Wait()
 			kuikcontroller.Metrics.MonitoringTaskCompleted(registryMonitor.Spec.Registry, image.Status.Upstream.Status, len(image.Status.UsedByPods.Items) == 0)
 		})
-		if err != nil {
-			logImage.Error(err, "failed to queue image for monitoring")
-		}
+
+		go func() {
+			// TODO: rework this part, it should set the status if the tasks metric
+			err := task.Wait()
+			if err != nil {
+				logImage.Error(err, "failed to queue image for monitoring")
+			}
+		}()
 	}
 
 	log.Info("queued images for monitoring with success")
