@@ -360,21 +360,13 @@ func (r *CachedImageReconciler) cacheImage(cachedImage *kuikv1alpha1.CachedImage
 	totalSizeAvailable := false
 	onUpdated := func(update v1.Update) {
 
-		needUpdate := false
-		if lastWriteComplete != update.Complete && update.Complete == update.Total {
-			// Update is needed whenever the writing complmetes.
-			needUpdate = true
-		}
-
-		if time.Since(lastUpdateTime).Seconds() >= 5 {
-			// Update is needed if last update is more than 5 seconds ago
-			needUpdate = true
-		}
+		isCompleted := lastWriteComplete != update.Complete && update.Complete == update.Total
+		needUpdate := time.Since(lastUpdateTime).Seconds() >= 5 || isCompleted
 
 		statusLock.Lock()
 		defer statusLock.Unlock()
 		if needUpdate && !totalSizeAvailable {
-			updateStatus(r.Client, cachedImage, desc, func(status *kuikv1alpha1.CachedImageStatus) {
+			_ = updateStatus(r.Client, cachedImage, desc, func(status *kuikv1alpha1.CachedImageStatus) {
 				cachedImage.Status.Progress.Total = update.Total
 				cachedImage.Status.Progress.Available = update.Complete
 			})
@@ -389,7 +381,7 @@ func (r *CachedImageReconciler) cacheImage(cachedImage *kuikv1alpha1.CachedImage
 		totalSizeAvailable = true // Disable future progress update.
 		statusLock.Unlock()
 
-		updateStatus(r.Client, cachedImage, desc, func(status *kuikv1alpha1.CachedImageStatus) {
+		_ = updateStatus(r.Client, cachedImage, desc, func(status *kuikv1alpha1.CachedImageStatus) {
 			cachedImage.Status.Progress.Total = totalSize
 			cachedImage.Status.Progress.Available = totalSize
 		})
