@@ -34,6 +34,9 @@ spec:
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
+    - jsonPath: .status.progress.available
+      name: Downloaded
+      type: integer
     name: v1alpha1
     schema:
       openAPIV3Schema:
@@ -113,6 +116,15 @@ spec:
               upstreamDigest:
                 description: UpstreamDigest is the upstream image digest
                 type: string
+              progress:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                    description: Total size of the compressed blob in bytes, including all layers, excluding all manifests.
+                  available:
+                    type: integer
+                    description: Total downloaded / available size of the compressed blob in bytes, including all layers, excluding all manifests.
               usedBy:
                 description: UsedBy is the list of pods using this image
                 properties:

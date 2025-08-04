@@ -15,6 +15,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
+	"github.com/google/go-containerregistry/pkg/v1/partial"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	"github.com/google/go-containerregistry/pkg/v1/types"
@@ -123,16 +124,32 @@ func DeleteImage(imageName string) error {
 	return remote.Delete(digest)
 }
 
-func CacheImage(imageName string, desc *remote.Descriptor, architectures []string) error {
+// Perform an image caching, and update the caching progress
+// onProgressUpdate: Local cache registry write progress update call back. The total size written to the cache registry may be less then the total size of the image, if there are duplicated or existing layer already.
+// onUpdateTotalSize: Total image size callback at the end of the caching. Size of all layers will be included, regardless whether they are already in cache registry.
+func CacheImage(imageName string, desc *remote.Descriptor, architectures []string, onProgressUpdate func(v1.Update), onUpdateTotalSize func(int64)) error {
+
 	destRef, err := parseLocalReference(imageName)
 	if err != nil {
 		return err
 	}
 
+	progressUpdate := make(chan v1.Update, 100)
+	// The channel will be closed by remote.Write / remote.WriteIndex call with remote.WithProgress option.
+	
+	go func() {
+		for update := range progressUpdate {
+			if onProgressUpdate != nil {
+				onProgressUpdate(update)
+			}
+		}
+	}()
+
 	switch desc.MediaType {
 	case types.OCIImageIndex, types.DockerManifestList:
 		index, err := desc.ImageIndex()
 		if err != nil {
+			close(progressUpdate)
 			return err
 		}
 
@@ -145,16 +162,64 @@ func CacheImage(imageName string, desc *remote.Descriptor, architectures []strin
 			return true
 		})
 
-		if err := remote.WriteIndex(destRef, filteredIndex); err != nil {
+		if err := remote.WriteIndex(destRef, filteredIndex, remote.WithProgress(progressUpdate)); err != nil {
 			return err
+		}
+		
+		if onUpdateTotalSize != nil {
+			// Calculate total compressed size for image blobs
+			totalSize, err := getImageSizeByManifestIndex(filteredIndex)
+			if err != nil {
+				return nil
+			}
+
+			onUpdateTotalSize(totalSize)
 		}
 	default:
 		image, err := desc.Image()
 		if err != nil {
+			close(progressUpdate)
 			return err
 		}
-		if err := remote.Write(destRef, image); err != nil {
+		if err := remote.Write(destRef, image, remote.WithProgress(progressUpdate)); err != nil {
 			return err
+		}
+
+		if onUpdateTotalSize != nil {
+			var totalSize int64
+
+			// We will ignore the size of the manifest, as well as the size of config file.
+			// Only blob size is calculated.
+			// The code snippet to include config and manifest file size is being kept here for future reference.
+			/*
+
+				manifestSize, err := image.Size()
+				if err != nil {
+					return nil
+				}
+				totalSize += manifestSize
+				config, err := image.Manifest()
+				if err != nil {
+					return nil
+				}
+				totalSize += config.Config.Size
+			*/
+
+			// Get layers and calculate total size
+			layers, err := image.Layers()
+			if err != nil {
+				return nil // Ignore
+			}
+
+			for _, layer := range layers {
+				size, err := layer.Size()
+				if err != nil {
+					return nil
+				}
+				totalSize += size
+			}
+
+			onUpdateTotalSize(totalSize)
 		}
 	}
 
@@ -227,4 +292,79 @@ func ContainerAnnotationKey(containerName string, initContainer bool) string {
 	}
 
 	return fmt.Sprintf(template, containerName)
+}
+
+// Calculate total compressed layer blob size by given Image manifest
+func getImageSizeByImageManifest(im v1.Image) (int64, error) {
+	var totalSize int64
+	totalSize = 0
+
+	// We will ignore the size of manifest file here. The code snippet is list below for information.
+	/*
+		manifestSize, err := im.Size()
+		if err != nil {
+			return 0, err
+		}
+		totalSize += manifestSize
+	*/
+
+	layers, err := im.Layers()
+	if err != nil {
+		return 0, err
+	}
+	for _, layer := range layers {
+		layerSize, err := layer.Size()
+		if err != nil {
+			return 0, err
+		}
+		totalSize += layerSize
+	}
+	return totalSize, nil
+}
+
+// Calculate total compressed layer blob size by given ImageIndex
+// Reference: https://github.com/google/go-containerregistry/blob/59a4b85930392a30c39462519adc8a2026d47181/pkg/v1/remote/pusher.go#L380
+func getImageSizeByManifestIndex(tt v1.ImageIndex) (int64, error) {
+	var totalSize int64
+	totalSize = 0
+
+	// We will ignore the size of manifest file here. The code snippet is list below for information.
+	/*
+		manifestSize, err := tt.Size()
+		if err != nil {
+			return 0, err
+		}
+		totalSize += manifestSize
+	*/
+	children, err := partial.Manifests(tt)
+	if err != nil {
+		return 0, err
+	}
+
+	for _, child := range children {
+		switch typedChild := child.(type) {
+		case v1.ImageIndex:
+			size, err := getImageSizeByManifestIndex(typedChild)
+			if err != nil {
+				return 0, err
+			}
+			totalSize += size
+
+		case v1.Image:
+			imageSize, err := getImageSizeByImageManifest(typedChild)
+			if err != nil {
+				return 0, err
+			}
+			totalSize += imageSize
+
+		case v1.Layer:
+			layerSize, err := typedChild.Size()
+			if err != nil {
+				return 0, err
+			}
+			totalSize += layerSize
+		}
+	}
+
+	return totalSize, nil
 }
