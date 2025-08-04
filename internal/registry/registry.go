@@ -125,9 +125,9 @@ func DeleteImage(imageName string) error {
 }
 
 // Perform an image caching, and update the caching progress
-// callback: Local cache registry write progress update call back. The total size written to the cache registry may be less then the total size of the image, if there are duplicated or existing layer already.
+// onProgressUpdate: Local cache registry write progress update call back. The total size written to the cache registry may be less then the total size of the image, if there are duplicated or existing layer already.
 // onUpdateTotalSize: Total image size callback at the end of the caching. Size of all layers will be included, regardless whether they are already in cache registry.
-func CacheImage(imageName string, desc *remote.Descriptor, architectures []string, callback func(v1.Update), onUpdateTotalSize func(int64)) error {
+func CacheImage(imageName string, desc *remote.Descriptor, architectures []string, onProgressUpdate func(v1.Update), onUpdateTotalSize func(int64)) error {
 
 	destRef, err := parseLocalReference(imageName)
 	if err != nil {
@@ -139,8 +139,8 @@ func CacheImage(imageName string, desc *remote.Descriptor, architectures []strin
 	
 	go func() {
 		for update := range progressUpdate {
-			if callback != nil {
-				callback(update)
+			if onProgressUpdate != nil {
+				onProgressUpdate(update)
 			}
 		}
 	}()
