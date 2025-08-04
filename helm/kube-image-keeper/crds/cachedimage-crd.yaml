@@ -125,7 +125,7 @@ spec:
                   available:
                     type: integer
                     description: Total downloaded / available size of the compressed blob in bytes, including all layers, excluding all manifests.
-                usedBy:
+              usedBy:
                 description: UsedBy is the list of pods using this image
                 properties:
                   count:
