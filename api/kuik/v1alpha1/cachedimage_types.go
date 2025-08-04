@@ -33,6 +33,13 @@ type UsedBy struct {
 	Count int `json:"count,omitempty"`
 }
 
+type Progress struct {
+	// Total is the total size of all compressed layer blobs
+	Total     int64 `json:"total,omitempty"`
+	// Available is current size of all compressed layer blobs already written into the cache
+	Available int64 `json:"available,omitempty"`
+}
+
 // CachedImageStatus defines the observed state of CachedImage.
 type CachedImageStatus struct {
 	// IsCached indicate whether the image is already cached or not
@@ -41,6 +48,9 @@ type CachedImageStatus struct {
 	Phase string `json:"phase,omitempty"`
 	// UsedBy is the list of pods using this image
 	UsedBy UsedBy `json:"usedBy,omitempty"`
+
+	// Progress is the current available / total size of compressed layer blobs
+	Progress Progress `json:"progress,omitempty"`
 
 	// Digest is the digest of the cached image
 	Digest string `json:"digest,omitempty"`
