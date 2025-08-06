@@ -127,7 +127,7 @@ spec:
           defaultMode: 420
           secretName: {{ .secretName }}
       {{- end }}
-      {{- if .Values.controllers.topologySpreadConstraints }}
+      {{- with .Values.controllers.topologySpreadConstraints }}
       topologySpreadConstraints:
         {{- toYaml . | nindent 8 }}
       {{- end }}
