@@ -2,10 +2,15 @@ package controller
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strconv"
+	"time"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/info"
+	"github.com/obalunenko/getenv"
+	"github.com/obalunenko/getenv/option"
 	"github.com/prometheus/client_golang/prometheus"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -16,6 +21,7 @@ import (
 type kuikMetrics struct {
 	collectors      []prometheus.Collector
 	monitoringTasks *prometheus.CounterVec
+	// imageLastMonitorHistogram prometheus.Histogram
 }
 
 var Metrics kuikMetrics
@@ -64,7 +70,7 @@ func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client) {
 	)
 	m.addCollector(m.monitoringTasks)
 
-	m.addCollector(NewGenericCollector(
+	m.addCollector(NewGenericCollectorFunc(
 		prometheus.Opts{
 			Namespace: info.MetricsNamespace,
 			Subsystem: subsystemRegistryMonitor,
@@ -106,7 +112,7 @@ func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client) {
 			}
 		}))
 
-	m.addCollector(NewGenericCollector(
+	m.addCollector(NewGenericCollectorFunc(
 		prometheus.Opts{
 			Namespace: info.MetricsNamespace,
 			Subsystem: subsystemRegistryMonitor,
@@ -131,6 +137,44 @@ func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client) {
 			}
 		}))
 
+	imageLastMonitorHistogramOpts := prometheus.Opts{
+		Namespace: info.MetricsNamespace,
+		Subsystem: subsystemRegistryMonitor,
+		Name:      "image_last_monitor_age_minutes",
+		Help:      "Histogram of image last monitor age in minutes",
+	}
+	imageLastMonitorHistogramLabels := []string{"registry"}
+	imageLastMonitorHistogramBuckets, err := m.getImageLastMonitorAgeMinutesBuckets()
+	if err != nil {
+		// TODO: handle error properly: return it to the caller
+		panic(err)
+	}
+	// TODO: refactor NewGenericCollector to avoid duplicating Opts and labels usage
+	m.addCollector(NewGenericCollector(imageLastMonitorHistogramOpts, prometheus.GaugeValue, imageLastMonitorHistogramLabels, func(ch chan<- prometheus.Metric) {
+		imageList := &kuikv1alpha1.ImageList{}
+		if err := client.List(context.Background(), imageList); err != nil {
+			return
+		}
+
+		histogram := prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: imageLastMonitorHistogramOpts.Namespace,
+			Subsystem: imageLastMonitorHistogramOpts.Subsystem,
+			Name:      imageLastMonitorHistogramOpts.Name,
+			Help:      imageLastMonitorHistogramOpts.Help,
+			Buckets:   imageLastMonitorHistogramBuckets,
+		}, imageLastMonitorHistogramLabels)
+
+		now := time.Now()
+		for _, image := range imageList.Items {
+			if image.Status.Upstream.LastMonitor.IsZero() {
+				continue
+			}
+			histogram.WithLabelValues(image.Spec.Registry).Observe(now.Sub(image.Status.Upstream.LastMonitor.Time).Minutes())
+		}
+
+		histogram.Collect(ch)
+	}))
+
 	metrics.Registry.MustRegister(m.collectors...)
 }
 
@@ -147,14 +191,58 @@ func (m *kuikMetrics) InitMonitoringTaskRegistry(registry string) {
 	}
 }
 
-func (m *kuikMetrics) MonitoringTaskCompleted(registry string, status kuikv1alpha1.ImageStatusUpstream, unused bool) {
-	m.monitoringTasks.WithLabelValues(registry, status.ToString(), strconv.FormatBool(unused)).Inc()
+func (m *kuikMetrics) MonitoringTaskCompleted(registry string, status kuikv1alpha1.ImageStatus, unused bool) {
+	m.monitoringTasks.WithLabelValues(registry, status.Upstream.Status.ToString(), strconv.FormatBool(unused)).Inc()
+}
+
+func (m *kuikMetrics) getImageLastMonitorAgeMinutesBuckets() ([]float64, error) {
+	envPrefix := "KUIK_METRICS_IMAGE_LAST_MONITOR_AGE_MINUTES_BUCKETS_"
+	switch bucketsType := getenv.EnvOrDefault(envPrefix+"TYPE", "custom"); bucketsType {
+	case "exponential":
+		envPrefix += "EXPONENTIAL_"
+		start, err := getenv.Env[float64](envPrefix + "START")
+		if err != nil {
+			return nil, err
+		}
+		factor, err := getenv.Env[float64](envPrefix + "FACTOR")
+		if err != nil {
+			return nil, err
+		}
+		count, err := getenv.Env[int](envPrefix + "COUNT")
+		if err != nil {
+			return nil, err
+		}
+		return prometheus.ExponentialBuckets(start, factor, count), nil
+	case "exponentialRange":
+		envPrefix += "EXPONENTIAL_RANGE_"
+		minBucket, err := getenv.Env[float64](envPrefix + "MIN")
+		if err != nil {
+			return nil, err
+		}
+		maxBucket, err := getenv.Env[float64](envPrefix + "MAX")
+		if err != nil {
+			return nil, err
+		}
+		count, err := getenv.Env[int](envPrefix + "COUNT")
+		if err != nil {
+			return nil, err
+		}
+		return prometheus.ExponentialBucketsRange(minBucket, maxBucket, count), nil
+	case "custom":
+		buckets, err := getenv.Env[[]float64](envPrefix+"CUSTOM", option.WithSeparator(","))
+		if err != nil && errors.Is(err, getenv.ErrNotSet) {
+			return []float64{2, 10}, nil
+		}
+		return buckets, err
+	default:
+		return nil, fmt.Errorf("invalid %s: %s", envPrefix+"TYPE", bucketsType)
+	}
 }
 
 type GenericCollector struct {
-	desc              *prometheus.Desc
-	valueType         prometheus.ValueType
-	collectorCallback func(collect func(value float64, labels ...string))
+	desc      *prometheus.Desc
+	valueType prometheus.ValueType
+	callback  func(ch chan<- prometheus.Metric)
 }
 
 func (g *GenericCollector) Describe(ch chan<- *prometheus.Desc) {
@@ -162,12 +250,10 @@ func (g *GenericCollector) Describe(ch chan<- *prometheus.Desc) {
 }
 
 func (g *GenericCollector) Collect(ch chan<- prometheus.Metric) {
-	g.collectorCallback(func(value float64, labels ...string) {
-		ch <- prometheus.MustNewConstMetric(g.desc, g.valueType, value, labels...)
-	})
+	g.callback(ch)
 }
 
-func NewGenericCollector(opts prometheus.Opts, valueType prometheus.ValueType, labels []string, collectorCallback func(collect func(value float64, labels ...string))) prometheus.Collector {
+func NewEmptyGenericCollector(opts prometheus.Opts, valueType prometheus.ValueType, labels []string) *GenericCollector {
 	desc := prometheus.NewDesc(
 		prometheus.BuildFQName(opts.Namespace, opts.Subsystem, opts.Name),
 		opts.Help,
@@ -176,8 +262,25 @@ func NewGenericCollector(opts prometheus.Opts, valueType prometheus.ValueType, l
 	)
 
 	return &GenericCollector{
-		desc:              desc,
-		valueType:         valueType,
-		collectorCallback: collectorCallback,
+		desc:      desc,
+		valueType: valueType,
 	}
+}
+
+func NewGenericCollector(opts prometheus.Opts, valueType prometheus.ValueType, labels []string, collectorCallback func(ch chan<- prometheus.Metric)) prometheus.Collector {
+	collector := NewEmptyGenericCollector(opts, valueType, labels)
+	collector.callback = collectorCallback
+	return collector
+}
+
+func NewGenericCollectorFunc(opts prometheus.Opts, valueType prometheus.ValueType, labels []string, callback func(collect func(value float64, labels ...string))) prometheus.Collector {
+	collector := NewGenericCollector(opts, valueType, labels, nil).(*GenericCollector)
+
+	collector.callback = func(ch chan<- prometheus.Metric) {
+		callback(func(value float64, labels ...string) {
+			ch <- prometheus.MustNewConstMetric(collector.desc, collector.valueType, value, labels...)
+		})
+	}
+
+	return collector
 }

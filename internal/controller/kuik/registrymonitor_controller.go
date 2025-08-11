@@ -123,7 +123,7 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			}
 			logImage.Info("image monitored with success")
 			// TODO: this should be done after task.Wait()
-			kuikcontroller.Metrics.MonitoringTaskCompleted(registryMonitor.Spec.Registry, image.Status.Upstream.Status, len(image.Status.UsedByPods.Items) == 0)
+			kuikcontroller.Metrics.MonitoringTaskCompleted(registryMonitor.Spec.Registry, image.Status, len(image.Status.UsedByPods.Items) == 0)
 		})
 
 		go func() {
