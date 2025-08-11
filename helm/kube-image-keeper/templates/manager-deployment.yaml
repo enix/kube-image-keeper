@@ -38,7 +38,9 @@ spec:
           imagePullPolicy: {{ .Values.manager.image.pullPolicy }}
           command:
             - manager
+            {{- if gt (.Values.manager.replicas | int) 1 }}
             - -leader-elect
+            {{- end }}
             - -metrics-bind-address=:8080
             - -metrics-secure=false
             - -zap-log-level={{ .Values.manager.verbosity }}
