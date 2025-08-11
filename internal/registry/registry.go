@@ -4,7 +4,6 @@ import (
 	"crypto/sha1"
 	"crypto/tls"
 	"crypto/x509"
-	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -13,12 +12,8 @@ import (
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
-	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	corev1 "k8s.io/api/core/v1"
-	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 )
-
-var ErrNotFound = errors.New("could not find source image")
 
 func ContainerAnnotationKey(containerName string, initContainer bool) string {
 	template := "original-image-%s"
@@ -44,20 +39,19 @@ func GetDescriptor(imageName string, pullSecrets []corev1.Secret, insecureRegist
 		return nil, err
 	}
 
-	errs := []error{}
+	var returnedErr error
 	for _, keychain := range keychains {
 		opts := options(sourceRef, keychain, insecureRegistries, rootCAs)
 		desc, err := remote.Get(sourceRef, opts...)
 
 		if err == nil { // stops at the first success
 			return desc, nil
-		} else if errIsImageNotFound(err) {
-			err = ErrNotFound
+		} else {
+			returnedErr = err
 		}
-		errs = append(errs, err)
 	}
 
-	return nil, utilerrors.NewAggregate(errs)
+	return nil, returnedErr
 }
 
 func HealthCheck(registry string, insecureRegistries []string, rootCAs *x509.CertPool) error {
@@ -100,13 +94,4 @@ func options(ref name.Reference, keychain authn.Keychain, insecureRegistries []s
 		remote.WithAuthFromKeychain(keychain),
 		remote.WithTransport(transport),
 	}
-}
-
-func errIsImageNotFound(err error) bool {
-	if err, ok := err.(*transport.Error); ok {
-		if err.StatusCode == http.StatusNotFound {
-			return true
-		}
-	}
-	return false
 }
