@@ -122,7 +122,7 @@ metrics:
     exponentialRange:
       # Default is 10m
       min: 10
-      # Default is 6h
+      # Default is 12h
       max: 720
       count: 6
     # -- List of buckets to create in minutes, ommiting +inf
