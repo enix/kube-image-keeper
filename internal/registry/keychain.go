@@ -59,7 +59,7 @@ func GetPullSecrets(apiReader client.Reader, namespace string, pullSecretNames [
 	pullSecrets := []corev1.Secret{}
 	for _, pullSecretName := range pullSecretNames {
 		var pullSecret corev1.Secret
-		err := apiReader.Get(context.TODO(), types.NamespacedName{
+		err := apiReader.Get(context.Background(), types.NamespacedName{
 			Namespace: namespace,
 			Name:      pullSecretName,
 		}, &pullSecret)
