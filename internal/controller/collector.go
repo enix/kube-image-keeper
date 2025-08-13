@@ -130,9 +130,9 @@ func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client) {
 
 			for _, registry := range registryMonitorList.Items {
 				if registry.Status.RegistryStatus == kuikv1alpha1.RegistryStatusUp {
-					collect(1, registry.Name)
+					collect(1, registry.Spec.Registry)
 				} else {
-					collect(0, registry.Name)
+					collect(0, registry.Spec.Registry)
 				}
 			}
 		}))
