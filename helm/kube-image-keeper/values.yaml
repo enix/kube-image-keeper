@@ -93,17 +93,15 @@ registryMonitors:
     # -- Maximum monitoring tasks to run in the given interval and for a given registry.
     maxPerInterval: 25
     # -- Maximum monitoring tasks to run in parallel for a given registry.
-    parallel: 10
+    parallel: 1
   # -- RegistryMonitors to create on install and upgrade, if name is not provided, defaults to registry value.
   items:
     docker.io:
       interval: 1h
       maxPerInterval: 2
-      parallel: 2
-    quay.io: {}
-    ghcr.io: {}
-    registry.k8s.io: {}
-    public.ecr.aws: {}
+    public.ecr.aws:
+      interval: 1h
+      maxPerInterval: 2
 
 # -- Delay in days before deleting an Image not used by any pod
 unusedImageTTL: 30
@@ -111,19 +109,19 @@ unusedImageTTL: 30
 metrics:
   imageLastMonitorAgeMinutesBuckets:
     # -- Bucket generation method (can be one of exponential, exponentialRange or custom)
-    type: exponential
-    # -- See https://pkg.go.dev/github.com/prometheus/client_golang/prometheus#ExponentialBuckets
+    type: exponentialRange
+    # -- Range from 15m to 1297m (21h) (start*factor^count) See https://pkg.go.dev/github.com/prometheus/client_golang/prometheus#ExponentialBuckets
     exponential:
-      # -- Default is 10m
-      start: 10
-      factor: 2
-      count: 6
+      # -- Default is 15m
+      start: 15
+      factor: 1.5
+      count: 12
     # -- See https://pkg.go.dev/github.com/prometheus/client_golang/prometheus#ExponentialBucketsRange
     exponentialRange:
       # Default is 10m
-      min: 10
-      # Default is 12h
-      max: 720
-      count: 6
+      min: 15
+      # Default is 16.6h
+      max: 1000
+      count: 12
     # -- List of buckets to create in minutes, ommiting +inf
-    custom: [10, 30, 60, 120, 180, 360]
+    custom: [10, 30, 60, 120, 180, 360, 1440]
