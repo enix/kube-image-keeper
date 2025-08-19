@@ -112,31 +112,6 @@ func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client) {
 			}
 		}))
 
-	m.addCollector(NewGenericCollectorFunc(
-		prometheus.Opts{
-			Namespace: info.MetricsNamespace,
-			Subsystem: subsystemRegistryMonitor,
-			Name:      "registries",
-			Help:      "Number of registries monitored up and running, labeled by registry.",
-		},
-		prometheus.GaugeValue,
-		[]string{"registry"},
-		func(collect func(value float64, labels ...string)) {
-			registryMonitorList := &kuikv1alpha1.RegistryMonitorList{}
-			if err := client.List(context.Background(), registryMonitorList); err != nil {
-				logf.Log.Error(err, "failed to list registry monitors for metrics")
-				return
-			}
-
-			for _, registry := range registryMonitorList.Items {
-				if registry.Status.RegistryStatus == kuikv1alpha1.RegistryStatusUp {
-					collect(1, registry.Spec.Registry)
-				} else {
-					collect(0, registry.Spec.Registry)
-				}
-			}
-		}))
-
 	imageLastMonitorHistogramOpts := prometheus.Opts{
 		Namespace: info.MetricsNamespace,
 		Subsystem: subsystemRegistryMonitor,

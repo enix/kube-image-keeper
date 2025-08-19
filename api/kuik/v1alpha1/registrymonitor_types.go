@@ -32,15 +32,7 @@ const (
 )
 
 // RegistryMonitorStatus defines the observed state of RegistryMonitor.
-type RegistryMonitorStatus struct {
-	// RegistryStatus is the status of the registry being monitored
-	// +kubebuilder:validation:Enum=Up;Down
-	RegistryStatus RegistryStatus `json:"registryStatus"`
-	// LastMonitor is the last time the registry health was checked
-	LastMonitor metav1.Time `json:"lastMonitor,omitempty"`
-	// LastError is the last error encountered while trying to health check the registry
-	LastError string `json:"lastError,omitempty"`
-}
+type RegistryMonitorStatus struct{}
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status

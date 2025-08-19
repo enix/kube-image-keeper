@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
-	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -52,29 +51,6 @@ func GetDescriptor(imageName string, pullSecrets []corev1.Secret, insecureRegist
 	}
 
 	return nil, returnedErr
-}
-
-func HealthCheck(registry string, insecureRegistries []string, rootCAs *x509.CertPool) error {
-	client := &http.Client{
-		Transport: unauthenticatedTransport(registry, insecureRegistries, rootCAs),
-		Timeout:   5 * time.Second, // TODO: make this configurable
-	}
-
-	// TODO: support http:// too
-	url := "https://" + registry + "/v2/"
-
-	// TODO: use HEAD by default, and make it configurable (ghcr.io does not support HEAD)
-	resp, err := client.Get(url)
-	if err != nil {
-		return err
-	}
-
-	_ = resp.Body.Close()
-
-	if slices.Contains([]int{http.StatusOK, http.StatusUnauthorized, http.StatusForbidden}, resp.StatusCode) {
-		return nil
-	}
-	return fmt.Errorf("unexpected status: %d", resp.StatusCode)
 }
 
 func unauthenticatedTransport(registry string, insecureRegistries []string, rootCAs *x509.CertPool) *http.Transport {
