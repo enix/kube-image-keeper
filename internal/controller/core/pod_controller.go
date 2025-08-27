@@ -62,6 +62,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	}
 
 	hasDeletingImages := false
+	registries := map[string]struct{}{}
 	for _, image := range images {
 		var img kuikv1alpha1.Image
 		err := r.Get(ctx, client.ObjectKeyFromObject(&image), &img)
@@ -76,26 +77,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			continue
 		}
 
-		var registryMonitors kuikv1alpha1.RegistryMonitorList
-		if err := r.List(ctx, &registryMonitors, client.MatchingFields{
-			RegistryIndexKey: image.Spec.Registry,
-		}); err != nil {
-			return ctrl.Result{}, err
-		}
-		if len(registryMonitors.Items) == 0 {
-			log.Info("no registry monitor found for image, creating one with default values", "image", klog.KObj(&image), "registry", image.Spec.Registry)
-			spec := r.defaultRegistryMonitorSpec.DeepCopy()
-			spec.Registry = image.Spec.Registry
-			err := r.Create(ctx, &kuikv1alpha1.RegistryMonitor{
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: fmt.Sprintf("%016x-", xxhash.Sum64String(spec.Registry)),
-				},
-				Spec: *spec,
-			})
-			if err != nil {
-				return ctrl.Result{}, err
-			}
-		}
+		registries[image.Spec.Registry] = struct{}{}
 
 		// create or update Image depending on weather it already exists or not
 		if apierrors.IsNotFound(err) {
@@ -113,6 +95,36 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			img.Spec.Image = image.Spec.Image
 
 			if err = r.Patch(ctx, &img, patch); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+	}
+
+	for registry := range registries {
+		var registryMonitors kuikv1alpha1.RegistryMonitorList
+		if err := r.List(ctx, &registryMonitors); err != nil {
+			return ctrl.Result{}, err
+		}
+
+		found := false
+		for _, registryMonitor := range registryMonitors.Items {
+			if registryMonitor.Spec.Registry == registry {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			log.Info("no registry monitor found for image, creating one with default values", "registry", registry)
+			spec := r.defaultRegistryMonitorSpec.DeepCopy()
+			spec.Registry = registry
+			err := r.Create(ctx, &kuikv1alpha1.RegistryMonitor{
+				ObjectMeta: metav1.ObjectMeta{
+					GenerateName: fmt.Sprintf("%016x-", xxhash.Sum64String(spec.Registry)),
+				},
+				Spec: *spec,
+			})
+			if err != nil {
 				return ctrl.Result{}, err
 			}
 		}
