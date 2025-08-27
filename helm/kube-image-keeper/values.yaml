@@ -267,7 +267,7 @@ registry:
         memory: "512Mi"
     image:
       # -- Cronjob image repository
-      repository: bitnami/kubectl
+      repository: bitnamisecure/kubectl
       # -- Cronjob image pull policy
       pullPolicy: IfNotPresent
       # -- Cronjob image tag. Default 'latest'
