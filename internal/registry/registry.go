@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	corev1 "k8s.io/api/core/v1"
 )
@@ -27,7 +28,7 @@ func ContainerAnnotationKey(containerName string, initContainer bool) string {
 	return fmt.Sprintf(template, containerName)
 }
 
-func GetDescriptor(imageName string, pullSecrets []corev1.Secret, insecureRegistries []string, rootCAs *x509.CertPool) (*remote.Descriptor, error) {
+func GetDescriptor(imageName string, pullSecrets []corev1.Secret, insecureRegistries []string, rootCAs *x509.CertPool) (*v1.Descriptor, error) {
 	keychains, err := GetKeychains(imageName, pullSecrets)
 	if err != nil {
 		return nil, err
@@ -41,7 +42,7 @@ func GetDescriptor(imageName string, pullSecrets []corev1.Secret, insecureRegist
 	var returnedErr error
 	for _, keychain := range keychains {
 		opts := options(sourceRef, keychain, insecureRegistries, rootCAs)
-		desc, err := remote.Get(sourceRef, opts...)
+		desc, err := remote.Head(sourceRef, opts...)
 
 		if err == nil { // stops at the first success
 			return desc, nil
