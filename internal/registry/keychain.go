@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/distribution/reference"
-	"github.com/enix/kube-image-keeper/internal/registry/credentialprovider"
 	"github.com/enix/kube-image-keeper/internal/registry/credentialprovider/secrets"
 	"github.com/google/go-containerregistry/pkg/authn"
 	corev1 "k8s.io/api/core/v1"
@@ -23,18 +22,28 @@ func (a *authConfigKeychain) Resolve(target authn.Resource) (authn.Authenticator
 }
 
 func GetKeychains(repositoryName string, pullSecrets []corev1.Secret) ([]authn.Keychain, error) {
-	defaultKeyring := &credentialprovider.BasicDockerKeyring{}
-
-	keyring, err := secrets.MakeDockerKeyring(pullSecrets, defaultKeyring)
-	if err != nil {
+	if keychains, err := getKeychainsFromSecrets(repositoryName, pullSecrets); err != nil {
 		return nil, err
+	} else {
+		return append(keychains, authn.DefaultKeychain), nil
 	}
+}
 
+func getKeychainsFromSecrets(repositoryName string, pullSecrets []corev1.Secret) ([]authn.Keychain, error) {
 	keychains := []authn.Keychain{}
 
 	named, err := reference.ParseNormalizedNamed(repositoryName)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't parse image name: %v", err)
+	}
+
+	keyring, err := secrets.MakeDockerKeyring(pullSecrets)
+	if err != nil {
+		return nil, err
+	}
+
+	if keyring == nil {
+		return keychains, nil
 	}
 
 	creds, _ := keyring.Lookup(named.Name())
@@ -49,8 +58,6 @@ func GetKeychains(repositoryName string, pullSecrets []corev1.Secret) ([]authn.K
 			},
 		})
 	}
-
-	keychains = append(keychains, authn.DefaultKeychain)
 
 	return keychains, nil
 }

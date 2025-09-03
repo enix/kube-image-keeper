@@ -300,22 +300,3 @@ func (dk *BasicDockerKeyring) Lookup(image string) ([]TrackedAuthConfig, bool) {
 
 	return []TrackedAuthConfig{}, false
 }
-
-// UnionDockerKeyring delegates to a set of keyrings.
-type UnionDockerKeyring []DockerKeyring
-
-// Lookup implements the DockerKeyring method for fetching credentials based on image name.
-// return each credentials
-func (k UnionDockerKeyring) Lookup(image string) ([]TrackedAuthConfig, bool) {
-	authConfigs := []TrackedAuthConfig{}
-	for _, subKeyring := range k {
-		if subKeyring == nil {
-			continue
-		}
-
-		currAuthResults, _ := subKeyring.Lookup(image)
-		authConfigs = append(authConfigs, currAuthResults...)
-	}
-
-	return authConfigs, (len(authConfigs) > 0)
-}

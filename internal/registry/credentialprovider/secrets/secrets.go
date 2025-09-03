@@ -26,17 +26,8 @@ import (
 // MakeDockerKeyring inspects the passedSecrets to see if they contain any DockerConfig secrets.  If they do,
 // then a DockerKeyring is built based on every hit and unioned with the defaultKeyring.
 // If they do not, then the default keyring is returned
-func MakeDockerKeyring(passedSecrets []v1.Secret, defaultKeyring credentialprovider.DockerKeyring) (credentialprovider.DockerKeyring, error) {
-	providerFromSecrets, err := secretsToTrackedDockerConfigs(passedSecrets)
-	if err != nil {
-		return nil, err
-	}
-
-	if providerFromSecrets == nil {
-		return defaultKeyring, nil
-	}
-
-	return credentialprovider.UnionDockerKeyring{providerFromSecrets, defaultKeyring}, nil
+func MakeDockerKeyring(passedSecrets []v1.Secret) (credentialprovider.DockerKeyring, error) {
+	return secretsToTrackedDockerConfigs(passedSecrets)
 }
 
 func secretsToTrackedDockerConfigs(secrets []v1.Secret) (credentialprovider.DockerKeyring, error) {
