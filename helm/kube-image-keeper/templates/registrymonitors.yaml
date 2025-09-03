@@ -10,5 +10,6 @@ spec:
   interval: {{ $spec.interval | default $defaultSpec.interval }}
   maxPerInterval: {{ $spec.maxPerInterval | default $defaultSpec.maxPerInterval }}
   parallel: {{ $spec.parallel | default $defaultSpec.parallel }}
+  method: {{ $spec.method | default $defaultSpec.method }}
 ---
 {{- end }}

@@ -15,6 +15,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
+type descriptorReader func(ref name.Reference, options ...remote.Option) (*v1.Descriptor, error)
+
 func ContainerAnnotationKey(containerName string, initContainer bool) string {
 	template := "original-image-%s"
 	if initContainer {
@@ -28,7 +30,7 @@ func ContainerAnnotationKey(containerName string, initContainer bool) string {
 	return fmt.Sprintf(template, containerName)
 }
 
-func GetDescriptor(imageName string, pullSecrets []corev1.Secret, insecureRegistries []string, rootCAs *x509.CertPool) (*v1.Descriptor, error) {
+func ReadDescriptor(httpMethod string, imageName string, pullSecrets []corev1.Secret, insecureRegistries []string, rootCAs *x509.CertPool) (*v1.Descriptor, error) {
 	keychains, err := GetKeychains(imageName, pullSecrets)
 	if err != nil {
 		return nil, err
@@ -42,7 +44,7 @@ func GetDescriptor(imageName string, pullSecrets []corev1.Secret, insecureRegist
 	var returnedErr error
 	for _, keychain := range keychains {
 		opts := options(sourceRef, keychain, insecureRegistries, rootCAs)
-		desc, err := remote.Head(sourceRef, opts...)
+		desc, err := getReader(httpMethod)(sourceRef, opts...)
 
 		if err == nil { // stops at the first success
 			return desc, nil
@@ -52,6 +54,25 @@ func GetDescriptor(imageName string, pullSecrets []corev1.Secret, insecureRegist
 	}
 
 	return nil, returnedErr
+}
+
+func getReader(httpMethod string) descriptorReader {
+	switch httpMethod {
+	case http.MethodGet:
+		return getDescriptor
+	case http.MethodHead:
+		return remote.Head
+	default:
+		panic(fmt.Sprintf("unsupported http method (%s)", httpMethod))
+	}
+}
+
+func getDescriptor(ref name.Reference, options ...remote.Option) (*v1.Descriptor, error) {
+	desc, err := remote.Get(ref, options...)
+	if err != nil {
+		return nil, err
+	}
+	return &desc.Descriptor, nil
 }
 
 func unauthenticatedTransport(registry string, insecureRegistries []string, rootCAs *x509.CertPool) *http.Transport {

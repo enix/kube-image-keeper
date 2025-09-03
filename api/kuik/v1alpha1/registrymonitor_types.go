@@ -22,6 +22,10 @@ type RegistryMonitorSpec struct {
 	// Interval is the interval at which the image monitor checks for updates
 	// +default:value="10m"
 	Interval metav1.Duration `json:"interval"`
+	// Method is the HTTP method to use to monitor an image of this registry
+	// +kubebuilder:validation:Enum=HEAD;GET
+	// +default:value="HEAD"
+	Method string `json:"method"`
 }
 
 type RegistryStatus string

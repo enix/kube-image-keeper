@@ -95,7 +95,7 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 		task := monitorPool.Submit(func() {
 			logImage.Info("monitoring image")
-			if err := r.monitorAnImage(logf.IntoContext(context.Background(), logImage), &image); err != nil {
+			if err := r.monitorAnImage(logf.IntoContext(context.Background(), logImage), registryMonitor.Spec.Method, &image); err != nil {
 				logImage.Info("failed to monitor image", "error", err.Error())
 			}
 			logImage.Info("image monitored with success")
@@ -137,7 +137,7 @@ func (r *RegistryMonitorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *RegistryMonitorReconciler) monitorAnImage(ctx context.Context, image *kuikv1alpha1.Image) error {
+func (r *RegistryMonitorReconciler) monitorAnImage(ctx context.Context, httpMethod string, image *kuikv1alpha1.Image) error {
 	patch := client.MergeFrom(image.DeepCopy())
 	image.Status.Upstream.LastMonitor = metav1.Now()
 	if err := r.Status().Patch(ctx, image, patch); err != nil {
@@ -148,7 +148,7 @@ func (r *RegistryMonitorReconciler) monitorAnImage(ctx context.Context, image *k
 	pullSecrets, pullSecretsErr := image.GetPullSecrets(ctx, r.Client)
 
 	var lastErr error
-	if desc, err := registry.GetDescriptor(image.Reference(), pullSecrets, nil, nil); err != nil {
+	if desc, err := registry.ReadDescriptor(httpMethod, image.Reference(), pullSecrets, nil, nil); err != nil {
 		image.Status.Upstream.LastError = err.Error()
 		lastErr = err
 		var te *transport.Error

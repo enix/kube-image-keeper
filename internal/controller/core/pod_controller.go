@@ -2,8 +2,11 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -153,6 +156,7 @@ func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Interval:       metav1.Duration{Duration: 10 * time.Minute},
 		MaxPerInterval: 1,
 		Parallel:       1,
+		Method:         http.MethodHead,
 	}
 
 	// TODO: refactor using github.com/obalunenko/getenv
@@ -176,6 +180,13 @@ func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			return err
 		}
 		r.defaultRegistryMonitorSpec.Parallel = parallel
+	}
+	if env := os.Getenv("KUIK_REGISTRY_MONITOR_DEFAULT_METHOD"); env != "" {
+		oneOf := []string{http.MethodGet, http.MethodHead}
+		if !slices.Contains(oneOf, env) {
+			return errors.New("KUIK_REGISTRY_MONITOR_DEFAULT_METHOD must be one of: " + strings.Join(oneOf, ", "))
+		}
+		r.defaultRegistryMonitorSpec.Method = env
 	}
 
 	p := predicate.Not(predicate.Funcs{

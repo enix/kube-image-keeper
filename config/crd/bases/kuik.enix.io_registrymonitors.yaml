@@ -71,6 +71,14 @@ spec:
                   for the given interval, defaults to 1
                 minimum: 1
                 type: integer
+              method:
+                default: HEAD
+                description: Method is the HTTP method to use to monitor an image
+                  of this registry
+                enum:
+                - HEAD
+                - GET
+                type: string
               parallel:
                 default: 1
                 description: Parallel is the number of images to check in parallel,
@@ -84,6 +92,7 @@ spec:
             required:
             - interval
             - maxPerInterval
+            - method
             - parallel
             - registry
             type: object

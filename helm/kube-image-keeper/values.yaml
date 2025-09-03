@@ -94,6 +94,8 @@ registryMonitors:
     maxPerInterval: 25
     # -- Maximum monitoring tasks to run in parallel for a given registry.
     parallel: 1
+    # -- HTTP method to use to monitor an image of this registry
+    method: HEAD
   # -- RegistryMonitors to create on install and upgrade, if name is not provided, defaults to registry value.
   items:
     docker.io:
