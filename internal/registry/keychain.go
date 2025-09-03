@@ -5,12 +5,12 @@ import (
 	"fmt"
 
 	"github.com/distribution/reference"
+	"github.com/enix/kube-image-keeper/internal/registry/credentialprovider"
+	"github.com/enix/kube-image-keeper/internal/registry/credentialprovider/secrets"
 	"github.com/google/go-containerregistry/pkg/authn"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/kubernetes/pkg/credentialprovider"
-	credentialprovidersecrets "k8s.io/kubernetes/pkg/credentialprovider/secrets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -25,7 +25,7 @@ func (a *authConfigKeychain) Resolve(target authn.Resource) (authn.Authenticator
 func GetKeychains(repositoryName string, pullSecrets []corev1.Secret) ([]authn.Keychain, error) {
 	defaultKeyring := &credentialprovider.BasicDockerKeyring{}
 
-	keyring, err := credentialprovidersecrets.MakeDockerKeyring(pullSecrets, defaultKeyring)
+	keyring, err := secrets.MakeDockerKeyring(pullSecrets, defaultKeyring)
 	if err != nil {
 		return nil, err
 	}
