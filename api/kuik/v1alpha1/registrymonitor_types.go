@@ -1,8 +1,6 @@
 package v1alpha1
 
 import (
-	"strings"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -28,13 +26,6 @@ type RegistryMonitorSpec struct {
 	Method string `json:"method"`
 }
 
-type RegistryStatus string
-
-const (
-	RegistryStatusUp   = RegistryStatus("Up")
-	RegistryStatusDown = RegistryStatus("Down")
-)
-
 // RegistryMonitorStatus defines the observed state of RegistryMonitor.
 type RegistryMonitorStatus struct{}
 
@@ -42,7 +33,6 @@ type RegistryMonitorStatus struct{}
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster,shortName=regmon
 // +kubebuilder:printcolumn:name="Registry",type="string",JSONPath=".spec.registry"
-// +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.registryStatus"
 // +kubebuilder:printcolumn:name="Parallel",type="integer",JSONPath=".spec.parallel"
 // +kubebuilder:printcolumn:name="MaxPerInterval",type="integer",JSONPath=".spec.maxPerInterval"
 // +kubebuilder:printcolumn:name="Interval",type="string",JSONPath=".spec.interval"
@@ -68,12 +58,4 @@ type RegistryMonitorList struct {
 
 func init() {
 	SchemeBuilder.Register(&RegistryMonitor{}, &RegistryMonitorList{})
-}
-
-func (r RegistryStatus) ToString() string {
-	value := string(r)
-	if value == "" {
-		value = "unknown"
-	}
-	return strings.ToLower(value)
 }

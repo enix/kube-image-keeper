@@ -19,9 +19,6 @@ spec:
     - jsonPath: .spec.registry
       name: Registry
       type: string
-    - jsonPath: .status.registryStatus
-      name: Status
-      type: string
     - jsonPath: .spec.parallel
       name: Parallel
       type: integer
