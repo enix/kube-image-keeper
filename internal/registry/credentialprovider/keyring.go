@@ -17,9 +17,6 @@ limitations under the License.
 package credentialprovider
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"net"
 	"net/url"
 	"path/filepath"
@@ -45,12 +42,6 @@ type DockerKeyring interface {
 type BasicDockerKeyring struct {
 	index []string
 	creds map[string][]TrackedAuthConfig
-}
-
-// providersDockerKeyring is an implementation of DockerKeyring that
-// materializes its dockercfg based on a set of dockerConfigProviders.
-type providersDockerKeyring struct {
-	Providers []DockerConfigProvider
 }
 
 // TrackedAuthConfig wraps the AuthConfig and adds information about the source
@@ -178,7 +169,6 @@ func (dk *BasicDockerKeyring) Add(src *CredentialSource, cfg DockerConfig) {
 
 const (
 	defaultRegistryHost = "index.docker.io"
-	defaultRegistryKey  = defaultRegistryHost + "/v1/"
 )
 
 // isDefaultRegistryMatch determines whether the given image will
@@ -311,30 +301,6 @@ func (dk *BasicDockerKeyring) Lookup(image string) ([]TrackedAuthConfig, bool) {
 	return []TrackedAuthConfig{}, false
 }
 
-// Lookup implements the DockerKeyring method for fetching credentials
-// based on image name.
-func (dk *providersDockerKeyring) Lookup(image string) ([]TrackedAuthConfig, bool) {
-	keyring := &BasicDockerKeyring{}
-
-	for _, p := range dk.Providers {
-		keyring.Add(nil, p.Provide(image))
-	}
-
-	return keyring.Lookup(image)
-}
-
-// FakeKeyring a fake config credentials
-type FakeKeyring struct {
-	auth []TrackedAuthConfig
-	ok   bool
-}
-
-// Lookup implements the DockerKeyring method for fetching credentials based on image name
-// return fake auth and ok
-func (f *FakeKeyring) Lookup(image string) ([]TrackedAuthConfig, bool) {
-	return f.auth, f.ok
-}
-
 // UnionDockerKeyring delegates to a set of keyrings.
 type UnionDockerKeyring []DockerKeyring
 
@@ -352,15 +318,4 @@ func (k UnionDockerKeyring) Lookup(image string) ([]TrackedAuthConfig, bool) {
 	}
 
 	return authConfigs, (len(authConfigs) > 0)
-}
-
-func hashAuthConfig(creds *AuthConfig) string {
-	credBytes, err := json.Marshal(creds)
-	if err != nil {
-		return ""
-	}
-
-	hash := sha256.New()
-	hash.Write([]byte(credBytes))
-	return hex.EncodeToString(hash.Sum(nil))
 }
