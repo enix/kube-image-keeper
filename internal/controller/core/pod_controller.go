@@ -105,31 +105,30 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 
 	for registry := range registries {
 		var registryMonitors kuikv1alpha1.RegistryMonitorList
-		if err := r.List(ctx, &registryMonitors); err != nil {
+		if err := r.List(ctx, &registryMonitors, client.MatchingFields{
+			RegistryIndexKey: registry,
+		}); err != nil {
 			return ctrl.Result{}, err
 		}
-
-		found := false
-		for _, registryMonitor := range registryMonitors.Items {
-			if registryMonitor.Spec.Registry == registry {
-				found = true
-				break
-			}
+		if len(registryMonitors.Items) > 0 {
+			continue
 		}
 
-		if !found {
-			log.Info("no registry monitor found for image, creating one with default values", "registry", registry)
-			spec := r.defaultRegistryMonitorSpec.DeepCopy()
-			spec.Registry = registry
-			err := r.Create(ctx, &kuikv1alpha1.RegistryMonitor{
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: fmt.Sprintf("%016x-", xxhash.Sum64String(spec.Registry)),
-				},
-				Spec: *spec,
-			})
-			if err != nil {
-				return ctrl.Result{}, err
+		registryMonitor := &kuikv1alpha1.RegistryMonitor{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: fmt.Sprintf("%016x", xxhash.Sum64String(registry)),
+			},
+			Spec: *r.defaultRegistryMonitorSpec.DeepCopy(),
+		}
+		registryMonitor.Spec.Registry = registry
+
+		if err := r.Create(ctx, registryMonitor); err != nil {
+			if apierrors.IsAlreadyExists(err) {
+				return ctrl.Result{}, nil
 			}
+			return ctrl.Result{}, err
+		} else {
+			log.Info("no registry monitor found for image, created one with default values", "registry", registry)
 		}
 	}
 
