@@ -187,8 +187,8 @@ func (i *Image) GetPullSecrets(ctx context.Context, c client.Client) (secrets []
 	return secrets, nil
 }
 
-func (i *Image) IsUnused() bool {
-	return len(i.Status.UsedByPods.Items) == 0
+func (i *Image) IsUsedByPods() bool {
+	return len(i.Status.UsedByPods.Items) > 0
 }
 
 func imageNameFromReference(image string) (string, error) {

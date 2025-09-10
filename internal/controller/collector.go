@@ -66,7 +66,7 @@ func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client) {
 			Name:      "tasks_total",
 			Help:      "Total number of image monitoring tasks, labeled by registry and status.",
 		},
-		[]string{"registry", "status", "unused"},
+		[]string{"registry", "status", "used"},
 	)
 	m.addCollector(m.monitoringTasks)
 
@@ -78,7 +78,7 @@ func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client) {
 			Help:      "Number of images monitored, labeled by registry and status.",
 		},
 		prometheus.GaugeValue,
-		[]string{"registry", "status", "unused"},
+		[]string{"registry", "status", "used"},
 		func(collect func(value float64, labels ...string)) {
 			imageList := &kuikv1alpha1.ImageList{}
 			if err := client.List(context.Background(), imageList); err != nil {
@@ -100,14 +100,13 @@ func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client) {
 				}
 
 				status := image.Status.Upstream.Status.ToString()
-				images[registry][status][image.IsUnused()]++
+				images[registry][status][image.IsUsedByPods()]++
 			}
 
 			for registry, statuses := range images {
-				for status, unuseds := range statuses {
-					for unused, count := range unuseds {
-						collect(count, registry, status, strconv.FormatBool(unused))
-					}
+				for status, used := range statuses {
+					collect(used[true], registry, status, strconv.FormatBool(true))
+					collect(used[false], registry, status, strconv.FormatBool(false))
 				}
 			}
 		}))
@@ -166,8 +165,8 @@ func (m *kuikMetrics) InitMonitoringTaskRegistry(registry string) {
 	}
 }
 
-func (m *kuikMetrics) MonitoringTaskCompleted(registry string, status kuikv1alpha1.ImageStatus, unused bool) {
-	m.monitoringTasks.WithLabelValues(registry, status.Upstream.Status.ToString(), strconv.FormatBool(unused)).Inc()
+func (m *kuikMetrics) MonitoringTaskCompleted(registry string, image kuikv1alpha1.Image) {
+	m.monitoringTasks.WithLabelValues(registry, image.Status.Upstream.Status.ToString(), strconv.FormatBool(image.IsUsedByPods())).Inc()
 }
 
 func (m *kuikMetrics) getImageLastMonitorAgeMinutesBuckets() ([]float64, error) {
