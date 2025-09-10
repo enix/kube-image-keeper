@@ -71,7 +71,7 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
-	flag.IntVar(&unusedImageTTL, "unused-image-ttl", 30, "Unused image TTL in days.")
+	flag.IntVar(&unusedImageTTL, "unused-image-ttl", 24, "Unused image TTL in hours.")
 
 	opts := zap.Options{
 		Development: true,
@@ -204,7 +204,7 @@ func main() {
 	if err = (&kuikcontroller.ImageReconciler{
 		Client:         mgr.GetClient(),
 		Scheme:         mgr.GetScheme(),
-		UnusedImageTTL: time.Hour * 24 * time.Duration(unusedImageTTL),
+		UnusedImageTTL: time.Hour * time.Duration(unusedImageTTL),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Image")
 		os.Exit(1)

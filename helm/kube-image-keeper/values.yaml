@@ -105,8 +105,8 @@ registryMonitors:
       interval: 1h
       maxPerInterval: 2
 
-# -- Delay in days before deleting an Image not used by any pod
-unusedImageTTL: 30
+# -- Delay in hours before deleting an Image that is not used by any pod
+unusedImageTTL: 24
 
 metrics:
   imageLastMonitorAgeMinutesBuckets:
