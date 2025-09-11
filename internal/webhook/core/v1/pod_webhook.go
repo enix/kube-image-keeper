@@ -93,21 +93,21 @@ func (a *ImageRewriter) RewriteImages(pod *corev1.Pod, isNewPod bool) []Rewritte
 	// Handle Containers
 	for i := range pod.Spec.Containers {
 		container := &pod.Spec.Containers[i]
-		rewrittenImage := a.handleContainer(pod, container, registry.ContainerAnnotationKey(container.Name, false), rewriteImages)
+		rewrittenImage := a.handleContainer(pod, container, false, rewriteImages)
 		rewrittenImages = append(rewrittenImages, rewrittenImage)
 	}
 
 	// Handle init containers
 	for i := range pod.Spec.InitContainers {
 		container := &pod.Spec.InitContainers[i]
-		rewrittenImage := a.handleContainer(pod, container, registry.ContainerAnnotationKey(container.Name, true), rewriteImages)
+		rewrittenImage := a.handleContainer(pod, container, true, rewriteImages)
 		rewrittenImages = append(rewrittenImages, rewrittenImage)
 	}
 
 	return rewrittenImages
 }
 
-func (a *ImageRewriter) handleContainer(pod *corev1.Pod, container *corev1.Container, annotationKey string, rewriteImage bool) RewrittenImage {
+func (a *ImageRewriter) handleContainer(pod *corev1.Pod, container *corev1.Container, initContainer bool, rewriteImage bool) RewrittenImage {
 	if err := a.isImageRewritable(container); err != nil {
 		return RewrittenImage{
 			Original:            container.Image,
@@ -115,7 +115,7 @@ func (a *ImageRewriter) handleContainer(pod *corev1.Pod, container *corev1.Conta
 		}
 	}
 
-	re := regexp.MustCompile(`localhost:[0-9]+/`)
+	re := regexp.MustCompile(`^localhost:[0-9]+/`)
 	image := re.ReplaceAllString(container.Image, "")
 
 	sourceRef, err := name.ParseReference(image, name.Insecure)
@@ -133,7 +133,11 @@ func (a *ImageRewriter) handleContainer(pod *corev1.Pod, container *corev1.Conta
 		}
 	}
 
-	pod.Annotations[annotationKey] = image
+	// change the pod annotation only if the image has not been rewritten and thus is the original image
+	if !re.Match([]byte(container.Image)) {
+		annotationKey := registry.ContainerAnnotationKey(container.Name, initContainer)
+		pod.Annotations[annotationKey] = container.Image
+	}
 
 	sanitizedRegistryName := strings.ReplaceAll(sourceRef.Context().RegistryStr(), ":", "-")
 	image = strings.ReplaceAll(image, sourceRef.Context().RegistryStr(), sanitizedRegistryName)
