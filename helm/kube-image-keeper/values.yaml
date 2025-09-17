@@ -102,6 +102,7 @@ controllers:
     extraLabels: {}
     # -- Relabel config for the PodMonitor, see: https://coreos.com/operators/prometheus/docs/latest/api.html#relabelconfig
     relabelings: []
+  topologySpreadConstraints: []
 
 proxy:
   image:
@@ -343,6 +344,7 @@ registry:
     annotations: {}
     # -- Additional labels to add to the registry serviceAccount
     extraLabels: {}
+  topologySpreadConstraints: []
 
 docker-registry-ui:
   # -- If true, enable the registry user interface
