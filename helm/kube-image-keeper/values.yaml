@@ -4,7 +4,7 @@
 
 manager:
   # -- Number of manager pods
-  replicas: 2
+  replicas: 1
   image:
     # -- Manager image repository
     repository: quay.io/enix/kube-image-keeper
