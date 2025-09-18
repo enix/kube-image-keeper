@@ -31,4 +31,11 @@ resources:
   kind: RegistryMonitor
   path: github.com/enix/kube-image-keeper/api/kuik/v1alpha1
   version: v1alpha1
+- api:
+    crdVersion: v1
+  domain: enix.io
+  group: kuik
+  kind: ImageMonitor
+  path: github.com/enix/kube-image-keeper/api/kuik/v1alpha1
+  version: v1alpha1
 version: "3"
