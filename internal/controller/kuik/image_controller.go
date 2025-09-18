@@ -52,7 +52,6 @@ func (r *ImageReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	log = log.WithValues("reference", image.Reference())
 
-	// update Pods and Nodes status for this Image
 	if requeue, err := r.updateReferenceCount(ctx, &image); requeue {
 		return ctrl.Result{Requeue: true}, nil
 	} else if err != nil {

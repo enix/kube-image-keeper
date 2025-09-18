@@ -209,7 +209,6 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "Image")
 		os.Exit(1)
 	}
-
 	if err = (&kuikcontroller.RegistryMonitorReconciler{
 		Client:       mgr.GetClient(),
 		Scheme:       mgr.GetScheme(),

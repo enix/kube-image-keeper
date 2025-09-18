@@ -10,13 +10,28 @@ spec:
     kind: ImageMonitor
     listKind: ImageMonitorList
     plural: imagemonitors
+    shortNames:
+    - imgmon
     singular: imagemonitor
   scope: Cluster
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .spec.registry
+      name: Registry
+      type: string
+    - jsonPath: .spec.path
+      name: Path
+      type: string
+    - jsonPath: .status.upstream.status
+      name: Upstream status
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: ImageMonitor is the Schema for the imagemonitors API.
+        description: ImageMonitor is the Schema for the images API.
         properties:
           apiVersion:
             description: |-
@@ -36,17 +51,59 @@ spec:
           metadata:
             type: object
           spec:
-            description: ImageMonitorSpec defines the desired state of ImageMonitor.
+            description: ImageMonitorSpec defines the desired state of Image.
             properties:
-              foo:
-                description: Foo is an example field of ImageMonitor. Edit imagemonitor_types.go
-                  to remove/update
+              path:
+                description: Path is a string identifying the image in a registry
                 type: string
+              registry:
+                description: Registry is the registry where the image is located
+                type: string
+            required:
+            - path
+            - registry
             type: object
           status:
-            description: ImageMonitorStatus defines the observed state of ImageMonitor.
+            description: ImageMonitorStatus defines the observed state of Image.
+            properties:
+              upstream:
+                description: Upstream is the information about the upstream image
+                properties:
+                  digest:
+                    description: Digest is the digest of the upstream image manifest,
+                      if available
+                    type: string
+                  lastError:
+                    description: LastError is the last error encountered while trying
+                      to monitor the upstream image
+                    type: string
+                  lastMonitor:
+                    description: LastMonitor is the last time a monitoring task for
+                      the upstream image was was started
+                    format: date-time
+                    type: string
+                  lastSeen:
+                    description: LastSeen is the last time the image was seen upstream
+                    format: date-time
+                    type: string
+                  status:
+                    default: Scheduled
+                    description: Status is the status of the last finished monitoring
+                      task
+                    enum:
+                    - Scheduled
+                    - Available
+                    - Unavailable
+                    - Unreachable
+                    - InvalidAuth
+                    - UnavailableSecret
+                    - QuotaExceeded
+                    type: string
+                type: object
             type: object
         type: object
+    selectableFields:
+    - jsonPath: .spec.registry
     served: true
     storage: true
     subresources:

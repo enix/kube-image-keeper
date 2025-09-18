@@ -21,7 +21,6 @@ import (
 type kuikMetrics struct {
 	collectors      []prometheus.Collector
 	monitoringTasks *prometheus.CounterVec
-	// imageLastMonitorHistogram prometheus.Histogram
 }
 
 var Metrics kuikMetrics
@@ -57,12 +56,12 @@ func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client) {
 		return 1
 	}))
 
-	const subsystemRegistryMonitor = "registry_monitor"
+	const subsystemMonitoring = "registry_monitor" // FIXME: rename this to "monitoring"
 
 	m.monitoringTasks = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: info.MetricsNamespace,
-			Subsystem: subsystemRegistryMonitor,
+			Subsystem: subsystemMonitoring,
 			Name:      "tasks_total",
 			Help:      "Total number of image monitoring tasks, labeled by registry and status.",
 		},
@@ -73,9 +72,9 @@ func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client) {
 	m.addCollector(NewGenericCollectorFunc(
 		prometheus.Opts{
 			Namespace: info.MetricsNamespace,
-			Subsystem: subsystemRegistryMonitor,
+			Subsystem: subsystemMonitoring,
 			Name:      "images",
-			Help:      "Number of images monitored, labeled by registry and status.",
+			Help:      "Number of image monitors, labeled by registry and status.",
 		},
 		prometheus.GaugeValue,
 		[]string{"registry", "status", "used"},
@@ -86,24 +85,35 @@ func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client) {
 				return
 			}
 
-			images := make(map[string]map[string]map[bool]float64)
+			areImagesUsed := map[string]bool{}
 			for _, image := range imageList.Items {
-				registry := image.Spec.Registry
-				if _, exists := images[registry]; !exists {
-					images[registry] = make(map[string]map[bool]float64)
-					for _, status := range kuikv1alpha1.ImageStatusUpstreamList {
-						images[registry][status.ToString()] = map[bool]float64{
+				areImagesUsed[image.Reference()] = image.IsUsedByPods()
+			}
+
+			imageMonitorList := &kuikv1alpha1.ImageMonitorList{}
+			if err := client.List(context.Background(), imageMonitorList); err != nil {
+				logf.Log.Error(err, "failed to list images monitors for metrics")
+				return
+			}
+
+			imageMonitors := make(map[string]map[string]map[bool]float64)
+			for _, imageMonitor := range imageMonitorList.Items {
+				registry := imageMonitor.Spec.Registry
+				if _, exists := imageMonitors[registry]; !exists {
+					imageMonitors[registry] = make(map[string]map[bool]float64)
+					for _, status := range kuikv1alpha1.ImageMonitorStatusUpstreamList {
+						imageMonitors[registry][status.ToString()] = map[bool]float64{
 							true:  0,
 							false: 0,
 						}
 					}
 				}
 
-				status := image.Status.Upstream.Status.ToString()
-				images[registry][status][image.IsUsedByPods()]++
+				status := imageMonitor.Status.Upstream.Status.ToString()
+				imageMonitors[registry][status][areImagesUsed[imageMonitor.Reference()]]++
 			}
 
-			for registry, statuses := range images {
+			for registry, statuses := range imageMonitors {
 				for status, used := range statuses {
 					collect(used[true], registry, status, strconv.FormatBool(true))
 					collect(used[false], registry, status, strconv.FormatBool(false))
@@ -113,7 +123,7 @@ func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client) {
 
 	imageLastMonitorHistogramOpts := prometheus.Opts{
 		Namespace: info.MetricsNamespace,
-		Subsystem: subsystemRegistryMonitor,
+		Subsystem: subsystemMonitoring,
 		Name:      "image_last_monitor_age_minutes",
 		Help:      "Histogram of image last monitor age in minutes",
 	}
@@ -125,8 +135,8 @@ func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client) {
 	}
 	// TODO: refactor NewGenericCollector to avoid duplicating Opts and labels usage
 	m.addCollector(NewGenericCollector(imageLastMonitorHistogramOpts, prometheus.GaugeValue, imageLastMonitorHistogramLabels, func(ch chan<- prometheus.Metric) {
-		imageList := &kuikv1alpha1.ImageList{}
-		if err := client.List(context.Background(), imageList); err != nil {
+		imageMonitorList := &kuikv1alpha1.ImageMonitorList{}
+		if err := client.List(context.Background(), imageMonitorList); err != nil {
 			return
 		}
 
@@ -139,11 +149,11 @@ func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client) {
 		}, imageLastMonitorHistogramLabels)
 
 		now := time.Now()
-		for _, image := range imageList.Items {
-			if image.Status.Upstream.LastMonitor.IsZero() {
+		for _, imageMonitor := range imageMonitorList.Items {
+			if imageMonitor.Status.Upstream.LastMonitor.IsZero() {
 				continue
 			}
-			histogram.WithLabelValues(image.Spec.Registry).Observe(now.Sub(image.Status.Upstream.LastMonitor.Time).Minutes())
+			histogram.WithLabelValues(imageMonitor.Spec.Registry).Observe(now.Sub(imageMonitor.Status.Upstream.LastMonitor.Time).Minutes())
 		}
 
 		histogram.Collect(ch)
@@ -157,16 +167,16 @@ func (m *kuikMetrics) addCollector(collector prometheus.Collector) {
 }
 
 func (m *kuikMetrics) InitMonitoringTaskRegistry(registry string) {
-	for _, status := range kuikv1alpha1.ImageStatusUpstreamList {
-		if status != kuikv1alpha1.ImageStatusUpstreamScheduled {
+	for _, status := range kuikv1alpha1.ImageMonitorStatusUpstreamList {
+		if status != kuikv1alpha1.ImageMonitorStatusUpstreamScheduled {
 			m.monitoringTasks.WithLabelValues(registry, status.ToString(), "true").Add(0)
 			m.monitoringTasks.WithLabelValues(registry, status.ToString(), "false").Add(0)
 		}
 	}
 }
 
-func (m *kuikMetrics) MonitoringTaskCompleted(registry string, image kuikv1alpha1.Image) {
-	m.monitoringTasks.WithLabelValues(registry, image.Status.Upstream.Status.ToString(), strconv.FormatBool(image.IsUsedByPods())).Inc()
+func (m *kuikMetrics) MonitoringTaskCompleted(registry string, imageIsUsed bool, imageMonitor *kuikv1alpha1.ImageMonitor) {
+	m.monitoringTasks.WithLabelValues(registry, imageMonitor.Status.Upstream.Status.ToString(), strconv.FormatBool(imageIsUsed)).Inc()
 }
 
 func (m *kuikMetrics) getImageLastMonitorAgeMinutesBuckets() ([]float64, error) {

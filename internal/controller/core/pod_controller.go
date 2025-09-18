@@ -94,8 +94,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 
 			patch := client.MergeFrom(img.DeepCopy())
 
-			img.Spec.Registry = image.Spec.Registry
-			img.Spec.Image = image.Spec.Image
+			img.Spec.ImageReference = image.Spec.ImageReference
 
 			if err = r.Patch(ctx, &img, patch); err != nil {
 				return ctrl.Result{}, err
