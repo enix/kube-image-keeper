@@ -15,11 +15,15 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 const (
@@ -54,6 +58,52 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// Ensuring ImageMonitors are created for each Images =================================================================
+	var images kuikv1alpha1.ImageList
+	if err := r.List(ctx, &images, client.MatchingFields{
+		RegistryIndexKey: registryMonitor.Spec.Registry,
+	}); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	areImagesUsed := map[string]bool{}
+	for _, image := range images.Items {
+		areImagesUsed[image.Reference()] = image.IsUsedByPods()
+
+		imageMonitor := &kuikv1alpha1.ImageMonitor{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: image.Name,
+			},
+			Spec: kuikv1alpha1.ImageMonitorSpec{
+				ImageReference: image.Spec.ImageReference,
+			},
+		}
+
+		op, err := controllerutil.CreateOrPatch(ctx, r.Client, imageMonitor, func() error {
+			if err := controllerutil.SetControllerReference(&registryMonitor, imageMonitor, r.Scheme); err != nil {
+				return err
+			}
+
+			if err := controllerutil.SetOwnerReference(&image, imageMonitor, r.Scheme); err != nil {
+				return err
+			}
+			return nil
+		})
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		// Update status in order to fill default values
+		if op == controllerutil.OperationResultCreated {
+			if err := r.Status().Update(ctx, imageMonitor); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+
+		log.V(1).Info("ensured ImageMonitor", "operation", op, "name", imageMonitor.Name, "", imageMonitor.Reference())
+	}
+
+	// Monitor pool setup =================================================================================================
 	log = log.WithValues("registry", registryMonitor.Spec.Registry)
 	monitorPool, ok := r.MonitorPools[registryMonitor.Name]
 	if !ok {
@@ -67,47 +117,50 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	log.Info("queuing images for monitoring")
 
-	var images kuikv1alpha1.ImageList
-	if err := r.List(ctx, &images, client.MatchingFields{
+	// Preparing monitoring ===============================================================================================
+	var imageMonitors kuikv1alpha1.ImageMonitorList
+	if err := r.List(ctx, &imageMonitors, client.MatchingFields{
 		RegistryIndexKey: registryMonitor.Spec.Registry,
 	}); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	slices.SortFunc(images.Items, func(i, j kuikv1alpha1.Image) int {
+	slices.SortFunc(imageMonitors.Items, func(i, j kuikv1alpha1.ImageMonitor) int {
 		return i.Status.Upstream.LastMonitor.Compare(j.Status.Upstream.LastMonitor.Time)
 	})
 
 	monitoredDuringInterval := 0
 	intervalStart := time.Now().Add(-registryMonitor.Spec.Interval.Duration)
-	for _, image := range images.Items {
+	for _, image := range imageMonitors.Items {
 		if !(image.Status.Upstream.LastMonitor.IsZero() || image.Status.Upstream.LastMonitor.Time.Before(intervalStart)) {
 			monitoredDuringInterval++
 		}
 	}
 
-	log.Info("found images matching registry", "count", len(images.Items), "monitoredDuringInterval", monitoredDuringInterval)
+	log.Info("found images matching registry", "count", len(imageMonitors.Items), "monitoredDuringInterval", monitoredDuringInterval)
 
-	for i := range min(min(registryMonitor.Spec.MaxPerInterval-monitoredDuringInterval, len(images.Items)-monitoredDuringInterval), registryMonitor.Spec.Parallel) {
-		image := images.Items[i]
-		logImage := logf.Log.WithValues("controller", "imagemonitor", "image", klog.KObj(&image), "reference", image.Reference()).V(1)
-		logImage.Info("queuing image for monitoring")
+	// Monitoring images ==================================================================================================
+	for i := range min(min(registryMonitor.Spec.MaxPerInterval-monitoredDuringInterval, len(imageMonitors.Items)-monitoredDuringInterval), registryMonitor.Spec.Parallel) {
+		imageMonitor := imageMonitors.Items[i]
+		logImageMonitor := logf.Log.WithValues("controller", "imagemonitor", "image", klog.KObj(&imageMonitor), "reference", imageMonitor.Reference()).V(1)
+		logImageMonitor.Info("queuing image for monitoring")
 
 		task := monitorPool.Submit(func() {
-			logImage.Info("monitoring image")
-			if err := r.monitorAnImage(logf.IntoContext(context.Background(), logImage), registryMonitor.Spec.Method, &image); err != nil {
-				logImage.Info("failed to monitor image", "error", err.Error())
+			logImageMonitor.Info("monitoring image")
+			if err := r.monitorAnImage(logf.IntoContext(context.Background(), logImageMonitor), registryMonitor.Spec.Method, &imageMonitor); err != nil {
+				logImageMonitor.Info("failed to monitor image", "error", err.Error())
 			}
-			logImage.Info("image monitored with success")
+			logImageMonitor.Info("image monitored with success")
+			isImageUsed := areImagesUsed[imageMonitor.Reference()]
 			// TODO: this should be done after task.Wait()
-			kuikcontroller.Metrics.MonitoringTaskCompleted(registryMonitor.Spec.Registry, image)
+			kuikcontroller.Metrics.MonitoringTaskCompleted(registryMonitor.Spec.Registry, isImageUsed, &imageMonitor)
 		})
 
 		go func() {
 			// TODO: rework this part, it should set the status if the tasks metric
 			err := task.Wait()
 			if err != nil {
-				logImage.Error(err, "failed to queue image for monitoring")
+				logImageMonitor.Error(err, "failed to queue image for monitoring")
 			}
 		}()
 	}
@@ -119,17 +172,32 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *RegistryMonitorReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	// create an index to list Images by registry
+	// create an index to list Images matching this RegistryMonitor
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &kuikv1alpha1.Image{}, RegistryIndexKey, func(rawObj client.Object) []string {
 		image := rawObj.(*kuikv1alpha1.Image)
-
 		return []string{image.Spec.Registry}
 	}); err != nil {
 		return err
 	}
+
+	// create an index to list ImageMonitors matching this RegistryMonitor
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &kuikv1alpha1.ImageMonitor{}, RegistryIndexKey, func(rawObj client.Object) []string {
+		image := rawObj.(*kuikv1alpha1.ImageMonitor)
+		return []string{image.Spec.Registry}
+	}); err != nil {
+		return err
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kuikv1alpha1.RegistryMonitor{}).
 		Named("kuik-registrymonitor").
+		// We also want to react when Images are added/removed
+		Watches(
+			&kuikv1alpha1.Image{},
+			handler.EnqueueRequestsFromMapFunc(r.mapImageToRegistryMonitors),
+		).
+		// ImageMonitors are children
+		Owns(&kuikv1alpha1.ImageMonitor{}).
 		WithOptions(controller.Options{
 			// This MUST stay 1, as we are using a pool to manage concurrency per registry monitor
 			MaxConcurrentReconciles: 1,
@@ -137,7 +205,34 @@ func (r *RegistryMonitorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *RegistryMonitorReconciler) monitorAnImage(ctx context.Context, httpMethod string, image *kuikv1alpha1.Image) error {
+// mapImageToRegistryMonitors finds all RegistryMonitors that should care about this Image
+func (r *RegistryMonitorReconciler) mapImageToRegistryMonitors(ctx context.Context, obj client.Object) []reconcile.Request {
+	image, ok := obj.(*kuikv1alpha1.Image)
+	if !ok {
+		return nil
+	}
+
+	var registryMonitors kuikv1alpha1.RegistryMonitorList
+	if err := r.List(ctx, &registryMonitors); err != nil {
+		return nil
+	}
+
+	var requests []reconcile.Request
+	for _, registryMonitor := range registryMonitors.Items {
+		if image.Spec.Registry == registryMonitor.Spec.Registry {
+			requests = append(requests, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      registryMonitor.Name,
+					Namespace: registryMonitor.Namespace,
+				},
+			})
+		}
+	}
+
+	return requests
+}
+
+func (r *RegistryMonitorReconciler) monitorAnImage(ctx context.Context, httpMethod string, image *kuikv1alpha1.ImageMonitor) error {
 	patch := client.MergeFrom(image.DeepCopy())
 	image.Status.Upstream.LastMonitor = metav1.Now()
 	if err := r.Status().Patch(ctx, image, patch); err != nil {
@@ -155,24 +250,24 @@ func (r *RegistryMonitorReconciler) monitorAnImage(ctx context.Context, httpMeth
 		if errors.As(err, &te) {
 			if te.StatusCode == http.StatusForbidden || te.StatusCode == http.StatusUnauthorized {
 				if pullSecretsErr != nil {
-					image.Status.Upstream.Status = kuikv1alpha1.ImageStatusUpstreamUnavailableSecret
+					image.Status.Upstream.Status = kuikv1alpha1.ImageMonitorStatusUpstreamUnavailableSecret
 					image.Status.Upstream.LastError = pullSecretsErr.Error()
 					lastErr = pullSecretsErr
 				} else {
-					image.Status.Upstream.Status = kuikv1alpha1.ImageStatusUpstreamInvalidAuth
+					image.Status.Upstream.Status = kuikv1alpha1.ImageMonitorStatusUpstreamInvalidAuth
 				}
 			} else if te.StatusCode == http.StatusTooManyRequests {
-				image.Status.Upstream.Status = kuikv1alpha1.ImageStatusUpstreamQuotaExceeded
+				image.Status.Upstream.Status = kuikv1alpha1.ImageMonitorStatusUpstreamQuotaExceeded
 			} else {
-				image.Status.Upstream.Status = kuikv1alpha1.ImageStatusUpstreamUnavailable
+				image.Status.Upstream.Status = kuikv1alpha1.ImageMonitorStatusUpstreamUnavailable
 			}
 		} else {
-			image.Status.Upstream.Status = kuikv1alpha1.ImageStatusUpstreamUnreachable
+			image.Status.Upstream.Status = kuikv1alpha1.ImageMonitorStatusUpstreamUnreachable
 		}
 	} else {
 		image.Status.Upstream.LastSeen = metav1.Now()
 		image.Status.Upstream.LastError = ""
-		image.Status.Upstream.Status = kuikv1alpha1.ImageStatusUpstreamAvailable
+		image.Status.Upstream.Status = kuikv1alpha1.ImageMonitorStatusUpstreamAvailable
 		image.Status.Upstream.Digest = desc.Digest.String()
 	}
 

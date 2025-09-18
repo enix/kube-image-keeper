@@ -16,10 +16,8 @@ import (
 // ImageSpec defines the desired state of Image.
 // +required
 type ImageSpec struct {
-	// Registry is the registry where the image is located
-	Registry string `json:"registry"`
-	// Image is a string identifying the image
-	Image string `json:"image"`
+	// ImageReference is the reference of the image
+	ImageReference `json:",inline"`
 }
 
 type ReferencesWithCount struct {
@@ -32,49 +30,10 @@ type ReferencesWithCount struct {
 	Count int `json:"count,omitempty"`
 }
 
-type ImageStatusUpstream string
-
-const (
-	ImageStatusUpstreamScheduled         = ImageStatusUpstream("Scheduled")
-	ImageStatusUpstreamAvailable         = ImageStatusUpstream("Available")
-	ImageStatusUpstreamUnavailable       = ImageStatusUpstream("Unavailable")
-	ImageStatusUpstreamUnreachable       = ImageStatusUpstream("Unreachable")
-	ImageStatusUpstreamInvalidAuth       = ImageStatusUpstream("InvalidAuth")
-	ImageStatusUpstreamUnavailableSecret = ImageStatusUpstream("UnavailableSecret")
-	ImageStatusUpstreamQuotaExceeded     = ImageStatusUpstream("QuotaExceeded")
-)
-
-var ImageStatusUpstreamList = []ImageStatusUpstream{
-	ImageStatusUpstreamScheduled,
-	ImageStatusUpstreamAvailable,
-	ImageStatusUpstreamUnavailable,
-	ImageStatusUpstreamUnreachable,
-	ImageStatusUpstreamInvalidAuth,
-	ImageStatusUpstreamUnavailableSecret,
-	ImageStatusUpstreamQuotaExceeded,
-}
-
-type Upstream struct {
-	// LastMonitor is the last time a monitoring task for the upstream image was was started
-	LastMonitor metav1.Time `json:"lastMonitor,omitempty"`
-	// LastSeen is the last time the image was seen upstream
-	LastSeen metav1.Time `json:"lastSeen,omitempty"`
-	// LastError is the last error encountered while trying to monitor the upstream image
-	LastError string `json:"lastError,omitempty"`
-	// Status is the status of the last finished monitoring task
-	// +kubebuilder:validation:Enum=Scheduled;Available;Unavailable;Unreachable;InvalidAuth;UnavailableSecret;QuotaExceeded
-	// +default="Scheduled"
-	Status ImageStatusUpstream `json:"status,omitempty"`
-	// Digest is the digest of the upstream image manifest, if available
-	Digest string `json:"digest,omitempty"`
-}
-
 // ImageStatus defines the observed state of Image.
 type ImageStatus struct {
 	// UsedByPods is the list of pods using this image
 	UsedByPods ReferencesWithCount `json:"usedByPods,omitempty"`
-	// Upstream is the information about the upstream image
-	Upstream Upstream `json:"upstream,omitempty"`
 	// UnusedSince is the time when the image was last used by a pod
 	UnusedSince metav1.Time `json:"unusedSince,omitempty"`
 }
@@ -84,9 +43,8 @@ type ImageStatus struct {
 // +kubebuilder:resource:scope=Cluster,shortName=img
 // +kubebuilder:selectablefield:JSONPath=".spec.registry"
 // +kubebuilder:printcolumn:name="Registry",type="string",JSONPath=".spec.registry"
-// +kubebuilder:printcolumn:name="Image",type="string",JSONPath=".spec.image"
+// +kubebuilder:printcolumn:name="Path",type="string",JSONPath=".spec.path"
 // +kubebuilder:printcolumn:name="Pods count",type="integer",JSONPath=".status.usedByPods.count"
-// +kubebuilder:printcolumn:name="Upstream status",type="string",JSONPath=".status.upstream.status"
 // +kubebuilder:printcolumn:name="Unused since",type="date",JSONPath=".status.unusedSince"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
@@ -112,14 +70,6 @@ func init() {
 	SchemeBuilder.Register(&Image{}, &ImageList{})
 }
 
-func (i ImageStatusUpstream) ToString() string {
-	value := string(i)
-	if value == "" {
-		value = "unknown"
-	}
-	return strings.ToLower(value)
-}
-
 func ImagesFromPod(pod *corev1.Pod) ([]Image, []error) {
 	return imagesFromContainers(append(pod.Spec.Containers, pod.Spec.InitContainers...))
 }
@@ -140,7 +90,7 @@ func imagesFromContainers(containers []corev1.Container) ([]Image, []error) {
 }
 
 func imageFromReference(reference string) (*Image, error) {
-	sanitizedName, err := imageNameFromReference(reference)
+	name, err := imageNameFromReference(reference)
 	if err != nil {
 		return nil, err
 	}
@@ -151,19 +101,20 @@ func imageFromReference(reference string) (*Image, error) {
 	}
 
 	return &Image{
-		TypeMeta: metav1.TypeMeta{APIVersion: GroupVersion.String(), Kind: "Image"},
 		ObjectMeta: metav1.ObjectMeta{
-			Name: sanitizedName,
+			Name: name,
 		},
 		Spec: ImageSpec{
-			Registry: registry,
-			Image:    image,
+			ImageReference{
+				Registry: registry,
+				Path:     image,
+			},
 		},
 	}, nil
 }
 
 func (i *Image) Reference() string {
-	return i.Spec.Registry + "/" + i.Spec.Image
+	return i.Spec.Reference()
 }
 
 func (i *Image) GetPullSecrets(ctx context.Context, c client.Client) (secrets []corev1.Secret, err error) {

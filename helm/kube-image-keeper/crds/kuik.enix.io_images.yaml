@@ -19,15 +19,12 @@ spec:
     - jsonPath: .spec.registry
       name: Registry
       type: string
-    - jsonPath: .spec.image
-      name: Image
+    - jsonPath: .spec.path
+      name: Path
       type: string
     - jsonPath: .status.usedByPods.count
       name: Pods count
       type: integer
-    - jsonPath: .status.upstream.status
-      name: Upstream status
-      type: string
     - jsonPath: .status.unusedSince
       name: Unused since
       type: date
@@ -59,14 +56,14 @@ spec:
           spec:
             description: ImageSpec defines the desired state of Image.
             properties:
-              image:
-                description: Image is a string identifying the image
+              path:
+                description: Path is a string identifying the image in a registry
                 type: string
               registry:
                 description: Registry is the registry where the image is located
                 type: string
             required:
-            - image
+            - path
             - registry
             type: object
           status:
@@ -77,40 +74,6 @@ spec:
                   by a pod
                 format: date-time
                 type: string
-              upstream:
-                description: Upstream is the information about the upstream image
-                properties:
-                  digest:
-                    description: Digest is the digest of the upstream image manifest,
-                      if available
-                    type: string
-                  lastError:
-                    description: LastError is the last error encountered while trying
-                      to monitor the upstream image
-                    type: string
-                  lastMonitor:
-                    description: LastMonitor is the last time a monitoring task for
-                      the upstream image was was started
-                    format: date-time
-                    type: string
-                  lastSeen:
-                    description: LastSeen is the last time the image was seen upstream
-                    format: date-time
-                    type: string
-                  status:
-                    default: Scheduled
-                    description: Status is the status of the last finished monitoring
-                      task
-                    enum:
-                    - Scheduled
-                    - Available
-                    - Unavailable
-                    - Unreachable
-                    - InvalidAuth
-                    - UnavailableSecret
-                    - QuotaExceeded
-                    type: string
-                type: object
               usedByPods:
                 description: UsedByPods is the list of pods using this image
                 properties:
