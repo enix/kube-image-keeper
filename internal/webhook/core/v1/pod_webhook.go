@@ -116,10 +116,8 @@ func (a *ImageRewriter) RewriteImages(pod *corev1.Pod, isNewPod bool) []Rewritte
 
 func (a *ImageRewriter) handleContainer(pod *corev1.Pod, container *corev1.Container, initContainer bool, rewriteImage bool) RewrittenImage {
 	annotationKey := registry.ContainerAnnotationKey(container.Name, initContainer)
-	originalImage := pod.Annotations[annotationKey]
 	rewrittenImage := RewrittenImage{
 		ContainerName: container.Name,
-		Original:      originalImage,
 	}
 
 	if err := a.isImageRewritable(container); err != nil {
@@ -153,6 +151,7 @@ func (a *ImageRewriter) handleContainer(pod *corev1.Pod, container *corev1.Conta
 
 	container.Image = fmt.Sprintf("localhost:%d/%s", a.ProxyPort, image)
 
+	rewrittenImage.Original = pod.Annotations[annotationKey]
 	rewrittenImage.Rewritten = container.Image
 	return rewrittenImage
 }
