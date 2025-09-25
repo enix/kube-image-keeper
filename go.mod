@@ -10,7 +10,12 @@ require (
 	github.com/alitto/pond/v2 v2.5.0
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/distribution/reference v0.6.0
+	github.com/go-viper/mapstructure/v2 v2.4.0
 	github.com/google/go-containerregistry v0.20.6
+	github.com/knadh/koanf/parsers/yaml v1.1.0
+	github.com/knadh/koanf/providers/file v1.2.0
+	github.com/knadh/koanf/providers/rawbytes v1.0.0
+	github.com/knadh/koanf/v2 v2.3.0
 	github.com/obalunenko/getenv v1.14.1
 	github.com/onsi/ginkgo/v2 v2.25.2
 	github.com/onsi/gomega v1.38.2
@@ -69,8 +74,11 @@ require (
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
+	github.com/knadh/koanf/maps v0.1.2 // indirect
 	github.com/mailru/easyjson v0.9.0 // indirect
+	github.com/mitchellh/copystructure v1.2.0 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
+	github.com/mitchellh/reflectwalk v1.0.2 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect

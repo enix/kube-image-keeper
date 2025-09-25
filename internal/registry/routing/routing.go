@@ -5,9 +5,13 @@ import (
 	"strings"
 )
 
+type Config struct {
+	Strategies []Strategy `koanf:"strategies"`
+}
+
 type Strategy struct {
-	Paths      []*regexp.Regexp
-	Registries []string
+	Paths      []*regexp.Regexp `koanf:"paths"`
+	Registries []string         `koanf:"registries"`
 }
 
 func (s *Strategy) Match(reference string) bool {
@@ -20,9 +24,7 @@ func (s *Strategy) Match(reference string) bool {
 		return false
 	}
 
-	registry := parts[0]
-	path := parts[1]
-
+	registry, path := parts[0], parts[1]
 	for _, r := range s.Registries {
 		if r == registry && match(path, s.Paths) {
 			return true
@@ -42,10 +44,10 @@ func match(reference string, paths []*regexp.Regexp) bool {
 	return false
 }
 
-func Match(reference string, strategies []*Strategy) *Strategy {
-	for _, strategy := range strategies {
-		if strategy.Match(reference) {
-			return strategy
+func Match(reference string, strategies []Strategy) *Strategy {
+	for i := range strategies {
+		if strategies[i].Match(reference) {
+			return &strategies[i]
 		}
 	}
 
