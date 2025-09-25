@@ -12,6 +12,7 @@ import (
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	kuikcontroller "github.com/enix/kube-image-keeper/internal/controller"
 	"github.com/enix/kube-image-keeper/internal/registry"
+	"github.com/enix/kube-image-keeper/internal/registry/routing"
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -35,6 +36,7 @@ type RegistryMonitorReconciler struct {
 	client.Client
 	Scheme       *runtime.Scheme
 	MonitorPools map[string]pond.Pool
+	Routing      *routing.Routing
 }
 
 // +kubebuilder:rbac:groups=kuik.enix.io,resources=registrymonitors,verbs=get;list;watch;create;update;patch;delete
@@ -70,37 +72,52 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	for _, image := range images.Items {
 		areImagesUsed[image.Reference()] = image.IsUsedByPods()
 
-		imageMonitor := &kuikv1alpha1.ImageMonitor{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: image.Name,
-			},
-			Spec: kuikv1alpha1.ImageMonitorSpec{
-				ImageReference: image.Spec.ImageReference,
-			},
-		}
+		registries := r.Routing.MatchingRegistries(&image.Spec.ImageReference)
+		log.V(1).Info("matching registries", "registries", registries)
 
-		op, err := controllerutil.CreateOrPatch(ctx, r.Client, imageMonitor, func() error {
-			if err := controllerutil.SetControllerReference(&registryMonitor, imageMonitor, r.Scheme); err != nil {
-				return err
+		for _, reg := range registries {
+			imageReference := kuikv1alpha1.ImageReference{
+				Registry: reg,
+				Path:     image.Spec.Path,
 			}
 
-			if err := controllerutil.SetOwnerReference(&image, imageMonitor, r.Scheme); err != nil {
-				return err
-			}
-			return nil
-		})
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-
-		// Update status in order to fill default values
-		if op == controllerutil.OperationResultCreated {
-			if err := r.Status().Update(ctx, imageMonitor); err != nil {
+			name, err := registry.ImageNameFromReference(imageReference.Reference())
+			if err != nil {
 				return ctrl.Result{}, err
 			}
-		}
 
-		log.V(1).Info("ensured ImageMonitor", "operation", op, "name", imageMonitor.Name, "", imageMonitor.Reference())
+			imageMonitor := &kuikv1alpha1.ImageMonitor{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: name,
+				},
+				Spec: kuikv1alpha1.ImageMonitorSpec{
+					ImageReference: imageReference,
+				},
+			}
+
+			op, err := controllerutil.CreateOrPatch(ctx, r.Client, imageMonitor, func() error {
+				if err := controllerutil.SetOwnerReference(&registryMonitor, imageMonitor, r.Scheme); err != nil {
+					return err
+				}
+
+				if err := controllerutil.SetOwnerReference(&image, imageMonitor, r.Scheme); err != nil {
+					return err
+				}
+				return nil
+			})
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+
+			// Update status in order to fill default values
+			if op == controllerutil.OperationResultCreated {
+				if err := r.Status().Update(ctx, imageMonitor); err != nil {
+					return ctrl.Result{}, err
+				}
+			}
+
+			log.V(1).Info("ensured ImageMonitor", "operation", op, "name", imageMonitor.Name, "", imageMonitor.Reference())
+		}
 	}
 
 	// Monitor pool setup =================================================================================================

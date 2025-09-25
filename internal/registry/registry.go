@@ -7,7 +7,10 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 
+	"github.com/cespare/xxhash/v2"
+	"github.com/distribution/reference"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -54,6 +57,32 @@ func ReadDescriptor(httpMethod string, imageName string, pullSecrets []corev1.Se
 	}
 
 	return nil, returnedErr
+}
+
+func ImageNameFromReference(image string) (string, error) {
+	ref, err := reference.ParseAnyReference(image)
+	if err != nil {
+		return "", err
+	}
+
+	image = ref.String()
+	if !strings.Contains(image, ":") {
+		image += "-latest"
+	}
+
+	h := xxhash.Sum64String(image)
+
+	return fmt.Sprintf("%016x", h), nil
+}
+
+func RegistryNameFromReference(image string) (string, string, error) {
+	named, err := reference.ParseNormalizedNamed(image)
+	if err != nil {
+		return "", "", err
+	}
+
+	parts := strings.SplitN(named.String(), "/", 2)
+	return parts[0], parts[1], nil
 }
 
 func getReader(httpMethod string) descriptorReader {

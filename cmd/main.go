@@ -24,6 +24,7 @@ import (
 
 	"github.com/alitto/pond/v2"
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
+	"github.com/enix/kube-image-keeper/internal/config"
 	"github.com/enix/kube-image-keeper/internal/controller"
 	corecontroller "github.com/enix/kube-image-keeper/internal/controller/core"
 	kuikcontroller "github.com/enix/kube-image-keeper/internal/controller/kuik"
@@ -54,6 +55,7 @@ func main() {
 	var enableHTTP2 bool
 	var unusedImageTTL int
 	var tlsOpts []func(*tls.Config)
+	var configPath string
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -72,6 +74,7 @@ func main() {
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 	flag.IntVar(&unusedImageTTL, "unused-image-ttl", 24, "Unused image TTL in hours.")
+	flag.StringVar(&configPath, "config", "/etc/kube-image-keeper/config.yaml", "Path to the configuration file")
 
 	opts := zap.Options{
 		Development: true,
@@ -80,6 +83,12 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	configuration, err := config.Load(configPath)
+	if err != nil {
+		setupLog.Error(err, "Failed to load configuration")
+		os.Exit(1)
+	}
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -213,6 +222,7 @@ func main() {
 		Client:       mgr.GetClient(),
 		Scheme:       mgr.GetScheme(),
 		MonitorPools: map[string]pond.Pool{},
+		Routing:      &configuration.Routing,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "RegistryMonitor")
 		os.Exit(1)
