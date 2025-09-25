@@ -2,22 +2,14 @@ package routing
 
 import (
 	"regexp"
-	"strings"
 	"testing"
 
+	_ "github.com/enix/kube-image-keeper/internal/testsetup"
 	. "github.com/onsi/gomega"
 )
 
-func (s *Strategy) GomegaString() string {
-	paths := []string{}
-	for _, path := range s.Paths {
-		paths = append(paths, path.String())
-	}
-	return strings.Join(paths, " | ")
-}
-
 func TestMatch(t *testing.T) {
-	strategies := []*Strategy{
+	strategies := []Strategy{
 		{
 			Paths:      []*regexp.Regexp{regexp.MustCompile("enix/x509-exporter"), regexp.MustCompile("nginx"), regexp.MustCompile("^bitnami/.+$")},
 			Registries: []string{"docker.io", "ghcr.io"},
@@ -35,7 +27,7 @@ func TestMatch(t *testing.T) {
 	tests := []struct {
 		name          string
 		reference     string
-		strategies    []*Strategy
+		strategies    []Strategy
 		expectedMatch *Strategy
 	}{
 		{
@@ -46,13 +38,13 @@ func TestMatch(t *testing.T) {
 			name:          "Match first",
 			reference:     "enix/x509-exporter",
 			strategies:    strategies,
-			expectedMatch: strategies[0],
+			expectedMatch: &strategies[0],
 		},
 		{
 			name:          "Match second",
 			reference:     "enix/topomatik",
 			strategies:    strategies,
-			expectedMatch: strategies[1],
+			expectedMatch: &strategies[1],
 		},
 		{
 			name:          "Match nothing",
@@ -64,13 +56,13 @@ func TestMatch(t *testing.T) {
 			name:          "Match startsWith regex with registry",
 			reference:     "ghcr.io/bitnami/alpine",
 			strategies:    strategies,
-			expectedMatch: strategies[0],
+			expectedMatch: &strategies[0],
 		},
 		{
 			name:          "Match startsWith regex with registry bis",
 			reference:     "ghcr.io/enix/topomatik",
 			strategies:    strategies,
-			expectedMatch: strategies[2],
+			expectedMatch: &strategies[2],
 		},
 	}
 
