@@ -13,7 +13,7 @@ import (
 )
 
 type Config struct {
-	Routing routing.Config `koanf:"routing"`
+	Routing routing.Routing `koanf:"routing"`
 }
 
 func Load(path string) (*Config, error) {

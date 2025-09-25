@@ -4,65 +4,69 @@ import (
 	"regexp"
 	"testing"
 
+	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	_ "github.com/enix/kube-image-keeper/internal/testsetup"
 	. "github.com/onsi/gomega"
 )
 
 func TestMatch(t *testing.T) {
-	strategies := []Strategy{
-		{
-			Paths:      []*regexp.Regexp{regexp.MustCompile("enix/x509-exporter"), regexp.MustCompile("nginx"), regexp.MustCompile("^bitnami/.+$")},
-			Registries: []string{"docker.io", "ghcr.io"},
-		},
-		{
-			Paths:      []*regexp.Regexp{regexp.MustCompile("^enix/.+")},
-			Registries: []string{"quay.io", "harbor.enix.io"},
-		},
-		{
-			Paths:      []*regexp.Regexp{regexp.MustCompile("enix/.+")},
-			Registries: []string{"quay.io", "harbor.enix.io"},
+	routing := Routing{
+		Strategies: []Strategy{
+			{
+				Paths:      []*regexp.Regexp{regexp.MustCompile("enix/x509-exporter"), regexp.MustCompile("nginx"), regexp.MustCompile("^bitnami/.+$")},
+				Registries: []string{"docker.io", "ghcr.io"},
+			},
+			{
+				Paths:      []*regexp.Regexp{regexp.MustCompile("^enix/.+")},
+				Registries: []string{"quay.io", "harbor.enix.io"},
+			},
+			{
+				Paths:      []*regexp.Regexp{regexp.MustCompile("enix/.+")},
+				Registries: []string{"quay.io", "harbor.enix.io"},
+			},
 		},
 	}
 
 	tests := []struct {
 		name          string
-		reference     string
-		strategies    []Strategy
+		reference     *kuikv1alpha1.ImageReference
+		routing       *Routing
 		expectedMatch *Strategy
 	}{
 		{
 			name:      "Empty strategies list",
-			reference: "nginx",
+			reference: kuikv1alpha1.NewImageReference("", "nginx"),
+			routing:   &Routing{},
 		},
 		{
 			name:          "Match first",
-			reference:     "enix/x509-exporter",
-			strategies:    strategies,
-			expectedMatch: &strategies[0],
+			reference:     kuikv1alpha1.NewImageReference("", "enix/x509-exporter"),
+			routing:       &routing,
+			expectedMatch: &routing.Strategies[0],
 		},
 		{
 			name:          "Match second",
-			reference:     "enix/topomatik",
-			strategies:    strategies,
-			expectedMatch: &strategies[1],
+			reference:     kuikv1alpha1.NewImageReference("", "enix/topomatik"),
+			routing:       &routing,
+			expectedMatch: &routing.Strategies[1],
 		},
 		{
 			name:          "Match nothing",
-			reference:     "backup-bitnami/alpine",
-			strategies:    strategies,
+			reference:     kuikv1alpha1.NewImageReference("", "backup-bitnami/alpine"),
+			routing:       &routing,
 			expectedMatch: nil,
 		},
 		{
 			name:          "Match startsWith regex with registry",
-			reference:     "ghcr.io/bitnami/alpine",
-			strategies:    strategies,
-			expectedMatch: &strategies[0],
+			reference:     kuikv1alpha1.NewImageReference("ghcr.io", "bitnami/alpine"),
+			routing:       &routing,
+			expectedMatch: &routing.Strategies[0],
 		},
 		{
 			name:          "Match startsWith regex with registry bis",
-			reference:     "ghcr.io/enix/topomatik",
-			strategies:    strategies,
-			expectedMatch: &strategies[2],
+			reference:     kuikv1alpha1.NewImageReference("ghcr.io", "enix/topomatik"),
+			routing:       &routing,
+			expectedMatch: &routing.Strategies[2],
 		},
 	}
 
@@ -70,7 +74,7 @@ func TestMatch(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			g := NewWithT(t)
 
-			strategy := Match(tt.reference, tt.strategies)
+			strategy := tt.routing.Match(tt.reference)
 			g.Expect(strategy).To(Equal(tt.expectedMatch))
 		})
 	}

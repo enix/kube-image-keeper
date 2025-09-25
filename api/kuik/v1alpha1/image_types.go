@@ -6,8 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/cespare/xxhash/v2"
-	"github.com/distribution/reference"
+	"github.com/enix/kube-image-keeper/internal/registry"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -90,12 +89,12 @@ func imagesFromContainers(containers []corev1.Container) ([]Image, []error) {
 }
 
 func imageFromReference(reference string) (*Image, error) {
-	name, err := imageNameFromReference(reference)
+	name, err := registry.ImageNameFromReference(reference)
 	if err != nil {
 		return nil, err
 	}
 
-	registry, image, err := registryNameFromReference(reference)
+	registry, image, err := registry.RegistryNameFromReference(reference)
 	if err != nil {
 		return nil, err
 	}
@@ -140,30 +139,4 @@ func (i *Image) GetPullSecrets(ctx context.Context, c client.Client) (secrets []
 
 func (i *Image) IsUsedByPods() bool {
 	return len(i.Status.UsedByPods.Items) > 0
-}
-
-func imageNameFromReference(image string) (string, error) {
-	ref, err := reference.ParseAnyReference(image)
-	if err != nil {
-		return "", err
-	}
-
-	image = ref.String()
-	if !strings.Contains(image, ":") {
-		image += "-latest"
-	}
-
-	h := xxhash.Sum64String(image)
-
-	return fmt.Sprintf("%016x", h), nil
-}
-
-func registryNameFromReference(image string) (string, string, error) {
-	named, err := reference.ParseNormalizedNamed(image)
-	if err != nil {
-		return "", "", err
-	}
-
-	parts := strings.SplitN(named.String(), "/", 2)
-	return parts[0], parts[1], nil
 }

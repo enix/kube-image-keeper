@@ -33,7 +33,7 @@ routing:
 `, "\t", "  "))
 
 	expectedConfig := Config{
-		Routing: routing.Config{
+		Routing: routing.Routing{
 			Strategies: []routing.Strategy{
 				{
 					Paths: []*regexp.Regexp{

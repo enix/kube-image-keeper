@@ -7,6 +7,14 @@ type ImageReference struct {
 	Path string `json:"path"`
 }
 
+func NewImageReference(registry, path string) *ImageReference {
+	return &ImageReference{registry, path}
+}
+
 func (i *ImageReference) Reference() string {
+	if i.Registry == "" {
+		return i.Path
+	}
+
 	return i.Registry + "/" + i.Path
 }
