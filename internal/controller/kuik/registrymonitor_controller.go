@@ -116,7 +116,7 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 				}
 			}
 
-			log.V(1).Info("ensured ImageMonitor", "operation", op, "name", imageMonitor.Name, "", imageMonitor.Reference())
+			log.V(1).Info("ensured ImageMonitor", "operation", op, "ImageMonitor", map[string]string{"name": imageMonitor.Name, "reference": imageMonitor.Reference()})
 		}
 	}
 

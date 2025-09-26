@@ -13,7 +13,7 @@ func TestMatch(t *testing.T) {
 	routing := Routing{
 		Strategies: []Strategy{
 			{
-				Paths:      []*regexp.Regexp{regexp.MustCompile("enix/x509-exporter"), regexp.MustCompile("nginx"), regexp.MustCompile("^bitnami/.+$")},
+				Paths:      []*regexp.Regexp{regexp.MustCompile("enix/x509-certificate-exporter"), regexp.MustCompile("nginx"), regexp.MustCompile("^bitnami/.+$")},
 				Registries: []string{"docker.io", "ghcr.io"},
 			},
 			{
@@ -40,7 +40,7 @@ func TestMatch(t *testing.T) {
 		},
 		{
 			name:          "Match first",
-			reference:     kuikv1alpha1.NewImageReference("", "enix/x509-exporter"),
+			reference:     kuikv1alpha1.NewImageReference("", "enix/x509-certificate-exporter"),
 			routing:       &routing,
 			expectedMatch: &routing.Strategies[0],
 		},

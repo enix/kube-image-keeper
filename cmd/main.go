@@ -9,8 +9,10 @@ import (
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
+	"go.uber.org/zap/zapcore"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	"github.com/fatih/color"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -76,11 +78,24 @@ func main() {
 	flag.IntVar(&unusedImageTTL, "unused-image-ttl", 24, "Unused image TTL in hours.")
 	flag.StringVar(&configPath, "config", "/etc/kube-image-keeper/config.yaml", "Path to the configuration file")
 
-	opts := zap.Options{
-		Development: true,
-	}
+	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
+
+	if opts.Development {
+		opts.EncoderConfigOptions = append(opts.EncoderConfigOptions, func(config *zapcore.EncoderConfig) {
+			config.EncodeTime = func(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
+				enc.AppendString(t.Format(time.TimeOnly + ".000"))
+			}
+		})
+	}
+
+	opts.EncoderConfigOptions = append(opts.EncoderConfigOptions, func(config *zapcore.EncoderConfig) {
+		colorsAvailable := !color.NoColor
+		if colorsAvailable && flag.CommandLine.Lookup("zap-encoder").Value.String() == "console" {
+			config.EncodeLevel = zapcore.CapitalColorLevelEncoder
+		}
+	})
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 

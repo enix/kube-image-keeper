@@ -19,7 +19,7 @@ func Test_load(t *testing.T) {
 routing:
 	strategies:
 		- paths:
-				- enix/x509-exporter
+				- enix/x509-certificate-exporter
 				- nginx
 				- ^bitnami/.+$
 			registries:
@@ -37,7 +37,7 @@ routing:
 			Strategies: []routing.Strategy{
 				{
 					Paths: []*regexp.Regexp{
-						regexp.MustCompile("enix/x509-exporter"),
+						regexp.MustCompile("enix/x509-certificate-exporter"),
 						regexp.MustCompile("nginx"),
 						regexp.MustCompile("^bitnami/.+$"),
 					},
