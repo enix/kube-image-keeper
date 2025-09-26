@@ -58,3 +58,50 @@ kubectl create namespace kuik-system
 VERSION=2.0.0-alpha.X
 helm upgrade --install --namespace kuik-system kube-image-keeper oci://quay.io/enix/charts/kube-image-keeper:$VERSION
 ```
+
+## 🔧 Development
+
+```bash
+# generate CRDs definitions from go code and install them on the cluster you're connected to
+make install
+# run the manager locally against the cluster you're connected to and export metrics to :8080
+make run
+```
+
+### Gather metrics locally
+
+In another terminal, you can run prometheus to gather metrics:
+
+```bash
+docker run --rm --network host --name prometheus -p 9090:9090 -v /etc/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml prom/prometheus
+```
+
+Sample prom configuration:
+
+```yaml
+global:
+  scrape_interval: 3s
+
+scrape_configs:
+  - job_name: "myapp"
+    static_configs:
+      - targets: ["localhost:8080"]
+```
+
+### Makefile options
+
+The way kuik is run using the Makefile can be configured through environment variables:
+
+- `RUN_FLAG_DEVEL`: sets the `-zap-devel` flag, defaults to `true`
+- `RUN_FLAG_LOG_LEVEL`: sets the `-zap-log-level` flag if present
+- `RUN_FLAG_ZAP_ENCODER`: sets the `-zap-encoder` flag if present
+- `METRICS_PORT`: sets the port to bind for the metrics, defaults to `8080`
+- `RUN_ADDITIONAL_ARGS`: add any additional argument to the `go run ./cmd/main.go` command (you can even `| grep` here)
+- `RUN_ARGS`: default arguments to the `go run ./cmd/main.go` command, it combines all previous variables together. Don't touch it if you don't need to.
+
+I highly suggest that you try [github.com/pamburus/hl](https://github.com/pamburus/hl), an awesome tool to make json logs human readable. It can be setup with kuik like this:
+
+```bash
+export RUN_FLAG_ZAP_ENCODER=json RUN_ADDITIONAL_ARGS="2>&1 | hl --paging=never"
+make run
+```

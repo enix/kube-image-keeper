@@ -19,6 +19,18 @@ CONTAINER_TOOL ?= docker
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
+# Args to pass to go run
+RUN_FLAG_DEVEL ?= true
+_RUN_FLAG_LOG_LEVEL = $(if $(RUN_FLAG_LOG_LEVEL),-zap-log-level=$(RUN_FLAG_LOG_LEVEL),)
+_RUN_FLAG_ZAP_ENCODER = $(if $(RUN_FLAG_ZAP_ENCODER),-zap-encoder=$(RUN_FLAG_ZAP_ENCODER),)
+METRICS_PORT ?= 8080
+RUN_ADDITIONAL_ARGS ?= 
+RUN_ARGS ?= -metrics-bind-address=:$(METRICS_PORT) -metrics-secure=false \
+	-zap-devel=$(RUN_FLAG_DEVEL) \
+	$(_RUN_FLAG_LOG_LEVEL) \
+	$(_RUN_FLAG_ZAP_ENCODER) \
+	$(RUN_ADDITIONAL_ARGS)
+
 .PHONY: all
 all: build
 
@@ -102,7 +114,7 @@ build: manifests generate fmt vet ## Build manager binary.
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
-	go run ./cmd/main.go ${ARGS}
+	go run ./cmd/main.go $(RUN_ARGS)
 
 # If you wish to build the manager image targeting other platforms you can use the --platform flag.
 # (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
