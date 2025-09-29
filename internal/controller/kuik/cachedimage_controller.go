@@ -6,10 +6,12 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/distribution/reference"
 	"github.com/go-logr/logr"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -350,7 +352,42 @@ func (r *CachedImageReconciler) cacheImage(cachedImage *kuikv1alpha1.CachedImage
 		return err
 	}
 
-	err = registry.CacheImage(cachedImage.Spec.SourceImage, desc, r.Architectures)
+	// Prepare callbacks to update progress during caching
+	var statusLock sync.Mutex
+
+	lastUpdateTime := time.Now()
+	lastWriteComplete := int64(0)
+	totalSizeAvailable := false
+	onUpdated := func(update v1.Update) {
+
+		isCompleted := lastWriteComplete != update.Complete && update.Complete == update.Total
+		needUpdate := time.Since(lastUpdateTime).Seconds() >= 5 || isCompleted
+
+		statusLock.Lock()
+		defer statusLock.Unlock()
+		if needUpdate && !totalSizeAvailable {
+			_ = updateStatus(r.Client, cachedImage, desc, func(status *kuikv1alpha1.CachedImageStatus) {
+				cachedImage.Status.Progress.Total = update.Total
+				cachedImage.Status.Progress.Available = update.Complete
+			})
+
+			lastUpdateTime = time.Now()
+		}
+		lastWriteComplete = update.Complete
+	}
+
+	onUpdateFinalSize := func(totalSize int64) {
+		statusLock.Lock()
+		totalSizeAvailable = true // Disable future progress update.
+		statusLock.Unlock()
+
+		_ = updateStatus(r.Client, cachedImage, desc, func(status *kuikv1alpha1.CachedImageStatus) {
+			cachedImage.Status.Progress.Total = totalSize
+			cachedImage.Status.Progress.Available = totalSize
+		})
+	}
+
+	err = registry.CacheImage(cachedImage.Spec.SourceImage, desc, r.Architectures, onUpdated, onUpdateFinalSize)
 
 	statusErr = updateStatus(r.Client, cachedImage, desc, func(status *kuikv1alpha1.CachedImageStatus) {
 		if err == nil {
