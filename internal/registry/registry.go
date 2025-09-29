@@ -1,7 +1,6 @@
 package registry
 
 import (
-	"crypto/sha1"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
@@ -19,19 +18,6 @@ import (
 )
 
 type descriptorReader func(ref name.Reference, options ...remote.Option) (*v1.Descriptor, error)
-
-func ContainerAnnotationKey(containerName string, initContainer bool) string {
-	template := "original-image-%s"
-	if initContainer {
-		template = "original-init-image-%s"
-	}
-
-	if len(containerName)+len(template)-2 > 63 {
-		containerName = fmt.Sprintf("%x", sha1.Sum([]byte(containerName)))
-	}
-
-	return fmt.Sprintf(template, containerName)
-}
 
 func ReadDescriptor(httpMethod string, imageName string, pullSecrets []corev1.Secret, insecureRegistries []string, rootCAs *x509.CertPool) (*v1.Descriptor, error) {
 	keychains, err := GetKeychains(imageName, pullSecrets)

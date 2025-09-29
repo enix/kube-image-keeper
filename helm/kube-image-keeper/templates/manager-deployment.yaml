@@ -85,6 +85,13 @@ spec:
             - containerPort: 8080
               name: metrics
               protocol: TCP
+            - containerPort: 9443
+              name: webhook-server
+              protocol: TCP
+          volumeMounts:
+            - mountPath: /tmp/k8s-webhook-server/serving-certs
+              name: webhook-cert
+              readOnly: true
           {{- with .Values.manager.readinessProbe }}
           readinessProbe:
             {{- toYaml . | nindent 12 }}
@@ -109,3 +116,8 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      volumes:
+      - name: webhook-cert
+        secret:
+          defaultMode: 420
+          secretName: {{ include "kube-image-keeper.fullname" . }}-webhook-server-cert

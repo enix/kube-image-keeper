@@ -73,7 +73,6 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		areImagesUsed[image.Reference()] = image.IsUsedByPods()
 
 		registries := r.Routing.MatchingRegistries(&image.Spec.ImageReference)
-		log.V(1).Info("matching registries", "registries", registries)
 
 		for _, reg := range registries {
 			imageReference := kuikv1alpha1.ImageReference{
@@ -116,7 +115,9 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 				}
 			}
 
-			log.V(1).Info("ensured ImageMonitor", "operation", op, "ImageMonitor", map[string]string{"name": imageMonitor.Name, "reference": imageMonitor.Reference()})
+			if op != controllerutil.OperationResultNone {
+				log.V(1).Info("ensured ImageMonitor", "operation", op, "ImageMonitor", map[string]string{"name": imageMonitor.Name, "reference": imageMonitor.Reference()})
+			}
 		}
 	}
 

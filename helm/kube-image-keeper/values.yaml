@@ -71,6 +71,13 @@ manager:
     extraLabels: {}
     # -- Relabel config for the ServiceMonitor, see: https://coreos.com/operators/prometheus/docs/latest/api.html#relabelconfig
     relabelings: []
+  webhook:
+    # -- If true, create the issuer used to issue the webhook certificate
+    createCertificateIssuer: true
+    # -- Issuer reference to issue the webhook certificate, ignored if createCertificateIssuer is true
+    certificateIssuerRef:
+      kind: Issuer
+      name: kube-image-keeper-selfsigned-issuer
 
 rbac:
   # -- Create the ClusterRole and ClusterRoleBinding. If false, need to associate permissions with serviceAccount outside this Helm chart.

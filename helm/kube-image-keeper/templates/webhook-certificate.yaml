@@ -1,0 +1,25 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "kube-image-keeper.fullname" . }}-serving-cert
+spec:
+  dnsNames:
+  - {{ include "kube-image-keeper.fullname" . }}-webhook.{{ .Release.Namespace }}.svc
+  - {{ include "kube-image-keeper.fullname" . }}-webhook.{{ .Release.Namespace }}.svc.cluster.local
+  secretName: {{ include "kube-image-keeper.fullname" . }}-webhook-server-cert
+  issuerRef:
+    {{- if .Values.manager.webhook.createCertificateIssuer }}
+    kind: Issuer
+    name: {{ include "kube-image-keeper.fullname" . }}-selfsigned-issuer
+    {{- else -}}
+    {{- toYaml .Values.manager.webhook.certificateIssuerRef | nindent 4 }}
+    {{- end }}
+---
+{{- if .Values.manager.webhook.createCertificateIssuer }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "kube-image-keeper.fullname" . }}-selfsigned-issuer
+spec:
+  selfSigned: {}
+{{- end -}}

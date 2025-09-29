@@ -246,7 +246,11 @@ func main() {
 	}
 	// nolint:goconst
 	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
-		if err = webhookcorev1.SetupPodWebhookWithManager(mgr); err != nil {
+		podDefaulter := webhookcorev1.PodCustomDefaulter{
+			Client:  mgr.GetClient(),
+			Routing: &configuration.Routing,
+		}
+		if err = webhookcorev1.SetupPodWebhookWithManager(mgr, &podDefaulter); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "Pod")
 			os.Exit(1)
 		}
