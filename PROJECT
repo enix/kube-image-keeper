@@ -23,6 +23,9 @@ resources:
   kind: Pod
   path: k8s.io/api/core/v1
   version: v1
+  webhooks:
+    defaulting: true
+    webhookVersion: v1
 - api:
     crdVersion: v1
   controller: true
