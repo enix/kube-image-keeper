@@ -2,9 +2,14 @@ package v1alpha1
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"net/http"
 	"strings"
 
+	"github.com/cespare/xxhash"
 	"github.com/enix/kube-image-keeper/internal/registry"
+	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -99,10 +104,6 @@ func (i ImageMonitorStatusUpstream) ToString() string {
 	return strings.ToLower(value)
 }
 
-func ImageMonitorsFromPod(pod *corev1.Pod) ([]Image, []error) {
-	return imagesFromContainers(append(pod.Spec.Containers, pod.Spec.InitContainers...))
-}
-
 func (i *ImageMonitor) Reference() string {
 	return i.Spec.Reference()
 }
@@ -116,6 +117,12 @@ func (i *ImageMonitor) GetImage(ctx context.Context, c client.Client, image *Ima
 	return c.Get(ctx, client.ObjectKey{Name: name}, image)
 }
 
+func (i *ImageMonitor) GetRegistryMonitor(ctx context.Context, c client.Client) (*RegistryMonitor, error) {
+	name := fmt.Sprintf("%016x", xxhash.Sum64String(i.Spec.Registry))
+	registryMonitor := &RegistryMonitor{}
+	return registryMonitor, c.Get(ctx, client.ObjectKey{Name: name}, registryMonitor)
+}
+
 func (i *ImageMonitor) GetPullSecrets(ctx context.Context, c client.Client) (secrets []corev1.Secret, err error) {
 	image := &Image{}
 	if err := i.GetImage(ctx, c, image); err != nil {
@@ -123,4 +130,55 @@ func (i *ImageMonitor) GetPullSecrets(ctx context.Context, c client.Client) (sec
 	}
 
 	return image.GetPullSecrets(ctx, c)
+}
+
+func (i *ImageMonitor) Monitor(ctx context.Context, k8sClient client.Client, httpMethod string) error {
+	patch := client.MergeFrom(i.DeepCopy())
+	i.Status.Upstream.LastMonitor = metav1.Now()
+	if err := k8sClient.Status().Patch(ctx, i, patch); err != nil {
+		return fmt.Errorf("failed to patch image status: %w", err)
+	}
+
+	patch = client.MergeFrom(i.DeepCopy())
+	pullSecrets, pullSecretsErr := i.GetPullSecrets(ctx, k8sClient)
+
+	var lastErr error
+	if desc, err := registry.ReadDescriptor(httpMethod, i.Reference(), pullSecrets, nil, nil); err != nil {
+		i.Status.Upstream.LastError = err.Error()
+		lastErr = err
+		var te *transport.Error
+		if errors.As(err, &te) {
+			switch te.StatusCode {
+			case http.StatusForbidden, http.StatusUnauthorized:
+				if pullSecretsErr != nil {
+					i.Status.Upstream.Status = ImageMonitorStatusUpstreamUnavailableSecret
+					i.Status.Upstream.LastError = pullSecretsErr.Error()
+					lastErr = pullSecretsErr
+				} else {
+					i.Status.Upstream.Status = ImageMonitorStatusUpstreamInvalidAuth
+				}
+			case http.StatusTooManyRequests:
+				i.Status.Upstream.Status = ImageMonitorStatusUpstreamQuotaExceeded
+			default:
+				i.Status.Upstream.Status = ImageMonitorStatusUpstreamUnavailable
+			}
+		} else {
+			i.Status.Upstream.Status = ImageMonitorStatusUpstreamUnreachable
+		}
+	} else {
+		i.Status.Upstream.LastSeen = metav1.Now()
+		i.Status.Upstream.LastError = ""
+		i.Status.Upstream.Status = ImageMonitorStatusUpstreamAvailable
+		i.Status.Upstream.Digest = desc.Digest.String()
+	}
+
+	if errStatus := k8sClient.Status().Patch(ctx, i, patch); errStatus != nil {
+		return fmt.Errorf("failed to patch image status: %w", errStatus)
+	}
+
+	if lastErr != nil {
+		return lastErr
+	}
+
+	return nil
 }

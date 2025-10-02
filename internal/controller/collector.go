@@ -180,6 +180,7 @@ func (m *kuikMetrics) MonitoringTaskCompleted(registry string, imageIsUsed bool,
 }
 
 func (m *kuikMetrics) getImageLastMonitorAgeMinutesBuckets() ([]float64, error) {
+	// TODO: read this from config instead
 	envPrefix := "KUIK_METRICS_IMAGE_LAST_MONITOR_AGE_MINUTES_BUCKETS_"
 	switch bucketsType := getenv.EnvOrDefault(envPrefix+"TYPE", "custom"); bucketsType {
 	case "exponential":

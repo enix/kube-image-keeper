@@ -8,6 +8,7 @@ godebug default=go1.23
 
 require (
 	github.com/alitto/pond/v2 v2.5.0
+	github.com/cespare/xxhash v1.1.0
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/distribution/reference v0.6.0
 	github.com/fatih/color v1.15.0

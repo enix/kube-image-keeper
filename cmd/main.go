@@ -236,10 +236,11 @@ func main() {
 		os.Exit(1)
 	}
 	if err = (&kuikcontroller.RegistryMonitorReconciler{
-		Client:       mgr.GetClient(),
-		Scheme:       mgr.GetScheme(),
-		MonitorPools: map[string]pond.Pool{},
-		Routing:      &configuration.Routing,
+		Client:            mgr.GetClient(),
+		Scheme:            mgr.GetScheme(),
+		MonitorPools:      map[string]pond.Pool{},
+		Routing:           &configuration.Routing,
+		MonitoringEnabled: configuration.Monitoring.Enabled,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "RegistryMonitor")
 		os.Exit(1)

@@ -7,7 +7,8 @@ import (
 )
 
 type Routing struct {
-	Strategies []Strategy `koanf:"strategies"`
+	Strategies  []Strategy `koanf:"strategies"`
+	ActiveCheck bool       `koanf:"activeCheck"`
 }
 
 type Strategy struct {

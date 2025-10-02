@@ -2,9 +2,6 @@ package kuik
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"net/http"
 	"slices"
 	"time"
 
@@ -13,7 +10,6 @@ import (
 	kuikcontroller "github.com/enix/kube-image-keeper/internal/controller"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/enix/kube-image-keeper/internal/registry/routing"
-	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -34,9 +30,10 @@ const (
 // RegistryMonitorReconciler reconciles a RegistryMonitor object
 type RegistryMonitorReconciler struct {
 	client.Client
-	Scheme       *runtime.Scheme
-	MonitorPools map[string]pond.Pool
-	Routing      *routing.Routing
+	Scheme            *runtime.Scheme
+	MonitorPools      map[string]pond.Pool
+	Routing           *routing.Routing
+	MonitoringEnabled bool
 }
 
 // +kubebuilder:rbac:groups=kuik.enix.io,resources=registrymonitors,verbs=get;list;watch;create;update;patch;delete
@@ -95,6 +92,8 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			}
 
 			op, err := controllerutil.CreateOrPatch(ctx, r.Client, imageMonitor, func() error {
+				// FIXME: should use SetControllerReference instead in order to automatically reconcile RegistryMonitor on ImageMonitor deletion.
+				// However, this is not possible as is: all equivalent ImageMonitor should be controlled by multiple ImageRegistries which is not possible.
 				if err := controllerutil.SetOwnerReference(&registryMonitor, imageMonitor, r.Scheme); err != nil {
 					return err
 				}
@@ -119,6 +118,10 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 				log.V(1).Info("ensured ImageMonitor", "operation", op, "ImageMonitor", map[string]string{"name": imageMonitor.Name, "reference": imageMonitor.Reference()})
 			}
 		}
+	}
+
+	if !r.MonitoringEnabled {
+		return ctrl.Result{}, nil
 	}
 
 	// Monitor pool setup =================================================================================================
@@ -165,7 +168,9 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 		task := monitorPool.Submit(func() {
 			logImageMonitor.Info("monitoring image")
-			if err := r.monitorAnImage(logf.IntoContext(context.Background(), logImageMonitor), registryMonitor.Spec.Method, &imageMonitor); err != nil {
+			// TODO: add to SetupWithManager Watches(&source.Channel{Source: eventChannel}, &handler.EnqueueRequestForObject{})
+			// push an event in the channel when this function is done
+			if err := imageMonitor.Monitor(logf.IntoContext(ctx, logImageMonitor), r.Client, registryMonitor.Spec.Method); err != nil {
 				logImageMonitor.Info("failed to monitor image", "error", err.Error())
 			}
 			logImageMonitor.Info("image monitored with success")
@@ -175,7 +180,7 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		})
 
 		go func() {
-			// TODO: rework this part, it should set the status if the tasks metric
+			// TODO: rework this part, it should set the status of the tasks metric
 			err := task.Wait()
 			if err != nil {
 				logImageMonitor.Error(err, "failed to queue image for monitoring")
@@ -248,59 +253,6 @@ func (r *RegistryMonitorReconciler) mapImageToRegistryMonitors(ctx context.Conte
 	}
 
 	return requests
-}
-
-func (r *RegistryMonitorReconciler) monitorAnImage(ctx context.Context, httpMethod string, image *kuikv1alpha1.ImageMonitor) error {
-	patch := client.MergeFrom(image.DeepCopy())
-	image.Status.Upstream.LastMonitor = metav1.Now()
-	if err := r.Status().Patch(ctx, image, patch); err != nil {
-		return fmt.Errorf("failed to patch image status: %w", err)
-	}
-
-	patch = client.MergeFrom(image.DeepCopy())
-	pullSecrets, pullSecretsErr := image.GetPullSecrets(ctx, r.Client)
-
-	var lastErr error
-	if desc, err := registry.ReadDescriptor(httpMethod, image.Reference(), pullSecrets, nil, nil); err != nil {
-		image.Status.Upstream.LastError = err.Error()
-		lastErr = err
-		var te *transport.Error
-		if errors.As(err, &te) {
-			if te.StatusCode == http.StatusForbidden || te.StatusCode == http.StatusUnauthorized {
-				if pullSecretsErr != nil {
-					image.Status.Upstream.Status = kuikv1alpha1.ImageMonitorStatusUpstreamUnavailableSecret
-					image.Status.Upstream.LastError = pullSecretsErr.Error()
-					lastErr = pullSecretsErr
-				} else {
-					image.Status.Upstream.Status = kuikv1alpha1.ImageMonitorStatusUpstreamInvalidAuth
-				}
-			} else if te.StatusCode == http.StatusTooManyRequests {
-				image.Status.Upstream.Status = kuikv1alpha1.ImageMonitorStatusUpstreamQuotaExceeded
-			} else {
-				image.Status.Upstream.Status = kuikv1alpha1.ImageMonitorStatusUpstreamUnavailable
-			}
-		} else {
-			image.Status.Upstream.Status = kuikv1alpha1.ImageMonitorStatusUpstreamUnreachable
-		}
-	} else {
-		image.Status.Upstream.LastSeen = metav1.Now()
-		image.Status.Upstream.LastError = ""
-		image.Status.Upstream.Status = kuikv1alpha1.ImageMonitorStatusUpstreamAvailable
-		image.Status.Upstream.Digest = desc.Digest.String()
-	}
-
-	if errStatus := r.Status().Patch(ctx, image, patch); errStatus != nil {
-		return fmt.Errorf("failed to patch image status: %w", errStatus)
-	}
-
-	if lastErr != nil {
-		return lastErr
-	}
-
-	return nil
-
-	// TODO: add to SetupWithManager Watches(&source.Channel{Source: eventChannel}, &handler.EnqueueRequestForObject{})
-	// push an event in the channel when this function is done
 }
 
 func min(a, b int) int {

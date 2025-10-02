@@ -12,8 +12,13 @@ import (
 	"github.com/knadh/koanf/v2"
 )
 
+type Monitoring struct {
+	Enabled bool `koanf:"enabled"`
+}
+
 type Config struct {
-	Routing routing.Routing `koanf:"routing"`
+	Monitoring Monitoring      `koanf:"monitoring"`
+	Routing    routing.Routing `koanf:"routing"`
 }
 
 func Load(path string) (*Config, error) {

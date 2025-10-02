@@ -74,17 +74,17 @@ func (d *PodCustomDefaulter) RerouteImages(ctx context.Context, pod *corev1.Pod)
 	// Handle Containers
 	for i := range pod.Spec.Containers {
 		container := &pod.Spec.Containers[i]
-		d.handleContainer(ctx, pod, container, false)
+		d.handleContainer(ctx, container, false)
 	}
 
 	// Handle init containers
 	for i := range pod.Spec.InitContainers {
 		container := &pod.Spec.InitContainers[i]
-		d.handleContainer(ctx, pod, container, true)
+		d.handleContainer(ctx, container, true)
 	}
 }
 
-func (d *PodCustomDefaulter) handleContainer(ctx context.Context, pod *corev1.Pod, container *corev1.Container, initContainer bool) {
+func (d *PodCustomDefaulter) handleContainer(ctx context.Context, container *corev1.Container, initContainer bool) {
 	log := logf.FromContext(ctx)
 	registry, path, err := registry.RegistryNameFromReference(container.Image)
 	if err != nil {
@@ -132,6 +132,15 @@ func (d *PodCustomDefaulter) getImageStatus(ctx context.Context, reference strin
 	var imageMonitor kuikv1alpha1.ImageMonitor
 	if err := d.Get(ctx, types.NamespacedName{Name: name}, &imageMonitor); err != nil {
 		return kuikv1alpha1.ImageMonitorStatusUpstream(""), err
+	}
+
+	if d.Routing.ActiveCheck {
+		registryMonitor, err := imageMonitor.GetRegistryMonitor(ctx, d.Client)
+		if err != nil {
+			return kuikv1alpha1.ImageMonitorStatusUpstream(""), err
+		}
+
+		imageMonitor.Monitor(ctx, d.Client, registryMonitor.Spec.Method)
 	}
 
 	return imageMonitor.Status.Upstream.Status, nil

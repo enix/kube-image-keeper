@@ -157,7 +157,7 @@ func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Method:         http.MethodHead,
 	}
 
-	// TODO: refactor using github.com/obalunenko/getenv
+	// TODO: read this from config instead
 	if env := os.Getenv("KUIK_REGISTRY_MONITOR_DEFAULT_INTERVAL"); env != "" {
 		interval, err := time.ParseDuration(env)
 		if err != nil {
