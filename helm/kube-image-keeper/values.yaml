@@ -134,3 +134,16 @@ metrics:
       count: 12
     # -- List of buckets to create in minutes, ommiting +inf
     custom: [10, 30, 60, 120, 180, 360, 1440]
+
+configuration:
+  monitoring:
+    enabled: true
+  routing:
+    activeCheck: false
+    strategies: []
+      # - paths:
+      #     - enix/x509-certificate-exporter
+      #   registries:
+      #     - docker.io
+      #     - quay.io
+

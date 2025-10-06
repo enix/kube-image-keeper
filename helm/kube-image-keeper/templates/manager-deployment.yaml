@@ -92,6 +92,9 @@ spec:
             - mountPath: /tmp/k8s-webhook-server/serving-certs
               name: webhook-cert
               readOnly: true
+            - mountPath: /etc/kube-image-keeper
+              name: config
+              readOnly: true
           {{- with .Values.manager.readinessProbe }}
           readinessProbe:
             {{- toYaml . | nindent 12 }}
@@ -121,3 +124,6 @@ spec:
         secret:
           defaultMode: 420
           secretName: {{ include "kube-image-keeper.fullname" . }}-webhook-server-cert
+      - name: config
+        configMap:
+          name: {{ include "kube-image-keeper.fullname" . }}-manager-config

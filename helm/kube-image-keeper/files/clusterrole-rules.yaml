@@ -16,6 +16,7 @@
 - apiGroups:
   - kuik.enix.io
   resources:
+  - imagemonitors
   - images
   - registrymonitors
   verbs:
@@ -29,6 +30,7 @@
 - apiGroups:
   - kuik.enix.io
   resources:
+  - imagemonitors/finalizers
   - images/finalizers
   - registrymonitors/finalizers
   verbs:
@@ -36,6 +38,7 @@
 - apiGroups:
   - kuik.enix.io
   resources:
+  - imagemonitors/status
   - images/status
   - registrymonitors/status
   verbs:
