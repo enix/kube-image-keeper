@@ -92,6 +92,7 @@ jobs:
           VERSION: ${{ inputs.VERSION }}
         run: |
           make generate-helm-docs
+          rm ./helm/kube-image-keeper/README.md.gotmpl
 
       - name: Set the prerelease artifacthub annotation
         run: |
