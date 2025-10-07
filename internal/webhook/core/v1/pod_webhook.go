@@ -143,7 +143,7 @@ func (d *PodCustomDefaulter) getImageStatus(ctx context.Context, reference strin
 			return kuikv1alpha1.ImageMonitorStatusUpstream(""), err
 		}
 
-		err = imageMonitor.Monitor(ctx, d.Client, registryMonitor.Spec.Method, d.Routing.ActiveCheck.Timeout)
+		_ = imageMonitor.Monitor(ctx, d.Client, registryMonitor.Spec.Method, d.Routing.ActiveCheck.Timeout)
 	}
 
 	return imageMonitor.Status.Upstream.Status, nil

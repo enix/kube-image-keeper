@@ -34,7 +34,7 @@ func load(provider koanf.Provider, parser koanf.Parser) (*Config, error) {
 
 	config := &Config{}
 
-	k.UnmarshalWithConf("", config, koanf.UnmarshalConf{
+	return config, k.UnmarshalWithConf("", config, koanf.UnmarshalConf{
 		DecoderConfig: &mapstructure.DecoderConfig{
 			DecodeHook: mapstructure.ComposeDecodeHookFunc(
 				mapstructure.StringToTimeDurationHookFunc(),
@@ -42,8 +42,6 @@ func load(provider koanf.Provider, parser koanf.Parser) (*Config, error) {
 			),
 		},
 	})
-
-	return config, nil
 }
 
 func stringToRegexp(from, to reflect.Type, data any) (any, error) {
