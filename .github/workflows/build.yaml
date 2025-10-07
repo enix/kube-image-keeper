@@ -87,6 +87,12 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Generate README.md
+        env:
+          VERSION: ${{ inputs.VERSION }}
+        run: |
+          make generate-helm-docs
+
       - name: Set the prerelease artifacthub annotation
         run: |
           yq e '.annotations["artifacthub.io/prerelease"] = "${{ inputs.PRERELEASE }}"' -i ./helm/kube-image-keeper/Chart.yaml
