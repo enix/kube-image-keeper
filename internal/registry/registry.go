@@ -1,16 +1,17 @@
 package registry
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/cespare/xxhash/v2"
 	"github.com/distribution/reference"
-	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
@@ -19,8 +20,40 @@ import (
 
 type descriptorReader func(ref name.Reference, options ...remote.Option) (*v1.Descriptor, error)
 
-func ReadDescriptor(httpMethod string, imageName string, pullSecrets []corev1.Secret, insecureRegistries []string, rootCAs *x509.CertPool) (*v1.Descriptor, error) {
-	keychains, err := GetKeychains(imageName, pullSecrets)
+type Client struct {
+	insecureRegistries []string
+	rootCAs            *x509.CertPool
+}
+
+type AuthenticatedClient struct {
+	*Client
+	pullSecrets []corev1.Secret
+}
+
+func NewClient(insecureRegistries []string, rootCAs *x509.CertPool) *Client {
+	return &Client{
+		insecureRegistries: insecureRegistries,
+		rootCAs:            rootCAs,
+	}
+}
+
+func (c *Client) options(ctx context.Context, ref name.Reference) []remote.Option {
+	transport := unauthenticatedTransport(ref.Context().RegistryStr(), c.insecureRegistries, c.rootCAs)
+	return []remote.Option{
+		remote.WithTransport(transport),
+		remote.WithContext(ctx),
+	}
+}
+
+func (c *Client) WithPullSecrets(pullSecrets []corev1.Secret) *AuthenticatedClient {
+	return &AuthenticatedClient{
+		Client:      c,
+		pullSecrets: pullSecrets,
+	}
+}
+
+func (a *AuthenticatedClient) ReadDescriptor(httpMethod string, imageName string, timeout time.Duration) (*v1.Descriptor, error) {
+	keychains, err := GetKeychains(imageName, a.pullSecrets)
 	if err != nil {
 		return nil, err
 	}
@@ -30,9 +63,14 @@ func ReadDescriptor(httpMethod string, imageName string, pullSecrets []corev1.Se
 		return nil, err
 	}
 
+	// global timeout for all keychains
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	options := a.options(ctx, sourceRef)
+	defer cancel()
+
 	var returnedErr error
 	for _, keychain := range keychains {
-		opts := options(sourceRef, keychain, insecureRegistries, rootCAs)
+		opts := append([]remote.Option{remote.WithAuthFromKeychain(keychain)}, options...)
 		desc, err := getReader(httpMethod)(sourceRef, opts...)
 
 		if err == nil { // stops at the first success
@@ -99,12 +137,4 @@ func unauthenticatedTransport(registry string, insecureRegistries []string, root
 	}
 
 	return transport
-}
-
-func options(ref name.Reference, keychain authn.Keychain, insecureRegistries []string, rootCAs *x509.CertPool) []remote.Option {
-	transport := unauthenticatedTransport(ref.Context().RegistryStr(), insecureRegistries, rootCAs)
-	return []remote.Option{
-		remote.WithAuthFromKeychain(keychain),
-		remote.WithTransport(transport),
-	}
 }

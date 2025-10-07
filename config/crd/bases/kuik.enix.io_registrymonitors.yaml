@@ -86,12 +86,17 @@ spec:
                 description: Registry is the registry to monitor for image updates,
                   it filters local image to check upstream
                 type: string
+              timeout:
+                default: 30s
+                description: Timeout is the maximum duration of a monitoring task
+                type: string
             required:
             - interval
             - maxPerInterval
             - method
             - parallel
             - registry
+            - timeout
             type: object
           status:
             description: RegistryMonitorStatus defines the observed state of RegistryMonitor.

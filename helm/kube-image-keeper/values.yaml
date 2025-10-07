@@ -103,6 +103,8 @@ registryMonitors:
     parallel: 1
     # -- HTTP method to use to monitor an image of this registry
     method: HEAD
+    # -- Maximum duration of a monitoring task
+    timeout: 30s
   # -- RegistryMonitors to create on install and upgrade, if name is not provided, defaults to registry value.
   items:
     docker.io:
@@ -139,7 +141,9 @@ configuration:
   monitoring:
     enabled: true
   routing:
-    activeCheck: false
+    activeCheck:
+      enabled: true
+      timeout: 1s
     strategies: []
       # - paths:
       #     - enix/x509-certificate-exporter

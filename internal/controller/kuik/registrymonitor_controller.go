@@ -174,7 +174,7 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			logImageMonitor.Info("monitoring image")
 			// TODO: add to SetupWithManager Watches(&source.Channel{Source: eventChannel}, &handler.EnqueueRequestForObject{})
 			// push an event in the channel when this function is done
-			if err := imageMonitor.Monitor(logf.IntoContext(ctx, logImageMonitor), r.Client, registryMonitor.Spec.Method); err != nil {
+			if err := imageMonitor.Monitor(logf.IntoContext(ctx, logImageMonitor), r.Client, registryMonitor.Spec.Method, registryMonitor.Spec.Timeout.Duration); err != nil {
 				logImageMonitor.Info("failed to monitor image", "error", err.Error())
 			}
 			logImageMonitor.Info("image monitored with success")

@@ -2,13 +2,20 @@ package routing
 
 import (
 	"regexp"
+	"time"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 )
 
+type ActiveCheck struct {
+	Enabled bool          `koanf:"enabled"`
+	Timeout time.Duration `koanf:"timeout"`
+	// Timeoutstr string        `koanf:"timeout"`
+}
+
 type Routing struct {
-	Strategies  []Strategy `koanf:"strategies"`
-	ActiveCheck bool       `koanf:"activeCheck"`
+	Strategies  []Strategy  `koanf:"strategies"`
+	ActiveCheck ActiveCheck `koanf:"activeCheck"`
 }
 
 type Strategy struct {

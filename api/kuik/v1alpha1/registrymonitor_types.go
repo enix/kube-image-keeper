@@ -24,6 +24,9 @@ type RegistryMonitorSpec struct {
 	// +kubebuilder:validation:Enum=HEAD;GET
 	// +default:value="HEAD"
 	Method string `json:"method"`
+	// Timeout is the maximum duration of a monitoring task
+	// +default:value="30s"
+	Timeout metav1.Duration `json:"timeout"`
 }
 
 // RegistryMonitorStatus defines the observed state of RegistryMonitor.

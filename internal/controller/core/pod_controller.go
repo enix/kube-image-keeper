@@ -155,6 +155,7 @@ func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		MaxPerInterval: 1,
 		Parallel:       1,
 		Method:         http.MethodHead,
+		Timeout:        metav1.Duration{Duration: 5 * time.Second},
 	}
 
 	// TODO: read this from config instead

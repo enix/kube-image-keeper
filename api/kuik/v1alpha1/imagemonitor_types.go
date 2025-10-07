@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/cespare/xxhash"
 	"github.com/enix/kube-image-keeper/internal/registry"
@@ -132,7 +133,7 @@ func (i *ImageMonitor) GetPullSecrets(ctx context.Context, c client.Client) (sec
 	return image.GetPullSecrets(ctx, c)
 }
 
-func (i *ImageMonitor) Monitor(ctx context.Context, k8sClient client.Client, httpMethod string) error {
+func (i *ImageMonitor) Monitor(ctx context.Context, k8sClient client.Client, httpMethod string, timeout time.Duration) error {
 	patch := client.MergeFrom(i.DeepCopy())
 	i.Status.Upstream.LastMonitor = metav1.Now()
 	if err := k8sClient.Status().Patch(ctx, i, patch); err != nil {
@@ -141,9 +142,10 @@ func (i *ImageMonitor) Monitor(ctx context.Context, k8sClient client.Client, htt
 
 	patch = client.MergeFrom(i.DeepCopy())
 	pullSecrets, pullSecretsErr := i.GetPullSecrets(ctx, k8sClient)
+	client := registry.NewClient(nil, nil).WithPullSecrets(pullSecrets)
 
 	var lastErr error
-	if desc, err := registry.ReadDescriptor(httpMethod, i.Reference(), pullSecrets, nil, nil); err != nil {
+	if desc, err := client.ReadDescriptor(httpMethod, i.Reference(), timeout); err != nil {
 		i.Status.Upstream.LastError = err.Error()
 		lastErr = err
 		var te *transport.Error

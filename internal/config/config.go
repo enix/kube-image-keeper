@@ -36,7 +36,10 @@ func load(provider koanf.Provider, parser koanf.Parser) (*Config, error) {
 
 	k.UnmarshalWithConf("", config, koanf.UnmarshalConf{
 		DecoderConfig: &mapstructure.DecoderConfig{
-			DecodeHook: mapstructure.ComposeDecodeHookFunc(stringToRegexp),
+			DecodeHook: mapstructure.ComposeDecodeHookFunc(
+				mapstructure.StringToTimeDurationHookFunc(),
+				stringToRegexp,
+			),
 		},
 	})
 

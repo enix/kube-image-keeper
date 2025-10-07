@@ -108,6 +108,9 @@ func (d *PodCustomDefaulter) handleContainer(ctx context.Context, container *cor
 	}
 
 	for _, reg := range matchingStrategy.Registries {
+		if reg == registry {
+			continue // don't check the same registry twice
+		}
 		alternativeRef := reg + "/" + imageReference.Path
 		alternativeStatus, err := d.getImageStatus(ctx, alternativeRef)
 		if err != nil {
@@ -134,13 +137,13 @@ func (d *PodCustomDefaulter) getImageStatus(ctx context.Context, reference strin
 		return kuikv1alpha1.ImageMonitorStatusUpstream(""), err
 	}
 
-	if d.Routing.ActiveCheck {
+	if d.Routing.ActiveCheck.Enabled {
 		registryMonitor, err := imageMonitor.GetRegistryMonitor(ctx, d.Client)
 		if err != nil {
 			return kuikv1alpha1.ImageMonitorStatusUpstream(""), err
 		}
 
-		imageMonitor.Monitor(ctx, d.Client, registryMonitor.Spec.Method)
+		err = imageMonitor.Monitor(ctx, d.Client, registryMonitor.Spec.Method, d.Routing.ActiveCheck.Timeout)
 	}
 
 	return imageMonitor.Status.Upstream.Status, nil
