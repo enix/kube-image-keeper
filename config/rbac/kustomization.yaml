@@ -22,6 +22,9 @@ resources:
 # default, aiding admins in cluster management. Those roles are
 # not used by the {{ .ProjectName }} itself. You can comment the following lines
 # if you do not want those helpers be installed with your Project.
+- kuik_imagemirror_admin_role.yaml
+- kuik_imagemirror_editor_role.yaml
+- kuik_imagemirror_viewer_role.yaml
 - kuik_imagemonitor_admin_role.yaml
 - kuik_imagemonitor_editor_role.yaml
 - kuik_imagemonitor_viewer_role.yaml
