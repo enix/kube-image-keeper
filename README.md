@@ -26,7 +26,7 @@ Production environments should continue using the stable v1 release available in
 
 Even if we are _proud_ of what we achieved with the v1 of **kube-image-keeper**, it was too often painful to work with: it was hard to deploy, overly complex, and the image caching feature — while ambitious — introduced often too much issues. We missed our original goal: to make kube-image-keeper an **easy, no-brainer install for any cluster** which would help ops in their day to day work and **provide confidence**.
 
-We learnt _a lot_ from this experience and with v2, **_we're starting fresh!_** Our focus is on **simplicity** and **observability** first. Caching is no longer the core feature — it will return later as an opt-in, second-class citizen. This reboot is about doing **_one thing well_**: giving clear visibility into what images are used, where, and how.
+We learned _a lot_ from this experience and with v2, **_we're starting fresh!_** Our focus is on **simplicity** and **ease of use** with the same set of features and even more! kuik should be effortless to install and to use — you shouldn't have to think twice before adding it to your cluster. Our goal: you will **forget it's even there** and don't even notice when a registry goes down or an image becomes unavailable.
 
 ## ✨ What's New in v2
 
