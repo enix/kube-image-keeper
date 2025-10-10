@@ -272,6 +272,7 @@ registry:
       pullPolicy: IfNotPresent
       # -- Cronjob image tag. Default 'latest'
       tag: "latest"
+    registryConfig: "/etc/docker/registry/config.yml"
   service:
     # -- Registry service type
     type: ClusterIP
@@ -324,7 +325,7 @@ registry:
     # -- Maximum unavailable pods
     maxUnavailable: ""
   serviceMonitor:
-    # -- Should a ServiceMonitor object be installed to scrape kuik registry metrics. For prometheus-operator (kube-prometheus) users.
+    # -- Should a ServiceMonitor object be installed to  scrape kuik registry metrics. For prometheus-operator (kube-prometheus) users.
     create: false
     # -- Target scrape interval set in the ServiceMonitor
     scrapeInterval: 60s
@@ -335,14 +336,8 @@ registry:
     # -- Relabel config for the ServiceMonitor, see: https://coreos.com/operators/prometheus/docs/latest/api.html#relabelconfig
     relabelings: []
   serviceAccount:
-    # -- Create the registry serviceAccount. If false, use serviceAccount with specified name (or "default" if false and name unset.)
-    create: true
-    # -- Name of the registry serviceAccount (auto-generated if unset and create is true)
-    name: ""
-    # -- Annotations to add to the registry serviceAccount
+    # -- Annotations to add to the servicateAccount
     annotations: {}
-    # -- Additional labels to add to the registry serviceAccount
-    extraLabels: {}
 
 docker-registry-ui:
   # -- If true, enable the registry user interface
@@ -378,19 +373,11 @@ minio:
         --secret-key "$(cat /opt/bitnami/minio/svcacct/registry/secretKey)"
         provisioning registry) > /dev/null
 
-rbac:
-  # -- Create the ClusterRole and ClusterRoleBinding. If false, need to associate permissions with serviceAccount outside this Helm chart.
-  create: true
-
 serviceAccount:
-  # -- Create the serviceAccount. If false, use serviceAccount with specified name (or "default" if false and name unset.)
-  create: true
-  # -- Name of the serviceAccount (auto-generated if unset and create is true)
-  name: ""
-  # -- Annotations to add to the serviceAccount
+  # -- Annotations to add to the servicateAccount
   annotations: {}
-  # -- Additional labels to add to the serviceAccount
-  extraLabels: {}
+  # -- Name of the serviceAccount
+  name: ""
 
 psp:
   # -- If True, create the PodSecurityPolicy
