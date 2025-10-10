@@ -92,7 +92,7 @@ jobs:
         run: make generate
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@v8
         continue-on-error: true
         with:
           version: latest
