@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
+	"github.com/enix/kube-image-keeper/internal/config"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/enix/kube-image-keeper/internal/registry/routing"
 	corev1 "k8s.io/api/core/v1"
@@ -39,7 +40,7 @@ func SetupPodWebhookWithManager(mgr ctrl.Manager, d *PodCustomDefaulter) error {
 // as it is used only for temporary operations and does not need to be deeply copied.
 type PodCustomDefaulter struct {
 	client.Client
-	Routing *routing.Routing
+	Config *config.Config
 }
 
 var _ webhook.CustomDefaulter = &PodCustomDefaulter{}
@@ -102,16 +103,16 @@ func (d *PodCustomDefaulter) handleContainer(ctx context.Context, container *cor
 		return
 	}
 
-	matchingStrategy := d.Routing.Match(imageReference)
+	matchingStrategy := routing.MatchingStrategy(d.Config, imageReference)
 	if matchingStrategy == nil {
 		return
 	}
 
 	for _, reg := range matchingStrategy.Registries {
-		if reg == registry {
+		if reg.Url == registry {
 			continue // don't check the same registry twice
 		}
-		alternativeRef := reg + "/" + imageReference.Path
+		alternativeRef := reg.Url + "/" + imageReference.Path
 		alternativeStatus, err := d.getImageStatus(ctx, alternativeRef)
 		if err != nil {
 			log.Error(err, "could not get image status", "image", alternativeRef)
@@ -137,13 +138,13 @@ func (d *PodCustomDefaulter) getImageStatus(ctx context.Context, reference strin
 		return kuikv1alpha1.ImageMonitorStatusUpstream(""), err
 	}
 
-	if d.Routing.ActiveCheck.Enabled {
+	if d.Config.ActiveCheck.Enabled {
 		registryMonitor, err := imageMonitor.GetRegistryMonitor(ctx, d.Client)
 		if err != nil {
 			return kuikv1alpha1.ImageMonitorStatusUpstream(""), err
 		}
 
-		_ = imageMonitor.Monitor(ctx, d.Client, registryMonitor.Spec.Method, d.Routing.ActiveCheck.Timeout)
+		_ = imageMonitor.Monitor(ctx, d.Client, registryMonitor.Spec.Method, d.Config.ActiveCheck.Timeout)
 	}
 
 	return imageMonitor.Status.Upstream.Status, nil

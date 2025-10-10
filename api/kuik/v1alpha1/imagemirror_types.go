@@ -4,27 +4,29 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
 // ImageMirrorSpec defines the desired state of ImageMirror.
+// +required
 type ImageMirrorSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// Foo is an example field of ImageMirror. Edit imagemirror_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// ImageReference is the reference of the image to mirror
+	ImageReference `json:",inline"`
+	// TargetRegistry is the registry on which the image should be mirrored
+	TargetRegistry string `json:"targetRegistry"`
 }
 
 // ImageMirrorStatus defines the observed state of ImageMirror.
 type ImageMirrorStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// Digest is the digest of the mirrored image
+	Digest     string             `json:"digest,omitempty"`
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:resource:scope=Cluster,shortName=imgmir
+// +kubebuilder:printcolumn:name="Image",type="string",JSONPath=".spec.path"
+// +kubebuilder:printcolumn:name="From",type="string",JSONPath=".spec.registry"
+// +kubebuilder:printcolumn:name="To",type="string",JSONPath=".spec.targetRegistry"
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // ImageMirror is the Schema for the imagemirrors API.
 type ImageMirror struct {

@@ -2,51 +2,37 @@ package routing
 
 import (
 	"regexp"
-	"time"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
+	"github.com/enix/kube-image-keeper/internal/config"
 )
 
-type ActiveCheck struct {
-	Enabled bool          `koanf:"enabled"`
-	Timeout time.Duration `koanf:"timeout"`
-	// Timeoutstr string        `koanf:"timeout"`
-}
-
-type Routing struct {
-	Strategies  []Strategy  `koanf:"strategies"`
-	ActiveCheck ActiveCheck `koanf:"activeCheck"`
-}
-
-type Strategy struct {
-	Paths      []*regexp.Regexp `koanf:"paths"`
-	Registries []string         `koanf:"registries"`
-}
-
-func (r *Routing) Match(reference *kuikv1alpha1.ImageReference) *Strategy {
-	for i := range r.Strategies {
-		if r.Strategies[i].Match(reference) {
-			return &r.Strategies[i]
+func MatchingStrategy(conf *config.Config, reference *kuikv1alpha1.ImageReference) *config.Strategy {
+	for i := range conf.Strategies {
+		if Match(&conf.Strategies[i], reference) {
+			return &conf.Strategies[i]
 		}
 	}
 
 	return nil
 }
 
-func (r *Routing) MatchingRegistries(reference *kuikv1alpha1.ImageReference) []string {
-	if strategy := r.Match(reference); strategy != nil {
+func MatchingRegistries(conf *config.Config, reference *kuikv1alpha1.ImageReference) []config.Registry {
+	if strategy := MatchingStrategy(conf, reference); strategy != nil {
 		return strategy.Registries
 	}
-	return []string{reference.Registry}
+	return []config.Registry{
+		{Url: reference.Registry},
+	}
 }
 
-func (s *Strategy) Match(reference *kuikv1alpha1.ImageReference) bool {
-	if match(reference.Reference(), s.Paths) {
+func Match(strategy *config.Strategy, reference *kuikv1alpha1.ImageReference) bool {
+	if match(reference.Reference(), strategy.Paths) {
 		return true
 	}
 
-	for _, r := range s.Registries {
-		if r == reference.Registry && match(reference.Path, s.Paths) {
+	for _, r := range strategy.Registries {
+		if r.Url == reference.Registry && match(reference.Path, strategy.Paths) {
 			return true
 		}
 	}

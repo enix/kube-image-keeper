@@ -4,21 +4,37 @@ import (
 	"log"
 	"reflect"
 	"regexp"
+	"time"
 
-	"github.com/enix/kube-image-keeper/internal/registry/routing"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/v2"
 )
 
+type Config struct {
+	Monitoring  Monitoring  `koanf:"monitoring"`
+	ActiveCheck ActiveCheck `koanf:"activeCheck"`
+	Strategies  []Strategy  `koanf:"strategies"`
+}
+
 type Monitoring struct {
 	Enabled bool `koanf:"enabled"`
 }
 
-type Config struct {
-	Monitoring Monitoring      `koanf:"monitoring"`
-	Routing    routing.Routing `koanf:"routing"`
+type ActiveCheck struct {
+	Enabled bool          `koanf:"enabled"`
+	Timeout time.Duration `koanf:"timeout"`
+}
+
+type Strategy struct {
+	Paths      []*regexp.Regexp `koanf:"paths"`
+	Registries []Registry       `koanf:"registries"`
+}
+
+type Registry struct {
+	Url              string `koanf:"url"`
+	MirroringEnabled bool   `koanf:"mirroringEnabled"`
 }
 
 func Load(path string) (*Config, error) {

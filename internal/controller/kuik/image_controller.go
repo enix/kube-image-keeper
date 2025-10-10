@@ -6,6 +6,9 @@ import (
 	"time"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
+	"github.com/enix/kube-image-keeper/internal/config"
+	"github.com/enix/kube-image-keeper/internal/registry"
+	"github.com/enix/kube-image-keeper/internal/registry/routing"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -14,6 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -27,6 +31,7 @@ type ImageReconciler struct {
 	client.Client
 	Scheme         *runtime.Scheme
 	UnusedImageTTL time.Duration
+	Config         *config.Config
 }
 
 // +kubebuilder:rbac:groups=kuik.enix.io,resources=images,verbs=get;list;watch;create;update;patch;delete
@@ -66,6 +71,40 @@ func (r *ImageReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 			}
 		} else {
 			return ctrl.Result{RequeueAfter: r.UnusedImageTTL - time.Since(image.Status.UnusedSince.Time)}, nil
+		}
+	}
+
+	registries := routing.MatchingRegistries(r.Config, &image.Spec.ImageReference)
+	for _, reg := range registries {
+		if reg.MirroringEnabled {
+			name, err := registry.ImageNameFromReference(reg.Url + "/" + image.Spec.Path)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+
+			imageMirror := &kuikv1alpha1.ImageMirror{
+				ObjectMeta: v1.ObjectMeta{
+					Name: name,
+				},
+				Spec: kuikv1alpha1.ImageMirrorSpec{
+					ImageReference: image.Spec.ImageReference,
+					TargetRegistry: reg.Url,
+				},
+			}
+
+			op, err := controllerutil.CreateOrPatch(ctx, r.Client, imageMirror, func() error {
+				if err := controllerutil.SetOwnerReference(&image, imageMirror, r.Scheme); err != nil {
+					return err
+				}
+				return nil
+			})
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+
+			if op != controllerutil.OperationResultNone {
+				log.V(1).Info("ensured ImageMonitor", "operation", op, "ImageMonitor", map[string]string{"name": imageMirror.Name, "source": imageMirror.Spec.Reference(), "destination": imageMirror.Spec.TargetRegistry})
+			}
 		}
 	}
 

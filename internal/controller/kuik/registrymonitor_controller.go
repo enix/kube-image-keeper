@@ -7,6 +7,7 @@ import (
 
 	"github.com/alitto/pond/v2"
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
+	"github.com/enix/kube-image-keeper/internal/config"
 	kuikcontroller "github.com/enix/kube-image-keeper/internal/controller"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/enix/kube-image-keeper/internal/registry/routing"
@@ -30,10 +31,9 @@ const (
 // RegistryMonitorReconciler reconciles a RegistryMonitor object
 type RegistryMonitorReconciler struct {
 	client.Client
-	Scheme            *runtime.Scheme
-	MonitorPools      map[string]pond.Pool
-	Routing           *routing.Routing
-	MonitoringEnabled bool
+	Scheme       *runtime.Scheme
+	MonitorPools map[string]pond.Pool
+	Config       *config.Config
 }
 
 // +kubebuilder:rbac:groups=kuik.enix.io,resources=registrymonitors,verbs=get;list;watch;create;update;patch;delete
@@ -73,11 +73,11 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	for _, image := range images.Items {
 		areImagesUsed[image.Reference()] = image.IsUsedByPods()
 
-		registries := r.Routing.MatchingRegistries(&image.Spec.ImageReference)
+		registries := routing.MatchingRegistries(r.Config, &image.Spec.ImageReference)
 
 		for _, reg := range registries {
 			imageReference := kuikv1alpha1.ImageReference{
-				Registry: reg,
+				Registry: reg.Url,
 				Path:     image.Spec.Path,
 			}
 
@@ -124,7 +124,7 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 	}
 
-	if !r.MonitoringEnabled {
+	if !r.Config.Monitoring.Enabled {
 		return ctrl.Result{}, nil
 	}
 

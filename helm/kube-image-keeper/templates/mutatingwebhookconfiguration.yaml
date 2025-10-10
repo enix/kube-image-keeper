@@ -1,4 +1,4 @@
-{{- if gt (len .Values.configuration.routing.strategies) 0 }}
+{{- if gt (len .Values.configuration.strategies) 0 }}
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
 metadata:

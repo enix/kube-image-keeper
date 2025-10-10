@@ -231,16 +231,16 @@ func main() {
 		Client:         mgr.GetClient(),
 		Scheme:         mgr.GetScheme(),
 		UnusedImageTTL: time.Hour * time.Duration(unusedImageTTL),
+		Config:         configuration,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Image")
 		os.Exit(1)
 	}
 	if err = (&kuikcontroller.RegistryMonitorReconciler{
-		Client:            mgr.GetClient(),
-		Scheme:            mgr.GetScheme(),
-		MonitorPools:      map[string]pond.Pool{},
-		Routing:           &configuration.Routing,
-		MonitoringEnabled: configuration.Monitoring.Enabled,
+		Client:       mgr.GetClient(),
+		Scheme:       mgr.GetScheme(),
+		MonitorPools: map[string]pond.Pool{},
+		Config:       configuration,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "RegistryMonitor")
 		os.Exit(1)
@@ -248,8 +248,8 @@ func main() {
 	// nolint:goconst
 	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
 		podDefaulter := webhookcorev1.PodCustomDefaulter{
-			Client:  mgr.GetClient(),
-			Routing: &configuration.Routing,
+			Client: mgr.GetClient(),
+			Config: configuration,
 		}
 		if err = webhookcorev1.SetupPodWebhookWithManager(mgr, &podDefaulter); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "Pod")

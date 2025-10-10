@@ -140,14 +140,14 @@ metrics:
 configuration:
   monitoring:
     enabled: true
-  routing:
-    activeCheck:
-      enabled: true
-      timeout: 1s
-    strategies: []
-      # - paths:
-      #     - enix/x509-certificate-exporter
-      #   registries:
-      #     - docker.io
-      #     - quay.io
+  activeCheck:
+    enabled: true
+    timeout: 1s
+  strategies: []
+    # - paths:
+    #     - enix/x509-certificate-exporter
+    #   registries:
+    #     - url: docker.io
+    #     - url: quay.io
+    #       mirroringEnabled: true
 

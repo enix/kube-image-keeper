@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/enix/kube-image-keeper/internal/registry/routing"
 	_ "github.com/enix/kube-image-keeper/internal/testsetup"
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/rawbytes"
@@ -16,38 +15,42 @@ func Test_load(t *testing.T) {
 	g := NewWithT(t)
 
 	rawYaml := []byte(strings.ReplaceAll(`
-routing:
-	strategies:
-		- paths:
-				- enix/x509-certificate-exporter
-				- nginx
-				- ^bitnami/.+$
-			registries:
-				- docker.io
-				- ghcr.io
-		- paths:
-				- enix/.+
-			registries:
-				- quay.io
-				- private.example.com
+strategies:
+	- paths:
+			- enix/x509-certificate-exporter
+			- nginx
+			- ^bitnami/.+$
+		registries:
+			- url: docker.io
+			- url: ghcr.io
+	- paths:
+			- enix/.+
+		registries:
+			- url: quay.io
+			- url: private.example.com
+				mirroringEnabled: true
 `, "\t", "  "))
 
 	expectedConfig := Config{
-		Routing: routing.Routing{
-			Strategies: []routing.Strategy{
-				{
-					Paths: []*regexp.Regexp{
-						regexp.MustCompile("enix/x509-certificate-exporter"),
-						regexp.MustCompile("nginx"),
-						regexp.MustCompile("^bitnami/.+$"),
-					},
-					Registries: []string{"docker.io", "ghcr.io"},
+		Strategies: []Strategy{
+			{
+				Paths: []*regexp.Regexp{
+					regexp.MustCompile("enix/x509-certificate-exporter"),
+					regexp.MustCompile("nginx"),
+					regexp.MustCompile("^bitnami/.+$"),
 				},
-				{
-					Paths: []*regexp.Regexp{
-						regexp.MustCompile("enix/.+"),
-					},
-					Registries: []string{"quay.io", "private.example.com"},
+				Registries: []Registry{
+					{Url: "docker.io"},
+					{Url: "ghcr.io"},
+				},
+			},
+			{
+				Paths: []*regexp.Regexp{
+					regexp.MustCompile("enix/.+"),
+				},
+				Registries: []Registry{
+					{Url: "quay.io"},
+					{Url: "private.example.com", MirroringEnabled: true},
 				},
 			},
 		},
