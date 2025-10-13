@@ -16,6 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -77,20 +78,18 @@ func (r *ImageReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	registries := routing.MatchingRegistries(r.Config, &image.Spec.ImageReference)
 	for _, reg := range registries {
 		if reg.MirroringEnabled {
-			name, err := registry.ImageNameFromReference(reg.Url + "/" + image.Spec.Path)
-			if err != nil {
-				return ctrl.Result{}, err
-			}
-
 			imageMirror := &kuikv1alpha1.ImageMirror{
-				ObjectMeta: v1.ObjectMeta{
-					Name: name,
-				},
 				Spec: kuikv1alpha1.ImageMirrorSpec{
 					ImageReference: image.Spec.ImageReference,
 					TargetRegistry: reg.Url,
 				},
 			}
+
+			name, err := registry.ImageNameFromReference(imageMirror.TargetReference())
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			imageMirror.Name = name
 
 			op, err := controllerutil.CreateOrPatch(ctx, r.Client, imageMirror, func() error {
 				if err := controllerutil.SetOwnerReference(&image, imageMirror, r.Scheme); err != nil {
@@ -135,6 +134,7 @@ func (r *ImageReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			&corev1.Pod{},
 			handler.EnqueueRequestsFromMapFunc(r.imagesRequestFromPod),
 		).
+		Owns(&kuikv1alpha1.ImageMirror{}, builder.MatchEveryOwner).
 		Complete(r)
 }
 

@@ -15,9 +15,8 @@ type ImageMirrorSpec struct {
 
 // ImageMirrorStatus defines the observed state of ImageMirror.
 type ImageMirrorStatus struct {
-	// Digest is the digest of the mirrored image
-	Digest     string             `json:"digest,omitempty"`
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// Phase represents the current phase of the ImageMirror
+	Phase string `json:"phase,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -26,6 +25,7 @@ type ImageMirrorStatus struct {
 // +kubebuilder:printcolumn:name="Image",type="string",JSONPath=".spec.path"
 // +kubebuilder:printcolumn:name="From",type="string",JSONPath=".spec.registry"
 // +kubebuilder:printcolumn:name="To",type="string",JSONPath=".spec.targetRegistry"
+// +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.phase"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // ImageMirror is the Schema for the imagemirrors API.
@@ -48,4 +48,20 @@ type ImageMirrorList struct {
 
 func init() {
 	SchemeBuilder.Register(&ImageMirror{}, &ImageMirrorList{})
+}
+
+func (i *ImageMirrorSpec) TargetReference() string {
+	if i.TargetRegistry == "" {
+		return i.Path
+	}
+
+	return i.TargetRegistry + "/" + i.Path
+}
+
+func (i *ImageMirror) SourceReference() string {
+	return i.Spec.Reference()
+}
+
+func (i *ImageMirror) TargetReference() string {
+	return i.Spec.TargetReference()
 }

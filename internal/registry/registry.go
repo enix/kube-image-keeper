@@ -12,6 +12,7 @@ import (
 
 	"github.com/cespare/xxhash/v2"
 	"github.com/distribution/reference"
+	"github.com/google/go-containerregistry/pkg/crane"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
@@ -81,6 +82,12 @@ func (a *AuthenticatedClient) ReadDescriptor(httpMethod string, imageName string
 	}
 
 	return nil, returnedErr
+}
+
+func MirrorImage(from, to string) error {
+	return crane.Copy(from, to, func(o *crane.Options) {
+		o.Platform, _ = v1.ParsePlatform("amd64")
+	})
 }
 
 func ImageNameFromReference(image string) (string, error) {
