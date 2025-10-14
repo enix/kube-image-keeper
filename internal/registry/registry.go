@@ -12,6 +12,7 @@ import (
 
 	"github.com/cespare/xxhash/v2"
 	"github.com/distribution/reference"
+	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/crane"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -84,10 +85,31 @@ func (a *AuthenticatedClient) ReadDescriptor(httpMethod string, imageName string
 	return nil, returnedErr
 }
 
-func MirrorImage(from, to string) error {
-	return crane.Copy(from, to, func(o *crane.Options) {
-		o.Platform, _ = v1.ParsePlatform("amd64")
-	})
+func MirrorImage(from, to string, pullSecret, pushSecret *corev1.Secret) error {
+	secrets := []corev1.Secret{}
+	if pullSecret != nil {
+		secrets = append(secrets, *pullSecret)
+	}
+	if pushSecret != nil {
+		secrets = append(secrets, *pushSecret)
+	}
+
+	fromKeychains, err := GetKeychains(from, secrets)
+	if err != nil {
+		return err
+	}
+	toKeychains, err := GetKeychains(to, secrets)
+	if err != nil {
+		return err
+	}
+
+	platform, _ := v1.ParsePlatform("amd64")
+	keychain := authn.NewMultiKeychain(append(fromKeychains, toKeychains...)...)
+
+	return crane.Copy(from, to,
+		crane.WithPlatform(platform),
+		crane.WithAuthFromKeychain(keychain),
+	)
 }
 
 func ImageNameFromReference(image string) (string, error) {

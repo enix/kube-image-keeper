@@ -15,9 +15,13 @@ import (
 
 type authConfigKeychain struct {
 	authn.AuthConfig
+	repositoryName string
 }
 
 func (a *authConfigKeychain) Resolve(target authn.Resource) (authn.Authenticator, error) {
+	if target.String() != a.repositoryName {
+		return authn.Anonymous, nil
+	}
 	return authn.FromConfig(a.AuthConfig), nil
 }
 
@@ -49,6 +53,7 @@ func getKeychainsFromSecrets(repositoryName string, pullSecrets []corev1.Secret)
 	creds, _ := keyring.Lookup(named.Name())
 	for _, cred := range creds {
 		keychains = append(keychains, &authConfigKeychain{
+			repositoryName: named.Name(),
 			AuthConfig: authn.AuthConfig{
 				Username:      cred.Username,
 				Password:      cred.Password,

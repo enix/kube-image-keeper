@@ -259,6 +259,7 @@ func main() {
 	if err = (&kuikcontroller.ImageMirrorReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
+		Config: configuration,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ImageMirror")
 		os.Exit(1)

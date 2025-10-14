@@ -10,16 +10,22 @@ import (
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/v2"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 type Config struct {
 	Monitoring  Monitoring  `koanf:"monitoring"`
+	Mirroring   Mirroring   `koanf:"mirroring"`
 	ActiveCheck ActiveCheck `koanf:"activeCheck"`
 	Strategies  []Strategy  `koanf:"strategies"`
 }
 
 type Monitoring struct {
 	Enabled bool `koanf:"enabled"`
+}
+
+type Mirroring struct {
+	Secrets map[string]types.NamespacedName `koanf:"secrets"`
 }
 
 type ActiveCheck struct {

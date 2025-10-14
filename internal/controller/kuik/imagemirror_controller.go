@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -12,6 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
+	"github.com/enix/kube-image-keeper/internal/config"
 	"github.com/enix/kube-image-keeper/internal/registry"
 )
 
@@ -19,6 +21,7 @@ import (
 type ImageMirrorReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+	Config *config.Config
 }
 
 // +kubebuilder:rbac:groups=kuik.enix.io,resources=imagemirrors,verbs=get;list;watch;create;update;patch;delete
@@ -95,7 +98,29 @@ func (r *ImageMirrorReconciler) isImageAvailableOnTarget(ctx context.Context, im
 func (r *ImageMirrorReconciler) mirrorImage(ctx context.Context, imageMirror kuikv1alpha1.ImageMirror) error {
 	log := logf.FromContext(ctx)
 	log.Info("mirroring image", "reference", imageMirror.Spec.ImageReference)
-	return registry.MirrorImage(imageMirror.SourceReference(), imageMirror.TargetReference())
+
+	sourceSecret, err := r.getSecretForRegistry(ctx, imageMirror.Spec.Registry)
+	if err != nil {
+		return err
+	}
+
+	targetSecret, err := r.getSecretForRegistry(ctx, imageMirror.Spec.TargetRegistry)
+	if err != nil {
+		return err
+	}
+
+	return registry.MirrorImage(imageMirror.SourceReference(), imageMirror.TargetReference(), sourceSecret, targetSecret)
+}
+
+func (r *ImageMirrorReconciler) getSecretForRegistry(ctx context.Context, registry string) (*corev1.Secret, error) {
+	if namespacedName, ok := r.Config.Mirroring.Secrets[registry]; ok {
+		secret := &corev1.Secret{}
+		if err := r.Get(ctx, namespacedName, secret); err != nil {
+			return nil, err
+		}
+		return secret, nil
+	}
+	return nil, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -103,11 +128,6 @@ func (r *ImageMirrorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kuikv1alpha1.ImageMirror{}).
 		Named("kuik-imagemirror").
-		// prevent from reenquing after status update (produced a infinite loop between Error and Mirroring phases)
-		WithEventFilter(predicate.Or(
-			predicate.GenerationChangedPredicate{},
-			predicate.LabelChangedPredicate{},
-			predicate.AnnotationChangedPredicate{},
-		)).
+		WithEventFilter(predicate.GenerationChangedPredicate{}).
 		Complete(r)
 }

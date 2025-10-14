@@ -140,6 +140,11 @@ metrics:
 configuration:
   monitoring:
     enabled: true
+  mirroring:
+    secrets: {}
+      # registry.example.com:
+      #   namespace: example
+      #   name: registry-credentials
   activeCheck:
     enabled: true
     timeout: 1s
