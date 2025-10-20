@@ -142,10 +142,10 @@ func (i *ImageMonitor) Monitor(ctx context.Context, k8sClient client.Client, htt
 
 	patch = client.MergeFrom(i.DeepCopy())
 	pullSecrets, pullSecretsErr := i.GetPullSecrets(ctx, k8sClient)
-	client := registry.NewClient(nil, nil).WithPullSecrets(pullSecrets)
+	client := registry.NewClient(nil, nil).WithTimeout(timeout).WithPullSecrets(pullSecrets)
 
 	var lastErr error
-	if desc, err := client.ReadDescriptor(httpMethod, i.Reference(), timeout); err != nil {
+	if desc, err := client.ReadDescriptor(httpMethod, i.Reference()); err != nil {
 		i.Status.Upstream.LastError = err.Error()
 		lastErr = err
 		var te *transport.Error

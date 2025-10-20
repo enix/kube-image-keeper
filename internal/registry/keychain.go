@@ -29,7 +29,7 @@ func GetKeychains(repositoryName string, pullSecrets []corev1.Secret) ([]authn.K
 	if keychains, err := getKeychainsFromSecrets(repositoryName, pullSecrets); err != nil {
 		return nil, err
 	} else {
-		return append(keychains, authn.DefaultKeychain), nil
+		return keychains, nil
 	}
 }
 

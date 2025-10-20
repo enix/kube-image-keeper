@@ -49,11 +49,19 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, nil
 	}
 
-	available := r.isImageAvailableOnTarget(logf.IntoContext(ctx, log), imageMirror)
+	destSecrets, err := r.getSecretsForRegistry(ctx, imageMirror.Spec.TargetRegistry)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 
-	log.Info("checked availability", "available", available)
+	log.V(1).Info("verifying image availability on target registry", "reference", imageMirror.Spec.ImageReference)
+	_, err = registry.NewClient(nil, nil).
+		WithTimeout(time.Second*30).
+		WithPullSecrets(destSecrets).
+		ReadDescriptor(http.MethodGet, imageMirror.TargetReference())
+	log.Info("image availability", "available", err == nil)
 
-	if !available {
+	if err != nil {
 		if imageMirror.Status.Phase != "Mirroring" {
 			patch := client.MergeFrom(imageMirror.DeepCopy())
 			imageMirror.Status.Phase = "Mirroring"
@@ -62,7 +70,7 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			}
 		}
 
-		err := r.mirrorImage(logf.IntoContext(ctx, log), imageMirror)
+		err := r.mirrorImage(logf.IntoContext(ctx, log), imageMirror, destSecrets)
 		if err != nil {
 			patch := client.MergeFrom(imageMirror.DeepCopy())
 			if imageMirror.Status.Phase != "Error" {
@@ -88,37 +96,31 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	return ctrl.Result{}, nil
 }
 
-func (r *ImageMirrorReconciler) isImageAvailableOnTarget(ctx context.Context, imageMirror kuikv1alpha1.ImageMirror) bool {
-	log := logf.FromContext(ctx)
-	log.V(1).Info("verifying image availability on target registry", "reference", imageMirror.Spec.ImageReference)
-	_, err := registry.NewClient(nil, nil).WithPullSecrets(nil).ReadDescriptor(http.MethodGet, imageMirror.TargetReference(), time.Second*30)
-	return err == nil
-}
-
-func (r *ImageMirrorReconciler) mirrorImage(ctx context.Context, imageMirror kuikv1alpha1.ImageMirror) error {
+func (r *ImageMirrorReconciler) mirrorImage(ctx context.Context, imageMirror kuikv1alpha1.ImageMirror, destSecrets []corev1.Secret) error {
 	log := logf.FromContext(ctx)
 	log.Info("mirroring image", "reference", imageMirror.Spec.ImageReference)
 
-	sourceSecret, err := r.getSecretForRegistry(ctx, imageMirror.Spec.Registry)
+	srcSecrets, err := r.getSecretsForRegistry(ctx, imageMirror.Spec.Registry)
 	if err != nil {
 		return err
 	}
 
-	targetSecret, err := r.getSecretForRegistry(ctx, imageMirror.Spec.TargetRegistry)
+	client := registry.NewClient(nil, nil).WithPullSecrets(srcSecrets)
+	srcDesc, err := client.GetDescriptor(imageMirror.SourceReference())
 	if err != nil {
 		return err
 	}
 
-	return registry.MirrorImage(imageMirror.SourceReference(), imageMirror.TargetReference(), sourceSecret, targetSecret)
+	return client.WithTimeout(0).WithPullSecrets(destSecrets).CopyImage(srcDesc, imageMirror.TargetReference(), []string{"amd64"})
 }
 
-func (r *ImageMirrorReconciler) getSecretForRegistry(ctx context.Context, registry string) (*corev1.Secret, error) {
+func (r *ImageMirrorReconciler) getSecretsForRegistry(ctx context.Context, registry string) ([]corev1.Secret, error) {
 	if namespacedName, ok := r.Config.Mirroring.Secrets[registry]; ok {
-		secret := &corev1.Secret{}
-		if err := r.Get(ctx, namespacedName, secret); err != nil {
+		secrets := make([]corev1.Secret, 1)
+		if err := r.Get(ctx, namespacedName, &secrets[0]); err != nil {
 			return nil, err
 		}
-		return secret, nil
+		return secrets, nil
 	}
 	return nil, nil
 }

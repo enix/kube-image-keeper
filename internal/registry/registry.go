@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -13,10 +14,12 @@ import (
 	"github.com/cespare/xxhash/v2"
 	"github.com/distribution/reference"
 	"github.com/google/go-containerregistry/pkg/authn"
-	"github.com/google/go-containerregistry/pkg/crane"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/google/go-containerregistry/pkg/v1/types"
+
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -25,6 +28,7 @@ type descriptorReader func(ref name.Reference, options ...remote.Option) (*v1.De
 type Client struct {
 	insecureRegistries []string
 	rootCAs            *x509.CertPool
+	timeout            time.Duration
 }
 
 type AuthenticatedClient struct {
@@ -47,6 +51,11 @@ func (c *Client) options(ctx context.Context, ref name.Reference) []remote.Optio
 	}
 }
 
+func (c *Client) WithTimeout(timeout time.Duration) *Client {
+	c.timeout = timeout
+	return c
+}
+
 func (c *Client) WithPullSecrets(pullSecrets []corev1.Secret) *AuthenticatedClient {
 	return &AuthenticatedClient{
 		Client:      c,
@@ -54,62 +63,98 @@ func (c *Client) WithPullSecrets(pullSecrets []corev1.Secret) *AuthenticatedClie
 	}
 }
 
-func (a *AuthenticatedClient) ReadDescriptor(httpMethod string, imageName string, timeout time.Duration) (*v1.Descriptor, error) {
+// Execute execute a callback with authentication with options including authentication and optional timeout
+func (a *AuthenticatedClient) Execute(imageName string, action func(ref name.Reference, opts ...remote.Option) error) error {
 	keychains, err := GetKeychains(imageName, a.pullSecrets)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	sourceRef, err := name.ParseReference(imageName)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	// global timeout for all keychains
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	options := a.options(ctx, sourceRef)
-	defer cancel()
+	ctx := context.Background()
 
-	var returnedErr error
+	if a.timeout > 0 {
+		// global timeout for all keychains
+		var cancel func()
+		ctx, cancel = context.WithTimeout(ctx, a.timeout)
+		defer func() {
+			cancel()
+		}()
+	}
+
+	options := a.options(ctx, sourceRef)
+
+	if len(keychains) == 0 {
+		keychains = append(keychains, authn.DefaultKeychain)
+	}
+
+	var errs []error
 	for _, keychain := range keychains {
 		opts := append([]remote.Option{remote.WithAuthFromKeychain(keychain)}, options...)
-		desc, err := getReader(httpMethod)(sourceRef, opts...)
+		err := action(sourceRef, opts...)
 
 		if err == nil { // stops at the first success
-			return desc, nil
+			return nil
 		} else {
-			returnedErr = err
+			errs = append(errs, err)
 		}
 	}
 
-	return nil, returnedErr
+	return errors.Join(errs...)
 }
 
-func MirrorImage(from, to string, pullSecret, pushSecret *corev1.Secret) error {
-	secrets := []corev1.Secret{}
-	if pullSecret != nil {
-		secrets = append(secrets, *pullSecret)
-	}
-	if pushSecret != nil {
-		secrets = append(secrets, *pushSecret)
-	}
-
-	fromKeychains, err := GetKeychains(from, secrets)
-	if err != nil {
+func (a *AuthenticatedClient) ReadDescriptor(httpMethod string, imageName string) (*v1.Descriptor, error) {
+	var desc *v1.Descriptor
+	return desc, a.Execute(imageName, func(ref name.Reference, opts ...remote.Option) (err error) {
+		desc, err = getReader(httpMethod)(ref, opts...)
 		return err
-	}
-	toKeychains, err := GetKeychains(to, secrets)
-	if err != nil {
+	})
+}
+
+func (a *AuthenticatedClient) GetDescriptor(imageName string) (*remote.Descriptor, error) {
+	var desc *remote.Descriptor
+	return desc, a.Execute(imageName, func(ref name.Reference, opts ...remote.Option) (err error) {
+		desc, err = remote.Get(ref, opts...)
 		return err
-	}
+	})
+}
 
-	platform, _ := v1.ParsePlatform("amd64")
-	keychain := authn.NewMultiKeychain(append(fromKeychains, toKeychains...)...)
+func (a *AuthenticatedClient) CopyImage(src *remote.Descriptor, dest string, architectures []string) error {
+	return a.Execute(dest, func(destRef name.Reference, opts ...remote.Option) (err error) {
+		switch src.MediaType {
+		case types.OCIImageIndex, types.DockerManifestList:
+			index, err := src.ImageIndex()
+			if err != nil {
+				return err
+			}
 
-	return crane.Copy(from, to,
-		crane.WithPlatform(platform),
-		crane.WithAuthFromKeychain(keychain),
-	)
+			filteredIndex := mutate.RemoveManifests(index, func(src v1.Descriptor) bool {
+				return !slices.ContainsFunc(architectures, func(arch string) bool {
+					return src.Platform.Satisfies(v1.Platform{
+						Architecture: arch,
+					})
+				})
+			})
+
+			if err := remote.WriteIndex(destRef, filteredIndex, opts...); err != nil {
+				return err
+			}
+		default:
+			image, err := src.Image()
+			if err != nil {
+				return err
+			}
+			if err := remote.Write(destRef, image, opts...); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
 }
 
 func ImageNameFromReference(image string) (string, error) {
