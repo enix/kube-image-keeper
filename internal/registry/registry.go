@@ -29,11 +29,7 @@ type Client struct {
 	insecureRegistries []string
 	rootCAs            *x509.CertPool
 	timeout            time.Duration
-}
-
-type AuthenticatedClient struct {
-	*Client
-	pullSecrets []corev1.Secret
+	pullSecrets        []corev1.Secret
 }
 
 func NewClient(insecureRegistries []string, rootCAs *x509.CertPool) *Client {
@@ -56,16 +52,14 @@ func (c *Client) WithTimeout(timeout time.Duration) *Client {
 	return c
 }
 
-func (c *Client) WithPullSecrets(pullSecrets []corev1.Secret) *AuthenticatedClient {
-	return &AuthenticatedClient{
-		Client:      c,
-		pullSecrets: pullSecrets,
-	}
+func (c *Client) WithPullSecrets(pullSecrets []corev1.Secret) *Client {
+	c.pullSecrets = pullSecrets
+	return c
 }
 
 // Execute execute a callback with authentication with options including authentication and optional timeout
-func (a *AuthenticatedClient) Execute(imageName string, action func(ref name.Reference, opts ...remote.Option) error) error {
-	keychains, err := GetKeychains(imageName, a.pullSecrets)
+func (c *Client) Execute(imageName string, action func(ref name.Reference, opts ...remote.Option) error) error {
+	keychains, err := GetKeychains(imageName, c.pullSecrets)
 	if err != nil {
 		return err
 	}
@@ -77,16 +71,16 @@ func (a *AuthenticatedClient) Execute(imageName string, action func(ref name.Ref
 
 	ctx := context.Background()
 
-	if a.timeout > 0 {
+	if c.timeout > 0 {
 		// global timeout for all keychains
 		var cancel func()
-		ctx, cancel = context.WithTimeout(ctx, a.timeout)
+		ctx, cancel = context.WithTimeout(ctx, c.timeout)
 		defer func() {
 			cancel()
 		}()
 	}
 
-	options := a.options(ctx, sourceRef)
+	options := c.options(ctx, sourceRef)
 
 	if len(keychains) == 0 {
 		keychains = append(keychains, authn.DefaultKeychain)
@@ -107,24 +101,24 @@ func (a *AuthenticatedClient) Execute(imageName string, action func(ref name.Ref
 	return errors.Join(errs...)
 }
 
-func (a *AuthenticatedClient) ReadDescriptor(httpMethod string, imageName string) (*v1.Descriptor, error) {
+func (c *Client) ReadDescriptor(httpMethod string, imageName string) (*v1.Descriptor, error) {
 	var desc *v1.Descriptor
-	return desc, a.Execute(imageName, func(ref name.Reference, opts ...remote.Option) (err error) {
+	return desc, c.Execute(imageName, func(ref name.Reference, opts ...remote.Option) (err error) {
 		desc, err = getReader(httpMethod)(ref, opts...)
 		return err
 	})
 }
 
-func (a *AuthenticatedClient) GetDescriptor(imageName string) (*remote.Descriptor, error) {
+func (c *Client) GetDescriptor(imageName string) (*remote.Descriptor, error) {
 	var desc *remote.Descriptor
-	return desc, a.Execute(imageName, func(ref name.Reference, opts ...remote.Option) (err error) {
+	return desc, c.Execute(imageName, func(ref name.Reference, opts ...remote.Option) (err error) {
 		desc, err = remote.Get(ref, opts...)
 		return err
 	})
 }
 
-func (a *AuthenticatedClient) CopyImage(src *remote.Descriptor, dest string, architectures []string) error {
-	return a.Execute(dest, func(destRef name.Reference, opts ...remote.Option) (err error) {
+func (c *Client) CopyImage(src *remote.Descriptor, dest string, architectures []string) error {
+	return c.Execute(dest, func(destRef name.Reference, opts ...remote.Option) (err error) {
 		switch src.MediaType {
 		case types.OCIImageIndex, types.DockerManifestList:
 			index, err := src.ImageIndex()
