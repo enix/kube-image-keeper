@@ -58,7 +58,7 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	_, err = registry.NewClient(nil, nil).
 		WithTimeout(time.Second*30).
 		WithPullSecrets(destSecrets).
-		ReadDescriptor(http.MethodGet, imageMirror.TargetReference())
+		ReadDescriptor(http.MethodGet, imageMirror.TargetReference()) // TODO: should use the ImageMonitor
 	log.Info("image availability", "available", err == nil)
 
 	if err != nil {

@@ -10,7 +10,6 @@ import (
 	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/enix/kube-image-keeper/internal/registry/routing"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -58,7 +57,7 @@ func (r *ImageReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	log = log.WithValues("reference", image.Reference())
 
-	if requeue, err := r.updateReferenceCount(ctx, &image); requeue {
+	if requeue, err := r.updateReferenceCount(logf.IntoContext(ctx, log), &image); requeue {
 		return ctrl.Result{Requeue: true}, nil
 	} else if err != nil {
 		return ctrl.Result{}, err
@@ -66,7 +65,7 @@ func (r *ImageReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	if !image.Status.UnusedSince.IsZero() {
 		if v1.Now().Sub(image.Status.UnusedSince.Time) > r.UnusedImageTTL {
-			log.Info("image is unused for too long, deleting it", "ttl", r.UnusedImageTTL)
+			log.Info("image is unused for too long, deleting it", "unusedSince", image.Status.UnusedSince, "TTL", r.UnusedImageTTL)
 			if err := r.Delete(ctx, &image); err != nil {
 				return ctrl.Result{}, client.IgnoreNotFound(err)
 			}
@@ -115,7 +114,7 @@ func (r *ImageReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// create an index to list Pods by Image
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &corev1.Pod{}, ImagesIndexKey, func(rawObj client.Object) []string {
 		pod := rawObj.(*corev1.Pod)
-		images, _ := kuikv1alpha1.ImagesFromPod(pod)
+		images, _ := kuikv1alpha1.ImagesFromPod(pod) // FIXME: log or handle errors in some way
 
 		imageNames := make([]string, len(images))
 		for _, image := range images {
@@ -140,6 +139,8 @@ func (r *ImageReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 // updateReferenceCount update Image UsedByPods status
 func (r *ImageReconciler) updateReferenceCount(ctx context.Context, image *kuikv1alpha1.Image) (requeue bool, err error) {
+	log := logf.FromContext(ctx)
+
 	var podList corev1.PodList
 	if err = r.List(ctx, &podList, client.MatchingFields{ImagesIndexKey: image.Name}); err != nil && !apierrors.IsNotFound(err) {
 		return false, err
@@ -161,14 +162,18 @@ func (r *ImageReconciler) updateReferenceCount(ctx context.Context, image *kuikv
 	if len(pods) == 0 {
 		if image.Status.UnusedSince.IsZero() {
 			image.Status.UnusedSince = v1.Now()
+			log.V(1).Info("image has changed from in-use to unused")
 		}
 	} else {
-		image.Status.UnusedSince = v1.Time{}
+		if !image.Status.UnusedSince.IsZero() {
+			image.Status.UnusedSince = v1.Time{}
+			log.V(1).Info("image has changed from unused to in-use")
+		}
 	}
 
 	err = r.Status().Update(ctx, image)
 	if err != nil {
-		if statusErr, ok := err.(*errors.StatusError); ok && statusErr.Status().Code == http.StatusConflict {
+		if statusErr, ok := err.(*apierrors.StatusError); ok && statusErr.Status().Code == http.StatusConflict {
 			requeue = true
 		}
 		return requeue, err
