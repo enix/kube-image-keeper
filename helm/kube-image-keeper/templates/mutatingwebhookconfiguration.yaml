@@ -8,7 +8,6 @@ metadata:
 webhooks:
 - admissionReviewVersions:
   - v1
-  - v1beta1
   clientConfig:
     service:
       name: {{ include "kube-image-keeper.fullname" . }}-webhook
@@ -23,7 +22,7 @@ webhooks:
       values:
       - kube-system
       - {{ .Release.Namespace }}
-  name: mpod.kb.io
+  name: mpod-v1.kb.io
   rules:
   - apiGroups:
     - ""
