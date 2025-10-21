@@ -126,15 +126,7 @@ func (i *Image) GetPullSecrets(ctx context.Context, c client.Client) (secrets []
 		return nil, err
 	}
 
-	for _, imagePullSecret := range pod.Spec.ImagePullSecrets {
-		secret := &corev1.Secret{}
-		if err := c.Get(ctx, client.ObjectKey{Namespace: pod.Namespace, Name: imagePullSecret.Name}, secret); err != nil {
-			return nil, fmt.Errorf("could not get image pull secret %q: %w", imagePullSecret.Name, err)
-		}
-		secrets = append(secrets, *secret)
-	}
-
-	return secrets, nil
+	return registry.GetPullSecretsFromPod(ctx, c, pod)
 }
 
 func (i *Image) IsUsedByPods() bool {

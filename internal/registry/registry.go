@@ -19,6 +19,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	corev1 "k8s.io/api/core/v1"
 )
@@ -175,6 +176,19 @@ func RegistryNameFromReference(image string) (string, string, error) {
 
 	parts := strings.SplitN(named.String(), "/", 2)
 	return parts[0], parts[1], nil
+}
+
+func GetPullSecretsFromPod(ctx context.Context, c client.Client, pod *corev1.Pod) ([]corev1.Secret, error) {
+	secrets := []corev1.Secret{}
+	for _, imagePullSecret := range pod.Spec.ImagePullSecrets {
+		secret := &corev1.Secret{}
+		if err := c.Get(ctx, client.ObjectKey{Namespace: pod.Namespace, Name: imagePullSecret.Name}, secret); err != nil {
+			return nil, fmt.Errorf("could not get image pull secret %q: %w", imagePullSecret.Name, err)
+		}
+		secrets = append(secrets, *secret)
+	}
+
+	return secrets, nil
 }
 
 func getReader(httpMethod string) descriptorReader {

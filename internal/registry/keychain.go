@@ -1,16 +1,12 @@
 package registry
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/distribution/reference"
 	"github.com/enix/kube-image-keeper/internal/registry/credentialprovider/secrets"
 	"github.com/google/go-containerregistry/pkg/authn"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type authConfigKeychain struct {
@@ -65,26 +61,4 @@ func getKeychainsFromSecrets(repositoryName string, pullSecrets []corev1.Secret)
 	}
 
 	return keychains, nil
-}
-
-func GetPullSecrets(apiReader client.Reader, namespace string, pullSecretNames []string) ([]corev1.Secret, error) {
-	pullSecrets := []corev1.Secret{}
-	for _, pullSecretName := range pullSecretNames {
-		var pullSecret corev1.Secret
-		err := apiReader.Get(context.Background(), types.NamespacedName{
-			Namespace: namespace,
-			Name:      pullSecretName,
-		}, &pullSecret)
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				continue
-			} else {
-				return nil, err
-			}
-		}
-
-		pullSecrets = append(pullSecrets, pullSecret)
-	}
-
-	return pullSecrets, nil
 }

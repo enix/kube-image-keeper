@@ -2,6 +2,7 @@ package v1
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
@@ -58,12 +59,17 @@ func (d *PodCustomDefaulter) Default(ctx context.Context, obj runtime.Object) er
 
 	log.Info("defaulting for Pod")
 
-	d.RerouteImages(logf.IntoContext(ctx, log), pod)
+	pullSecrets, err := registry.GetPullSecretsFromPod(ctx, d.Client, pod)
+	if err != nil {
+		return err
+	}
+
+	d.RerouteImages(logf.IntoContext(ctx, log), pod, pullSecrets)
 
 	return nil
 }
 
-func (d *PodCustomDefaulter) RerouteImages(ctx context.Context, pod *corev1.Pod) {
+func (d *PodCustomDefaulter) RerouteImages(ctx context.Context, pod *corev1.Pod, pullSecrets []corev1.Secret) {
 	if pod.Annotations == nil {
 		pod.Annotations = map[string]string{}
 	}
@@ -75,17 +81,17 @@ func (d *PodCustomDefaulter) RerouteImages(ctx context.Context, pod *corev1.Pod)
 	// Handle Containers
 	for i := range pod.Spec.Containers {
 		container := &pod.Spec.Containers[i]
-		d.handleContainer(ctx, container, false)
+		d.handleContainer(ctx, container, pullSecrets, false)
 	}
 
 	// Handle init containers
 	for i := range pod.Spec.InitContainers {
 		container := &pod.Spec.InitContainers[i]
-		d.handleContainer(ctx, container, true)
+		d.handleContainer(ctx, container, pullSecrets, true)
 	}
 }
 
-func (d *PodCustomDefaulter) handleContainer(ctx context.Context, container *corev1.Container, initContainer bool) {
+func (d *PodCustomDefaulter) handleContainer(ctx context.Context, container *corev1.Container, pullSecrets []corev1.Secret, initContainer bool) {
 	log := logf.FromContext(ctx)
 	registry, path, err := registry.RegistryNameFromReference(container.Image)
 	if err != nil {
@@ -94,12 +100,9 @@ func (d *PodCustomDefaulter) handleContainer(ctx context.Context, container *cor
 
 	imageReference := kuikv1alpha1.NewImageReference(registry, path)
 
-	status, err := d.getImageStatus(ctx, container.Image)
-	if err != nil {
-		log.Error(err, "could not get image status", "image", container.Image)
-		return
-	}
-	if status == kuikv1alpha1.ImageMonitorStatusUpstreamAvailable {
+	if available, err := d.checkImageAvailability(ctx, container.Image, pullSecrets); err != nil {
+		log.Error(err, "could not check image availability", "image", container.Image)
+	} else if available {
 		return
 	}
 
@@ -112,14 +115,12 @@ func (d *PodCustomDefaulter) handleContainer(ctx context.Context, container *cor
 		if reg.Url == registry {
 			continue // don't check the same registry twice
 		}
-		alternativeRef := reg.Url + "/" + imageReference.Path
-		alternativeStatus, err := d.getImageStatus(ctx, alternativeRef)
-		if err != nil {
-			log.Error(err, "could not get image status", "image", alternativeRef)
-			continue
-		}
 
-		if alternativeStatus == kuikv1alpha1.ImageMonitorStatusUpstreamAvailable {
+		alternativeRef := reg.Url + "/" + imageReference.Path
+		if available, err := d.checkImageAvailability(ctx, alternativeRef, pullSecrets); err != nil {
+			log.Error(err, "could not check image availability", "image", alternativeRef)
+			continue
+		} else if available {
 			log.Info("rerouting image", "container", container.Name, "isInit", initContainer, "originalImage", container.Image, "reroutedImage", alternativeRef)
 			container.Image = alternativeRef
 			return
@@ -127,25 +128,31 @@ func (d *PodCustomDefaulter) handleContainer(ctx context.Context, container *cor
 	}
 }
 
-func (d *PodCustomDefaulter) getImageStatus(ctx context.Context, reference string) (kuikv1alpha1.ImageMonitorStatusUpstream, error) {
+func (d *PodCustomDefaulter) checkImageAvailability(ctx context.Context, reference string, pullSecrets []corev1.Secret) (bool, error) {
 	name, err := registry.ImageNameFromReference(reference)
 	if err != nil {
-		return kuikv1alpha1.ImageMonitorStatusUpstream(""), err
+		return false, err
 	}
 
 	var imageMonitor kuikv1alpha1.ImageMonitor
 	if err := d.Get(ctx, types.NamespacedName{Name: name}, &imageMonitor); err != nil {
-		return kuikv1alpha1.ImageMonitorStatusUpstream(""), err
+		return false, err
 	}
 
 	if d.Config.ActiveCheck.Enabled {
 		registryMonitor, err := imageMonitor.GetRegistryMonitor(ctx, d.Client)
 		if err != nil {
-			return kuikv1alpha1.ImageMonitorStatusUpstream(""), err
+			return false, err
 		}
 
-		_ = imageMonitor.Monitor(ctx, d.Client, registryMonitor.Spec.Method, d.Config.ActiveCheck.Timeout)
+		_, err = registry.NewClient(nil, nil).
+			WithTimeout(d.Config.ActiveCheck.Timeout).
+			WithPullSecrets(pullSecrets).
+			ReadDescriptor(registryMonitor.Spec.Method, reference)
+		return err == nil, nil
+	} else if imageMonitor.Status.Upstream.Status != kuikv1alpha1.ImageMonitorStatusUpstreamAvailable {
+		return false, errors.New("image last monitored status is not available")
 	}
 
-	return imageMonitor.Status.Upstream.Status, nil
+	return true, nil
 }

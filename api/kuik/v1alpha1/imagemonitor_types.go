@@ -2,15 +2,11 @@ package v1alpha1
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"net/http"
 	"strings"
-	"time"
 
 	"github.com/cespare/xxhash"
 	"github.com/enix/kube-image-keeper/internal/registry"
-	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -131,56 +127,4 @@ func (i *ImageMonitor) GetPullSecrets(ctx context.Context, c client.Client) (sec
 	}
 
 	return image.GetPullSecrets(ctx, c)
-}
-
-func (i *ImageMonitor) Monitor(ctx context.Context, k8sClient client.Client, httpMethod string, timeout time.Duration) error {
-	patch := client.MergeFrom(i.DeepCopy())
-	i.Status.Upstream.LastMonitor = metav1.Now()
-	if err := k8sClient.Status().Patch(ctx, i, patch); err != nil {
-		return fmt.Errorf("failed to patch image status: %w", err)
-	}
-
-	patch = client.MergeFrom(i.DeepCopy())
-	pullSecrets, pullSecretsErr := i.GetPullSecrets(ctx, k8sClient)
-	client := registry.NewClient(nil, nil).WithTimeout(timeout).WithPullSecrets(pullSecrets)
-
-	var lastErr error
-	if desc, err := client.ReadDescriptor(httpMethod, i.Reference()); err != nil {
-		i.Status.Upstream.LastError = err.Error()
-		lastErr = err
-		var te *transport.Error
-		if errors.As(err, &te) {
-			switch te.StatusCode {
-			case http.StatusForbidden, http.StatusUnauthorized:
-				if pullSecretsErr != nil {
-					i.Status.Upstream.Status = ImageMonitorStatusUpstreamUnavailableSecret
-					i.Status.Upstream.LastError = pullSecretsErr.Error()
-					lastErr = pullSecretsErr
-				} else {
-					i.Status.Upstream.Status = ImageMonitorStatusUpstreamInvalidAuth
-				}
-			case http.StatusTooManyRequests:
-				i.Status.Upstream.Status = ImageMonitorStatusUpstreamQuotaExceeded
-			default:
-				i.Status.Upstream.Status = ImageMonitorStatusUpstreamUnavailable
-			}
-		} else {
-			i.Status.Upstream.Status = ImageMonitorStatusUpstreamUnreachable
-		}
-	} else {
-		i.Status.Upstream.LastSeen = metav1.Now()
-		i.Status.Upstream.LastError = ""
-		i.Status.Upstream.Status = ImageMonitorStatusUpstreamAvailable
-		i.Status.Upstream.Digest = desc.Digest.String()
-	}
-
-	if errStatus := k8sClient.Status().Patch(ctx, i, patch); errStatus != nil {
-		return fmt.Errorf("failed to patch image status: %w", errStatus)
-	}
-
-	if lastErr != nil {
-		return lastErr
-	}
-
-	return nil
 }

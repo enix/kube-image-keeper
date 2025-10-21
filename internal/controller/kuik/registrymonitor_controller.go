@@ -2,6 +2,9 @@ package kuik
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"net/http"
 	"slices"
 	"time"
 
@@ -11,6 +14,7 @@ import (
 	kuikcontroller "github.com/enix/kube-image-keeper/internal/controller"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/enix/kube-image-keeper/internal/registry/routing"
+	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -174,7 +178,7 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			logImageMonitor.Info("monitoring image")
 			// TODO: add to SetupWithManager Watches(&source.Channel{Source: eventChannel}, &handler.EnqueueRequestForObject{})
 			// push an event in the channel when this function is done
-			if err := imageMonitor.Monitor(logf.IntoContext(ctx, logImageMonitor), r.Client, registryMonitor.Spec.Method, registryMonitor.Spec.Timeout.Duration); err != nil {
+			if err := r.MonitorImage(logf.IntoContext(ctx, logImageMonitor), &imageMonitor, registryMonitor.Spec.Method, registryMonitor.Spec.Timeout.Duration); err != nil {
 				logImageMonitor.Info("failed to monitor image", "error", err.Error())
 			}
 			logImageMonitor.Info("image monitored with success")
@@ -257,6 +261,53 @@ func (r *RegistryMonitorReconciler) mapImageToRegistryMonitors(ctx context.Conte
 	}
 
 	return requests
+}
+
+func (r *RegistryMonitorReconciler) MonitorImage(ctx context.Context, imageMonitor *kuikv1alpha1.ImageMonitor, httpMethod string, timeout time.Duration) error {
+	patch := client.MergeFrom(imageMonitor.DeepCopy())
+	imageMonitor.Status.Upstream.LastMonitor = metav1.Now()
+	if err := r.Status().Patch(ctx, imageMonitor, patch); err != nil {
+		return fmt.Errorf("failed to patch image status: %w", err)
+	}
+
+	patch = client.MergeFrom(imageMonitor.DeepCopy())
+	pullSecrets, pullSecretsErr := imageMonitor.GetPullSecrets(ctx, r.Client)
+	client := registry.NewClient(nil, nil).WithTimeout(timeout).WithPullSecrets(pullSecrets)
+
+	desc, err := client.ReadDescriptor(httpMethod, imageMonitor.Reference())
+	if err != nil {
+		imageMonitor.Status.Upstream.LastError = err.Error()
+		var te *transport.Error
+		if errors.As(err, &te) {
+			switch te.StatusCode {
+			case http.StatusForbidden, http.StatusUnauthorized:
+				if pullSecretsErr != nil {
+					imageMonitor.Status.Upstream.Status = kuikv1alpha1.ImageMonitorStatusUpstreamUnavailableSecret
+					imageMonitor.Status.Upstream.LastError = pullSecretsErr.Error()
+					err = pullSecretsErr
+				} else {
+					imageMonitor.Status.Upstream.Status = kuikv1alpha1.ImageMonitorStatusUpstreamInvalidAuth
+				}
+			case http.StatusTooManyRequests:
+				imageMonitor.Status.Upstream.Status = kuikv1alpha1.ImageMonitorStatusUpstreamQuotaExceeded
+			default:
+				imageMonitor.Status.Upstream.Status = kuikv1alpha1.ImageMonitorStatusUpstreamUnavailable
+			}
+		} else {
+			imageMonitor.Status.Upstream.Status = kuikv1alpha1.ImageMonitorStatusUpstreamUnreachable
+		}
+	} else {
+		imageMonitor.Status.Upstream.LastSeen = metav1.Now()
+		imageMonitor.Status.Upstream.LastError = ""
+		imageMonitor.Status.Upstream.Status = kuikv1alpha1.ImageMonitorStatusUpstreamAvailable
+		imageMonitor.Status.Upstream.Digest = desc.Digest.String()
+	}
+
+	if errStatus := r.Status().Patch(ctx, imageMonitor, patch); errStatus != nil {
+		return fmt.Errorf("failed to patch image status: %w", errStatus)
+	}
+
+	return err
 }
 
 func min(a, b int) int {
