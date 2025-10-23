@@ -2,20 +2,11 @@ package core
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"net/http"
-	"os"
-	"slices"
-	"strconv"
 	"strings"
-	"time"
 
-	"github.com/cespare/xxhash/v2"
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -35,8 +26,6 @@ const (
 type PodReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
-
-	defaultRegistryMonitorSpec kuikv1alpha1.RegistryMonitorSpec
 }
 
 // +kubebuilder:rbac:groups=core,resources=pods;secrets,verbs=get;list;watch
@@ -65,7 +54,6 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	}
 
 	hasDeletingImages := false
-	registries := map[string]struct{}{}
 	for _, image := range images {
 		var img kuikv1alpha1.Image
 		err := r.Get(ctx, client.ObjectKeyFromObject(&image), &img)
@@ -79,8 +67,6 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			log.Info("image is already being deleted, skipping", "image", klog.KObj(&image))
 			continue
 		}
-
-		registries[image.Spec.Registry] = struct{}{}
 
 		// create or update Image depending on weather it already exists or not
 		if apierrors.IsNotFound(err) {
@@ -102,35 +88,6 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		}
 	}
 
-	for registry := range registries {
-		var registryMonitors kuikv1alpha1.RegistryMonitorList
-		if err := r.List(ctx, &registryMonitors, client.MatchingFields{
-			RegistryIndexKey: registry,
-		}); err != nil {
-			return ctrl.Result{}, err
-		}
-		if len(registryMonitors.Items) > 0 {
-			continue
-		}
-
-		registryMonitor := &kuikv1alpha1.RegistryMonitor{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: fmt.Sprintf("%016x", xxhash.Sum64String(registry)),
-			},
-			Spec: *r.defaultRegistryMonitorSpec.DeepCopy(),
-		}
-		registryMonitor.Spec.Registry = registry
-
-		if err := r.Create(ctx, registryMonitor); err != nil {
-			if apierrors.IsAlreadyExists(err) {
-				return ctrl.Result{}, nil
-			}
-			return ctrl.Result{}, err
-		} else {
-			log.Info("no registry monitor found for image, created one with default values", "registry", registry)
-		}
-	}
-
 	if hasDeletingImages {
 		log.Info("some images are being deleted, requeuing later")
 		return ctrl.Result{Requeue: true}, nil
@@ -148,44 +105,6 @@ func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return []string{image.Spec.Registry}
 	}); err != nil {
 		return err
-	}
-
-	r.defaultRegistryMonitorSpec = kuikv1alpha1.RegistryMonitorSpec{
-		Interval:       metav1.Duration{Duration: 10 * time.Minute},
-		MaxPerInterval: 1,
-		Parallel:       1,
-		Method:         http.MethodHead,
-		Timeout:        metav1.Duration{Duration: 5 * time.Second},
-	}
-
-	// TODO: read this from config instead
-	if env := os.Getenv("KUIK_REGISTRY_MONITOR_DEFAULT_INTERVAL"); env != "" {
-		interval, err := time.ParseDuration(env)
-		if err != nil {
-			return err
-		}
-		r.defaultRegistryMonitorSpec.Interval = metav1.Duration{Duration: interval}
-	}
-	if env := os.Getenv("KUIK_REGISTRY_MONITOR_DEFAULT_MAX_PER_INTERVAL"); env != "" {
-		maxPerInterval, err := strconv.Atoi(env)
-		if err != nil {
-			return err
-		}
-		r.defaultRegistryMonitorSpec.MaxPerInterval = maxPerInterval
-	}
-	if env := os.Getenv("KUIK_REGISTRY_MONITOR_DEFAULT_PARALLEL"); env != "" {
-		parallel, err := strconv.Atoi(env)
-		if err != nil {
-			return err
-		}
-		r.defaultRegistryMonitorSpec.Parallel = parallel
-	}
-	if env := os.Getenv("KUIK_REGISTRY_MONITOR_DEFAULT_METHOD"); env != "" {
-		oneOf := []string{http.MethodGet, http.MethodHead}
-		if !slices.Contains(oneOf, env) {
-			return errors.New("KUIK_REGISTRY_MONITOR_DEFAULT_METHOD must be one of: " + strings.Join(oneOf, ", "))
-		}
-		r.defaultRegistryMonitorSpec.Method = env
 	}
 
 	p := predicate.Not(predicate.Funcs{

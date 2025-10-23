@@ -2,15 +2,23 @@ package kuik
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
+	"os"
+	"slices"
+	"strconv"
+	"strings"
 	"time"
 
+	"github.com/cespare/xxhash"
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/config"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/enix/kube-image-keeper/internal/registry/routing"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -32,6 +40,8 @@ type ImageReconciler struct {
 	Scheme         *runtime.Scheme
 	UnusedImageTTL time.Duration
 	Config         *config.Config
+
+	defaultRegistryMonitorSpec kuikv1alpha1.RegistryMonitorSpec
 }
 
 // +kubebuilder:rbac:groups=kuik.enix.io,resources=images,verbs=get;list;watch;create;update;patch;delete
@@ -75,6 +85,38 @@ func (r *ImageReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	}
 
 	registries := routing.MatchingRegistries(r.Config, &image.Spec.ImageReference)
+
+	// create RegistryMonitors
+	for _, registry := range registries {
+		var registryMonitors kuikv1alpha1.RegistryMonitorList
+		if err := r.List(ctx, &registryMonitors, client.MatchingFields{
+			RegistryIndexKey: registry.Url,
+		}); err != nil {
+			return ctrl.Result{}, err
+		}
+		if len(registryMonitors.Items) > 0 {
+			continue
+		}
+
+		registryMonitor := &kuikv1alpha1.RegistryMonitor{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: fmt.Sprintf("%016x", xxhash.Sum64String(registry.Url)),
+			},
+			Spec: *r.defaultRegistryMonitorSpec.DeepCopy(),
+		}
+		registryMonitor.Spec.Registry = registry.Url
+
+		if err := r.Create(ctx, registryMonitor); err != nil {
+			if apierrors.IsAlreadyExists(err) {
+				return ctrl.Result{}, nil
+			}
+			return ctrl.Result{}, err
+		} else {
+			log.Info("no registry monitor found for image, created one with default values", "registry", registry)
+		}
+	}
+
+	// create ImageMirrors
 	for _, reg := range registries {
 		if reg.MirroringEnabled {
 			imageMirror := &kuikv1alpha1.ImageMirror{
@@ -126,6 +168,10 @@ func (r *ImageReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return err
 	}
 
+	if err := r.initDefaultRegistryMonitorSpec(); err != nil {
+		return err
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kuikv1alpha1.Image{}).
 		Named("kuik-image").
@@ -135,6 +181,48 @@ func (r *ImageReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		).
 		Owns(&kuikv1alpha1.ImageMirror{}, builder.MatchEveryOwner).
 		Complete(r)
+}
+
+func (r *ImageReconciler) initDefaultRegistryMonitorSpec() error {
+	r.defaultRegistryMonitorSpec = kuikv1alpha1.RegistryMonitorSpec{
+		Interval:       metav1.Duration{Duration: 10 * time.Minute},
+		MaxPerInterval: 1,
+		Parallel:       1,
+		Method:         http.MethodHead,
+		Timeout:        metav1.Duration{Duration: 5 * time.Second},
+	}
+
+	// TODO: read this from config instead
+	if env := os.Getenv("KUIK_REGISTRY_MONITOR_DEFAULT_INTERVAL"); env != "" {
+		interval, err := time.ParseDuration(env)
+		if err != nil {
+			return err
+		}
+		r.defaultRegistryMonitorSpec.Interval = metav1.Duration{Duration: interval}
+	}
+	if env := os.Getenv("KUIK_REGISTRY_MONITOR_DEFAULT_MAX_PER_INTERVAL"); env != "" {
+		maxPerInterval, err := strconv.Atoi(env)
+		if err != nil {
+			return err
+		}
+		r.defaultRegistryMonitorSpec.MaxPerInterval = maxPerInterval
+	}
+	if env := os.Getenv("KUIK_REGISTRY_MONITOR_DEFAULT_PARALLEL"); env != "" {
+		parallel, err := strconv.Atoi(env)
+		if err != nil {
+			return err
+		}
+		r.defaultRegistryMonitorSpec.Parallel = parallel
+	}
+	if env := os.Getenv("KUIK_REGISTRY_MONITOR_DEFAULT_METHOD"); env != "" {
+		oneOf := []string{http.MethodGet, http.MethodHead}
+		if !slices.Contains(oneOf, env) {
+			return errors.New("KUIK_REGISTRY_MONITOR_DEFAULT_METHOD must be one of: " + strings.Join(oneOf, ", "))
+		}
+		r.defaultRegistryMonitorSpec.Method = env
+	}
+
+	return nil
 }
 
 // updateReferenceCount update Image UsedByPods status
