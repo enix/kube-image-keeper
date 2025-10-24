@@ -67,64 +67,61 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	// Ensuring ImageMonitors are created for each Images =================================================================
 	var images kuikv1alpha1.ImageList
-	if err := r.List(ctx, &images, client.MatchingFields{
-		RegistryIndexKey: registryMonitor.Spec.Registry,
-	}); err != nil {
+	if err := r.List(ctx, &images); err != nil {
 		return ctrl.Result{}, err
 	}
 
 	areImagesUsed := map[string]bool{}
 	for _, image := range images.Items {
+		registries := routing.MatchingRegistries(r.Config, &image.Spec.ImageReference)
+		registryIndex := slices.IndexFunc(registries, func(registry config.Registry) bool {
+			return registry.Url == registryMonitor.Spec.Registry
+		})
+		if registryIndex == -1 {
+			continue
+		}
+		reg := registries[registryIndex]
 		areImagesUsed[image.Reference()] = image.IsUsedByPods()
 
-		registries := routing.MatchingRegistries(r.Config, &image.Spec.ImageReference)
+		imageReference := image.Spec.ImageReference
+		imageReference.Registry = reg.Url
+		name, err := registry.ImageNameFromReference(imageReference.Reference())
+		if err != nil {
+			return ctrl.Result{}, err
+		}
 
-		for _, reg := range registries {
-			imageReference := kuikv1alpha1.ImageReference{
-				Registry: reg.Url,
-				Path:     image.Spec.Path,
+		imageMonitor := &kuikv1alpha1.ImageMonitor{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: name,
+			},
+			Spec: kuikv1alpha1.ImageMonitorSpec{
+				ImageReference: imageReference,
+			},
+		}
+
+		op, err := controllerutil.CreateOrPatch(ctx, r.Client, imageMonitor, func() error {
+			if err := controllerutil.SetControllerReference(&registryMonitor, imageMonitor, r.Scheme); err != nil {
+				return err
 			}
 
-			name, err := registry.ImageNameFromReference(imageReference.Reference())
-			if err != nil {
+			if err := controllerutil.SetOwnerReference(&image, imageMonitor, r.Scheme); err != nil {
+				return err
+			}
+			return nil
+		})
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		// Update status in order to fill default values
+		if op == controllerutil.OperationResultCreated {
+			if err := r.Status().Update(ctx, imageMonitor); err != nil {
 				return ctrl.Result{}, err
 			}
+		}
 
-			imageMonitor := &kuikv1alpha1.ImageMonitor{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: name,
-				},
-				Spec: kuikv1alpha1.ImageMonitorSpec{
-					ImageReference: imageReference,
-				},
-			}
-
-			op, err := controllerutil.CreateOrPatch(ctx, r.Client, imageMonitor, func() error {
-				// FIXME: should use SetControllerReference instead in order to automatically reconcile RegistryMonitor on ImageMonitor deletion.
-				// However, this is not possible as is: all equivalent ImageMonitor should be controlled by multiple ImageRegistries which is not possible.
-				if err := controllerutil.SetOwnerReference(&registryMonitor, imageMonitor, r.Scheme); err != nil {
-					return err
-				}
-
-				if err := controllerutil.SetOwnerReference(&image, imageMonitor, r.Scheme); err != nil {
-					return err
-				}
-				return nil
-			})
-			if err != nil {
-				return ctrl.Result{}, err
-			}
-
-			// Update status in order to fill default values
-			if op == controllerutil.OperationResultCreated {
-				if err := r.Status().Update(ctx, imageMonitor); err != nil {
-					return ctrl.Result{}, err
-				}
-			}
-
-			if op != controllerutil.OperationResultNone {
-				log.V(1).Info("ensured ImageMonitor", "operation", op, "ImageMonitor", map[string]string{"name": imageMonitor.Name, "reference": imageMonitor.Reference()})
-			}
+		if op != controllerutil.OperationResultNone {
+			log.V(1).Info("ensured ImageMonitor", "operation", op, "ImageMonitor", map[string]string{"name": imageMonitor.Name, "reference": imageMonitor.Reference()})
 		}
 	}
 
