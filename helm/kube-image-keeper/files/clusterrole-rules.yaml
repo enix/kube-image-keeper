@@ -16,8 +16,10 @@
 - apiGroups:
   - kuik.enix.io
   resources:
+  - clusterimagesetmirrors
   - imagemonitors
   - images
+  - imagesetmirrors
   - registrymonitors
   verbs:
   - create
@@ -30,16 +32,20 @@
 - apiGroups:
   - kuik.enix.io
   resources:
+  - clusterimagesetmirrors/finalizers
   - imagemonitors/finalizers
   - images/finalizers
+  - imagesetmirrors/finalizers
   - registrymonitors/finalizers
   verbs:
   - update
 - apiGroups:
   - kuik.enix.io
   resources:
+  - clusterimagesetmirrors/status
   - imagemonitors/status
   - images/status
+  - imagesetmirrors/status
   - registrymonitors/status
   verbs:
   - get

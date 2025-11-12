@@ -256,6 +256,20 @@ func main() {
 			os.Exit(1)
 		}
 	}
+	if err = (&kuikcontroller.ClusterImageSetMirrorReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ClusterImageSetMirror")
+		os.Exit(1)
+	}
+	if err = (&kuikcontroller.ImageSetMirrorReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ImageSetMirror")
+		os.Exit(1)
+	}
 	// +kubebuilder:scaffold:builder
 
 	if metricsCertWatcher != nil {
