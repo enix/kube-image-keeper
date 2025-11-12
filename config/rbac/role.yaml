@@ -22,7 +22,6 @@ rules:
 - apiGroups:
   - kuik.enix.io
   resources:
-  - imagemirrors
   - imagemonitors
   - images
   - registrymonitors
@@ -37,7 +36,6 @@ rules:
 - apiGroups:
   - kuik.enix.io
   resources:
-  - imagemirrors/finalizers
   - imagemonitors/finalizers
   - images/finalizers
   - registrymonitors/finalizers
@@ -46,7 +44,6 @@ rules:
 - apiGroups:
   - kuik.enix.io
   resources:
-  - imagemirrors/status
   - imagemonitors/status
   - images/status
   - registrymonitors/status

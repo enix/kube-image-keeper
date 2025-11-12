@@ -14,7 +14,6 @@ import (
 	"github.com/cespare/xxhash"
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/config"
-	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/enix/kube-image-keeper/internal/registry/routing"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -23,9 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -116,38 +113,6 @@ func (r *ImageReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		}
 	}
 
-	// create ImageMirrors
-	for _, reg := range registries {
-		if reg.MirroringEnabled {
-			imageMirror := &kuikv1alpha1.ImageMirror{
-				Spec: kuikv1alpha1.ImageMirrorSpec{
-					ImageReference: image.Spec.ImageReference,
-					TargetRegistry: reg.Url,
-				},
-			}
-
-			name, err := registry.ImageNameFromReference(imageMirror.TargetReference())
-			if err != nil {
-				return ctrl.Result{}, err
-			}
-			imageMirror.Name = name
-
-			op, err := controllerutil.CreateOrPatch(ctx, r.Client, imageMirror, func() error {
-				if err := controllerutil.SetOwnerReference(&image, imageMirror, r.Scheme); err != nil {
-					return err
-				}
-				return nil
-			})
-			if err != nil {
-				return ctrl.Result{}, err
-			}
-
-			if op != controllerutil.OperationResultNone {
-				log.V(1).Info("ensured ImageMonitor", "operation", op, "ImageMonitor", map[string]string{"name": imageMirror.Name, "source": imageMirror.Spec.Reference(), "destination": imageMirror.Spec.TargetRegistry})
-			}
-		}
-	}
-
 	return ctrl.Result{}, nil
 }
 
@@ -179,7 +144,6 @@ func (r *ImageReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			&corev1.Pod{},
 			handler.EnqueueRequestsFromMapFunc(r.imagesRequestFromPod),
 		).
-		Owns(&kuikv1alpha1.ImageMirror{}, builder.MatchEveryOwner).
 		Complete(r)
 }
 
