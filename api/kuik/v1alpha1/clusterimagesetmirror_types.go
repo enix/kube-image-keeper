@@ -4,27 +4,15 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
 // ClusterImageSetMirrorSpec defines the desired state of ClusterImageSetMirror.
-type ClusterImageSetMirrorSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// Foo is an example field of ClusterImageSetMirror. Edit clusterimagesetmirror_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
-}
+type ClusterImageSetMirrorSpec ImageSetMirrorSpec
 
 // ClusterImageSetMirrorStatus defines the observed state of ClusterImageSetMirror.
-type ClusterImageSetMirrorStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-}
+type ClusterImageSetMirrorStatus ImageSetMirrorStatus
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:resource:scope=Cluster,shortName=cism
 
 // ClusterImageSetMirror is the Schema for the clusterimagesetmirrors API.
 type ClusterImageSetMirror struct {

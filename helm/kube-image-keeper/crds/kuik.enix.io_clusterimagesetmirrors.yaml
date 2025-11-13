@@ -10,6 +10,8 @@ spec:
     kind: ClusterImageSetMirror
     listKind: ClusterImageSetMirrorList
     plural: clusterimagesetmirrors
+    shortNames:
+    - cism
     singular: clusterimagesetmirror
   scope: Cluster
   versions:
@@ -39,14 +41,78 @@ spec:
           spec:
             description: ClusterImageSetMirrorSpec defines the desired state of ClusterImageSetMirror.
             properties:
-              foo:
-                description: Foo is an example field of ClusterImageSetMirror. Edit
-                  clusterimagesetmirror_types.go to remove/update
+              cleanup:
+                description: Cleanup defines a cleanup strategy
+                properties:
+                  enabled:
+                    type: boolean
+                  retention:
+                    type: string
+                type: object
+              imageMatcher:
                 type: string
+              mirrors:
+                items:
+                  properties:
+                    cleanup:
+                      description: Cleanup defines a cleanup strategy
+                      properties:
+                        enabled:
+                          type: boolean
+                        retention:
+                          type: string
+                      type: object
+                    credentialSecret:
+                      properties:
+                        name:
+                          description: Name is the name of the secret
+                          type: string
+                        namespace:
+                          description: |-
+                            Namespace is the namespace where the secret is located.
+                            This value is ignored for namespaced resources and the namespace of the parent object is used instead.
+                          type: string
+                      type: object
+                    path:
+                      type: string
+                    registry:
+                      type: string
+                  type: object
+                type: array
             type: object
           status:
             description: ClusterImageSetMirrorStatus defines the observed state of
               ClusterImageSetMirror.
+            properties:
+              matchedImages:
+                items:
+                  properties:
+                    image:
+                      type: string
+                    mirrors:
+                      items:
+                        properties:
+                          image:
+                            type: string
+                          mirroredAt:
+                            format: date-time
+                            type: string
+                        required:
+                        - image
+                        type: object
+                      type: array
+                      x-kubernetes-list-map-keys:
+                      - image
+                      x-kubernetes-list-type: map
+                    unusedSince:
+                      type: string
+                  required:
+                  - image
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - image
+                x-kubernetes-list-type: map
             type: object
         type: object
     served: true
