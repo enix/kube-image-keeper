@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/cespare/xxhash"
-	"github.com/enix/kube-image-keeper/internal/registry"
+	"github.com/enix/kube-image-keeper/internal"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -106,7 +106,7 @@ func (i *ImageMonitor) Reference() string {
 }
 
 func (i *ImageMonitor) GetImage(ctx context.Context, c client.Client, image *Image) error {
-	name, err := registry.ImageNameFromReference(i.Reference())
+	name, err := internal.ImageNameFromReference(i.Reference())
 	if err != nil {
 		return err
 	}

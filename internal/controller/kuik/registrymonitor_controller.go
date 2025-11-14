@@ -10,6 +10,7 @@ import (
 
 	"github.com/alitto/pond/v2"
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
+	"github.com/enix/kube-image-keeper/internal"
 	"github.com/enix/kube-image-keeper/internal/config"
 	kuikcontroller "github.com/enix/kube-image-keeper/internal/controller"
 	"github.com/enix/kube-image-keeper/internal/registry"
@@ -85,7 +86,7 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 		imageReference := image.Spec.ImageReference
 		imageReference.Registry = reg.Url
-		name, err := registry.ImageNameFromReference(imageReference.Reference())
+		name, err := internal.ImageNameFromReference(imageReference.Reference())
 		if err != nil {
 			return ctrl.Result{}, err
 		}

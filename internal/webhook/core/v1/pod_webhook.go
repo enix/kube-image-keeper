@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
+	"github.com/enix/kube-image-keeper/internal"
 	"github.com/enix/kube-image-keeper/internal/config"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/enix/kube-image-keeper/internal/registry/routing"
@@ -59,7 +60,7 @@ func (d *PodCustomDefaulter) Default(ctx context.Context, obj runtime.Object) er
 
 	log.Info("defaulting for Pod")
 
-	pullSecrets, err := registry.GetPullSecretsFromPod(ctx, d.Client, pod)
+	pullSecrets, err := internal.GetPullSecretsFromPod(ctx, d.Client, pod)
 	if err != nil {
 		return err
 	}
@@ -93,7 +94,7 @@ func (d *PodCustomDefaulter) RerouteImages(ctx context.Context, pod *corev1.Pod,
 
 func (d *PodCustomDefaulter) handleContainer(ctx context.Context, container *corev1.Container, pullSecrets []corev1.Secret, initContainer bool) {
 	log := logf.FromContext(ctx)
-	registry, path, err := registry.RegistryNameFromReference(container.Image)
+	registry, path, err := internal.RegistryNameFromReference(container.Image)
 	if err != nil {
 		return
 	}
@@ -129,7 +130,7 @@ func (d *PodCustomDefaulter) handleContainer(ctx context.Context, container *cor
 }
 
 func (d *PodCustomDefaulter) checkImageAvailability(ctx context.Context, reference string, pullSecrets []corev1.Secret) (bool, error) {
-	name, err := registry.ImageNameFromReference(reference)
+	name, err := internal.ImageNameFromReference(reference)
 	if err != nil {
 		return false, err
 	}

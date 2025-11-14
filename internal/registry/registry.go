@@ -8,19 +8,14 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
-	"strings"
 	"time"
 
-	"github.com/cespare/xxhash/v2"
-	"github.com/distribution/reference"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -150,45 +145,6 @@ func (c *Client) CopyImage(src *remote.Descriptor, dest string, architectures []
 
 		return nil
 	})
-}
-
-func ImageNameFromReference(image string) (string, error) {
-	ref, err := reference.ParseAnyReference(image)
-	if err != nil {
-		return "", err
-	}
-
-	image = ref.String()
-	if !strings.Contains(image, ":") {
-		image += "-latest"
-	}
-
-	h := xxhash.Sum64String(image)
-
-	return fmt.Sprintf("%016x", h), nil
-}
-
-func RegistryNameFromReference(image string) (string, string, error) {
-	named, err := reference.ParseNormalizedNamed(image)
-	if err != nil {
-		return "", "", err
-	}
-
-	parts := strings.SplitN(named.String(), "/", 2)
-	return parts[0], parts[1], nil
-}
-
-func GetPullSecretsFromPod(ctx context.Context, c client.Client, pod *corev1.Pod) ([]corev1.Secret, error) {
-	secrets := []corev1.Secret{}
-	for _, imagePullSecret := range pod.Spec.ImagePullSecrets {
-		secret := &corev1.Secret{}
-		if err := c.Get(ctx, client.ObjectKey{Namespace: pod.Namespace, Name: imagePullSecret.Name}, secret); err != nil {
-			return nil, fmt.Errorf("could not get image pull secret %q: %w", imagePullSecret.Name, err)
-		}
-		secrets = append(secrets, *secret)
-	}
-
-	return secrets, nil
 }
 
 func getReader(httpMethod string) descriptorReader {

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/enix/kube-image-keeper/internal/registry"
+	"github.com/enix/kube-image-keeper/internal"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -89,12 +89,12 @@ func imagesFromContainers(containers []corev1.Container) ([]Image, []error) {
 }
 
 func imageFromReference(reference string) (*Image, error) {
-	name, err := registry.ImageNameFromReference(reference)
+	name, err := internal.ImageNameFromReference(reference)
 	if err != nil {
 		return nil, err
 	}
 
-	registry, image, err := registry.RegistryNameFromReference(reference)
+	registry, image, err := internal.RegistryNameFromReference(reference)
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +126,7 @@ func (i *Image) GetPullSecrets(ctx context.Context, c client.Client) (secrets []
 		return nil, err
 	}
 
-	return registry.GetPullSecretsFromPod(ctx, c, pod)
+	return internal.GetPullSecretsFromPod(ctx, c, pod)
 }
 
 func (i *Image) IsUsedByPods() bool {
