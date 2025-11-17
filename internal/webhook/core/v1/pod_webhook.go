@@ -2,17 +2,19 @@ package v1
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"path"
+	"regexp"
+	"slices"
+	"strings"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal"
 	"github.com/enix/kube-image-keeper/internal/config"
 	"github.com/enix/kube-image-keeper/internal/registry"
-	"github.com/enix/kube-image-keeper/internal/registry/routing"
 	corev1 "k8s.io/api/core/v1"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -31,8 +33,6 @@ func SetupPodWebhookWithManager(mgr ctrl.Manager, d *PodCustomDefaulter) error {
 		Complete()
 }
 
-// TODO(user): EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-
 // +kubebuilder:webhook:path=/mutate--v1-pod,mutating=true,failurePolicy=ignore,sideEffects=None,groups="",resources=pods,verbs=create;update,versions=v1,name=mpod-v1.kb.io,admissionReviewVersions=v1
 
 // PodCustomDefaulter struct is responsible for setting default values on the custom resource of the
@@ -43,6 +43,16 @@ func SetupPodWebhookWithManager(mgr ctrl.Manager, d *PodCustomDefaulter) error {
 type PodCustomDefaulter struct {
 	client.Client
 	Config *config.Config
+}
+
+type AlternativeImage struct {
+	Reference string
+}
+
+type Container struct {
+	*corev1.Container
+	IsInit bool
+	Images []AlternativeImage
 }
 
 var _ webhook.CustomDefaulter = &PodCustomDefaulter{}
@@ -60,100 +70,136 @@ func (d *PodCustomDefaulter) Default(ctx context.Context, obj runtime.Object) er
 
 	log.Info("defaulting for Pod")
 
-	pullSecrets, err := internal.GetPullSecretsFromPod(ctx, d.Client, pod)
-	if err != nil {
+	var crisList kuikv1alpha1.ClusterReplicatedImageSetList
+	if err := d.List(ctx, &crisList); err != nil {
+		return err
+	}
+	var risList kuikv1alpha1.ReplicatedImageSetList
+	if err := d.List(ctx, &risList); err != nil {
 		return err
 	}
 
-	d.RerouteImages(logf.IntoContext(ctx, log), pod, pullSecrets)
+	replicatedImageSets := make([]kuikv1alpha1.ReplicatedImageSet, 0, len(crisList.Items))
+	for _, cris := range crisList.Items {
+		replicatedImageSets = append(replicatedImageSets, kuikv1alpha1.ReplicatedImageSet{
+			ObjectMeta: cris.ObjectMeta,
+			Spec:       kuikv1alpha1.ReplicatedImageSetSpec(cris.Spec),
+		})
+	}
+	for _, ris := range risList.Items {
+		if ris.Namespace != pod.Namespace {
+			continue
+		}
+		replicatedImageSets = append(replicatedImageSets, ris)
+	}
+
+	containers := make([]Container, 0, len(pod.Spec.Containers)+len(pod.Spec.InitContainers))
+	for i := range pod.Spec.Containers {
+		containers = append(containers, Container{
+			Container: &pod.Spec.Containers[i],
+		})
+	}
+	for i := range pod.Spec.InitContainers {
+		containers = append(containers, Container{
+			Container: &pod.Spec.InitContainers[i],
+			IsInit:    true,
+		})
+	}
+
+	podCredentialSecrets := make([]*kuikv1alpha1.CredentialSecret, 0, len(pod.Spec.ImagePullSecrets))
+	for _, imagePullSecret := range pod.Spec.ImagePullSecrets {
+		podCredentialSecrets = append(podCredentialSecrets, &kuikv1alpha1.CredentialSecret{
+			Namespace: pod.Namespace,
+			Name:      imagePullSecret.Name,
+		})
+	}
+
+	podImagePullSecrets := make([]corev1.Secret, len(podCredentialSecrets))
+
+	for i, podCredentialSecret := range podCredentialSecrets {
+		objectKey := client.ObjectKey{Namespace: podCredentialSecret.Namespace, Name: podCredentialSecret.Name}
+		if err := d.Get(ctx, objectKey, &podImagePullSecrets[i]); err != nil {
+			if apiErrors.IsNotFound(err) {
+				log.Error(err, "pod has invalid image pull secret", "secret", objectKey)
+			} else {
+				return err
+			}
+		}
+	}
+
+	for _, container := range containers {
+		container.Images = []AlternativeImage{}
+		imagesIndex := map[string]int{}
+		for _, ris := range replicatedImageSets {
+			index := slices.IndexFunc(ris.Spec.Upstreams, func(upstream kuikv1alpha1.ReplicatedUpstream) bool {
+				// TODO: use a validating admission policy to ensure the regexp is valid
+				matcher := regexp.MustCompile(upstream.ImageMatcher)
+				return matcher.MatchString(container.Image)
+			})
+			if index == -1 {
+				continue
+			}
+
+			match := &ris.Spec.Upstreams[index]
+			prefix := path.Join(match.Registry, match.Path)
+			suffix := strings.TrimPrefix(container.Image, prefix)
+
+			for _, upstream := range ris.Spec.Upstreams {
+				reference := path.Join(upstream.Registry, upstream.Path, suffix)
+				if _, ok := imagesIndex[reference]; ok {
+					continue // don't add the same image twice
+				}
+				imagesIndex[reference] = len(container.Images)
+				container.Images = append(container.Images, AlternativeImage{
+					Reference: reference,
+					// TODO: handle using CredentialSecret from upstream configuration
+				})
+			}
+		}
+
+		d.rerouteContainerImage(ctx, &container, podImagePullSecrets)
+	}
 
 	return nil
 }
 
-func (d *PodCustomDefaulter) RerouteImages(ctx context.Context, pod *corev1.Pod, pullSecrets []corev1.Secret) {
-	if pod.Annotations == nil {
-		pod.Annotations = map[string]string{}
-	}
-
-	if pod.Labels == nil {
-		pod.Labels = map[string]string{}
-	}
-
-	// Handle Containers
-	for i := range pod.Spec.Containers {
-		container := &pod.Spec.Containers[i]
-		d.handleContainer(ctx, container, pullSecrets, false)
-	}
-
-	// Handle init containers
-	for i := range pod.Spec.InitContainers {
-		container := &pod.Spec.InitContainers[i]
-		d.handleContainer(ctx, container, pullSecrets, true)
-	}
-}
-
-func (d *PodCustomDefaulter) handleContainer(ctx context.Context, container *corev1.Container, pullSecrets []corev1.Secret, initContainer bool) {
+func (d *PodCustomDefaulter) rerouteContainerImage(ctx context.Context, container *Container, pullSecrets []corev1.Secret) {
 	log := logf.FromContext(ctx)
-	registry, path, err := internal.RegistryNameFromReference(container.Image)
-	if err != nil {
-		return
-	}
 
-	imageReference := kuikv1alpha1.NewImageReference(registry, path)
-
-	if available, err := d.checkImageAvailability(ctx, container.Image, pullSecrets); err != nil {
-		log.Error(err, "could not check image availability", "image", container.Image)
-	} else if available {
-		return
-	}
-
-	matchingStrategy := routing.MatchingStrategy(d.Config, imageReference)
-	if matchingStrategy == nil {
-		return
-	}
-
-	for _, reg := range matchingStrategy.Registries {
-		if reg.Url == registry {
-			continue // don't check the same registry twice
-		}
-
-		alternativeRef := reg.Url + "/" + imageReference.Path
-		if available, err := d.checkImageAvailability(ctx, alternativeRef, pullSecrets); err != nil {
-			log.Error(err, "could not check image availability", "image", alternativeRef)
+	for _, image := range container.Images {
+		if available, err := d.checkImageAvailability(ctx, image.Reference, pullSecrets); err != nil {
+			log.Error(err, "could not check image availability", "image", image.Reference)
 			continue
 		} else if available {
-			log.Info("rerouting image", "container", container.Name, "isInit", initContainer, "originalImage", container.Image, "reroutedImage", alternativeRef)
-			container.Image = alternativeRef
+			if container.Image != image.Reference {
+				log.Info("rerouting image", "container", container.Name, "isInit", container.IsInit, "originalImage", container.Image, "reroutedImage", image.Reference)
+				container.Image = image.Reference
+			}
 			return
 		}
 	}
 }
 
 func (d *PodCustomDefaulter) checkImageAvailability(ctx context.Context, reference string, pullSecrets []corev1.Secret) (bool, error) {
-	name, err := internal.ImageNameFromReference(reference)
+	log := logf.FromContext(ctx, "reference", reference)
+
+	registryMonitorName, err := internal.RegistryMonitorNameFromReference(reference)
 	if err != nil {
 		return false, err
 	}
 
-	var imageMonitor kuikv1alpha1.ImageMonitor
-	if err := d.Get(ctx, types.NamespacedName{Name: name}, &imageMonitor); err != nil {
+	var registryMonitor kuikv1alpha1.RegistryMonitor
+	if err := d.Get(ctx, client.ObjectKey{Name: registryMonitorName}, &registryMonitor); err != nil {
 		return false, err
 	}
 
-	if d.Config.ActiveCheck.Enabled {
-		registryMonitor, err := imageMonitor.GetRegistryMonitor(ctx, d.Client)
-		if err != nil {
-			return false, err
-		}
-
-		_, err = registry.NewClient(nil, nil).
-			WithTimeout(d.Config.ActiveCheck.Timeout).
-			WithPullSecrets(pullSecrets).
-			ReadDescriptor(registryMonitor.Spec.Method, reference)
-		return err == nil, nil
-	} else if imageMonitor.Status.Upstream.Status != kuikv1alpha1.ImageMonitorStatusUpstreamAvailable {
-		return false, errors.New("image last monitored status is not available")
+	_, err = registry.NewClient(nil, nil).
+		WithTimeout(d.Config.ActiveCheck.Timeout).
+		WithPullSecrets(pullSecrets).
+		ReadDescriptor(registryMonitor.Spec.Method, reference)
+	if err != nil {
+		log.V(1).Info("image is not available", "error", err)
 	}
 
-	return true, nil
+	return err == nil, nil
 }

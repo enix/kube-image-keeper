@@ -37,6 +37,19 @@ func RegistryNameFromReference(image string) (string, string, error) {
 	return parts[0], parts[1], nil
 }
 
+func RegistryMonitorNameFromRegistry(registry string) string {
+	return fmt.Sprintf("%016x", xxhash.Sum64String(registry))
+}
+
+func RegistryMonitorNameFromReference(image string) (string, error) {
+	registry, _, err := RegistryNameFromReference(image)
+	if err != nil {
+		return "", err
+	}
+
+	return RegistryMonitorNameFromRegistry(registry), nil
+}
+
 func GetPullSecretsFromPod(ctx context.Context, c client.Client, pod *corev1.Pod) ([]corev1.Secret, error) {
 	secrets := []corev1.Secret{}
 	for _, imagePullSecret := range pod.Spec.ImagePullSecrets {

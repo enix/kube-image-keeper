@@ -41,7 +41,7 @@ var ImageMonitorStatusUpstreamList = []ImageMonitorStatusUpstream{
 	ImageMonitorStatusUpstreamQuotaExceeded,
 }
 
-type Upstream struct {
+type UpstreamMonitor struct {
 	// LastMonitor is the last time a monitoring task for the upstream image was was started
 	LastMonitor metav1.Time `json:"lastMonitor,omitempty"`
 	// LastSeen is the last time the image was seen upstream
@@ -59,7 +59,7 @@ type Upstream struct {
 // ImageMonitorStatus defines the observed state of Image.
 type ImageMonitorStatus struct {
 	// Upstream is the information about the upstream image
-	Upstream Upstream `json:"upstream,omitempty"`
+	Upstream UpstreamMonitor `json:"upstream,omitempty"`
 }
 
 // +kubebuilder:object:root=true

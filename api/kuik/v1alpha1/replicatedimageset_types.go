@@ -4,26 +4,17 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
 // ReplicatedImageSetSpec defines the desired state of ReplicatedImageSet.
 type ReplicatedImageSetSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// Foo is an example field of ReplicatedImageSet. Edit replicatedimageset_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	Upstreams []ReplicatedUpstream `json:"upstreams,omitempty"`
 }
 
 // ReplicatedImageSetStatus defines the observed state of ReplicatedImageSet.
-type ReplicatedImageSetStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-}
+type ReplicatedImageSetStatus struct{}
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:resource:shortName=ris
 
 // ReplicatedImageSet is the Schema for the replicatedimagesets API.
 type ReplicatedImageSet struct {
@@ -41,6 +32,14 @@ type ReplicatedImageSetList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []ReplicatedImageSet `json:"items"`
+}
+
+type ReplicatedUpstream struct {
+	ImageReference `json:",inline"`
+	// ImageMatcher is a regexp identifying the image in a registry
+	ImageMatcher string `json:"imageMatcher"`
+	// CredentialSecret is the image pull secret to use for matching images
+	CredentialSecret *CredentialSecret `json:"credentialSecret,omitempty"`
 }
 
 func init() {

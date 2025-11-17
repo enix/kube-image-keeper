@@ -29,7 +29,6 @@ type Mirroring struct {
 }
 
 type ActiveCheck struct {
-	Enabled bool          `koanf:"enabled"`
 	Timeout time.Duration `koanf:"timeout"`
 }
 

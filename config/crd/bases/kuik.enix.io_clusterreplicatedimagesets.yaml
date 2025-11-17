@@ -11,6 +11,8 @@ spec:
     kind: ClusterReplicatedImageSet
     listKind: ClusterReplicatedImageSetList
     plural: clusterreplicatedimagesets
+    shortNames:
+    - cris
     singular: clusterreplicatedimageset
   scope: Cluster
   versions:
@@ -41,10 +43,38 @@ spec:
             description: ClusterReplicatedImageSetSpec defines the desired state of
               ClusterReplicatedImageSet.
             properties:
-              foo:
-                description: Foo is an example field of ClusterReplicatedImageSet.
-                  Edit clusterreplicatedimageset_types.go to remove/update
-                type: string
+              upstreams:
+                items:
+                  properties:
+                    credentialSecret:
+                      description: CredentialSecret is the image pull secret to use
+                        for matching images
+                      properties:
+                        name:
+                          description: Name is the name of the secret
+                          type: string
+                        namespace:
+                          description: |-
+                            Namespace is the namespace where the secret is located.
+                            This value is ignored for namespaced resources and the namespace of the parent object is used instead.
+                          type: string
+                      type: object
+                    imageMatcher:
+                      description: ImageMatcher is a regexp identifying the image
+                        in a registry
+                      type: string
+                    path:
+                      description: Path is a string identifying the image in a registry
+                      type: string
+                    registry:
+                      description: Registry is the registry where the image is located
+                      type: string
+                  required:
+                  - imageMatcher
+                  - path
+                  - registry
+                  type: object
+                type: array
             type: object
           status:
             description: ClusterReplicatedImageSetStatus defines the observed state

@@ -4,27 +4,15 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
 // ClusterReplicatedImageSetSpec defines the desired state of ClusterReplicatedImageSet.
-type ClusterReplicatedImageSetSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// Foo is an example field of ClusterReplicatedImageSet. Edit clusterreplicatedimageset_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
-}
+type ClusterReplicatedImageSetSpec ReplicatedImageSetSpec
 
 // ClusterReplicatedImageSetStatus defines the observed state of ClusterReplicatedImageSet.
-type ClusterReplicatedImageSetStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-}
+type ClusterReplicatedImageSetStatus ReplicatedImageSetStatus
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:resource:scope=Cluster,shortName=cris
 
 // ClusterReplicatedImageSet is the Schema for the clusterreplicatedimagesets API.
 type ClusterReplicatedImageSet struct {
