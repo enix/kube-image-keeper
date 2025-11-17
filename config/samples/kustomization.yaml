@@ -5,4 +5,6 @@ resources:
 - kuik_v1alpha1_imagemonitor.yaml
 - kuik_v1alpha1_clusterimagesetmirror.yaml
 - kuik_v1alpha1_imagesetmirror.yaml
+- kuik_v1alpha1_replicatedimageset.yaml
+- kuik_v1alpha1_clusterreplicatedimageset.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

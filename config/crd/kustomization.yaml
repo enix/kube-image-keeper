@@ -7,6 +7,8 @@ resources:
 - bases/kuik.enix.io_imagemonitors.yaml
 - bases/kuik.enix.io_clusterimagesetmirrors.yaml
 - bases/kuik.enix.io_imagesetmirrors.yaml
+- bases/kuik.enix.io_replicatedimagesets.yaml
+- bases/kuik.enix.io_clusterreplicatedimagesets.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

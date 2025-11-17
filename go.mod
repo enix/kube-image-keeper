@@ -5,7 +5,6 @@ go 1.25
 require (
 	github.com/alitto/pond/v2 v2.5.0
 	github.com/cespare/xxhash v1.1.0
-	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/distribution/reference v0.6.0
 	github.com/fatih/color v1.18.0
 	github.com/go-viper/mapstructure/v2 v2.4.0
@@ -37,6 +36,7 @@ require (
 	github.com/blang/semver/v4 v4.0.0 // indirect
 	github.com/briandowns/spinner v1.23.2 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/charmbracelet/colorprofile v0.2.3-0.20250311203215-f60798e515dc // indirect
 	github.com/charmbracelet/lipgloss v1.1.0 // indirect
 	github.com/charmbracelet/x/ansi v0.8.0 // indirect

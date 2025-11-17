@@ -58,4 +58,19 @@ resources:
   kind: ImageSetMirror
   path: github.com/enix/kube-image-keeper/api/kuik/v1alpha1
   version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  domain: enix.io
+  group: kuik
+  kind: ReplicatedImageSet
+  path: github.com/enix/kube-image-keeper/api/kuik/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+  domain: enix.io
+  group: kuik
+  kind: ClusterReplicatedImageSet
+  path: github.com/enix/kube-image-keeper/api/kuik/v1alpha1
+  version: v1alpha1
 version: "3"
