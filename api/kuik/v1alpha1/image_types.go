@@ -94,7 +94,7 @@ func imageFromReference(reference string) (*Image, error) {
 		return nil, err
 	}
 
-	registry, image, err := internal.RegistryNameFromReference(reference)
+	registry, image, err := internal.RegistryAndPathFromReference(reference)
 	if err != nil {
 		return nil, err
 	}

@@ -51,8 +51,9 @@ type AlternativeImage struct {
 
 type Container struct {
 	*corev1.Container
-	IsInit bool
-	Images []AlternativeImage
+	IsInit       bool
+	Images       []AlternativeImage
+	Alternatives map[string]struct{}
 }
 
 var _ webhook.CustomDefaulter = &PodCustomDefaulter{}
@@ -70,6 +71,29 @@ func (d *PodCustomDefaulter) Default(ctx context.Context, obj runtime.Object) er
 
 	log.Info("defaulting for Pod")
 
+	containers := make([]Container, 0, len(pod.Spec.Containers)+len(pod.Spec.InitContainers))
+	for i := range pod.Spec.Containers {
+		containers = append(containers, Container{
+			Container:    &pod.Spec.Containers[i],
+			Alternatives: map[string]struct{}{},
+		})
+	}
+	for i := range pod.Spec.InitContainers {
+		containers = append(containers, Container{
+			Container:    &pod.Spec.InitContainers[i],
+			IsInit:       true,
+			Alternatives: map[string]struct{}{},
+		})
+	}
+
+	var cismList kuikv1alpha1.ClusterImageSetMirrorList
+	if err := d.List(ctx, &cismList); err != nil {
+		return err
+	}
+	var ismList kuikv1alpha1.ImageSetMirrorList
+	if err := d.List(ctx, &ismList); err != nil {
+		return err
+	}
 	var crisList kuikv1alpha1.ClusterReplicatedImageSetList
 	if err := d.List(ctx, &crisList); err != nil {
 		return err
@@ -77,6 +101,20 @@ func (d *PodCustomDefaulter) Default(ctx context.Context, obj runtime.Object) er
 	var risList kuikv1alpha1.ReplicatedImageSetList
 	if err := d.List(ctx, &risList); err != nil {
 		return err
+	}
+
+	imageSetMirrors := make([]kuikv1alpha1.ImageSetMirror, 0, len(cismList.Items))
+	for _, cism := range cismList.Items {
+		imageSetMirrors = append(imageSetMirrors, kuikv1alpha1.ImageSetMirror{
+			ObjectMeta: cism.ObjectMeta,
+			Spec:       kuikv1alpha1.ImageSetMirrorSpec(cism.Spec),
+		})
+	}
+	for _, ism := range ismList.Items {
+		if ism.Namespace != pod.Namespace {
+			continue
+		}
+		imageSetMirrors = append(imageSetMirrors, ism)
 	}
 
 	replicatedImageSets := make([]kuikv1alpha1.ReplicatedImageSet, 0, len(crisList.Items))
@@ -93,19 +131,6 @@ func (d *PodCustomDefaulter) Default(ctx context.Context, obj runtime.Object) er
 		replicatedImageSets = append(replicatedImageSets, ris)
 	}
 
-	containers := make([]Container, 0, len(pod.Spec.Containers)+len(pod.Spec.InitContainers))
-	for i := range pod.Spec.Containers {
-		containers = append(containers, Container{
-			Container: &pod.Spec.Containers[i],
-		})
-	}
-	for i := range pod.Spec.InitContainers {
-		containers = append(containers, Container{
-			Container: &pod.Spec.InitContainers[i],
-			IsInit:    true,
-		})
-	}
-
 	podCredentialSecrets := make([]*kuikv1alpha1.CredentialSecret, 0, len(pod.Spec.ImagePullSecrets))
 	for _, imagePullSecret := range pod.Spec.ImagePullSecrets {
 		podCredentialSecrets = append(podCredentialSecrets, &kuikv1alpha1.CredentialSecret{
@@ -115,7 +140,6 @@ func (d *PodCustomDefaulter) Default(ctx context.Context, obj runtime.Object) er
 	}
 
 	podImagePullSecrets := make([]corev1.Secret, len(podCredentialSecrets))
-
 	for i, podCredentialSecret := range podCredentialSecrets {
 		objectKey := client.ObjectKey{Namespace: podCredentialSecret.Namespace, Name: podCredentialSecret.Name}
 		if err := d.Get(ctx, objectKey, &podImagePullSecrets[i]); err != nil {
@@ -127,9 +151,30 @@ func (d *PodCustomDefaulter) Default(ctx context.Context, obj runtime.Object) er
 		}
 	}
 
+	for _, ism := range imageSetMirrors {
+		matcher := regexp.MustCompile(ism.Spec.ImageMatcher)
+
+		for i := range containers {
+			container := &containers[i]
+			if !matcher.MatchString(container.Image) {
+				continue
+			}
+
+			container.Images = make([]AlternativeImage, 0, 1+len(ism.Spec.Mirrors))
+			container.addAlternative(container.Image)
+
+			_, imgPath, err := internal.RegistryAndPathFromReference(container.Image)
+			if err != nil {
+				return err
+			}
+
+			for _, mirror := range ism.Spec.Mirrors {
+				container.addAlternative(path.Join(mirror.Registry, mirror.Path, imgPath))
+			}
+		}
+	}
+
 	for _, container := range containers {
-		container.Images = []AlternativeImage{}
-		imagesIndex := map[string]int{}
 		for _, ris := range replicatedImageSets {
 			index := slices.IndexFunc(ris.Spec.Upstreams, func(upstream kuikv1alpha1.ReplicatedUpstream) bool {
 				// TODO: use a validating admission policy to ensure the regexp is valid
@@ -146,14 +191,8 @@ func (d *PodCustomDefaulter) Default(ctx context.Context, obj runtime.Object) er
 
 			for _, upstream := range ris.Spec.Upstreams {
 				reference := path.Join(upstream.Registry, upstream.Path, suffix)
-				if _, ok := imagesIndex[reference]; ok {
-					continue // don't add the same image twice
-				}
-				imagesIndex[reference] = len(container.Images)
-				container.Images = append(container.Images, AlternativeImage{
-					Reference: reference,
-					// TODO: handle using CredentialSecret from upstream configuration
-				})
+				// TODO: handle using CredentialSecret from upstream configuration
+				container.addAlternative(reference)
 			}
 		}
 
@@ -202,4 +241,13 @@ func (d *PodCustomDefaulter) checkImageAvailability(ctx context.Context, referen
 	}
 
 	return err == nil, nil
+}
+
+func (c *Container) addAlternative(reference string) {
+	if _, ok := c.Alternatives[reference]; ok {
+		return
+	}
+
+	c.Alternatives[reference] = struct{}{}
+	c.Images = append(c.Images, AlternativeImage{Reference: reference})
 }

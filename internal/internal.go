@@ -27,7 +27,7 @@ func ImageNameFromReference(image string) (string, error) {
 	return fmt.Sprintf("%016x", h), nil
 }
 
-func RegistryNameFromReference(image string) (string, string, error) {
+func RegistryAndPathFromReference(image string) (string, string, error) {
 	named, err := reference.ParseNormalizedNamed(image)
 	if err != nil {
 		return "", "", err
@@ -42,7 +42,7 @@ func RegistryMonitorNameFromRegistry(registry string) string {
 }
 
 func RegistryMonitorNameFromReference(image string) (string, error) {
-	registry, _, err := RegistryNameFromReference(image)
+	registry, _, err := RegistryAndPathFromReference(image)
 	if err != nil {
 		return "", err
 	}
