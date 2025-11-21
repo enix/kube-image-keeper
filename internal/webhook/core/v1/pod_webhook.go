@@ -46,7 +46,9 @@ type PodCustomDefaulter struct {
 }
 
 type AlternativeImage struct {
-	Reference string
+	Reference        string
+	CredentialSecret *kuikv1alpha1.CredentialSecret
+	ImagePullSecret  *corev1.Secret
 }
 
 type Container struct {
@@ -64,11 +66,20 @@ func (d *PodCustomDefaulter) Default(ctx context.Context, obj runtime.Object) er
 	log := podlog.WithValues("requestID", request.UID, "namespace", request.Namespace, "name", request.Name)
 
 	pod, ok := obj.(*corev1.Pod)
-
 	if !ok {
-		return fmt.Errorf("expected an Pod object but got %T", obj)
+		return fmt.Errorf("expected a Pod object but got %T", obj)
 	}
 
+	if err := d.defaultt(logf.IntoContext(ctx, log), pod); err != nil {
+		log.Error(err, "defaulting webhook error")
+		return err
+	}
+
+	return nil
+}
+
+func (d *PodCustomDefaulter) defaultt(ctx context.Context, pod *corev1.Pod) error {
+	log := logf.FromContext(ctx)
 	log.Info("defaulting for Pod")
 
 	containers := make([]Container, 0, len(pod.Spec.Containers)+len(pod.Spec.InitContainers))
@@ -113,6 +124,10 @@ func (d *PodCustomDefaulter) Default(ctx context.Context, obj runtime.Object) er
 	for _, ism := range ismList.Items {
 		if ism.Namespace != pod.Namespace {
 			continue
+		}
+		for i := range ism.Spec.Mirrors {
+			mirror := &ism.Spec.Mirrors[i]
+			mirror.CredentialSecret.Namespace = pod.Namespace
 		}
 		imageSetMirrors = append(imageSetMirrors, ism)
 	}
@@ -161,7 +176,7 @@ func (d *PodCustomDefaulter) Default(ctx context.Context, obj runtime.Object) er
 			}
 
 			container.Images = make([]AlternativeImage, 0, 1+len(ism.Spec.Mirrors))
-			container.addAlternative(container.Image)
+			container.addAlternative(container.Image, nil)
 
 			_, imgPath, err := internal.RegistryAndPathFromReference(container.Image)
 			if err != nil {
@@ -169,7 +184,7 @@ func (d *PodCustomDefaulter) Default(ctx context.Context, obj runtime.Object) er
 			}
 
 			for _, mirror := range ism.Spec.Mirrors {
-				container.addAlternative(path.Join(mirror.Registry, mirror.Path, imgPath))
+				container.addAlternative(path.Join(mirror.Registry, mirror.Path, imgPath), mirror.CredentialSecret)
 			}
 		}
 	}
@@ -191,9 +206,12 @@ func (d *PodCustomDefaulter) Default(ctx context.Context, obj runtime.Object) er
 
 			for _, upstream := range ris.Spec.Upstreams {
 				reference := path.Join(upstream.Registry, upstream.Path, suffix)
-				// TODO: handle using CredentialSecret from upstream configuration
-				container.addAlternative(reference)
+				container.addAlternative(reference, upstream.CredentialSecret)
 			}
+		}
+
+		if err := container.loadAlternativesSecrets(ctx, d.Client); err != nil {
+			return err
 		}
 
 		d.rerouteContainerImage(ctx, &container, podImagePullSecrets)
@@ -206,7 +224,12 @@ func (d *PodCustomDefaulter) rerouteContainerImage(ctx context.Context, containe
 	log := logf.FromContext(ctx)
 
 	for _, image := range container.Images {
-		if available, err := d.checkImageAvailability(ctx, image.Reference, pullSecrets); err != nil {
+		imagePullSecrets := pullSecrets
+		if image.ImagePullSecret != nil {
+			imagePullSecrets = append(imagePullSecrets, *image.ImagePullSecret)
+		}
+
+		if available, err := d.checkImageAvailability(ctx, image.Reference, imagePullSecrets); err != nil {
 			log.Error(err, "could not check image availability", "image", image.Reference)
 			continue
 		} else if available {
@@ -243,11 +266,29 @@ func (d *PodCustomDefaulter) checkImageAvailability(ctx context.Context, referen
 	return err == nil, nil
 }
 
-func (c *Container) addAlternative(reference string) {
+func (c *Container) addAlternative(reference string, credentialSecret *kuikv1alpha1.CredentialSecret) {
 	if _, ok := c.Alternatives[reference]; ok {
 		return
 	}
 
 	c.Alternatives[reference] = struct{}{}
-	c.Images = append(c.Images, AlternativeImage{Reference: reference})
+	c.Images = append(c.Images, AlternativeImage{
+		Reference:        reference,
+		CredentialSecret: credentialSecret,
+	})
+}
+
+func (c *Container) loadAlternativesSecrets(ctx context.Context, cl client.Client) error {
+	for i := range c.Images {
+		image := &c.Images[i]
+		if image.CredentialSecret == nil || image.ImagePullSecret != nil {
+			continue
+		}
+		objectKey := client.ObjectKey{Namespace: image.CredentialSecret.Namespace, Name: image.CredentialSecret.Name}
+		image.ImagePullSecret = &corev1.Secret{}
+		if err := cl.Get(ctx, objectKey, image.ImagePullSecret); err != nil {
+			return err
+		}
+	}
+	return nil
 }
