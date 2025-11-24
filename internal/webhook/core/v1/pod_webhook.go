@@ -214,13 +214,22 @@ func (d *PodCustomDefaulter) defaultt(ctx context.Context, pod *corev1.Pod) erro
 			return err
 		}
 
-		d.rerouteContainerImage(ctx, &container, podImagePullSecrets)
+		alternativeSecret := d.rerouteContainerImage(ctx, &container, podImagePullSecrets)
+		alternativeSecretIndex := slices.IndexFunc(pod.Spec.ImagePullSecrets, func(localObjectReference corev1.LocalObjectReference) bool {
+			return localObjectReference.Name == alternativeSecret.Name
+		})
+		// Inject rerouted image pull secret if not already present in the pod
+		if alternativeSecretIndex == -1 {
+			pod.Spec.ImagePullSecrets = append(pod.Spec.ImagePullSecrets, corev1.LocalObjectReference{
+				Name: alternativeSecret.Name,
+			})
+		}
 	}
 
 	return nil
 }
 
-func (d *PodCustomDefaulter) rerouteContainerImage(ctx context.Context, container *Container, pullSecrets []corev1.Secret) {
+func (d *PodCustomDefaulter) rerouteContainerImage(ctx context.Context, container *Container, pullSecrets []corev1.Secret) *corev1.Secret {
 	log := logf.FromContext(ctx)
 
 	for _, image := range container.Images {
@@ -237,9 +246,11 @@ func (d *PodCustomDefaulter) rerouteContainerImage(ctx context.Context, containe
 				log.Info("rerouting image", "container", container.Name, "isInit", container.IsInit, "originalImage", container.Image, "reroutedImage", image.Reference)
 				container.Image = image.Reference
 			}
-			return
+			return image.ImagePullSecret
 		}
 	}
+
+	return nil
 }
 
 func (d *PodCustomDefaulter) checkImageAvailability(ctx context.Context, reference string, pullSecrets []corev1.Secret) (bool, error) {
