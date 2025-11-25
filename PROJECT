@@ -9,14 +9,6 @@ multigroup: true
 projectName: kube-image-keeper
 repo: github.com/enix/kube-image-keeper
 resources:
-- api:
-    crdVersion: v1
-  controller: true
-  domain: enix.io
-  group: kuik
-  kind: Image
-  path: github.com/enix/kube-image-keeper/api/kuik/v1alpha1
-  version: v1alpha1
 - controller: true
   core: true
   group: core
@@ -32,13 +24,6 @@ resources:
   domain: enix.io
   group: kuik
   kind: RegistryMonitor
-  path: github.com/enix/kube-image-keeper/api/kuik/v1alpha1
-  version: v1alpha1
-- api:
-    crdVersion: v1
-  domain: enix.io
-  group: kuik
-  kind: ImageMonitor
   path: github.com/enix/kube-image-keeper/api/kuik/v1alpha1
   version: v1alpha1
 - api:

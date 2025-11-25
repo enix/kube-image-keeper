@@ -11,22 +11,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func ImageNameFromReference(image string) (string, error) {
-	ref, err := reference.ParseAnyReference(image)
-	if err != nil {
-		return "", err
-	}
-
-	image = ref.String()
-	if !strings.Contains(image, ":") {
-		image += "-latest"
-	}
-
-	h := xxhash.Sum64String(image)
-
-	return fmt.Sprintf("%016x", h), nil
-}
-
 func RegistryAndPathFromReference(image string) (string, string, error) {
 	named, err := reference.ParseNormalizedNamed(image)
 	if err != nil {

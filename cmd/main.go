@@ -227,15 +227,6 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "Pod")
 		os.Exit(1)
 	}
-	if err = (&kuikcontroller.ImageReconciler{
-		Client:         mgr.GetClient(),
-		Scheme:         mgr.GetScheme(),
-		UnusedImageTTL: time.Hour * time.Duration(unusedImageTTL),
-		Config:         configuration,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Image")
-		os.Exit(1)
-	}
 	if err = (&kuikcontroller.RegistryMonitorReconciler{
 		Client:       mgr.GetClient(),
 		Scheme:       mgr.GetScheme(),

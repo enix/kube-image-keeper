@@ -18,7 +18,6 @@
   resources:
   - clusterimagesetmirrors
   - imagemonitors
-  - images
   - imagesetmirrors
   - registrymonitors
   verbs:
@@ -34,7 +33,6 @@
   resources:
   - clusterimagesetmirrors/finalizers
   - imagemonitors/finalizers
-  - images/finalizers
   - imagesetmirrors/finalizers
   - registrymonitors/finalizers
   verbs:
@@ -44,7 +42,6 @@
   resources:
   - clusterimagesetmirrors/status
   - imagemonitors/status
-  - images/status
   - imagesetmirrors/status
   - registrymonitors/status
   verbs:
