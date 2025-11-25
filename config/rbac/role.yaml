@@ -57,3 +57,19 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - kuik.enix.io
+  resources:
+  - clusterrepicatedimagesets
+  - repicatedimagesets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - kuik.enix.io
+  resources:
+  - clusterrepicatedimagesets/status
+  - repicatedimagesets/status
+  verbs:
+  - get
