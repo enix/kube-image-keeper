@@ -94,6 +94,8 @@ spec:
                         properties:
                           image:
                             type: string
+                          lastError:
+                            type: string
                           mirroredAt:
                             format: date-time
                             type: string

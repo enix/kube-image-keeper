@@ -94,21 +94,29 @@ func (r *ClusterImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctr
 			continue
 		}
 
-		for i := range matchedImage.Mirrors {
-			mirror := &matchedImage.Mirrors[i]
+		originalCism = cism.DeepCopy()
+
+		for j := range matchedImage.Mirrors {
+			mirror := &matchedImage.Mirrors[j]
 
 			if mirror.MirroredAt == nil {
 				mirrorLog := log.WithValues("from", matchedImage.Image, "to", mirror.Image)
 				mirrorLog.Info("mirroring image")
 
-				if err := r.MirrorImage(ctx, &cism, podsByMatchingImages, matchedImage.Image, mirror); err != nil {
-					// TODO: return an error at the very end to not block subsequent images
+				err := r.MirrorImage(ctx, &cism, podsByMatchingImages, matchedImage.Image, mirror)
+				if err != nil {
 					mirrorLog.Error(err, "could not mirror image")
 					someMirrorFailed = true
+					mirror.LastError = err.Error()
 				} else {
 					mirrorLog.Info("successfully mirrored image")
+					mirror.LastError = ""
 				}
 			}
+		}
+
+		if err := r.Status().Patch(ctx, &cism, client.MergeFrom(originalCism)); err != nil {
+			return ctrl.Result{}, err
 		}
 	}
 
@@ -178,13 +186,8 @@ func (r *ClusterImageSetMirrorReconciler) MirrorImage(ctx context.Context, cism 
 		return err
 	}
 
-	originalCism := cism.DeepCopy()
 	now := metav1.NewTime(time.Now())
 	to.MirroredAt = &now
-
-	if err := r.Status().Patch(ctx, cism, client.MergeFrom(originalCism)); err != nil {
-		return err
-	}
 
 	return nil
 }

@@ -77,6 +77,7 @@ type MatchedImage struct {
 type MirrorStatus struct {
 	Image      string       `json:"image"`
 	MirroredAt *metav1.Time `json:"mirroredAt,omitempty"`
+	LastError  string       `json:"lastError,omitempty"`
 }
 
 func init() {
