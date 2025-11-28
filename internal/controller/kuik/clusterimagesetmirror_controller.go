@@ -105,8 +105,9 @@ func (r *ClusterImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctr
 					// TODO: return an error at the very end to not block subsequent images
 					mirrorLog.Error(err, "could not mirror image")
 					someMirrorFailed = true
+				} else {
+					mirrorLog.Info("successfully mirrored image")
 				}
-				mirrorLog.Info("successfully mirrored image")
 			}
 		}
 	}
