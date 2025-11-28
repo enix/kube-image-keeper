@@ -57,6 +57,7 @@ func (r *ClusterImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctr
 
 	matchedImagesMap := map[string]kuikv1alpha1.MatchedImage{}
 	for _, matchedImage := range cism.Status.MatchedImages {
+		// FIXME: check that the matchedImage still matches
 		matchedImagesMap[matchedImage.Image] = matchedImage
 	}
 
@@ -69,6 +70,7 @@ func (r *ClusterImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctr
 			})
 		}
 		if _, ok := matchedImagesMap[matchingImage]; !ok {
+			// FIXME: update mirrors recursively (add/remove)
 			matchedImagesMap[matchingImage] = kuikv1alpha1.MatchedImage{
 				Image:   matchingImage,
 				Mirrors: mirrors,

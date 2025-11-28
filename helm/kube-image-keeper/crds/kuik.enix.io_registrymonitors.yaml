@@ -75,15 +75,10 @@ spec:
                 - HEAD
                 - GET
                 type: string
-              parallel:
-                default: 1
-                description: Parallel is the number of images to check in parallel,
-                  defaults to 1
-                minimum: 1
-                type: integer
               registry:
-                description: Registry is the registry to monitor for image updates,
-                  it filters local image to check upstream
+                description: |-
+                  Registry is the registry to monitor for image updates, it filters local image to check upstream
+                  FIXME: make it immutable
                 type: string
               timeout:
                 default: 30s
@@ -93,12 +88,56 @@ spec:
             - interval
             - maxPerInterval
             - method
-            - parallel
             - registry
             - timeout
             type: object
           status:
             description: RegistryMonitorStatus defines the observed state of RegistryMonitor.
+            properties:
+              images:
+                items:
+                  properties:
+                    digest:
+                      description: Digest is the digest of the upstream image manifest,
+                        if available
+                      type: string
+                    lastError:
+                      description: LastError is the last error encountered while trying
+                        to monitor the upstream image
+                      type: string
+                    lastMonitor:
+                      description: LastMonitor is the last time a monitoring task
+                        for the upstream image was was started
+                      format: date-time
+                      type: string
+                    lastSeen:
+                      description: LastSeen is the last time the image was seen upstream
+                      format: date-time
+                      type: string
+                    path:
+                      description: Path is the path to the monitored image (does not
+                        include the registry)
+                      type: string
+                    status:
+                      default: Scheduled
+                      description: Status is the status of the last finished monitoring
+                        task
+                      enum:
+                      - Scheduled
+                      - Available
+                      - Unavailable
+                      - Unreachable
+                      - InvalidAuth
+                      - UnavailableSecret
+                      - QuotaExceeded
+                      type: string
+                    unusedSince:
+                      description: UnusedSince is the last time the image was used
+                        in a pod
+                      format: date-time
+                      type: string
+                  type: object
+                type: array
             type: object
         type: object
     served: true

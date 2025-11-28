@@ -2,11 +2,17 @@ package core
 
 import (
 	"context"
-	"strings"
+	"fmt"
+	"net/http"
+	"slices"
+	"time"
 
+	"github.com/cespare/xxhash"
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
+	"github.com/enix/kube-image-keeper/internal"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -48,49 +54,44 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	images, errs := kuikv1alpha1.ImagesFromPod(&pod)
+	registries, errs := registriesFromPod(&pod)
 	for _, err := range errs {
-		log.Error(err, "failed to create image from pod, ignoring", "pod", klog.KObj(&pod))
+		log.Error(err, "failed to get registry from pod, ignoring", "pod", klog.KObj(&pod))
 	}
 
-	hasDeletingImages := false
-	for _, image := range images {
-		var img kuikv1alpha1.Image
-		err := r.Get(ctx, client.ObjectKeyFromObject(&image), &img)
-		if err != nil && !apierrors.IsNotFound(err) {
+	for _, registry := range registries {
+		var registryMonitors kuikv1alpha1.RegistryMonitorList
+		if err := r.List(ctx, &registryMonitors, client.MatchingFields{
+			RegistryIndexKey: registry,
+		}); err != nil {
 			return ctrl.Result{}, err
 		}
-
-		if !img.DeletionTimestamp.IsZero() {
-			hasDeletingImages = true
-			// image is already scheduled for deletion, thus we don't have to handle it here and will enqueue it back later
-			log.Info("image is already being deleted, skipping", "image", klog.KObj(&image))
+		if len(registryMonitors.Items) > 0 {
 			continue
 		}
 
-		// create or update Image depending on weather it already exists or not
-		if apierrors.IsNotFound(err) {
-			log.Info("new image found on a pod", "image", klog.KObj(&image))
-			err = r.Create(ctx, &image)
-			if err != nil {
-				return ctrl.Result{}, err
-			}
-		} else if img.Reference() != image.Reference() {
-			log.Info("image found with an invalid reference, patching it", "image", klog.KObj(&image))
-
-			patch := client.MergeFrom(img.DeepCopy())
-
-			img.Spec.ImageReference = image.Spec.ImageReference
-
-			if err = r.Patch(ctx, &img, patch); err != nil {
-				return ctrl.Result{}, err
-			}
+		registryMonitor := &kuikv1alpha1.RegistryMonitor{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: fmt.Sprintf("%016x", xxhash.Sum64String(registry)),
+			},
+			Spec: kuikv1alpha1.RegistryMonitorSpec{
+				Registry: registry,
+				// TODO: use default values from configuration
+				MaxPerInterval: 1,
+				Interval:       metav1.Duration{Duration: 10 * time.Minute},
+				Method:         http.MethodHead,
+				Timeout:        metav1.Duration{Duration: 10 * time.Second},
+			},
 		}
-	}
 
-	if hasDeletingImages {
-		log.Info("some images are being deleted, requeuing later")
-		return ctrl.Result{Requeue: true}, nil
+		if err := r.Create(ctx, registryMonitor); err != nil {
+			if apiErrors.IsAlreadyExists(err) {
+				return ctrl.Result{}, nil
+			}
+			return ctrl.Result{}, err
+		} else {
+			log.Info("no registry monitor found for image, created one with default values", "registry", registry)
+		}
 	}
 
 	return ctrl.Result{}, nil
@@ -112,9 +113,9 @@ func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			return false
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
-			newImage := e.ObjectNew.(*kuikv1alpha1.Image)
-			oldImage := e.ObjectOld.(*kuikv1alpha1.Image)
-			return newImage.Reference() == oldImage.Reference()
+			new := e.ObjectNew.(*kuikv1alpha1.RegistryMonitor)
+			old := e.ObjectOld.(*kuikv1alpha1.RegistryMonitor)
+			return new.Spec.Registry == old.Spec.Registry
 		},
 	})
 
@@ -122,27 +123,57 @@ func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&corev1.Pod{}).
 		Named("core-pod").
 		Watches(
-			&kuikv1alpha1.Image{},
-			handler.EnqueueRequestsFromMapFunc(r.podsWithDeletingImages),
+			&kuikv1alpha1.RegistryMonitor{},
+			handler.EnqueueRequestsFromMapFunc(r.podsFromRegistryMonitors),
 			builder.WithPredicates(p),
 		).
 		Complete(r)
 }
 
-func (r *PodReconciler) podsWithDeletingImages(ctx context.Context, obj client.Object) []ctrl.Request {
+func (r *PodReconciler) podsFromRegistryMonitors(ctx context.Context, obj client.Object) []ctrl.Request {
 	log := logf.
 		FromContext(ctx).
-		WithName("controller-runtime.manager.controller.pod.deletingImages").
-		WithValues("image", klog.KObj(obj))
+		WithName("controller-runtime.manager.controller.pod.watch-registrymonitors").
+		WithValues("registrymonitor", klog.KObj(obj))
 
-	image := obj.(*kuikv1alpha1.Image)
-	res := make([]ctrl.Request, len(image.Status.UsedByPods.Items))
-
-	for i, pod := range image.Status.UsedByPods.Items {
-		log.Info("image in use, reconciling related pod", "pod", pod)
-		name := strings.SplitN(pod, "/", 2)
-		res[i].NamespacedName = client.ObjectKey{Namespace: name[0], Name: name[1]}
+	registryMonitor := obj.(*kuikv1alpha1.RegistryMonitor)
+	var pods corev1.PodList
+	if err := r.List(ctx, &pods); err != nil {
+		log.Error(err, "could not list pods")
+		return nil
 	}
 
-	return res
+	requests := []ctrl.Request{}
+	for _, pod := range pods.Items {
+		registries, errs := registriesFromPod(&pod)
+		for _, err := range errs {
+			log.Error(err, "failed to get registry from pod, ignoring", "pod", klog.KObj(&pod))
+		}
+		if slices.Index(registries, registryMonitor.Spec.Registry) != -1 {
+			requests = append(requests, ctrl.Request{
+				NamespacedName: client.ObjectKeyFromObject(&pod),
+			})
+		}
+	}
+
+	return requests
+}
+
+func registriesFromPod(pod *corev1.Pod) ([]string, []error) {
+	return registriesFromContainers(append(pod.Spec.Containers, pod.Spec.InitContainers...))
+}
+
+func registriesFromContainers(containers []corev1.Container) ([]string, []error) {
+	registries := []string{}
+	errs := []error{}
+
+	for _, container := range containers {
+		registry, _, err := internal.RegistryAndPathFromReference(container.Image)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("could not parse registry from reference %q: %w", container.Image, err))
+		}
+		registries = append(registries, registry)
+	}
+
+	return registries, errs
 }

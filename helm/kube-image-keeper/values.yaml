@@ -148,11 +148,3 @@ configuration:
   activeCheck:
     enabled: true
     timeout: 1s
-  strategies: []
-    # - paths:
-    #     - enix/x509-certificate-exporter
-    #   registries:
-    #     - url: docker.io
-    #     - url: quay.io
-    #       mirroringEnabled: true
-

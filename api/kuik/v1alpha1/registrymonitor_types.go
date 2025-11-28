@@ -8,11 +8,8 @@ import (
 // +required
 type RegistryMonitorSpec struct {
 	// Registry is the registry to monitor for image updates, it filters local image to check upstream
+	// FIXME: make it immutable
 	Registry string `json:"registry"`
-	// Parallel is the number of images to check in parallel, defaults to 1
-	// +kubebuilder:validation:Minimum=1
-	// +default:value=1
-	Parallel int `json:"parallel"`
 	// MaxPerInterval is the maximum number of images to check for the given interval, defaults to 1
 	// +kubebuilder:validation:Minimum=1
 	// +default:value=1
@@ -30,7 +27,9 @@ type RegistryMonitorSpec struct {
 }
 
 // RegistryMonitorStatus defines the observed state of RegistryMonitor.
-type RegistryMonitorStatus struct{}
+type RegistryMonitorStatus struct {
+	Images []ImageMonitorStatus `json:"images,omitempty"`
+}
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
@@ -57,6 +56,47 @@ type RegistryMonitorList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []RegistryMonitor `json:"items"`
+}
+
+type ImageMonitorStatusName string
+
+const (
+	ImageMonitorStatusUpstreamScheduled         = ImageMonitorStatusName("Scheduled")
+	ImageMonitorStatusUpstreamAvailable         = ImageMonitorStatusName("Available")
+	ImageMonitorStatusUpstreamUnavailable       = ImageMonitorStatusName("Unavailable")
+	ImageMonitorStatusUpstreamUnreachable       = ImageMonitorStatusName("Unreachable")
+	ImageMonitorStatusUpstreamInvalidAuth       = ImageMonitorStatusName("InvalidAuth")
+	ImageMonitorStatusUpstreamUnavailableSecret = ImageMonitorStatusName("UnavailableSecret")
+	ImageMonitorStatusUpstreamQuotaExceeded     = ImageMonitorStatusName("QuotaExceeded")
+)
+
+var ImageMonitorStatusUpstreamList = []ImageMonitorStatusName{
+	ImageMonitorStatusUpstreamScheduled,
+	ImageMonitorStatusUpstreamAvailable,
+	ImageMonitorStatusUpstreamUnavailable,
+	ImageMonitorStatusUpstreamUnreachable,
+	ImageMonitorStatusUpstreamInvalidAuth,
+	ImageMonitorStatusUpstreamUnavailableSecret,
+	ImageMonitorStatusUpstreamQuotaExceeded,
+}
+
+type ImageMonitorStatus struct {
+	// Path is the path to the monitored image (does not include the registry)
+	Path string `json:"path,omitempty"`
+	// Status is the status of the last finished monitoring task
+	// +kubebuilder:validation:Enum=Scheduled;Available;Unavailable;Unreachable;InvalidAuth;UnavailableSecret;QuotaExceeded
+	// +default="Scheduled"
+	Status ImageMonitorStatusName `json:"status,omitempty"`
+	// Digest is the digest of the upstream image manifest, if available
+	Digest string `json:"digest,omitempty"`
+	// LastMonitor is the last time a monitoring task for the upstream image was was started
+	LastMonitor metav1.Time `json:"lastMonitor,omitempty"`
+	// LastError is the last error encountered while trying to monitor the upstream image
+	LastError string `json:"lastError,omitempty"`
+	// LastSeen is the last time the image was seen upstream
+	LastSeen metav1.Time `json:"lastSeen,omitempty"`
+	// UnusedSince is the last time the image was used in a pod
+	UnusedSince metav1.Time `json:"unusedSince,omitempty"`
 }
 
 func init() {

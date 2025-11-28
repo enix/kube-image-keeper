@@ -72,7 +72,7 @@ func (d *PodCustomDefaulter) Default(ctx context.Context, obj runtime.Object) er
 		return fmt.Errorf("expected a Pod object but got %T", obj)
 	}
 
-	if err := d.defaultt(logf.IntoContext(ctx, log), pod); err != nil {
+	if err := d.defaultPod(logf.IntoContext(ctx, log), pod); err != nil {
 		log.Error(err, "defaulting webhook error")
 		return err
 	}
@@ -80,7 +80,7 @@ func (d *PodCustomDefaulter) Default(ctx context.Context, obj runtime.Object) er
 	return nil
 }
 
-func (d *PodCustomDefaulter) defaultt(ctx context.Context, pod *corev1.Pod) error {
+func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod) error {
 	log := logf.FromContext(ctx)
 	log.Info("defaulting for Pod")
 

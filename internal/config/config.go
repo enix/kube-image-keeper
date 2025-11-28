@@ -2,7 +2,6 @@ package config
 
 import (
 	"log"
-	"reflect"
 	"regexp"
 	"time"
 
@@ -17,7 +16,6 @@ type Config struct {
 	Monitoring  Monitoring  `koanf:"monitoring"`
 	Mirroring   Mirroring   `koanf:"mirroring"`
 	ActiveCheck ActiveCheck `koanf:"activeCheck"`
-	Strategies  []Strategy  `koanf:"strategies"`
 }
 
 type Monitoring struct {
@@ -59,19 +57,7 @@ func load(provider koanf.Provider, parser koanf.Parser) (*Config, error) {
 		DecoderConfig: &mapstructure.DecoderConfig{
 			DecodeHook: mapstructure.ComposeDecodeHookFunc(
 				mapstructure.StringToTimeDurationHookFunc(),
-				stringToRegexp,
 			),
 		},
 	})
-}
-
-func stringToRegexp(from, to reflect.Type, data any) (any, error) {
-	if from.Kind() == reflect.String && to == reflect.TypeOf(&regexp.Regexp{}) {
-		re, err := regexp.Compile(data.(string))
-		if err != nil {
-			return nil, err
-		}
-		return re, nil
-	}
-	return data, nil
 }
