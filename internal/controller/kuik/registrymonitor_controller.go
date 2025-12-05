@@ -73,10 +73,9 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, err
 	}
 
-	images := imagesMatchingRegistryFromPods(ctx, registryMonitor.Spec.Registry, pods.Items)
-
+	matchingImagesMap := imagesMatchingRegistryFromPods(ctx, registryMonitor.Spec.Registry, pods.Items)
 	imageMonitorStatusMap := map[string]kuikv1alpha1.ImageMonitorStatus{}
-	for _, image := range images {
+	for image := range matchingImagesMap {
 		imageMonitorStatusMap[image] = kuikv1alpha1.ImageMonitorStatus{Path: image}
 	}
 
@@ -123,7 +122,8 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 		logImageMonitor := log.WithValues("path", imageMonitorStatus.Path)
 		logImageMonitor.Info("monitoring image")
-		if err := r.MonitorImage(logf.IntoContext(ctx, logImageMonitor), &registryMonitor, imageMonitorStatus); err != nil {
+
+		if err := r.MonitorImage(logf.IntoContext(ctx, logImageMonitor), &registryMonitor, imageMonitorStatus, matchingImagesMap[imageMonitorStatus.Path]); err != nil {
 			logImageMonitor.Error(err, "failed to monitor image")
 		} else {
 			logImageMonitor.V(1).Info("image monitored with success")
@@ -147,7 +147,7 @@ func (r *RegistryMonitorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *RegistryMonitorReconciler) MonitorImage(ctx context.Context, registryMonitor *kuikv1alpha1.RegistryMonitor, imageMonitorStatus *kuikv1alpha1.ImageMonitorStatus) (err error) {
+func (r *RegistryMonitorReconciler) MonitorImage(ctx context.Context, registryMonitor *kuikv1alpha1.RegistryMonitor, imageMonitorStatus *kuikv1alpha1.ImageMonitorStatus, pod *corev1.Pod) (err error) {
 	patch := client.MergeFrom(registryMonitor.DeepCopy())
 	defer func() {
 		if errStatus := r.Status().Patch(ctx, registryMonitor, patch); errStatus != nil {
@@ -157,9 +157,9 @@ func (r *RegistryMonitorReconciler) MonitorImage(ctx context.Context, registryMo
 
 	imageMonitorStatus.LastMonitor = metav1.Now()
 
-	// TODO: secrets
-	// pullSecrets, pullSecretsErr := imageMonitorStatus.GetPullSecrets(ctx, r.Client)
-	client := registry.NewClient(nil, nil).WithTimeout(registryMonitor.Spec.Timeout.Duration) // .WithPullSecrets(pullSecrets)
+	pullSecrets, pullSecretsErr := internal.GetPullSecretsFromPod(ctx, r.Client, pod)
+	client := registry.NewClient(nil, nil).WithTimeout(registryMonitor.Spec.Timeout.Duration).WithPullSecrets(pullSecrets)
+	println(pullSecrets)
 
 	desc, err := client.ReadDescriptor(registryMonitor.Spec.Method, path.Join(registryMonitor.Spec.Registry, imageMonitorStatus.Path))
 	if err != nil {
@@ -168,13 +168,13 @@ func (r *RegistryMonitorReconciler) MonitorImage(ctx context.Context, registryMo
 		if errors.As(err, &te) {
 			switch te.StatusCode {
 			case http.StatusForbidden, http.StatusUnauthorized:
-				// if pullSecretsErr != nil {
-				// 	imageMonitorStatus.Status = kuikv1alpha1.ImageMonitorStatusUpstreamUnavailableSecret
-				// 	imageMonitorStatus.LastError = pullSecretsErr.Error()
-				// 	err = pullSecretsErr
-				// } else {
-				imageMonitorStatus.Status = kuikv1alpha1.ImageMonitorStatusUpstreamInvalidAuth
-				// }
+				if pullSecretsErr != nil {
+					imageMonitorStatus.Status = kuikv1alpha1.ImageMonitorStatusUpstreamUnavailableSecret
+					imageMonitorStatus.LastError = pullSecretsErr.Error()
+					err = pullSecretsErr
+				} else {
+					imageMonitorStatus.Status = kuikv1alpha1.ImageMonitorStatusUpstreamInvalidAuth
+				}
 			case http.StatusTooManyRequests:
 				imageMonitorStatus.Status = kuikv1alpha1.ImageMonitorStatusUpstreamQuotaExceeded
 			default:
@@ -215,9 +215,9 @@ func imagesMatchingRegistryFromContainers(registry string, containers []corev1.C
 	return images, errs
 }
 
-func imagesMatchingRegistryFromPods(ctx context.Context, registry string, pods []corev1.Pod) []string {
+func imagesMatchingRegistryFromPods(ctx context.Context, registry string, pods []corev1.Pod) map[string]*corev1.Pod {
 	log := logf.FromContext(ctx)
-	matchingImagesMap := map[string]struct{}{}
+	matchingImagesMap := map[string]*corev1.Pod{}
 
 	for _, pod := range pods {
 		images, errs := imagesMatchingRegistryFromPod(registry, &pod)
@@ -225,14 +225,9 @@ func imagesMatchingRegistryFromPods(ctx context.Context, registry string, pods [
 			log.Error(err, "failed to get images matching registry from pod, ignoring", "pod", klog.KObj(&pod))
 		}
 		for _, image := range images {
-			matchingImagesMap[image] = struct{}{}
+			matchingImagesMap[image] = &pod
 		}
 	}
 
-	images := make([]string, 0, len(matchingImagesMap))
-	for image := range matchingImagesMap {
-		images = append(images, image)
-	}
-
-	return images
+	return matchingImagesMap
 }
