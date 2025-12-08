@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"path"
-	"regexp"
 	"strings"
 	"time"
 
@@ -16,6 +15,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
+	"github.com/enix/kube-image-keeper/internal/matchers"
 	"github.com/enix/kube-image-keeper/internal/registry"
 )
 
@@ -51,14 +51,29 @@ func (r *ImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, err
 	}
 
-	podsByMatchingImages, err := r.podsByNormalizedMatchingImages(&cism, pods.Items)
+	matcher, err := cism.Spec.BuildMatcher()
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	podsByMatchingImages, err := matchers.PodsByNormalizedMatchingImages(matcher, pods.Items)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
 	matchedImagesMap := map[string]kuikv1alpha1.MatchedImage{}
 	for _, matchedImage := range cism.Status.MatchedImages {
-		matchedImagesMap[matchedImage.Image] = matchedImage
+		named, match, err := matchers.NormalizeAndMatch(matcher, matchedImage.Image)
+		if err != nil {
+			return ctrl.Result{}, err
+		} else if !match {
+			// The image isn't matched anymore, which is different from matching but stopped to be used in the cluster.
+			// This, we set UnusedSince to 0001-01-01 01:00:00 +0000 UTC to trigger instant expiry and deletion.
+			// We add 1 hour to the zero value to prevent the patch to be ignored (zero value is considered == to nil)
+			matchedImage.UnusedSince = &metav1.Time{Time: (time.Time{}).Add(time.Hour)}
+			log.Info("image is not matching anymore, queuing it for deletion")
+		}
+		matchedImagesMap[named.String()] = matchedImage
 	}
 
 	for matchingImage := range podsByMatchingImages {
@@ -70,6 +85,7 @@ func (r *ImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			})
 		}
 		if _, ok := matchedImagesMap[matchingImage]; !ok {
+			// FIXME: update mirrors recursively (add/remove)
 			matchedImagesMap[matchingImage] = kuikv1alpha1.MatchedImage{
 				Image:   matchingImage,
 				Mirrors: mirrors,
@@ -191,24 +207,4 @@ func (r *ImageSetMirrorReconciler) MirrorImage(ctx context.Context, cism *kuikv1
 	to.MirroredAt = &now
 
 	return nil
-}
-
-func (r *ImageSetMirrorReconciler) podsByNormalizedMatchingImages(cism *kuikv1alpha1.ImageSetMirror, pods []corev1.Pod) (map[string]*corev1.Pod, error) {
-	// TODO: validating webhook for the regexp
-	matcher, err := regexp.Compile(cism.Spec.ImageMatcher)
-	if err != nil {
-		return nil, err
-	}
-
-	matchingImagesMap := map[string]*corev1.Pod{}
-	for _, pod := range pods {
-		for _, container := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
-			if matcher.Match([]byte(container.Image)) {
-				// FIXME: normalize image name
-				matchingImagesMap[container.Image] = &pod
-			}
-		}
-	}
-
-	return matchingImagesMap, nil
 }

@@ -1,6 +1,7 @@
 package v1alpha1
 
 import (
+	"github.com/enix/kube-image-keeper/internal/matchers"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -34,4 +35,9 @@ type ClusterImageSetMirrorList struct {
 
 func init() {
 	SchemeBuilder.Register(&ClusterImageSetMirror{}, &ClusterImageSetMirrorList{})
+}
+
+func (i *ClusterImageSetMirrorSpec) BuildMatcher() (matchers.ImageMatcher, error) {
+	// TODO: validating webhook for the regexp
+	return matchers.NewRegexpImageMatcher(i.ImageMatcher)
 }

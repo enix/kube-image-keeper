@@ -5,7 +5,6 @@
 package v1alpha1
 
 import (
-	"k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -389,8 +388,7 @@ func (in *MatchedImage) DeepCopyInto(out *MatchedImage) {
 	}
 	if in.UnusedSince != nil {
 		in, out := &in.UnusedSince, &out.UnusedSince
-		*out = new(v1.Duration)
-		**out = **in
+		*out = (*in).DeepCopy()
 	}
 }
 

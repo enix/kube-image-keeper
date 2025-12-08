@@ -4,6 +4,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/enix/kube-image-keeper/internal/matchers"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -70,8 +71,8 @@ type MatchedImage struct {
 	Image string `json:"image"`
 	// +listType=map
 	// +listMapKey=image
-	Mirrors     []MirrorStatus   `json:"mirrors,omitempty"`
-	UnusedSince *metav1.Duration `json:"unusedSince,omitempty"`
+	Mirrors     []MirrorStatus `json:"mirrors,omitempty"`
+	UnusedSince *metav1.Time   `json:"unusedSince,omitempty"`
 }
 
 type MirrorStatus struct {
@@ -94,4 +95,9 @@ func (m Mirrors) GetCredentialSecretForImage(image string) (cred *CredentialSecr
 		}
 	}
 	return
+}
+
+func (i *ImageSetMirrorSpec) BuildMatcher() (matchers.ImageMatcher, error) {
+	// TODO: validating webhook for the regexp
+	return matchers.NewRegexpImageMatcher(i.ImageMatcher)
 }

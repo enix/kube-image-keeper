@@ -107,6 +107,7 @@ spec:
                       - image
                       x-kubernetes-list-type: map
                     unusedSince:
+                      format: date-time
                       type: string
                   required:
                   - image
