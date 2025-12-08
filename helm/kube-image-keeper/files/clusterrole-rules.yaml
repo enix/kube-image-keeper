@@ -51,8 +51,8 @@
 - apiGroups:
   - kuik.enix.io
   resources:
-  - clusterrepicatedimagesets
-  - repicatedimagesets
+  - clusterreplicatedimagesets
+  - replicatedimagesets
   verbs:
   - get
   - list
@@ -60,7 +60,7 @@
 - apiGroups:
   - kuik.enix.io
   resources:
-  - clusterrepicatedimagesets/status
-  - repicatedimagesets/status
+  - clusterreplicatedimagesets/status
+  - replicatedimagesets/status
   verbs:
   - get

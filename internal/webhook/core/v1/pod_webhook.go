@@ -34,8 +34,8 @@ func SetupPodWebhookWithManager(mgr ctrl.Manager, d *PodCustomDefaulter) error {
 }
 
 // +kubebuilder:webhook:path=/mutate--v1-pod,mutating=true,failurePolicy=ignore,sideEffects=None,groups="",resources=pods,verbs=create;update,versions=v1,name=mpod-v1.kb.io,admissionReviewVersions=v1
-// +kubebuilder:rbac:groups=kuik.enix.io,resources=repicatedimagesets;clusterrepicatedimagesets,verbs=get;list;watch
-// +kubebuilder:rbac:groups=kuik.enix.io,resources=repicatedimagesets/status;clusterrepicatedimagesets/status,verbs=get
+// +kubebuilder:rbac:groups=kuik.enix.io,resources=replicatedimagesets;clusterreplicatedimagesets,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kuik.enix.io,resources=replicatedimagesets/status;clusterreplicatedimagesets/status,verbs=get
 
 // PodCustomDefaulter struct is responsible for setting default values on the custom resource of the
 // Kind Pod when those are created or updated.
