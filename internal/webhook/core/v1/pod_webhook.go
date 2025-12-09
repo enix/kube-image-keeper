@@ -216,15 +216,16 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod) er
 			return err
 		}
 
-		alternativeSecret := d.rerouteContainerImage(ctx, &container, podImagePullSecrets)
-		alternativeSecretIndex := slices.IndexFunc(pod.Spec.ImagePullSecrets, func(localObjectReference corev1.LocalObjectReference) bool {
-			return localObjectReference.Name == alternativeSecret.Name
-		})
-		// Inject rerouted image pull secret if not already present in the pod
-		if alternativeSecretIndex == -1 {
-			pod.Spec.ImagePullSecrets = append(pod.Spec.ImagePullSecrets, corev1.LocalObjectReference{
-				Name: alternativeSecret.Name,
+		if alternativeSecret := d.rerouteContainerImage(ctx, &container, podImagePullSecrets); alternativeSecret != nil {
+			alternativeSecretIndex := slices.IndexFunc(pod.Spec.ImagePullSecrets, func(localObjectReference corev1.LocalObjectReference) bool {
+				return localObjectReference.Name == alternativeSecret.Name
 			})
+			// Inject rerouted image pull secret if not already present in the pod
+			if alternativeSecretIndex == -1 {
+				pod.Spec.ImagePullSecrets = append(pod.Spec.ImagePullSecrets, corev1.LocalObjectReference{
+					Name: alternativeSecret.Name,
+				})
+			}
 		}
 	}
 
