@@ -159,7 +159,6 @@ func (r *RegistryMonitorReconciler) MonitorImage(ctx context.Context, registryMo
 
 	pullSecrets, pullSecretsErr := internal.GetPullSecretsFromPod(ctx, r.Client, pod)
 	client := registry.NewClient(nil, nil).WithTimeout(registryMonitor.Spec.Timeout.Duration).WithPullSecrets(pullSecrets)
-	println(pullSecrets)
 
 	desc, err := client.ReadDescriptor(registryMonitor.Spec.Method, path.Join(registryMonitor.Spec.Registry, imageMonitorStatus.Path))
 	if err != nil {
@@ -188,7 +187,6 @@ func (r *RegistryMonitorReconciler) MonitorImage(ctx context.Context, registryMo
 		imageMonitorStatus.LastError = ""
 		imageMonitorStatus.Status = kuikv1alpha1.ImageMonitorStatusUpstreamAvailable
 		imageMonitorStatus.Digest = desc.Digest.String()
-		println("set digest and status", desc.Digest.String(), imageMonitorStatus.Status)
 	}
 
 	return err
