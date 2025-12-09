@@ -49,11 +49,12 @@ func (c *Client) WithTimeout(timeout time.Duration) *Client {
 }
 
 func (c *Client) WithPullSecrets(pullSecrets []corev1.Secret) *Client {
+	// TODO: rename into WithCredentialSecrets
 	c.pullSecrets = pullSecrets
 	return c
 }
 
-// Execute execute a callback with authentication with options including authentication and optional timeout
+// Execute execute a callback options including authentication and an optional timeout
 func (c *Client) Execute(imageName string, action func(ref name.Reference, opts ...remote.Option) error) error {
 	keychains, err := GetKeychains(imageName, c.pullSecrets)
 	if err != nil {
@@ -147,6 +148,12 @@ func (c *Client) CopyImage(src *remote.Descriptor, dest string, architectures []
 	})
 }
 
+func (c *Client) DeleteImage(imageName string) error {
+	return c.Execute(imageName, func(ref name.Reference, opts ...remote.Option) (err error) {
+		return remote.Delete(ref, opts...)
+	})
+}
+
 func getReader(httpMethod string) descriptorReader {
 	switch httpMethod {
 	case http.MethodGet:
@@ -166,7 +173,7 @@ func getDescriptor(ref name.Reference, options ...remote.Option) (*v1.Descriptor
 	return &desc.Descriptor, nil
 }
 
-func unauthenticatedTransport(registry string, insecureRegistries []string, rootCAs *x509.CertPool) *http.Transport {
+func unauthenticatedTransport(registry string, insecureRegistries []string, rootCAs *x509.CertPool) http.RoundTripper {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = &tls.Config{RootCAs: rootCAs}
 

@@ -110,15 +110,66 @@ func (r *ClusterImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctr
 		return ctrl.Result{}, err
 	}
 
+	someDeletionFailed := false
+	matchedImagesAfterCleanup := []kuikv1alpha1.MatchedImage{}
+	for i := range cism.Status.MatchedImages {
+		matchedImage := &cism.Status.MatchedImages[i]
+
+		if matchedImage.UnusedSince == nil {
+			matchedImagesAfterCleanup = append(matchedImagesAfterCleanup, *matchedImage)
+			continue
+		}
+
+		mirrorsAfterCleanup := []kuikv1alpha1.MirrorStatus{}
+		for j := range matchedImage.Mirrors {
+			mirror := &matchedImage.Mirrors[j]
+
+			cleanupEnabled := cism.Spec.Cleanup.Enabled
+			retentionDuration := cism.Spec.Cleanup.Retention.Duration
+			if !cleanupEnabled || time.Since(matchedImage.UnusedSince.Time) < retentionDuration { // TODO: merge retention options
+				mirrorsAfterCleanup = append(mirrorsAfterCleanup, *mirror)
+				continue
+			}
+
+			cleanupLog := log.WithValues("image", matchedImage.Image)
+			cleanupLog.Info("image is unused for more than the retention duration, deleting it", "retentionDuration", retentionDuration)
+			if mirror.MirroredAt != nil {
+				secret, err := getImageSecretFromMirrors(ctx, r.Client, mirror.Image, cism.Namespace, cism.Spec.Mirrors)
+				if err != nil {
+					cleanupLog.Error(err, "could not read secret for image deletion")
+				} else if secret == nil {
+					cleanupLog.V(1).Info("no secret is configured for deleting image, ignoring")
+					continue
+				}
+
+				if err := registry.NewClient(nil, nil).WithPullSecrets([]corev1.Secret{*secret}).DeleteImage(mirror.Image); err != nil {
+					cleanupLog.Error(err, "could not delete image")
+					someDeletionFailed = true
+					mirrorsAfterCleanup = append(mirrorsAfterCleanup, *mirror)
+				}
+			}
+		}
+
+		if len(mirrorsAfterCleanup) > 0 {
+			matchedImage.Mirrors = mirrorsAfterCleanup
+			matchedImagesAfterCleanup = append(matchedImagesAfterCleanup, *matchedImage)
+		}
+	}
+
+	originalCism = cism.DeepCopy()
+	cism.Status.MatchedImages = matchedImagesAfterCleanup
+	if err := r.Status().Patch(ctx, &cism, client.MergeFrom(originalCism)); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	someMirrorFailed := false
 	for i := range cism.Status.MatchedImages {
 		matchedImage := &cism.Status.MatchedImages[i]
+		originalCism = cism.DeepCopy()
 
 		if matchedImage.UnusedSince != nil {
 			continue
 		}
-
-		originalCism = cism.DeepCopy()
 
 		for j := range matchedImage.Mirrors {
 			mirror := &matchedImage.Mirrors[j]
@@ -144,9 +195,15 @@ func (r *ClusterImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctr
 		}
 	}
 
+	if someDeletionFailed {
+		return ctrl.Result{}, errors.New("one or more image(s) could not be deleted")
+	}
+
 	if someMirrorFailed {
 		return ctrl.Result{}, errors.New("one or more image(s) could not be mirrored")
 	}
+
+	// TODO: requeue after expiration when an image has been marked as UnusedSince
 
 	return ctrl.Result{}, nil
 }
