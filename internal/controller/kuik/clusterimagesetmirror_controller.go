@@ -61,20 +61,6 @@ func (r *ClusterImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctr
 	}
 
 	matchedImagesMap := map[string]kuikv1alpha1.MatchedImage{}
-	for _, matchedImage := range cism.Status.MatchedImages {
-		named, match, err := matchers.NormalizeAndMatch(matcher, matchedImage.Image)
-		if err != nil {
-			return ctrl.Result{}, err
-		} else if !match {
-			// The image isn't matched anymore, which is different from matching but stopped to be used in the cluster.
-			// This, we set UnusedSince to 0001-01-01 01:00:00 +0000 UTC to trigger instant expiry and deletion.
-			// We add 1 hour to the zero value to prevent the patch to be ignored (zero value is considered == to nil)
-			matchedImage.UnusedSince = &metav1.Time{Time: (time.Time{}).Add(time.Hour)}
-			log.Info("image is not matching anymore, queuing it for deletion")
-		}
-		matchedImagesMap[named.String()] = matchedImage
-	}
-
 	for matchingImage := range podsByMatchingImages {
 		mirrors := []kuikv1alpha1.MirrorStatus{}
 		for _, mirror := range cism.Spec.Mirrors {
@@ -83,13 +69,35 @@ func (r *ClusterImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctr
 				Image: path.Join(mirror.Registry, mirror.Path, matchingImageWithoutRegistry),
 			})
 		}
-		if _, ok := matchedImagesMap[matchingImage]; !ok {
-			// FIXME: update mirrors recursively (add/remove)
-			matchedImagesMap[matchingImage] = kuikv1alpha1.MatchedImage{
-				Image:   matchingImage,
-				Mirrors: mirrors,
-			}
+		matchedImagesMap[matchingImage] = kuikv1alpha1.MatchedImage{
+			Image:   matchingImage,
+			Mirrors: mirrors,
 		}
+	}
+
+	unusedSinceNotMatched := metav1.Time{Time: (time.Time{}).Add(time.Hour)}
+	for _, matchedImage := range cism.Status.MatchedImages {
+		named, match, err := matchers.NormalizeAndMatch(matcher, matchedImage.Image)
+		if err != nil {
+			return ctrl.Result{}, err
+		} else if !match {
+			// The image isn't matched anymore, which is different from matching but stopped to be used in the cluster.
+			// This, we set UnusedSince to 0001-01-01 01:00:00 +0000 UTC to trigger instant expiry and deletion.
+			// We add 1 hour to the zero value to prevent the patch to be ignored (zero value is considered == to nil)
+			if !matchedImage.UnusedSince.Equal(&unusedSinceNotMatched) {
+				matchedImage.UnusedSince = &unusedSinceNotMatched
+				log.Info("image is not matching anymore, queuing it for deletion", "image", matchedImage.Image)
+			}
+		} else if _, ok := matchedImagesMap[named.String()]; !ok {
+			if matchedImage.UnusedSince.IsZero() {
+				matchedImage.UnusedSince = &metav1.Time{Time: time.Now()}
+				log.Info("image is not used anymore, marking it as unused", "image", matchedImage.Image)
+			}
+		} else {
+			matchedImage.UnusedSince = nil
+		}
+		// FIXME: update mirrors recursively (add/remove)
+		matchedImagesMap[named.String()] = matchedImage
 	}
 
 	originalCism := cism.DeepCopy()
@@ -145,6 +153,7 @@ func (r *ClusterImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctr
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ClusterImageSetMirrorReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// TODO: watch pods
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kuikv1alpha1.ClusterImageSetMirror{}).
 		Named("kuik-clusterimagesetmirror").
