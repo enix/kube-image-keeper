@@ -63,16 +63,14 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, nil
 	}
 
-	// Monitor pool setup =================================================================================================
 	log = log.WithValues("registry", registryMonitor.Spec.Registry)
-	// FIXME: uncomment this
-	// kuikcontroller.Metrics.InitMonitoringTaskRegistry(registryMonitor.Spec.Registry)
 
 	var pods corev1.PodList
 	if err := r.List(ctx, &pods); err != nil {
 		return ctrl.Result{}, err
 	}
 
+	// Init monitored images statuses =====================================================================================
 	matchingImagesMap := imagesMatchingRegistryFromPods(ctx, registryMonitor.Spec.Registry, pods.Items)
 	imageMonitorStatusMap := map[string]kuikv1alpha1.ImageMonitorStatus{}
 	for image := range matchingImagesMap {
@@ -80,6 +78,11 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	for _, imageMonitor := range registryMonitor.Status.Images {
+		if _, ok := matchingImagesMap[imageMonitor.Path]; !ok {
+			imageMonitor.UnusedSince = metav1.NewTime(time.Now())
+		} else {
+			imageMonitor.UnusedSince = metav1.NewTime(time.Time{})
+		}
 		imageMonitorStatusMap[imageMonitor.Path] = imageMonitor
 	}
 
@@ -94,12 +97,26 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	// Preparing monitoring ===============================================================================================
+	if len(registryMonitor.Status.Images) == 0 {
+		return ctrl.Result{}, nil
+	}
+
 	monitoredDuringInterval := 0
+	inUseImages := []*kuikv1alpha1.ImageMonitorStatus{}
 	intervalStart := time.Now().Add(-registryMonitor.Spec.Interval.Duration)
-	for _, image := range registryMonitor.Status.Images {
+	for i := range registryMonitor.Status.Images {
+		image := &registryMonitor.Status.Images[i]
 		if !(image.LastMonitor.IsZero() || image.LastMonitor.Time.Before(intervalStart)) {
 			monitoredDuringInterval++
 		}
+		if image.UnusedSince.IsZero() {
+			inUseImages = append(inUseImages, image)
+		}
+	}
+
+	if len(inUseImages) == 0 {
+		log.V(1).Info("no in-use image found, skipping monitoring")
+		return ctrl.Result{}, nil
 	}
 
 	requeueAfter := registryMonitor.Spec.Interval.Duration / time.Duration(registryMonitor.Spec.MaxPerInterval)
@@ -109,30 +126,32 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	// Monitoring images ==================================================================================================
-	log.V(1).Info("monitored images", "count", len(registryMonitor.Status.Images), "monitoredDuringInterval", monitoredDuringInterval)
+	log.V(1).Info("monitoring images", "count", len(registryMonitor.Status.Images), "monitoredDuringInterval", monitoredDuringInterval)
 
-	if len(registryMonitor.Status.Images) > 0 {
-		imageMonitorStatus := &registryMonitor.Status.Images[0]
-		for i := range registryMonitor.Status.Images {
-			ims := &registryMonitor.Status.Images[i]
-			if ims.LastMonitor.Before(&imageMonitorStatus.LastMonitor) {
-				imageMonitorStatus = ims
-			}
+	imageMonitorStatus := inUseImages[0]
+	for i := range inUseImages {
+		ims := inUseImages[i]
+		if ims.UnusedSince.IsZero() && ims.LastMonitor.Before(&imageMonitorStatus.LastMonitor) {
+			imageMonitorStatus = ims
 		}
-
-		logImageMonitor := log.WithValues("path", imageMonitorStatus.Path)
-		logImageMonitor.Info("monitoring image")
-
-		if err := r.MonitorImage(logf.IntoContext(ctx, logImageMonitor), &registryMonitor, imageMonitorStatus, matchingImagesMap[imageMonitorStatus.Path]); err != nil {
-			logImageMonitor.Error(err, "failed to monitor image")
-		} else {
-			logImageMonitor.V(1).Info("image monitored with success")
-		}
-
-		// FIXME: uncomment this
-		// isImageUsed := areImagesUsed[imageMonitorStatus.Reference()]
-		// kuikcontroller.Metrics.MonitoringTaskCompleted(registryMonitor.Spec.Registry, isImageUsed, &imageMonitorStatus)
 	}
+
+	logImageMonitor := log.WithValues("path", imageMonitorStatus.Path)
+	logImageMonitor.Info("monitoring image")
+	println("================", imageMonitorStatus.Path, imageMonitorStatus.UnusedSince.String())
+
+	// FIXME: uncomment this
+	// kuikcontroller.Metrics.InitMonitoringTaskRegistry(registryMonitor.Spec.Registry)
+
+	if err := r.MonitorImage(logf.IntoContext(ctx, logImageMonitor), &registryMonitor, imageMonitorStatus, matchingImagesMap[imageMonitorStatus.Path]); err != nil {
+		logImageMonitor.Error(err, "failed to monitor image")
+	} else {
+		logImageMonitor.V(1).Info("image monitored with success")
+	}
+
+	// FIXME: uncomment this
+	// isImageUsed := areImagesUsed[imageMonitorStatus.Reference()]
+	// kuikcontroller.Metrics.MonitoringTaskCompleted(registryMonitor.Spec.Registry, isImageUsed, &imageMonitorStatus)
 
 	return ctrl.Result{RequeueAfter: requeueAfter}, nil
 }
