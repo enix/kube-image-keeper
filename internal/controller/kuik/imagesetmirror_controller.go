@@ -10,9 +10,14 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/matchers"
@@ -208,10 +213,42 @@ func (r *ImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ImageSetMirrorReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	// TODO: watch pods
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kuikv1alpha1.ImageSetMirror{}).
 		Named("kuik-imagesetmirror").
+		WatchesRawSource(source.TypedKind(mgr.GetCache(), &corev1.Pod{},
+			handler.TypedEnqueueRequestsFromMapFunc(func(ctx context.Context, pod *corev1.Pod) []reconcile.Request {
+				log := logf.FromContext(ctx).
+					WithName("pod-mapper").
+					WithValues("pod", klog.KObj(pod))
+
+				var cisms kuikv1alpha1.ImageSetMirrorList
+				if err := r.List(ctx, &cisms, &client.ListOptions{Namespace: pod.Namespace}); err != nil {
+					log.Error(err, "failed to list ImageSetMirror")
+					return nil
+				}
+
+				reqs := []reconcile.Request{}
+				for _, cism := range cisms.Items {
+					for _, container := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
+						_, match, err := matchers.NormalizeAndMatch(cism.Spec.ImageMatcher.MustBuild(), container.Image)
+						if err != nil {
+							log.Error(err, "failed to match an image", "image", container.Image)
+							continue
+						}
+
+						if match {
+							reqs = append(reqs, reconcile.Request{
+								NamespacedName: types.NamespacedName{Namespace: cism.Namespace, Name: cism.Name},
+							})
+							break
+						}
+					}
+				}
+
+				return reqs
+			})),
+		).
 		Complete(r)
 }
 
