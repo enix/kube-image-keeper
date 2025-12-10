@@ -169,7 +169,8 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod) er
 	}
 
 	for _, ism := range imageSetMirrors {
-		matcher := regexp.MustCompile(ism.Spec.ImageMatcher)
+		// FIXME: build matcher first
+		matcher := regexp.MustCompile(string(ism.Spec.ImageMatcher))
 
 		for i := range containers {
 			container := &containers[i]

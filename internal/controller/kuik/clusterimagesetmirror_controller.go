@@ -50,10 +50,7 @@ func (r *ClusterImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctr
 		return ctrl.Result{}, err
 	}
 
-	matcher, err := cism.Spec.BuildMatcher()
-	if err != nil {
-		return ctrl.Result{}, err
-	}
+	matcher := cism.Spec.ImageMatcher.MustBuild()
 
 	podsByMatchingImages, err := matchers.PodsByNormalizedMatchingImages(matcher, pods.Items)
 	if err != nil {
