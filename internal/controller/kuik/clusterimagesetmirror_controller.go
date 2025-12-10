@@ -167,7 +167,7 @@ func (r *ClusterImageSetMirrorReconciler) getPullSecretsFromPods(ctx context.Con
 		secrets = make([]corev1.Secret, len(pod.Spec.ImagePullSecrets))
 
 		for i, imagePullSecret := range pod.Spec.ImagePullSecrets {
-			if err := r.getPullSecret(ctx, pod.Namespace, imagePullSecret.Name, &secrets[i]); err != nil {
+			if err := getPullSecret(ctx, r.Client, pod.Namespace, imagePullSecret.Name, &secrets[i]); err != nil {
 				return nil, err
 			}
 		}
@@ -176,29 +176,17 @@ func (r *ClusterImageSetMirrorReconciler) getPullSecretsFromPods(ctx context.Con
 	return secrets, nil
 }
 
-func (r *ClusterImageSetMirrorReconciler) getPullSecret(ctx context.Context, namespace, name string, secret *corev1.Secret) error {
-	secretReference := client.ObjectKey{Namespace: namespace, Name: name}
-	if err := r.Get(ctx, secretReference, secret); err != nil {
-		return err
-	}
-	return nil
-}
-
 func (r *ClusterImageSetMirrorReconciler) MirrorImage(ctx context.Context, cism *kuikv1alpha1.ClusterImageSetMirror, podsByMatchingImages map[string]*corev1.Pod, from string, to *kuikv1alpha1.MirrorStatus) error {
 	srcSecrets, err := r.getPullSecretsFromPods(ctx, podsByMatchingImages, from)
 	if err != nil {
 		return err
 	}
 
-	destCredentialSecret := cism.Spec.Mirrors.GetCredentialSecretForImage(to.Image)
 	destSecrets := make([]corev1.Secret, 1)
-	namespace := cism.Namespace
-	// This allows to use the same code for both ClusterImageSetMirror and ImageSetMirror
-	if namespace == "" {
-		namespace = destCredentialSecret.Namespace
-	}
-	if err := r.getPullSecret(ctx, namespace, destCredentialSecret.Name, &destSecrets[0]); err != nil {
+	if secret, err := getImageSecretFromMirrors(ctx, r.Client, to.Image, cism.Namespace, cism.Spec.Mirrors); err != nil {
 		return err
+	} else if secret != nil {
+		destSecrets[0] = *secret
 	}
 
 	registry := registry.NewClient(nil, nil).WithPullSecrets(srcSecrets)
