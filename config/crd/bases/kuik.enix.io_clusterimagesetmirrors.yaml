@@ -51,7 +51,18 @@ spec:
                     type: string
                 type: object
               imageMatcher:
-                type: string
+                description: ImageMatcherDefinition is the definition of an image
+                  matcher
+                properties:
+                  exclude:
+                    items:
+                      type: string
+                    type: array
+                  include:
+                    items:
+                      type: string
+                    type: array
+                type: object
               mirrors:
                 items:
                   properties:

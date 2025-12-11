@@ -36,8 +36,8 @@ type ReplicatedImageSetList struct {
 
 type ReplicatedUpstream struct {
 	ImageReference `json:",inline"`
-	// ImageMatcher is a regexp identifying the image in a registry
-	ImageMatcher string `json:"imageMatcher"`
+	// +optional
+	ImageMatcher ImageMatcherDefinition `json:"imageMatcher"`
 	// CredentialSecret is the image pull secret to use for matching images
 	CredentialSecret *CredentialSecret `json:"credentialSecret,omitempty"`
 }

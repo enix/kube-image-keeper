@@ -60,9 +60,18 @@ spec:
                           type: string
                       type: object
                     imageMatcher:
-                      description: ImageMatcher is a regexp identifying the image
-                        in a registry
-                      type: string
+                      description: ImageMatcherDefinition is the definition of an
+                        image matcher
+                      properties:
+                        exclude:
+                          items:
+                            type: string
+                          type: array
+                        include:
+                          items:
+                            type: string
+                          type: array
+                      type: object
                     path:
                       description: Path is a string identifying the image in a registry
                       type: string
@@ -70,7 +79,6 @@ spec:
                       description: Registry is the registry where the image is located
                       type: string
                   required:
-                  - imageMatcher
                   - path
                   - registry
                   type: object

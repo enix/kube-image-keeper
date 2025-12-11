@@ -20,6 +20,11 @@ func NormalizeAndMatch(i ImageMatcher, image string) (reference.Named, bool, err
 	return named, i.Match(named), nil
 }
 
+func MatchNormalized(i ImageMatcher, image string) bool {
+	_, match, _ := NormalizeAndMatch(i, image)
+	return match
+}
+
 func PodsByNormalizedMatchingImages(i ImageMatcher, pods []corev1.Pod) (map[string]*corev1.Pod, error) {
 	matchingImagesMap := map[string]*corev1.Pod{}
 	for _, pod := range pods {

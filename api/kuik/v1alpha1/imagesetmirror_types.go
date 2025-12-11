@@ -8,10 +8,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-type ImageMatcherDefinition string
-
 // ImageSetMirrorSpec defines the desired state of ImageSetMirror.
 type ImageSetMirrorSpec struct {
+	// +optional
 	ImageMatcher ImageMatcherDefinition `json:"imageMatcher,omitempty"`
 	Cleanup      Cleanup                `json:"cleanup,omitempty"`
 	Mirrors      Mirrors                `json:"mirrors,omitempty"`
@@ -44,6 +43,13 @@ type ImageSetMirrorList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []ImageSetMirror `json:"items"`
+}
+
+// ImageMatcherDefinition is the definition of an image matcher
+// TODO: add a validating webhook
+type ImageMatcherDefinition struct {
+	Include []string `json:"include,omitempty"`
+	Exclude []string `json:"exclude,omitempty"`
 }
 
 // Cleanup defines a cleanup strategy
@@ -100,8 +106,7 @@ func (m Mirrors) GetCredentialSecretForImage(image string) (cred *CredentialSecr
 }
 
 func (i ImageMatcherDefinition) Build() (matchers.ImageMatcher, error) {
-	// TODO: validating webhook for the regexp
-	return matchers.NewRegexpImageMatcher(string(i))
+	return matchers.CompileIncludeExcludeImageMatcher(i.Include, i.Exclude)
 }
 
 func (i ImageMatcherDefinition) MustBuild() matchers.ImageMatcher {

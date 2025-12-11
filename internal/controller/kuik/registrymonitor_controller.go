@@ -138,7 +138,6 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	logImageMonitor := log.WithValues("path", imageMonitorStatus.Path)
 	logImageMonitor.Info("monitoring image")
-	println("================", imageMonitorStatus.Path, imageMonitorStatus.UnusedSince.String())
 
 	// FIXME: uncomment this
 	// kuikcontroller.Metrics.InitMonitoringTaskRegistry(registryMonitor.Spec.Registry)

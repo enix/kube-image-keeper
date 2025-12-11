@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 	"path"
-	"regexp"
 	"slices"
 	"strings"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal"
 	"github.com/enix/kube-image-keeper/internal/config"
+	"github.com/enix/kube-image-keeper/internal/matchers"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
@@ -169,12 +169,11 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod) er
 	}
 
 	for _, ism := range imageSetMirrors {
-		// FIXME: build matcher first
-		matcher := regexp.MustCompile(string(ism.Spec.ImageMatcher))
+		matcher := ism.Spec.ImageMatcher.MustBuild()
 
 		for i := range containers {
 			container := &containers[i]
-			if !matcher.MatchString(container.Image) {
+			if !matchers.MatchNormalized(matcher, container.Image) {
 				continue
 			}
 
@@ -196,8 +195,7 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod) er
 		for _, ris := range replicatedImageSets {
 			index := slices.IndexFunc(ris.Spec.Upstreams, func(upstream kuikv1alpha1.ReplicatedUpstream) bool {
 				// TODO: use a validating admission policy to ensure the regexp is valid
-				matcher := regexp.MustCompile(upstream.ImageMatcher)
-				return matcher.MatchString(container.Image)
+				return matchers.MatchNormalized(upstream.ImageMatcher.MustBuild(), container.Image)
 			})
 			if index == -1 {
 				continue
@@ -218,11 +216,11 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod) er
 		}
 
 		if alternativeSecret := d.rerouteContainerImage(ctx, &container, podImagePullSecrets); alternativeSecret != nil {
-			alternativeSecretIndex := slices.IndexFunc(pod.Spec.ImagePullSecrets, func(localObjectReference corev1.LocalObjectReference) bool {
+			containsAlternativeSecret := slices.ContainsFunc(pod.Spec.ImagePullSecrets, func(localObjectReference corev1.LocalObjectReference) bool {
 				return localObjectReference.Name == alternativeSecret.Name
 			})
 			// Inject rerouted image pull secret if not already present in the pod
-			if alternativeSecretIndex == -1 {
+			if !containsAlternativeSecret {
 				pod.Spec.ImagePullSecrets = append(pod.Spec.ImagePullSecrets, corev1.LocalObjectReference{
 					Name: alternativeSecret.Name,
 				})
