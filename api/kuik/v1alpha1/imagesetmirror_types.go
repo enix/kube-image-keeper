@@ -4,23 +4,23 @@ import (
 	"path"
 	"strings"
 
-	"github.com/enix/kube-image-keeper/internal/matchers"
+	"github.com/enix/kube-image-keeper/internal/imagefilter"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // ImageSetMirrorSpec defines the desired state of ImageSetMirror.
 type ImageSetMirrorSpec struct {
 	// +optional
-	ImageMatcher ImageMatcherDefinition `json:"imageMatcher,omitempty"`
-	Cleanup      Cleanup                `json:"cleanup,omitempty"`
-	Mirrors      Mirrors                `json:"mirrors,omitempty"`
+	ImageFilter ImageFilterDefinition `json:"imageFilter,omitempty"`
+	Cleanup     Cleanup               `json:"cleanup,omitempty"`
+	Mirrors     Mirrors               `json:"mirrors,omitempty"`
 }
 
 // ImageSetMirrorStatus defines the observed state of ImageSetMirror.
 type ImageSetMirrorStatus struct {
 	// +listType=map
 	// +listMapKey=image
-	MatchedImages []MatchedImage `json:"matchedImages,omitempty"`
+	MatchingImages []MatchingImage `json:"matchingImages,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -45,9 +45,9 @@ type ImageSetMirrorList struct {
 	Items           []ImageSetMirror `json:"items"`
 }
 
-// ImageMatcherDefinition is the definition of an image matcher
+// ImageFilterDefinition is the definition of an image filter
 // TODO: add a validating webhook
-type ImageMatcherDefinition struct {
+type ImageFilterDefinition struct {
 	Include []string `json:"include,omitempty"`
 	Exclude []string `json:"exclude,omitempty"`
 }
@@ -75,7 +75,7 @@ type CredentialSecret struct {
 	Namespace string `json:"namespace,omitempty"` // TODO: make this field required for ClusterImageSetMirrors and prohibited for ImageSetMirrors
 }
 
-type MatchedImage struct {
+type MatchingImage struct {
 	Image string `json:"image"`
 	// +listType=map
 	// +listMapKey=image
@@ -105,11 +105,11 @@ func (m Mirrors) GetCredentialSecretForImage(image string) (cred *CredentialSecr
 	return
 }
 
-func (i ImageMatcherDefinition) Build() (matchers.ImageMatcher, error) {
-	return matchers.CompileIncludeExcludeImageMatcher(i.Include, i.Exclude)
+func (i ImageFilterDefinition) Build() (imagefilter.Filter, error) {
+	return imagefilter.CompileIncludeExcludeFilter(i.Include, i.Exclude)
 }
 
-func (i ImageMatcherDefinition) MustBuild() matchers.ImageMatcher {
+func (i ImageFilterDefinition) MustBuild() imagefilter.Filter {
 	matcher, err := i.Build()
 	if err != nil {
 		panic(err)

@@ -1,4 +1,4 @@
-package matchers
+package imagefilter
 
 import (
 	"regexp"
@@ -7,13 +7,13 @@ import (
 	"github.com/distribution/reference"
 )
 
-type IncludeExcludeImageMatcher struct {
+type IncludeExcludeFilter struct {
 	include []regexp.Regexp
 	exclude []regexp.Regexp
 }
 
-func CompileIncludeExcludeImageMatcher(include, exclude []string) (*IncludeExcludeImageMatcher, error) {
-	matcher := &IncludeExcludeImageMatcher{
+func CompileIncludeExcludeFilter(include, exclude []string) (*IncludeExcludeFilter, error) {
+	filter := &IncludeExcludeFilter{
 		include: make([]regexp.Regexp, len(include)),
 		exclude: make([]regexp.Regexp, len(exclude)),
 	}
@@ -23,7 +23,7 @@ func CompileIncludeExcludeImageMatcher(include, exclude []string) (*IncludeExclu
 		if err != nil {
 			return nil, err
 		}
-		matcher.include[i] = *r
+		filter.include[i] = *r
 	}
 
 	for i := range exclude {
@@ -31,17 +31,17 @@ func CompileIncludeExcludeImageMatcher(include, exclude []string) (*IncludeExclu
 		if err != nil {
 			return nil, err
 		}
-		matcher.exclude[i] = *r
+		filter.exclude[i] = *r
 	}
 
-	if len(matcher.include) == 0 {
-		matcher.include = []regexp.Regexp{*regexp.MustCompile(".*")}
+	if len(filter.include) == 0 {
+		filter.include = []regexp.Regexp{*regexp.MustCompile(".*")}
 	}
 
-	return matcher, nil
+	return filter, nil
 }
 
-func (i *IncludeExcludeImageMatcher) Match(image reference.Named) bool {
+func (i *IncludeExcludeFilter) Match(image reference.Named) bool {
 	imageStr := image.String()
 
 	included := slices.ContainsFunc(i.include, func(include regexp.Regexp) bool {

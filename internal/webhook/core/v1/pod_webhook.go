@@ -10,7 +10,7 @@ import (
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal"
 	"github.com/enix/kube-image-keeper/internal/config"
-	"github.com/enix/kube-image-keeper/internal/matchers"
+	"github.com/enix/kube-image-keeper/internal/imagefilter"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
@@ -169,11 +169,11 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod) er
 	}
 
 	for _, ism := range imageSetMirrors {
-		matcher := ism.Spec.ImageMatcher.MustBuild()
+		filter := ism.Spec.ImageFilter.MustBuild()
 
 		for i := range containers {
 			container := &containers[i]
-			if !matchers.MatchNormalized(matcher, container.Image) {
+			if !imagefilter.MatchNormalized(filter, container.Image) {
 				continue
 			}
 
@@ -195,7 +195,7 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod) er
 		for _, ris := range replicatedImageSets {
 			index := slices.IndexFunc(ris.Spec.Upstreams, func(upstream kuikv1alpha1.ReplicatedUpstream) bool {
 				// TODO: use a validating admission policy to ensure the regexp is valid
-				return matchers.MatchNormalized(upstream.ImageMatcher.MustBuild(), container.Image)
+				return imagefilter.MatchNormalized(upstream.ImageFilter.MustBuild(), container.Image)
 			})
 			if index == -1 {
 				continue

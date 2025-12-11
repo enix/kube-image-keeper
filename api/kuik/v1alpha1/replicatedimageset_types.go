@@ -37,8 +37,9 @@ type ReplicatedImageSetList struct {
 type ReplicatedUpstream struct {
 	ImageReference `json:",inline"`
 	// +optional
-	ImageMatcher ImageMatcherDefinition `json:"imageMatcher"`
-	// CredentialSecret is the image pull secret to use for matching images
+	// ImageFilter defines the rules used to select replicated images.
+	ImageFilter ImageFilterDefinition `json:"imageFilter"`
+	// CredentialSecret is a reference to the secret used to pull matching images.
 	CredentialSecret *CredentialSecret `json:"credentialSecret,omitempty"`
 }
 

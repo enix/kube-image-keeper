@@ -20,7 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
-	"github.com/enix/kube-image-keeper/internal/matchers"
+	"github.com/enix/kube-image-keeper/internal/imagefilter"
 	"github.com/enix/kube-image-keeper/internal/registry"
 )
 
@@ -56,14 +56,13 @@ func (r *ImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, err
 	}
 
-	matcher := cism.Spec.ImageMatcher.MustBuild()
-
-	podsByMatchingImages, err := matchers.PodsByNormalizedMatchingImages(matcher, pods.Items)
+	filter := cism.Spec.ImageFilter.MustBuild()
+	podsByMatchingImages, err := imagefilter.PodsByNormalizedMatchingImages(filter, pods.Items)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	matchedImagesMap := map[string]kuikv1alpha1.MatchedImage{}
+	matchingImagesMap := map[string]kuikv1alpha1.MatchingImage{}
 	for matchingImage := range podsByMatchingImages {
 		mirrors := []kuikv1alpha1.MirrorStatus{}
 		for _, mirror := range cism.Spec.Mirrors {
@@ -72,41 +71,41 @@ func (r *ImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 				Image: path.Join(mirror.Registry, mirror.Path, matchingImageWithoutRegistry),
 			})
 		}
-		matchedImagesMap[matchingImage] = kuikv1alpha1.MatchedImage{
+		matchingImagesMap[matchingImage] = kuikv1alpha1.MatchingImage{
 			Image:   matchingImage,
 			Mirrors: mirrors,
 		}
 	}
 
-	unusedSinceNotMatched := metav1.Time{Time: (time.Time{}).Add(time.Hour)}
-	for _, matchedImage := range cism.Status.MatchedImages {
-		named, match, err := matchers.NormalizeAndMatch(matcher, matchedImage.Image)
+	unusedSinceNotMatching := metav1.Time{Time: (time.Time{}).Add(time.Hour)}
+	for _, matchingImage := range cism.Status.MatchingImages {
+		named, match, err := imagefilter.NormalizeAndMatch(filter, matchingImage.Image)
 		if err != nil {
 			return ctrl.Result{}, err
 		} else if !match {
-			// The image isn't matched anymore, which is different from matching but stopped to be used in the cluster.
+			// The image isn't matching anymore, which is different from matching but stopped to be used in the cluster.
 			// This, we set UnusedSince to 0001-01-01 01:00:00 +0000 UTC to trigger instant expiry and deletion.
 			// We add 1 hour to the zero value to prevent the patch to be ignored (zero value is considered == to nil)
-			if !matchedImage.UnusedSince.Equal(&unusedSinceNotMatched) {
-				matchedImage.UnusedSince = &unusedSinceNotMatched
-				log.Info("image is not matching anymore, queuing it for deletion", "image", matchedImage.Image)
+			if !matchingImage.UnusedSince.Equal(&unusedSinceNotMatching) {
+				matchingImage.UnusedSince = &unusedSinceNotMatching
+				log.Info("image is not matching anymore, queuing it for deletion", "image", matchingImage.Image)
 			}
-		} else if _, ok := matchedImagesMap[named.String()]; !ok {
-			if matchedImage.UnusedSince.IsZero() {
-				matchedImage.UnusedSince = &metav1.Time{Time: time.Now()}
-				log.Info("image is not used anymore, marking it as unused", "image", matchedImage.Image)
+		} else if _, ok := matchingImagesMap[named.String()]; !ok {
+			if matchingImage.UnusedSince.IsZero() {
+				matchingImage.UnusedSince = &metav1.Time{Time: time.Now()}
+				log.Info("image is not used anymore, marking it as unused", "image", matchingImage.Image)
 			}
 		} else {
-			matchedImage.UnusedSince = nil
+			matchingImage.UnusedSince = nil
 		}
 		// FIXME: update mirrors recursively (add/remove)
-		matchedImagesMap[named.String()] = matchedImage
+		matchingImagesMap[named.String()] = matchingImage
 	}
 
 	originalCism := cism.DeepCopy()
-	cism.Status.MatchedImages = []kuikv1alpha1.MatchedImage{}
-	for _, matchedImage := range matchedImagesMap {
-		cism.Status.MatchedImages = append(cism.Status.MatchedImages, matchedImage)
+	cism.Status.MatchingImages = []kuikv1alpha1.MatchingImage{}
+	for _, matchingImage := range matchingImagesMap {
+		cism.Status.MatchingImages = append(cism.Status.MatchingImages, matchingImage)
 	}
 
 	if err := r.Status().Patch(ctx, &cism, client.MergeFrom(originalCism)); err != nil {
@@ -114,27 +113,27 @@ func (r *ImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	someDeletionFailed := false
-	matchedImagesAfterCleanup := []kuikv1alpha1.MatchedImage{}
-	for i := range cism.Status.MatchedImages {
-		matchedImage := &cism.Status.MatchedImages[i]
+	matchingImagesAfterCleanup := []kuikv1alpha1.MatchingImage{}
+	for i := range cism.Status.MatchingImages {
+		matchingImage := &cism.Status.MatchingImages[i]
 
-		if matchedImage.UnusedSince == nil {
-			matchedImagesAfterCleanup = append(matchedImagesAfterCleanup, *matchedImage)
+		if matchingImage.UnusedSince == nil {
+			matchingImagesAfterCleanup = append(matchingImagesAfterCleanup, *matchingImage)
 			continue
 		}
 
 		mirrorsAfterCleanup := []kuikv1alpha1.MirrorStatus{}
-		for j := range matchedImage.Mirrors {
-			mirror := &matchedImage.Mirrors[j]
+		for j := range matchingImage.Mirrors {
+			mirror := &matchingImage.Mirrors[j]
 
 			cleanupEnabled := cism.Spec.Cleanup.Enabled
 			retentionDuration := cism.Spec.Cleanup.Retention.Duration
-			if !cleanupEnabled || time.Since(matchedImage.UnusedSince.Time) < retentionDuration { // TODO: merge retention options
+			if !cleanupEnabled || time.Since(matchingImage.UnusedSince.Time) < retentionDuration { // TODO: merge retention options
 				mirrorsAfterCleanup = append(mirrorsAfterCleanup, *mirror)
 				continue
 			}
 
-			cleanupLog := log.WithValues("image", matchedImage.Image)
+			cleanupLog := log.WithValues("image", matchingImage.Image)
 			cleanupLog.Info("image is unused for more than the retention duration, deleting it", "retentionDuration", retentionDuration)
 			if mirror.MirroredAt != nil {
 				secret, err := getImageSecretFromMirrors(ctx, r.Client, mirror.Image, cism.Namespace, cism.Spec.Mirrors)
@@ -154,34 +153,34 @@ func (r *ImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 
 		if len(mirrorsAfterCleanup) > 0 {
-			matchedImage.Mirrors = mirrorsAfterCleanup
-			matchedImagesAfterCleanup = append(matchedImagesAfterCleanup, *matchedImage)
+			matchingImage.Mirrors = mirrorsAfterCleanup
+			matchingImagesAfterCleanup = append(matchingImagesAfterCleanup, *matchingImage)
 		}
 	}
 
 	originalCism = cism.DeepCopy()
-	cism.Status.MatchedImages = matchedImagesAfterCleanup
+	cism.Status.MatchingImages = matchingImagesAfterCleanup
 	if err := r.Status().Patch(ctx, &cism, client.MergeFrom(originalCism)); err != nil {
 		return ctrl.Result{}, err
 	}
 
 	someMirrorFailed := false
-	for i := range cism.Status.MatchedImages {
-		matchedImage := &cism.Status.MatchedImages[i]
+	for i := range cism.Status.MatchingImages {
+		matchingImage := &cism.Status.MatchingImages[i]
 		originalCism = cism.DeepCopy()
 
-		if matchedImage.UnusedSince != nil {
+		if matchingImage.UnusedSince != nil {
 			continue
 		}
 
-		for j := range matchedImage.Mirrors {
-			mirror := &matchedImage.Mirrors[j]
+		for j := range matchingImage.Mirrors {
+			mirror := &matchingImage.Mirrors[j]
 
 			if mirror.MirroredAt == nil {
-				mirrorLog := log.WithValues("from", matchedImage.Image, "to", mirror.Image)
+				mirrorLog := log.WithValues("from", matchingImage.Image, "to", mirror.Image)
 				mirrorLog.Info("mirroring image")
 
-				err := r.MirrorImage(ctx, &cism, podsByMatchingImages, matchedImage.Image, mirror)
+				err := r.MirrorImage(ctx, &cism, podsByMatchingImages, matchingImage.Image, mirror)
 				if err != nil {
 					mirrorLog.Error(err, "could not mirror image")
 					someMirrorFailed = true
@@ -231,7 +230,7 @@ func (r *ImageSetMirrorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				reqs := []reconcile.Request{}
 				for _, cism := range cisms.Items {
 					for _, container := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
-						_, match, err := matchers.NormalizeAndMatch(cism.Spec.ImageMatcher.MustBuild(), container.Image)
+						_, match, err := imagefilter.NormalizeAndMatch(cism.Spec.ImageFilter.MustBuild(), container.Image)
 						if err != nil {
 							log.Error(err, "failed to match an image", "image", container.Image)
 							continue

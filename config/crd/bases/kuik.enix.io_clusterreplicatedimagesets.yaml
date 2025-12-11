@@ -47,8 +47,8 @@ spec:
                 items:
                   properties:
                     credentialSecret:
-                      description: CredentialSecret is the image pull secret to use
-                        for matching images
+                      description: CredentialSecret is a reference to the secret used
+                        to pull matching images.
                       properties:
                         name:
                           description: Name is the name of the secret
@@ -59,9 +59,9 @@ spec:
                             This value is ignored for namespaced resources and the namespace of the parent object is used instead.
                           type: string
                       type: object
-                    imageMatcher:
-                      description: ImageMatcherDefinition is the definition of an
-                        image matcher
+                    imageFilter:
+                      description: ImageFilter defines the rules used to select replicated
+                        images.
                       properties:
                         exclude:
                           items:

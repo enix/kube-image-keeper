@@ -49,9 +49,8 @@ spec:
                   retention:
                     type: string
                 type: object
-              imageMatcher:
-                description: ImageMatcherDefinition is the definition of an image
-                  matcher
+              imageFilter:
+                description: ImageFilterDefinition is the definition of an image filter
                 properties:
                   exclude:
                     items:
@@ -94,7 +93,7 @@ spec:
           status:
             description: ImageSetMirrorStatus defines the observed state of ImageSetMirror.
             properties:
-              matchedImages:
+              matchingImages:
                 items:
                   properties:
                     image:
