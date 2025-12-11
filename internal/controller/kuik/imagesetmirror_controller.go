@@ -3,8 +3,6 @@ package kuik
 import (
 	"context"
 	"errors"
-	"path"
-	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -56,50 +54,10 @@ func (r *ImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, err
 	}
 
-	filter := cism.Spec.ImageFilter.MustBuild()
-	podsByMatchingImages, err := imagefilter.PodsByNormalizedMatchingImages(filter, pods.Items)
+	spec, status := &cism.Spec, &cism.Status
+	podsByMatchingImages, matchingImagesMap, err := mergePreviousAndCurrentMatchingImages(ctx, pods.Items, spec, status)
 	if err != nil {
 		return ctrl.Result{}, err
-	}
-
-	matchingImagesMap := map[string]kuikv1alpha1.MatchingImage{}
-	for matchingImage := range podsByMatchingImages {
-		mirrors := []kuikv1alpha1.MirrorStatus{}
-		for _, mirror := range cism.Spec.Mirrors {
-			matchingImageWithoutRegistry := strings.SplitN(matchingImage, "/", 2)[1]
-			mirrors = append(mirrors, kuikv1alpha1.MirrorStatus{
-				Image: path.Join(mirror.Registry, mirror.Path, matchingImageWithoutRegistry),
-			})
-		}
-		matchingImagesMap[matchingImage] = kuikv1alpha1.MatchingImage{
-			Image:   matchingImage,
-			Mirrors: mirrors,
-		}
-	}
-
-	unusedSinceNotMatching := metav1.Time{Time: (time.Time{}).Add(time.Hour)}
-	for _, matchingImage := range cism.Status.MatchingImages {
-		named, match, err := imagefilter.NormalizeAndMatch(filter, matchingImage.Image)
-		if err != nil {
-			return ctrl.Result{}, err
-		} else if !match {
-			// The image isn't matching anymore, which is different from matching but stopped to be used in the cluster.
-			// This, we set UnusedSince to 0001-01-01 01:00:00 +0000 UTC to trigger instant expiry and deletion.
-			// We add 1 hour to the zero value to prevent the patch to be ignored (zero value is considered == to nil)
-			if !matchingImage.UnusedSince.Equal(&unusedSinceNotMatching) {
-				matchingImage.UnusedSince = &unusedSinceNotMatching
-				log.Info("image is not matching anymore, queuing it for deletion", "image", matchingImage.Image)
-			}
-		} else if _, ok := matchingImagesMap[named.String()]; !ok {
-			if matchingImage.UnusedSince.IsZero() {
-				matchingImage.UnusedSince = &metav1.Time{Time: time.Now()}
-				log.Info("image is not used anymore, marking it as unused", "image", matchingImage.Image)
-			}
-		} else {
-			matchingImage.UnusedSince = nil
-		}
-		// FIXME: update mirrors recursively (add/remove)
-		matchingImagesMap[named.String()] = matchingImage
 	}
 
 	originalCism := cism.DeepCopy()
