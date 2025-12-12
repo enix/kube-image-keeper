@@ -4,7 +4,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/enix/kube-image-keeper/internal/imagefilter"
+	"github.com/enix/kube-image-keeper/internal/filter"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -105,12 +105,24 @@ func (m Mirrors) GetCredentialSecretForImage(image string) (cred *CredentialSecr
 	return
 }
 
-func (i ImageFilterDefinition) Build() (imagefilter.Filter, error) {
-	return imagefilter.CompileIncludeExcludeFilter(i.Include, i.Exclude)
+func (i ImageFilterDefinition) Build() (filter.Filter, error) {
+	return filter.CompileIncludeExcludeFilter(i.Include, i.Exclude)
 }
 
-func (i ImageFilterDefinition) MustBuild() imagefilter.Filter {
+func (i ImageFilterDefinition) MustBuild() filter.Filter {
 	matcher, err := i.Build()
+	if err != nil {
+		panic(err)
+	}
+	return matcher
+}
+
+func (i ImageFilterDefinition) BuildWithRegistry(registry string) (filter.Filter, error) {
+	return filter.CompilePrefixIncludeExcludeFilter(registry, i.Include, i.Exclude)
+}
+
+func (i ImageFilterDefinition) MustBuildWithRegistry(registry string) filter.Filter {
+	matcher, err := i.BuildWithRegistry(registry)
 	if err != nil {
 		panic(err)
 	}

@@ -6,7 +6,7 @@ import (
 	"time"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
-	"github.com/enix/kube-image-keeper/internal/imagefilter"
+	"github.com/enix/kube-image-keeper/internal"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -187,7 +187,7 @@ func (r *ClusterImageSetMirrorReconciler) SetupWithManager(mgr ctrl.Manager) err
 				reqs := []reconcile.Request{}
 				for _, cism := range cisms.Items {
 					for _, container := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
-						_, match, err := imagefilter.NormalizeAndMatch(cism.Spec.ImageFilter.MustBuild(), container.Image)
+						_, match, err := internal.NormalizeAndMatch(cism.Spec.ImageFilter.MustBuild(), container.Image)
 						if err != nil {
 							log.Error(err, "failed to match an image", "image", container.Image)
 							continue

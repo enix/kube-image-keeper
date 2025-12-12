@@ -10,7 +10,6 @@ import (
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal"
 	"github.com/enix/kube-image-keeper/internal/config"
-	"github.com/enix/kube-image-keeper/internal/imagefilter"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
@@ -168,12 +167,45 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod) er
 		}
 	}
 
+	log.V(1).Info("reviewing alternatives",
+		"clusterImageSetMirrors", len(cismList.Items),
+		"imageSetMirrors", len(imageSetMirrors)-len(cismList.Items),
+		"clusterReplicatedImageSet", len(crisList.Items),
+		"replicatedImageSet", len(replicatedImageSets)-len(crisList.Items),
+		"podImagePullSecrets", len(podCredentialSecrets),
+	)
+
+	if err := d.buildAlternativesList(logf.IntoContext(ctx, log), imageSetMirrors, replicatedImageSets, containers); err != nil {
+		return err
+	}
+
+	for i := range containers {
+		container := &containers[i]
+		if alternativeSecret := d.rerouteContainerImage(ctx, container, podImagePullSecrets); alternativeSecret != nil {
+			containsAlternativeSecret := slices.ContainsFunc(pod.Spec.ImagePullSecrets, func(localObjectReference corev1.LocalObjectReference) bool {
+				return localObjectReference.Name == alternativeSecret.Name
+			})
+			// Inject rerouted image pull secret if not already present in the pod
+			if !containsAlternativeSecret {
+				pod.Spec.ImagePullSecrets = append(pod.Spec.ImagePullSecrets, corev1.LocalObjectReference{
+					Name: alternativeSecret.Name,
+				})
+			}
+		}
+	}
+
+	return nil
+}
+
+func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSetMirrors []kuikv1alpha1.ImageSetMirror, replicatedImageSets []kuikv1alpha1.ReplicatedImageSet, containers []Container) error {
+	log := logf.FromContext(ctx)
+
 	for _, ism := range imageSetMirrors {
-		filter := ism.Spec.ImageFilter.MustBuild()
+		imageFilter := ism.Spec.ImageFilter.MustBuild()
 
 		for i := range containers {
 			container := &containers[i]
-			if !imagefilter.MatchNormalized(filter, container.Image) {
+			if !internal.MatchNormalized(imageFilter, container.Image) {
 				continue
 			}
 
@@ -191,11 +223,12 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod) er
 		}
 	}
 
-	for _, container := range containers {
+	for i := range containers {
+		container := &containers[i]
 		for _, ris := range replicatedImageSets {
 			index := slices.IndexFunc(ris.Spec.Upstreams, func(upstream kuikv1alpha1.ReplicatedUpstream) bool {
 				// TODO: use a validating admission policy to ensure the regexp is valid
-				return imagefilter.MatchNormalized(upstream.ImageFilter.MustBuild(), container.Image)
+				return internal.MatchNormalized(upstream.ImageFilter.MustBuildWithRegistry(upstream.Registry), container.Image)
 			})
 			if index == -1 {
 				continue
@@ -206,7 +239,7 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod) er
 			suffix := strings.TrimPrefix(container.Image, prefix)
 
 			for _, upstream := range ris.Spec.Upstreams {
-				reference := path.Join(upstream.Registry, upstream.Path, suffix)
+				reference := path.Join(upstream.Registry, upstream.Path) + suffix
 				container.addAlternative(reference, upstream.CredentialSecret)
 			}
 		}
@@ -215,17 +248,11 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod) er
 			return err
 		}
 
-		if alternativeSecret := d.rerouteContainerImage(ctx, &container, podImagePullSecrets); alternativeSecret != nil {
-			containsAlternativeSecret := slices.ContainsFunc(pod.Spec.ImagePullSecrets, func(localObjectReference corev1.LocalObjectReference) bool {
-				return localObjectReference.Name == alternativeSecret.Name
-			})
-			// Inject rerouted image pull secret if not already present in the pod
-			if !containsAlternativeSecret {
-				pod.Spec.ImagePullSecrets = append(pod.Spec.ImagePullSecrets, corev1.LocalObjectReference{
-					Name: alternativeSecret.Name,
-				})
-			}
+		alternativeReferences := []string{}
+		for _, image := range container.Images {
+			alternativeReferences = append(alternativeReferences, image.Reference)
 		}
+		log.V(1).Info("found alternatives", "references", alternativeReferences)
 	}
 
 	return nil
@@ -249,6 +276,8 @@ func (d *PodCustomDefaulter) rerouteContainerImage(ctx context.Context, containe
 				container.Image = image.Reference
 			}
 			return image.ImagePullSecret
+		} else {
+			log.Info("no alternative image is available, keep using the default one")
 		}
 	}
 
@@ -274,6 +303,8 @@ func (d *PodCustomDefaulter) checkImageAvailability(ctx context.Context, referen
 		ReadDescriptor(registryMonitor.Spec.Method, reference)
 	if err != nil {
 		log.V(1).Info("image is not available", "error", err)
+	} else {
+		log.V(1).Info("image is available")
 	}
 
 	return err == nil, nil

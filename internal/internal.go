@@ -7,6 +7,7 @@ import (
 
 	"github.com/cespare/xxhash"
 	"github.com/distribution/reference"
+	"github.com/enix/kube-image-keeper/internal/filter"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -45,4 +46,36 @@ func GetPullSecretsFromPod(ctx context.Context, c client.Client, pod *corev1.Pod
 	}
 
 	return secrets, nil
+}
+
+func NormalizeAndMatch(filter filter.Filter, image string) (reference.Named, bool, error) {
+	named, err := reference.ParseNormalizedNamed(image)
+	if err != nil {
+		return nil, false, err
+	}
+
+	return named, filter.Match(named.String()), nil
+}
+
+func MatchNormalized(filter filter.Filter, image string) bool {
+	_, match, _ := NormalizeAndMatch(filter, image)
+	return match
+}
+
+func PodsByNormalizedMatchingImages(filter filter.Filter, pods []corev1.Pod) (map[string]*corev1.Pod, error) {
+	matchingImagesMap := map[string]*corev1.Pod{}
+	for _, pod := range pods {
+		for _, container := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
+			named, match, err := NormalizeAndMatch(filter, container.Image)
+			if err != nil {
+				return nil, err
+			}
+
+			if match {
+				matchingImagesMap[named.String()] = &pod
+			}
+		}
+	}
+
+	return matchingImagesMap, nil
 }

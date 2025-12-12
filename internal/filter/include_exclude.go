@@ -1,10 +1,8 @@
-package imagefilter
+package filter
 
 import (
 	"regexp"
 	"slices"
-
-	"github.com/distribution/reference"
 )
 
 type IncludeExcludeFilter struct {
@@ -41,16 +39,14 @@ func CompileIncludeExcludeFilter(include, exclude []string) (*IncludeExcludeFilt
 	return filter, nil
 }
 
-func (i *IncludeExcludeFilter) Match(image reference.Named) bool {
-	imageStr := image.String()
-
+func (i *IncludeExcludeFilter) Match(s string) bool {
 	included := slices.ContainsFunc(i.include, func(include regexp.Regexp) bool {
-		return include.FindString(imageStr) == imageStr // Must be a full match
+		return include.FindString(s) == s // Must be a full match
 	})
 
 	if included {
 		return !slices.ContainsFunc(i.exclude, func(exclude regexp.Regexp) bool {
-			return exclude.FindString(imageStr) == imageStr // Must be a full match
+			return exclude.FindString(s) == s // Must be a full match
 		})
 	}
 

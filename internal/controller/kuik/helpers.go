@@ -7,7 +7,8 @@ import (
 	"time"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
-	"github.com/enix/kube-image-keeper/internal/imagefilter"
+	"github.com/enix/kube-image-keeper/internal"
+	"github.com/enix/kube-image-keeper/internal/filter"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -43,8 +44,8 @@ func getImageSecretFromMirrors(ctx context.Context, k8sClient client.Client, ima
 }
 
 func mergePreviousAndCurrentMatchingImages(ctx context.Context, pods []corev1.Pod, ismSpec *kuikv1alpha1.ImageSetMirrorSpec, ismStatus *kuikv1alpha1.ImageSetMirrorStatus) (map[string]*corev1.Pod, map[string]kuikv1alpha1.MatchingImage, error) {
-	filter := ismSpec.ImageFilter.MustBuild()
-	podsByMatchingImages, err := imagefilter.PodsByNormalizedMatchingImages(filter, pods)
+	imageFilter := ismSpec.ImageFilter.MustBuild()
+	podsByMatchingImages, err := internal.PodsByNormalizedMatchingImages(imageFilter, pods)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -64,19 +65,19 @@ func mergePreviousAndCurrentMatchingImages(ctx context.Context, pods []corev1.Po
 		}
 	}
 
-	if err := updateUnusedSince(ctx, matchingImagesMap, ismStatus.MatchingImages, filter); err != nil {
+	if err := updateUnusedSince(ctx, matchingImagesMap, ismStatus.MatchingImages, imageFilter); err != nil {
 		return nil, nil, err
 	}
 
 	return podsByMatchingImages, matchingImagesMap, nil
 }
 
-func updateUnusedSince(ctx context.Context, matchingImagesMap map[string]kuikv1alpha1.MatchingImage, matchingImages []kuikv1alpha1.MatchingImage, filter imagefilter.Filter) error {
+func updateUnusedSince(ctx context.Context, matchingImagesMap map[string]kuikv1alpha1.MatchingImage, matchingImages []kuikv1alpha1.MatchingImage, imageFilter filter.Filter) error {
 	log := logf.FromContext(ctx)
 	unusedSinceNotMatching := metav1.Time{Time: (time.Time{}).Add(time.Hour)}
 
 	for _, matchingImage := range matchingImages {
-		named, match, err := imagefilter.NormalizeAndMatch(filter, matchingImage.Image)
+		named, match, err := internal.NormalizeAndMatch(imageFilter, matchingImage.Image)
 		if err != nil {
 			return err
 		} else if !match {
