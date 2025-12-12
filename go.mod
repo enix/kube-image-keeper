@@ -3,7 +3,6 @@ module github.com/enix/kube-image-keeper
 go 1.25
 
 require (
-	github.com/alitto/pond/v2 v2.6.0
 	github.com/cespare/xxhash v1.1.0
 	github.com/distribution/reference v0.6.0
 	github.com/fatih/color v1.18.0
@@ -11,9 +10,7 @@ require (
 	github.com/google/go-containerregistry v0.20.7
 	github.com/knadh/koanf/parsers/yaml v1.1.0
 	github.com/knadh/koanf/providers/file v1.2.0
-	github.com/knadh/koanf/providers/rawbytes v1.0.0
 	github.com/knadh/koanf/v2 v2.3.0
-	github.com/obalunenko/getenv v1.14.1
 	github.com/onsi/ginkgo/v2 v2.27.2
 	github.com/onsi/gomega v1.38.2
 	github.com/prometheus/client_golang v1.23.2
