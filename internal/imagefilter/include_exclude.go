@@ -34,7 +34,7 @@ func CompileIncludeExcludeFilter(include, exclude []string) (*IncludeExcludeFilt
 		filter.exclude[i] = *r
 	}
 
-	if len(filter.include) == 0 {
+	if len(filter.include) == 0 && len(filter.exclude) > 0 {
 		filter.include = []regexp.Regexp{*regexp.MustCompile(".*")}
 	}
 
