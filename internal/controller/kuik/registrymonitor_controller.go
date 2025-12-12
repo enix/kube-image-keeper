@@ -126,7 +126,6 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	// Monitoring images ==================================================================================================
-	log.V(1).Info("monitoring images", "count", len(registryMonitor.Status.Images), "monitoredDuringInterval", monitoredDuringInterval)
 
 	imageMonitorStatus := inUseImages[0]
 	for i := range inUseImages {
@@ -137,15 +136,15 @@ func (r *RegistryMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	logImageMonitor := log.WithValues("path", imageMonitorStatus.Path)
-	logImageMonitor.Info("monitoring image")
+	logImageMonitor.V(1).Info("monitoring image")
 
 	// FIXME: uncomment this
 	// kuikcontroller.Metrics.InitMonitoringTaskRegistry(registryMonitor.Spec.Registry)
 
 	if err := r.MonitorImage(logf.IntoContext(ctx, logImageMonitor), &registryMonitor, imageMonitorStatus, matchingImagesMap[imageMonitorStatus.Path]); err != nil {
-		logImageMonitor.Error(err, "failed to monitor image")
+		logImageMonitor.Info("failed to monitor image", "error", err)
 	} else {
-		logImageMonitor.V(1).Info("image monitored with success")
+		logImageMonitor.Info("image monitored with success")
 	}
 
 	// FIXME: uncomment this
