@@ -15,6 +15,7 @@ import (
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -51,6 +52,38 @@ func (r *ClusterImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctr
 	var pods corev1.PodList
 	if err := r.List(ctx, &pods, &client.ListOptions{Namespace: cism.Namespace}); err != nil {
 		return ctrl.Result{}, err
+	}
+
+	if !cism.ObjectMeta.DeletionTimestamp.IsZero() {
+		if controllerutil.ContainsFinalizer(&cism, imageSetMirrorFinalizerName) {
+			log.Info("deleting images from cache")
+
+			for _, matchingImages := range cism.Status.MatchingImages {
+				for _, mirror := range matchingImages.Mirrors {
+					cleanupLog := log.WithValues("image", mirror.Image)
+					log.V(1).Info("deleting image", "image", mirror.Image)
+					if !cleanupMirror(logf.IntoContext(ctx, cleanupLog), r.Client, mirror.Image, cism.Namespace, cism.Spec.Mirrors) {
+						return ctrl.Result{}, errors.New("could not cleanup mirrors")
+					}
+				}
+			}
+
+			log.Info("removing finalizer")
+			controllerutil.RemoveFinalizer(&cism, imageSetMirrorFinalizerName)
+			if err := r.Update(ctx, &cism); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+
+		return ctrl.Result{}, nil
+	}
+
+	if !controllerutil.ContainsFinalizer(&cism, imageSetMirrorFinalizerName) {
+		log.Info("adding finalizer")
+		controllerutil.AddFinalizer(&cism, imageSetMirrorFinalizerName)
+		if err := r.Update(ctx, &cism); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
 	spec, status := (*kuikv1alpha1.ImageSetMirrorSpec)(&cism.Spec), (*kuikv1alpha1.ImageSetMirrorStatus)(&cism.Status)
@@ -98,21 +131,12 @@ func (r *ClusterImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctr
 				continue
 			}
 
-			cleanupLog := log.WithValues("image", matchingImage.Image)
+			cleanupLog := log.WithValues("image", mirror.Image)
 			cleanupLog.Info("image is unused for more than the retention duration, deleting it", "retentionDuration", retentionDuration)
 			if mirror.MirroredAt != nil {
-				secret, err := getImageSecretFromMirrors(ctx, r.Client, mirror.Image, cism.Namespace, cism.Spec.Mirrors)
-				if err != nil {
-					cleanupLog.Error(err, "could not read secret for image deletion")
-				} else if secret == nil {
-					cleanupLog.V(1).Info("no secret is configured for deleting image, ignoring")
-					continue
-				}
-
-				if err := registry.NewClient(nil, nil).WithPullSecrets([]corev1.Secret{*secret}).DeleteImage(mirror.Image); err != nil {
-					cleanupLog.Error(err, "could not delete image")
-					someDeletionFailed = true
+				if !cleanupMirror(logf.IntoContext(ctx, cleanupLog), r.Client, mirror.Image, cism.Namespace, cism.Spec.Mirrors) {
 					mirrorsAfterCleanup = append(mirrorsAfterCleanup, *mirror)
+					someDeletionFailed = true
 				}
 			}
 		}

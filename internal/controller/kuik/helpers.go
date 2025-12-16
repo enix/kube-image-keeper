@@ -9,11 +9,14 @@ import (
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal"
 	"github.com/enix/kube-image-keeper/internal/filter"
+	"github.com/enix/kube-image-keeper/internal/registry"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
+
+const imageSetMirrorFinalizerName = "kuik.enix.io/mirror-cleanup"
 
 func getPullSecret(ctx context.Context, k8sClient client.Client, namespace, name string, secret *corev1.Secret) error {
 	secretReference := client.ObjectKey{Namespace: namespace, Name: name}
@@ -41,6 +44,26 @@ func getImageSecretFromMirrors(ctx context.Context, k8sClient client.Client, ima
 	}
 
 	return secret, nil
+}
+
+func cleanupMirror(ctx context.Context, k8sClient client.Client, image, namespace string, mirrors kuikv1alpha1.Mirrors) (success bool) {
+	log := logf.FromContext(ctx)
+
+	secret, err := getImageSecretFromMirrors(ctx, k8sClient, image, namespace, mirrors)
+	if err != nil {
+		log.Error(err, "could not read secret for image deletion")
+		return false
+	} else if secret == nil {
+		log.V(1).Info("no secret is configured for deleting image, ignoring")
+		return true
+	}
+
+	if err := registry.NewClient(nil, nil).WithPullSecrets([]corev1.Secret{*secret}).DeleteImage(image); err != nil {
+		log.Error(err, "could not delete image")
+		return false
+	}
+
+	return true
 }
 
 func mergePreviousAndCurrentMatchingImages(ctx context.Context, pods []corev1.Pod, ismSpec *kuikv1alpha1.ImageSetMirrorSpec, ismStatus *kuikv1alpha1.ImageSetMirrorStatus) (map[string]*corev1.Pod, map[string]kuikv1alpha1.MatchingImage, error) {
