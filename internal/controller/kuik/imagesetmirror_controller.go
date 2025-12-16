@@ -71,6 +71,7 @@ func (r *ImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	someDeletionFailed := false
+	requeueAfter := time.Duration(0)
 	matchingImagesAfterCleanup := []kuikv1alpha1.MatchingImage{}
 	for i := range cism.Status.MatchingImages {
 		matchingImage := &cism.Status.MatchingImages[i]
@@ -85,8 +86,15 @@ func (r *ImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			mirror := &matchingImage.Mirrors[j]
 
 			cleanupEnabled := cism.Spec.Cleanup.Enabled
-			retentionDuration := cism.Spec.Cleanup.Retention.Duration
-			if !cleanupEnabled || time.Since(matchingImage.UnusedSince.Time) < retentionDuration { // TODO: merge retention options
+			retentionDuration := cism.Spec.Cleanup.Retention.Duration // TODO: merge retention options
+			deleteAfter := retentionDuration - time.Since(matchingImage.UnusedSince.Time)
+			if !cleanupEnabled {
+				mirrorsAfterCleanup = append(mirrorsAfterCleanup, *mirror)
+				continue
+			} else if deleteAfter > 0 {
+				if requeueAfter == 0 || deleteAfter < requeueAfter {
+					requeueAfter = deleteAfter
+				}
 				mirrorsAfterCleanup = append(mirrorsAfterCleanup, *mirror)
 				continue
 			}
@@ -163,7 +171,9 @@ func (r *ImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, errors.New("one or more image(s) could not be mirrored")
 	}
 
-	// TODO: requeue after expiration when an image has been marked as UnusedSince
+	if requeueAfter > 0 {
+		return ctrl.Result{RequeueAfter: requeueAfter}, nil
+	}
 
 	return ctrl.Result{}, nil
 }
