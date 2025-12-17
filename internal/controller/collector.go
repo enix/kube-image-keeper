@@ -8,8 +8,8 @@ import (
 )
 
 type kuikMetrics struct {
-	collectors      []prometheus.Collector
-	monitoringTasks *prometheus.CounterVec
+	collectors []prometheus.Collector
+	// monitoringTasks *prometheus.CounterVec
 }
 
 var Metrics kuikMetrics
@@ -47,16 +47,16 @@ func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client) {
 
 	const subsystemMonitoring = "registry_monitor" // FIXME: rename this to "monitoring"
 
-	m.monitoringTasks = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Namespace: info.MetricsNamespace,
-			Subsystem: subsystemMonitoring,
-			Name:      "tasks_total",
-			Help:      "Total number of image monitoring tasks, labeled by registry and status.",
-		},
-		[]string{"registry", "status", "used"},
-	)
-	m.addCollector(m.monitoringTasks)
+	// m.monitoringTasks = prometheus.NewCounterVec(
+	// 	prometheus.CounterOpts{
+	// 		Namespace: info.MetricsNamespace,
+	// 		Subsystem: subsystemMonitoring,
+	// 		Name:      "tasks_total",
+	// 		Help:      "Total number of image monitoring tasks, labeled by registry and status.",
+	// 	},
+	// 	[]string{"registry", "status", "used"},
+	// )
+	// m.addCollector(m.monitoringTasks)
 
 	// m.addCollector(NewGenericCollectorFunc(
 	// 	prometheus.Opts{

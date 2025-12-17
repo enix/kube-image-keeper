@@ -5,27 +5,10 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
-  - ""
-  resources:
-  - pods
-  - secrets
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - ""
-  resources:
-  - pods/status
-  verbs:
-  - get
-- apiGroups:
   - kuik.enix.io
   resources:
   - clusterimagesetmirrors
-  - imagemonitors
   - imagesetmirrors
-  - registrymonitors
   verbs:
   - create
   - delete
@@ -38,18 +21,14 @@ rules:
   - kuik.enix.io
   resources:
   - clusterimagesetmirrors/finalizers
-  - imagemonitors/finalizers
   - imagesetmirrors/finalizers
-  - registrymonitors/finalizers
   verbs:
   - update
 - apiGroups:
   - kuik.enix.io
   resources:
   - clusterimagesetmirrors/status
-  - imagemonitors/status
   - imagesetmirrors/status
-  - registrymonitors/status
   verbs:
   - get
   - patch

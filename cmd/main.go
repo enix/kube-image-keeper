@@ -27,7 +27,6 @@ import (
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/config"
 	"github.com/enix/kube-image-keeper/internal/controller"
-	corecontroller "github.com/enix/kube-image-keeper/internal/controller/core"
 	kuikcontroller "github.com/enix/kube-image-keeper/internal/controller/kuik"
 	"github.com/enix/kube-image-keeper/internal/info"
 	webhookcorev1 "github.com/enix/kube-image-keeper/internal/webhook/core/v1"
@@ -218,21 +217,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&corecontroller.PodReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Pod")
-		os.Exit(1)
-	}
-	if err = (&kuikcontroller.RegistryMonitorReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-		Config: configuration,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "RegistryMonitor")
-		os.Exit(1)
-	}
 	// nolint:goconst
 	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
 		podDefaulter := webhookcorev1.PodCustomDefaulter{

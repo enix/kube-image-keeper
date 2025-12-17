@@ -3,6 +3,7 @@ package v1
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"path"
 	"slices"
 	"strings"
@@ -287,20 +288,21 @@ func (d *PodCustomDefaulter) rerouteContainerImage(ctx context.Context, containe
 func (d *PodCustomDefaulter) checkImageAvailability(ctx context.Context, reference string, pullSecrets []corev1.Secret) (bool, error) {
 	log := logf.FromContext(ctx, "reference", reference)
 
-	registryMonitorName, err := internal.RegistryMonitorNameFromReference(reference)
-	if err != nil {
-		return false, err
-	}
+	// registryMonitorName, err := internal.RegistryMonitorNameFromReference(reference)
+	// if err != nil {
+	// 	return false, err
+	// }
 
-	var registryMonitor kuikv1alpha1.RegistryMonitor
-	if err := d.Get(ctx, client.ObjectKey{Name: registryMonitorName}, &registryMonitor); err != nil {
-		return false, err
-	}
+	// var registryMonitor kuikv1alpha1.RegistryMonitor
+	// if err := d.Get(ctx, client.ObjectKey{Name: registryMonitorName}, &registryMonitor); err != nil {
+	// 	return false, err
+	// }
 
-	_, err = registry.NewClient(nil, nil).
+	_, err := registry.NewClient(nil, nil).
 		WithTimeout(d.Config.ActiveCheck.Timeout).
 		WithPullSecrets(pullSecrets).
-		ReadDescriptor(registryMonitor.Spec.Method, reference)
+		ReadDescriptor(http.MethodHead, reference)
+		// ReadDescriptor(registryMonitor.Spec.Method, reference)
 	if err != nil {
 		log.V(1).Info("image is not available", "error", err)
 	} else {
