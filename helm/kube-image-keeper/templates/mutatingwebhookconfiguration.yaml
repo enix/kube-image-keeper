@@ -32,4 +32,4 @@ webhooks:
     - UPDATE
     resources:
     - pods
-  sideEffects: None
+  sideEffects: NoneOnDryRun

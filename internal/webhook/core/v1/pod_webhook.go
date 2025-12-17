@@ -8,15 +8,20 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/cespare/xxhash"
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal"
 	"github.com/enix/kube-image-keeper/internal/config"
+	kuikcontroller "github.com/enix/kube-image-keeper/internal/controller/kuik"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -51,6 +56,7 @@ type AlternativeImage struct {
 	Reference        string
 	CredentialSecret *kuikv1alpha1.CredentialSecret
 	ImagePullSecret  *corev1.Secret
+	SecretOwner      client.Object
 }
 
 type Container struct {
@@ -72,7 +78,7 @@ func (d *PodCustomDefaulter) Default(ctx context.Context, obj runtime.Object) er
 		return fmt.Errorf("expected a Pod object but got %T", obj)
 	}
 
-	if err := d.defaultPod(logf.IntoContext(ctx, log), pod); err != nil {
+	if err := d.defaultPod(logf.IntoContext(ctx, log), pod, *request.DryRun); err != nil {
 		log.Error(err, "defaulting webhook error")
 		return err
 	}
@@ -80,7 +86,7 @@ func (d *PodCustomDefaulter) Default(ctx context.Context, obj runtime.Object) er
 	return nil
 }
 
-func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod) error {
+func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dryRun bool) error {
 	log := logf.FromContext(ctx)
 	log.Info("defaulting for Pod")
 
@@ -182,14 +188,24 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod) er
 
 	for i := range containers {
 		container := &containers[i]
-		if alternativeSecret := d.rerouteContainerImage(ctx, container, podImagePullSecrets); alternativeSecret != nil {
-			containsAlternativeSecret := slices.ContainsFunc(pod.Spec.ImagePullSecrets, func(localObjectReference corev1.LocalObjectReference) bool {
-				return localObjectReference.Name == alternativeSecret.Name
-			})
+		if alternativeImage := d.rerouteContainerImage(ctx, container, podImagePullSecrets); alternativeImage != nil {
+			if alternativeImage == nil || alternativeImage.ImagePullSecret == nil {
+				continue
+			}
+
+			if !dryRun {
+				if err := d.ensureSecret(ctx, pod.Namespace, alternativeImage); err != nil {
+					return err
+				}
+			}
+
 			// Inject rerouted image pull secret if not already present in the pod
+			containsAlternativeSecret := slices.ContainsFunc(pod.Spec.ImagePullSecrets, func(localObjectReference corev1.LocalObjectReference) bool {
+				return localObjectReference.Name == alternativeImage.ImagePullSecret.Name
+			})
 			if !containsAlternativeSecret {
 				pod.Spec.ImagePullSecrets = append(pod.Spec.ImagePullSecrets, corev1.LocalObjectReference{
-					Name: alternativeSecret.Name,
+					Name: alternativeImage.ImagePullSecret.Name,
 				})
 			}
 		}
@@ -211,7 +227,7 @@ func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSet
 			}
 
 			container.Images = make([]AlternativeImage, 0, 1+len(ism.Spec.Mirrors))
-			container.addAlternative(container.Image, nil)
+			container.addAlternative(container.Image, nil, nil)
 
 			_, imgPath, err := internal.RegistryAndPathFromReference(container.Image)
 			if err != nil {
@@ -219,7 +235,8 @@ func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSet
 			}
 
 			for _, mirror := range ism.Spec.Mirrors {
-				container.addAlternative(path.Join(mirror.Registry, mirror.Path, imgPath), mirror.CredentialSecret)
+				ism.GetObjectKind()
+				container.addAlternative(path.Join(mirror.Registry, mirror.Path, imgPath), mirror.CredentialSecret, &ism)
 			}
 		}
 	}
@@ -241,7 +258,7 @@ func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSet
 
 			for _, upstream := range ris.Spec.Upstreams {
 				reference := path.Join(upstream.Registry, upstream.Path) + suffix
-				container.addAlternative(reference, upstream.CredentialSecret)
+				container.addAlternative(reference, upstream.CredentialSecret, &ris)
 			}
 		}
 
@@ -259,7 +276,7 @@ func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSet
 	return nil
 }
 
-func (d *PodCustomDefaulter) rerouteContainerImage(ctx context.Context, container *Container, pullSecrets []corev1.Secret) *corev1.Secret {
+func (d *PodCustomDefaulter) rerouteContainerImage(ctx context.Context, container *Container, pullSecrets []corev1.Secret) *AlternativeImage {
 	log := logf.FromContext(ctx)
 
 	for _, image := range container.Images {
@@ -276,11 +293,11 @@ func (d *PodCustomDefaulter) rerouteContainerImage(ctx context.Context, containe
 				log.Info("rerouting image", "container", container.Name, "isInit", container.IsInit, "originalImage", container.Image, "reroutedImage", image.Reference)
 				container.Image = image.Reference
 			}
-			return image.ImagePullSecret
-		} else {
-			log.Info("no alternative image is available, keep using the default one")
+			return &image
 		}
 	}
+
+	log.Info("no alternative image is available, keep using the default one")
 
 	return nil
 }
@@ -312,7 +329,46 @@ func (d *PodCustomDefaulter) checkImageAvailability(ctx context.Context, referen
 	return err == nil, nil
 }
 
-func (c *Container) addAlternative(reference string, credentialSecret *kuikv1alpha1.CredentialSecret) {
+func (d *PodCustomDefaulter) ensureSecret(ctx context.Context, namespace string, alternativeImage *AlternativeImage) error {
+	secret := alternativeImage.ImagePullSecret
+	owner := alternativeImage.SecretOwner
+
+	// We don't need to recreate the secret if it is already in the right namespace
+	if namespace == secret.Namespace {
+		return nil
+	}
+
+	ownerUID := string(owner.GetUID())
+	target := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
+		// Create a unique secret per source namespace + Cluster[ImageSetMirror,ReplicatedImageSet]
+		Name:      makeSecretName("kuik", secret.Name, secret.Namespace+"/"+ownerUID),
+		Namespace: namespace,
+	}}
+
+	gvk, err := apiutil.GVKForObject(owner, d.Scheme())
+	if err != nil {
+		return err
+	}
+
+	_, err = controllerutil.CreateOrUpdate(ctx, d.Client, target, func() error {
+		target.Data = secret.Data
+		target.Type = secret.Type
+		target.Labels = map[string]string{
+			"kuik.enix.io/owner-version": gvk.Version,
+			"kuik.enix.io/owner-group":   gvk.Group,
+			"kuik.enix.io/owner-kind":    gvk.Kind,
+			kuikcontroller.OwnerUIDLabel: ownerUID,
+			"kuik.enix.io/owner-name":    owner.GetName(),
+		}
+		return nil
+	})
+
+	alternativeImage.ImagePullSecret = target
+
+	return err
+}
+
+func (c *Container) addAlternative(reference string, credentialSecret *kuikv1alpha1.CredentialSecret, secretOwner client.Object) {
 	if _, ok := c.Alternatives[reference]; ok {
 		return
 	}
@@ -321,6 +377,7 @@ func (c *Container) addAlternative(reference string, credentialSecret *kuikv1alp
 	c.Images = append(c.Images, AlternativeImage{
 		Reference:        reference,
 		CredentialSecret: credentialSecret,
+		SecretOwner:      secretOwner,
 	})
 }
 
@@ -337,4 +394,9 @@ func (c *Container) loadAlternativesSecrets(ctx context.Context, cl client.Clien
 		}
 	}
 	return nil
+}
+
+func makeSecretName(prefix, name, hashInput string) string {
+	nameLength := min(253-len(prefix)-16-2, len(name))
+	return fmt.Sprintf("%s-%s-%016x", prefix, name[:nameLength], xxhash.Sum64String(hashInput))
 }
