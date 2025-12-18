@@ -15,6 +15,7 @@ import (
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	"github.com/google/go-containerregistry/pkg/v1/types"
 	corev1 "k8s.io/api/core/v1"
 )
@@ -150,7 +151,19 @@ func (c *Client) CopyImage(src *remote.Descriptor, dest string, architectures []
 
 func (c *Client) DeleteImage(imageName string) error {
 	return c.Execute(imageName, func(ref name.Reference, opts ...remote.Option) (err error) {
-		return remote.Delete(ref, opts...)
+		descriptor, err := remote.Head(ref, opts...)
+		if err != nil {
+			if errIsImageNotFound(err) {
+				return nil
+			}
+			return err
+		}
+
+		digest, err := name.NewDigest(ref.Name()+"@"+descriptor.Digest.String(), name.Insecure)
+		if err != nil {
+			return err
+		}
+		return remote.Delete(digest, opts...)
 	})
 }
 
@@ -182,4 +195,13 @@ func unauthenticatedTransport(registry string, insecureRegistries []string, root
 	}
 
 	return transport
+}
+
+func errIsImageNotFound(err error) bool {
+	if err, ok := err.(*transport.Error); ok {
+		if err.StatusCode == http.StatusNotFound {
+			return true
+		}
+	}
+	return false
 }
