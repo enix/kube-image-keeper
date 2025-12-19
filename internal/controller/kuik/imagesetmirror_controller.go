@@ -8,7 +8,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -230,7 +229,7 @@ func (r *ImageSetMirrorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 						if match {
 							reqs = append(reqs, reconcile.Request{
-								NamespacedName: types.NamespacedName{Namespace: cism.Namespace, Name: cism.Name},
+								NamespacedName: client.ObjectKeyFromObject(&cism),
 							})
 							break
 						}

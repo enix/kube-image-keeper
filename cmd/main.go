@@ -242,6 +242,22 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "ImageSetMirror")
 		os.Exit(1)
 	}
+	if err = (&kuikcontroller.SecretOwnerReconciler[*kuikv1alpha1.ClusterImageSetMirror]{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+		New:    func() *kuikv1alpha1.ClusterImageSetMirror { return &kuikv1alpha1.ClusterImageSetMirror{} },
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ClusterImageSetMirrorSecretOwner")
+		os.Exit(1)
+	}
+	if err = (&kuikcontroller.SecretOwnerReconciler[*kuikv1alpha1.ClusterReplicatedImageSet]{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+		New:    func() *kuikv1alpha1.ClusterReplicatedImageSet { return &kuikv1alpha1.ClusterReplicatedImageSet{} },
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ClusterReplicatedImageSetSecretOwner")
+		os.Exit(1)
+	}
 	// +kubebuilder:scaffold:builder
 
 	if metricsCertWatcher != nil {

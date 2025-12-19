@@ -11,7 +11,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -69,8 +69,14 @@ func (r *ClusterImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctr
 			}
 
 			log.Info("removing finalizer")
-			controllerutil.RemoveFinalizer(&cism, imageSetMirrorFinalizerName)
-			if err := r.Update(ctx, &cism); err != nil {
+			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				if err := r.Get(ctx, client.ObjectKeyFromObject(&cism), &cism); err != nil {
+					return client.IgnoreNotFound(err)
+				}
+				controllerutil.RemoveFinalizer(&cism, imageSetMirrorFinalizerName)
+				return r.Update(ctx, &cism)
+			})
+			if err != nil {
 				return ctrl.Result{}, err
 			}
 		}
@@ -80,8 +86,15 @@ func (r *ClusterImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctr
 
 	if !controllerutil.ContainsFinalizer(&cism, imageSetMirrorFinalizerName) {
 		log.Info("adding finalizer")
-		controllerutil.AddFinalizer(&cism, imageSetMirrorFinalizerName)
-		if err := r.Update(ctx, &cism); err != nil {
+		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			if err := r.Get(ctx, client.ObjectKeyFromObject(&cism), &cism); err != nil {
+				return err
+			}
+
+			controllerutil.AddFinalizer(&cism, imageSetMirrorFinalizerName)
+			return r.Update(ctx, &cism)
+		})
+		if err != nil {
 			return ctrl.Result{}, err
 		}
 	}
@@ -229,7 +242,7 @@ func (r *ClusterImageSetMirrorReconciler) SetupWithManager(mgr ctrl.Manager) err
 
 						if match {
 							reqs = append(reqs, reconcile.Request{
-								NamespacedName: types.NamespacedName{Namespace: cism.Namespace, Name: cism.Name},
+								NamespacedName: client.ObjectKeyFromObject(&cism),
 							})
 							break
 						}
