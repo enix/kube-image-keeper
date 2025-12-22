@@ -316,7 +316,7 @@ func (d *PodCustomDefaulter) checkImageAvailability(ctx context.Context, referen
 	// }
 
 	_, err := registry.NewClient(nil, nil).
-		WithTimeout(d.Config.ActiveCheck.Timeout).
+		WithTimeout(d.Config.Routing.ActiveCheck.Timeout).
 		WithPullSecrets(pullSecrets).
 		ReadDescriptor(http.MethodHead, reference)
 		// ReadDescriptor(registryMonitor.Spec.Method, reference)
