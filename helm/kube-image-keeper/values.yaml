@@ -96,34 +96,8 @@ serviceAccount:
 # -- Delay in hours before deleting an Image that is not used by any pod
 unusedImageTTL: 24
 
-metrics:
-  imageLastMonitorAgeMinutesBuckets:
-    # -- Bucket generation method (can be one of exponential, exponentialRange or custom)
-    type: exponentialRange
-    # -- Range from 15m to 1297m (21h) (start*factor^count) See https://pkg.go.dev/github.com/prometheus/client_golang/prometheus#ExponentialBuckets
-    exponential:
-      # -- Default is 15m
-      start: 15
-      factor: 1.5
-      count: 12
-    # -- See https://pkg.go.dev/github.com/prometheus/client_golang/prometheus#ExponentialBucketsRange
-    exponentialRange:
-      # Default is 10m
-      min: 15
-      # Default is 16.6h
-      max: 1000
-      count: 12
-    # -- List of buckets to create in minutes, ommiting +inf
-    custom: [10, 30, 60, 120, 180, 360, 1440]
-
 configuration:
-  monitoring:
-    enabled: true
-  mirroring:
-    secrets: {}
-      # registry.example.com:
-      #   namespace: example
-      #   name: registry-credentials
-  activeCheck:
-    enabled: true
-    timeout: 1s
+  routing:
+    activeCheck:
+      enabled: true
+      timeout: 1s
