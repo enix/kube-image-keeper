@@ -1,12 +1,12 @@
 package config
 
 import (
-	"log"
 	"time"
 
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/file"
+	"github.com/knadh/koanf/providers/structs"
 	"github.com/knadh/koanf/v2"
 )
 
@@ -22,6 +22,14 @@ type ActiveCheck struct {
 	Timeout time.Duration `koanf:"timeout"`
 }
 
+var defaultConfig = Config{
+	Routing: Routing{
+		ActiveCheck: ActiveCheck{
+			Timeout: 2 * time.Second,
+		},
+	},
+}
+
 func Load(path string) (*Config, error) {
 	return load(file.Provider(path), yaml.Parser())
 }
@@ -29,8 +37,12 @@ func Load(path string) (*Config, error) {
 func load(provider koanf.Provider, parser koanf.Parser) (*Config, error) {
 	k := koanf.New(".")
 
+	if err := k.Load(structs.Provider(defaultConfig, "koanf"), nil); err != nil {
+		return nil, err
+	}
+
 	if err := k.Load(provider, parser); err != nil {
-		log.Fatalf("error loading config: %v", err)
+		return nil, err
 	}
 
 	config := &Config{}
