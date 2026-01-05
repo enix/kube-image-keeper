@@ -46,15 +46,6 @@ spec:
             - -zap-log-level={{ .Values.manager.verbosity }}
             - -unused-image-ttl={{ .Values.unusedImageTTL }}
           env:
-            # registry monitor default spec
-            - name: KUIK_REGISTRY_MONITOR_DEFAULT_INTERVAL
-              value: "{{ .Values.registryMonitors.defaultSpec.interval }}"
-            - name: KUIK_REGISTRY_MONITOR_DEFAULT_MAX_PER_INTERVAL
-              value: "{{ .Values.registryMonitors.defaultSpec.maxPerInterval }}"
-            - name: KUIK_REGISTRY_MONITOR_DEFAULT_PARALLEL
-              value: "{{ .Values.registryMonitors.defaultSpec.parallel }}"
-            - name: KUIK_REGISTRY_MONITOR_DEFAULT_METHOD
-              value: "{{ .Values.registryMonitors.defaultSpec.method }}"
             # image_last_monitor_age_minutes metric buckets
             - name: KUIK_METRICS_IMAGE_LAST_MONITOR_AGE_MINUTES_BUCKETS_TYPE
               value: "{{ .Values.metrics.imageLastMonitorAgeMinutesBuckets.type }}"

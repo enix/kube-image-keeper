@@ -93,27 +93,6 @@ serviceAccount:
   # -- Additional labels to add to the serviceAccount
   extraLabels: {}
 
-registryMonitors:
-  defaultSpec:
-    # -- Time window during which maxPerInterval limits the number of monitoring tasks. (e.g., 6h, 30m)
-    interval: 3h
-    # -- Maximum monitoring tasks to run in the given interval and for a given registry.
-    maxPerInterval: 25
-    # -- Maximum monitoring tasks to run in parallel for a given registry.
-    parallel: 1
-    # -- HTTP method to use to monitor an image of this registry
-    method: HEAD
-    # -- Maximum duration of a monitoring task
-    timeout: 30s
-  # -- RegistryMonitors to create on install and upgrade, if name is not provided, defaults to registry value.
-  items:
-    docker.io:
-      interval: 1h
-      maxPerInterval: 2
-    public.ecr.aws:
-      interval: 1h
-      maxPerInterval: 2
-
 # -- Delay in hours before deleting an Image that is not used by any pod
 unusedImageTTL: 24
 

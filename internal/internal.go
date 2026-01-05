@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/cespare/xxhash"
 	"github.com/distribution/reference"
 	"github.com/enix/kube-image-keeper/internal/filter"
 	corev1 "k8s.io/api/core/v1"
@@ -20,19 +19,6 @@ func RegistryAndPathFromReference(image string) (string, string, error) {
 
 	parts := strings.SplitN(named.String(), "/", 2)
 	return parts[0], parts[1], nil
-}
-
-func RegistryMonitorNameFromRegistry(registry string) string {
-	return fmt.Sprintf("%016x", xxhash.Sum64String(registry))
-}
-
-func RegistryMonitorNameFromReference(image string) (string, error) {
-	registry, _, err := RegistryAndPathFromReference(image)
-	if err != nil {
-		return "", err
-	}
-
-	return RegistryMonitorNameFromRegistry(registry), nil
 }
 
 func GetPullSecretsFromPod(ctx context.Context, c client.Client, pod *corev1.Pod) ([]corev1.Secret, error) {

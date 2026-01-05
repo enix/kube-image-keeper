@@ -2,11 +2,10 @@
 # since it depends on service name and namespace that are out of this kustomize package.
 # It should be run by config/default
 resources:
-- bases/kuik.enix.io_registrymonitors.yaml
-- bases/kuik.enix.io_clusterimagesetmirrors.yaml
-- bases/kuik.enix.io_imagesetmirrors.yaml
-- bases/kuik.enix.io_replicatedimagesets.yaml
-- bases/kuik.enix.io_clusterreplicatedimagesets.yaml
+  - bases/kuik.enix.io_clusterimagesetmirrors.yaml
+  - bases/kuik.enix.io_imagesetmirrors.yaml
+  - bases/kuik.enix.io_replicatedimagesets.yaml
+  - bases/kuik.enix.io_clusterreplicatedimagesets.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:
