@@ -1,4 +1,24 @@
 - apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - kuik.enix.io
   resources:
   - clusterimagesetmirrors
@@ -15,14 +35,18 @@
   - kuik.enix.io
   resources:
   - clusterimagesetmirrors/finalizers
+  - clusterreplicatedimagesets/finalizers
   - imagesetmirrors/finalizers
+  - replicatedimagesets/finalizers
   verbs:
   - update
 - apiGroups:
   - kuik.enix.io
   resources:
   - clusterimagesetmirrors/status
+  - clusterreplicatedimagesets/status
   - imagesetmirrors/status
+  - replicatedimagesets/status
   verbs:
   - get
   - patch
@@ -36,10 +60,3 @@
   - get
   - list
   - watch
-- apiGroups:
-  - kuik.enix.io
-  resources:
-  - clusterreplicatedimagesets/status
-  - replicatedimagesets/status
-  verbs:
-  - get
