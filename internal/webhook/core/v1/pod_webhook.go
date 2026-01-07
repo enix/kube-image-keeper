@@ -215,6 +215,11 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSetMirrors []kuikv1alpha1.ImageSetMirror, replicatedImageSets []kuikv1alpha1.ReplicatedImageSet, containers []Container) error {
 	log := logf.FromContext(ctx)
 
+	for i := range containers {
+		container := &containers[i]
+		container.addAlternative(container.Image, nil, nil)
+	}
+
 	for _, ism := range imageSetMirrors {
 		imageFilter := ism.Spec.ImageFilter.MustBuild()
 
@@ -223,9 +228,6 @@ func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSet
 			if !internal.MatchNormalized(imageFilter, container.Image) {
 				continue
 			}
-
-			container.Images = make([]AlternativeImage, 0, 1+len(ism.Spec.Mirrors))
-			container.addAlternative(container.Image, nil, nil)
 
 			_, imgPath, err := internal.RegistryAndPathFromReference(container.Image)
 			if err != nil {
