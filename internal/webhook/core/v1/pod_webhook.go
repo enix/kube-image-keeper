@@ -2,6 +2,7 @@ package v1
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"path"
@@ -30,6 +31,8 @@ import (
 // nolint:unused
 // log is for logging in this package.
 var podlog = logf.Log.WithName("pod-resource")
+
+var errRateLimited = errors.New("registry limit reached")
 
 // SetupPodWebhookWithManager registers the webhook for Pod in the manager.
 func SetupPodWebhookWithManager(mgr ctrl.Manager, d *PodCustomDefaulter) error {
@@ -315,11 +318,16 @@ func (d *PodCustomDefaulter) checkImageAvailability(ctx context.Context, referen
 	// 	return false, err
 	// }
 
-	_, err := registry.NewClient(nil, nil).
+	_, headers, err := registry.NewClient(nil, nil).
 		WithTimeout(d.Config.Routing.ActiveCheck.Timeout).
 		WithPullSecrets(pullSecrets).
 		ReadDescriptor(http.MethodHead, reference)
 		// ReadDescriptor(registryMonitor.Spec.Method, reference)
+
+	if isRateLimited(headers) {
+		err = errRateLimited
+	}
+
 	if err != nil {
 		log.V(1).Info("image is not available", "error", err)
 	} else {
@@ -399,4 +407,8 @@ func (c *Container) loadAlternativesSecrets(ctx context.Context, cl client.Clien
 func makeSecretName(prefix, name, hashInput string) string {
 	nameLength := min(253-len(prefix)-16-2, len(name))
 	return fmt.Sprintf("%s-%s-%016x", prefix, name[:nameLength], xxhash.Sum64String(hashInput))
+}
+
+func isRateLimited(headers http.Header) bool {
+	return strings.HasPrefix(headers.Get("ratelimit-remaining"), "0;")
 }

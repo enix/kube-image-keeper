@@ -27,19 +27,29 @@ type Client struct {
 	rootCAs            *x509.CertPool
 	timeout            time.Duration
 	pullSecrets        []corev1.Secret
+	headerCapture      *HeaderCapture
 }
 
 func NewClient(insecureRegistries []string, rootCAs *x509.CertPool) *Client {
 	return &Client{
 		insecureRegistries: insecureRegistries,
 		rootCAs:            rootCAs,
+		headerCapture:      &HeaderCapture{},
 	}
 }
 
 func (c *Client) options(ctx context.Context, ref name.Reference) []remote.Option {
-	transport := unauthenticatedTransport(ref.Context().RegistryStr(), c.insecureRegistries, c.rootCAs)
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{RootCAs: c.rootCAs}
+
+	if slices.Contains(c.insecureRegistries, ref.Context().RegistryStr()) {
+		transport.TLSClientConfig.InsecureSkipVerify = true
+	}
+
+	c.headerCapture.roundTripper = transport
+
 	return []remote.Option{
-		remote.WithTransport(transport),
+		remote.WithTransport(c.headerCapture),
 		remote.WithContext(ctx),
 	}
 }
@@ -99,12 +109,12 @@ func (c *Client) Execute(imageName string, action func(ref name.Reference, opts 
 	return errors.Join(errs...)
 }
 
-func (c *Client) ReadDescriptor(httpMethod string, imageName string) (*v1.Descriptor, error) {
-	var desc *v1.Descriptor
-	return desc, c.Execute(imageName, func(ref name.Reference, opts ...remote.Option) (err error) {
-		desc, err = getReader(httpMethod)(ref, opts...)
-		return err
+func (c *Client) ReadDescriptor(httpMethod string, imageName string) (desc *v1.Descriptor, h http.Header, err error) {
+	err = c.Execute(imageName, func(ref name.Reference, opts ...remote.Option) (e error) {
+		desc, e = getReader(httpMethod)(ref, opts...)
+		return e
 	})
+	return desc, c.headerCapture.GetLastHeaders(), err
 }
 
 func (c *Client) GetDescriptor(imageName string) (*remote.Descriptor, error) {
@@ -184,17 +194,6 @@ func getDescriptor(ref name.Reference, options ...remote.Option) (*v1.Descriptor
 		return nil, err
 	}
 	return &desc.Descriptor, nil
-}
-
-func unauthenticatedTransport(registry string, insecureRegistries []string, rootCAs *x509.CertPool) http.RoundTripper {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.TLSClientConfig = &tls.Config{RootCAs: rootCAs}
-
-	if slices.Contains(insecureRegistries, registry) {
-		transport.TLSClientConfig.InsecureSkipVerify = true
-	}
-
-	return transport
 }
 
 func errIsImageNotFound(err error) bool {
