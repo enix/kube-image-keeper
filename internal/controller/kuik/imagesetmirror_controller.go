@@ -3,6 +3,7 @@ package kuik
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -220,8 +221,13 @@ func (r *ImageSetMirrorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 				reqs := []reconcile.Request{}
 				for _, cism := range cisms.Items {
+					imageFilter := cism.Spec.ImageFilter.MustBuild()
 					for _, container := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
-						_, match, err := internal.NormalizeAndMatch(cism.Spec.ImageFilter.MustBuild(), container.Image)
+						if strings.Contains(container.Image, "@") {
+							continue // ignore digest-based images
+						}
+
+						_, match, err := internal.NormalizeAndMatch(imageFilter, container.Image)
 						if err != nil {
 							log.Error(err, "failed to match an image", "image", container.Image)
 							continue

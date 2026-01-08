@@ -52,6 +52,10 @@ func PodsByNormalizedMatchingImages(filter filter.Filter, pods []corev1.Pod) (ma
 	matchingImagesMap := map[string]*corev1.Pod{}
 	for _, pod := range pods {
 		for _, container := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
+			if strings.Contains(container.Image, "@") {
+				continue // ignore digest-based images
+			}
+
 			named, match, err := NormalizeAndMatch(filter, container.Image)
 			if err != nil {
 				return nil, err
