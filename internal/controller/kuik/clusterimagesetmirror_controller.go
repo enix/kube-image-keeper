@@ -57,7 +57,11 @@ func (r *ClusterImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctr
 			for _, matchingImages := range cism.Status.MatchingImages {
 				for _, mirror := range matchingImages.Mirrors {
 					cleanupLog := log.WithValues("image", mirror.Image)
-					log.V(1).Info("deleting image", "image", mirror.Image)
+					if mirror.MirroredAt.IsZero() {
+						cleanupLog.V(1).Info("image not mirrored yet, skipping deletion")
+						continue
+					}
+					cleanupLog.V(1).Info("deleting image")
 					if !cleanupMirror(logf.IntoContext(ctx, cleanupLog), r.Client, mirror.Image, cism.Namespace, cism.Spec.Mirrors) {
 						return ctrl.Result{}, errors.New("could not cleanup mirrors")
 					}
