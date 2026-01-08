@@ -120,7 +120,9 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 		return err
 	}
 	var ismList kuikv1alpha1.ImageSetMirrorList
-	if err := d.List(ctx, &ismList); err != nil {
+	if err := d.List(ctx, &ismList, &client.ListOptions{
+		Namespace: pod.Namespace,
+	}); err != nil {
 		return err
 	}
 	var crisList kuikv1alpha1.ClusterReplicatedImageSetList
@@ -128,7 +130,9 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 		return err
 	}
 	var risList kuikv1alpha1.ReplicatedImageSetList
-	if err := d.List(ctx, &risList); err != nil {
+	if err := d.List(ctx, &risList, &client.ListOptions{
+		Namespace: pod.Namespace,
+	}); err != nil {
 		return err
 	}
 
@@ -140,9 +144,6 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 		})
 	}
 	for _, ism := range ismList.Items {
-		if ism.Namespace != pod.Namespace {
-			continue
-		}
 		for i := range ism.Spec.Mirrors {
 			mirror := &ism.Spec.Mirrors[i]
 			mirror.CredentialSecret.Namespace = pod.Namespace
@@ -158,9 +159,6 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 		})
 	}
 	for _, ris := range risList.Items {
-		if ris.Namespace != pod.Namespace {
-			continue
-		}
 		replicatedImageSets = append(replicatedImageSets, ris)
 	}
 
@@ -247,7 +245,6 @@ func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSet
 			}
 
 			for _, mirror := range ism.Spec.Mirrors {
-				ism.GetObjectKind()
 				container.addAlternative(path.Join(mirror.Registry, mirror.Path, imgPath), mirror.CredentialSecret, &ism)
 			}
 		}
