@@ -106,6 +106,15 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 		})
 	}
 
+	// filter containers using digest-based images
+	containers = slices.DeleteFunc(containers, func(container Container) bool {
+		return strings.Contains(container.Image, "@")
+	})
+	if len(containers) == 0 {
+		log.Info("pod has no containers eligible for image rewriting, ignoring (digest-based images are not supported)")
+		return nil
+	}
+
 	var cismList kuikv1alpha1.ClusterImageSetMirrorList
 	if err := d.List(ctx, &cismList); err != nil {
 		return err
