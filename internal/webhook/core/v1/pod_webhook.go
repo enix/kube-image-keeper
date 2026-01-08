@@ -282,21 +282,23 @@ func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSet
 func (d *PodCustomDefaulter) rerouteContainerImage(ctx context.Context, container *Container, pullSecrets []corev1.Secret) *AlternativeImage {
 	log := logf.FromContext(ctx)
 
-	for _, image := range container.Images {
-		imagePullSecrets := pullSecrets
-		if image.ImagePullSecret != nil {
-			imagePullSecrets = append(imagePullSecrets, *image.ImagePullSecret)
-		}
-
-		if available, err := d.checkImageAvailability(ctx, image.Reference, imagePullSecrets); err != nil {
-			log.Error(err, "could not check image availability", "image", image.Reference)
-			continue
-		} else if available {
-			if container.Image != image.Reference {
-				log.Info("rerouting image", "container", container.Name, "isInit", container.IsInit, "originalImage", container.Image, "reroutedImage", image.Reference)
-				container.Image = image.Reference
+	if len(container.Images) > 1 {
+		for _, image := range container.Images {
+			imagePullSecrets := pullSecrets
+			if image.ImagePullSecret != nil {
+				imagePullSecrets = append(imagePullSecrets, *image.ImagePullSecret)
 			}
-			return &image
+
+			if available, err := d.checkImageAvailability(ctx, image.Reference, imagePullSecrets); err != nil {
+				log.Error(err, "could not check image availability", "image", image.Reference)
+				continue
+			} else if available {
+				if container.Image != image.Reference {
+					log.Info("rerouting image", "container", container.Name, "isInit", container.IsInit, "originalImage", container.Image, "reroutedImage", image.Reference)
+					container.Image = image.Reference
+				}
+				return &image
+			}
 		}
 	}
 
