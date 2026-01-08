@@ -10,10 +10,13 @@ import (
 	"github.com/enix/kube-image-keeper/internal"
 	"github.com/enix/kube-image-keeper/internal/filter"
 	"github.com/enix/kube-image-keeper/internal/registry"
+	"golang.org/x/time/rate"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 const imageSetMirrorFinalizerName = "kuik.enix.io/mirror-cleanup"
@@ -124,4 +127,12 @@ func updateUnusedSince(ctx context.Context, matchingImagesMap map[string]kuikv1a
 	}
 
 	return nil
+}
+
+func newMirroringRateLimiter() workqueue.TypedRateLimiter[reconcile.Request] {
+	// based on workqueue.DefaultTypedControllerRateLimiter
+	return workqueue.NewTypedMaxOfRateLimiter(
+		workqueue.NewTypedItemExponentialFailureRateLimiter[reconcile.Request](1*time.Second, 1000*time.Second),
+		&workqueue.TypedBucketRateLimiter[reconcile.Request]{Limiter: rate.NewLimiter(rate.Limit(10), 100)},
+	)
 }
