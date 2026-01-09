@@ -14,6 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
@@ -37,6 +38,8 @@ type ImageSetMirrorReconciler struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.4/pkg/reconcile
 func (r *ImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
+
+	log.V(1).Info("reconciliation started")
 
 	var cism kuikv1alpha1.ImageSetMirror
 	if err := r.Get(ctx, req.NamespacedName, &cism); err != nil {
@@ -212,6 +215,7 @@ func (r *ImageSetMirrorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		WithOptions(controller.Options{
 			RateLimiter: newMirroringRateLimiter(),
 		}).
+		WithEventFilter(predicate.GenerationChangedPredicate{}).
 		WatchesRawSource(source.TypedKind(mgr.GetCache(), &corev1.Pod{},
 			handler.TypedEnqueueRequestsFromMapFunc(func(ctx context.Context, pod *corev1.Pod) []reconcile.Request {
 				log := logf.FromContext(ctx).
