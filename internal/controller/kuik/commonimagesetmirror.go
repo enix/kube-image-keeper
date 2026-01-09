@@ -13,6 +13,7 @@ import (
 	"golang.org/x/time/rate"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -21,15 +22,37 @@ import (
 
 const imageSetMirrorFinalizerName = "kuik.enix.io/mirror-cleanup"
 
-func getPullSecret(ctx context.Context, k8sClient client.Client, namespace, name string, secret *corev1.Secret) error {
+// ImageSetMirrorBaseReconciler provides a base for building ImageSetMirror and ClusterImageSetMirror reconciliers
+type ImageSetMirrorBaseReconciler struct {
+	client.Client
+	Scheme *runtime.Scheme
+}
+
+func (r *ImageSetMirrorBaseReconciler) getPullSecret(ctx context.Context, namespace, name string, secret *corev1.Secret) error {
 	secretReference := client.ObjectKey{Namespace: namespace, Name: name}
-	if err := k8sClient.Get(ctx, secretReference, secret); err != nil {
+	if err := r.Get(ctx, secretReference, secret); err != nil {
 		return err
 	}
 	return nil
 }
 
-func getImageSecretFromMirrors(ctx context.Context, k8sClient client.Client, image, namespace string, mirrors kuikv1alpha1.Mirrors) (*corev1.Secret, error) {
+func (r *ImageSetMirrorBaseReconciler) getPullSecretsFromPods(ctx context.Context, podsByMatchingImages map[string]*corev1.Pod, image string) ([]corev1.Secret, error) {
+	var secrets []corev1.Secret
+
+	if pod, ok := podsByMatchingImages[image]; ok {
+		secrets = make([]corev1.Secret, len(pod.Spec.ImagePullSecrets))
+
+		for i, imagePullSecret := range pod.Spec.ImagePullSecrets {
+			if err := r.getPullSecret(ctx, pod.Namespace, imagePullSecret.Name, &secrets[i]); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	return secrets, nil
+}
+
+func (r *ImageSetMirrorBaseReconciler) getImageSecretFromMirrors(ctx context.Context, image, namespace string, mirrors kuikv1alpha1.Mirrors) (*corev1.Secret, error) {
 	destCredentialSecret := mirrors.GetCredentialSecretForImage(image)
 
 	if destCredentialSecret == nil {
@@ -42,17 +65,46 @@ func getImageSecretFromMirrors(ctx context.Context, k8sClient client.Client, ima
 	}
 
 	secret := &corev1.Secret{}
-	if err := getPullSecret(ctx, k8sClient, namespace, destCredentialSecret.Name, secret); err != nil {
+	if err := r.getPullSecret(ctx, namespace, destCredentialSecret.Name, secret); err != nil {
 		return nil, err
 	}
 
 	return secret, nil
 }
 
-func cleanupMirror(ctx context.Context, k8sClient client.Client, image, namespace string, mirrors kuikv1alpha1.Mirrors) (success bool) {
+func (r *ImageSetMirrorBaseReconciler) mirrorImage(ctx context.Context, namespace string, mirrors kuikv1alpha1.Mirrors, podsByMatchingImages map[string]*corev1.Pod, from string, to *kuikv1alpha1.MirrorStatus) error {
+	srcSecrets, err := r.getPullSecretsFromPods(ctx, podsByMatchingImages, from)
+	if err != nil {
+		return err
+	}
+
+	destSecrets := make([]corev1.Secret, 1)
+	if secret, err := r.getImageSecretFromMirrors(ctx, to.Image, namespace, mirrors); err != nil {
+		return err
+	} else if secret != nil {
+		destSecrets[0] = *secret
+	}
+
+	registry := registry.NewClient(nil, nil).WithPullSecrets(srcSecrets)
+	srcDesc, err := registry.GetDescriptor(from)
+	if err != nil {
+		return err
+	}
+
+	if err := registry.WithTimeout(0).WithPullSecrets(destSecrets).CopyImage(srcDesc, to.Image, []string{"amd64"}); err != nil {
+		return err
+	}
+
+	now := metav1.NewTime(time.Now())
+	to.MirroredAt = &now
+
+	return nil
+}
+
+func (r *ImageSetMirrorBaseReconciler) cleanupMirror(ctx context.Context, image, namespace string, mirrors kuikv1alpha1.Mirrors) (success bool) {
 	log := logf.FromContext(ctx)
 
-	secret, err := getImageSecretFromMirrors(ctx, k8sClient, image, namespace, mirrors)
+	secret, err := r.getImageSecretFromMirrors(ctx, image, namespace, mirrors)
 	if err != nil {
 		log.Error(err, "could not read secret for image deletion")
 		return false

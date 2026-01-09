@@ -8,10 +8,7 @@ import (
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal"
-	"github.com/enix/kube-image-keeper/internal/registry"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -26,8 +23,7 @@ import (
 
 // ClusterImageSetMirrorReconciler reconciles a ClusterImageSetMirror object
 type ClusterImageSetMirrorReconciler struct {
-	client.Client
-	Scheme *runtime.Scheme
+	ImageSetMirrorBaseReconciler
 }
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -64,7 +60,7 @@ func (r *ClusterImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctr
 						continue
 					}
 					cleanupLog.V(1).Info("deleting image")
-					if !cleanupMirror(logf.IntoContext(ctx, cleanupLog), r.Client, mirror.Image, cism.Namespace, cism.Spec.Mirrors) {
+					if !r.cleanupMirror(logf.IntoContext(ctx, cleanupLog), mirror.Image, cism.Namespace, cism.Spec.Mirrors) {
 						return ctrl.Result{}, errors.New("could not cleanup mirrors")
 					}
 				}
@@ -154,7 +150,7 @@ func (r *ClusterImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctr
 			cleanupLog := log.WithValues("image", mirror.Image)
 			cleanupLog.Info("image is unused for more than the retention duration, deleting it", "retentionDuration", retentionDuration)
 			if mirror.MirroredAt != nil {
-				if !cleanupMirror(logf.IntoContext(ctx, cleanupLog), r.Client, mirror.Image, cism.Namespace, cism.Spec.Mirrors) {
+				if !r.cleanupMirror(logf.IntoContext(ctx, cleanupLog), mirror.Image, cism.Namespace, cism.Spec.Mirrors) {
 					mirrorsAfterCleanup = append(mirrorsAfterCleanup, *mirror)
 					someDeletionFailed = true
 				}
@@ -189,7 +185,7 @@ func (r *ClusterImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctr
 				mirrorLog := log.WithValues("from", matchingImage.Image, "to", mirror.Image)
 				mirrorLog.Info("mirroring image")
 
-				err := r.MirrorImage(ctx, &cism, podsByMatchingImages, matchingImage.Image, mirror)
+				err := r.mirrorImage(ctx, cism.Namespace, cism.Spec.Mirrors, podsByMatchingImages, matchingImage.Image, mirror)
 				if err != nil {
 					mirrorLog.Error(err, "could not mirror image")
 					someMirrorFailed = true
@@ -268,49 +264,4 @@ func (r *ClusterImageSetMirrorReconciler) SetupWithManager(mgr ctrl.Manager) err
 			})),
 		).
 		Complete(r)
-}
-
-func (r *ClusterImageSetMirrorReconciler) getPullSecretsFromPods(ctx context.Context, podsByMatchingImages map[string]*corev1.Pod, image string) ([]corev1.Secret, error) {
-	var secrets []corev1.Secret
-
-	if pod, ok := podsByMatchingImages[image]; ok {
-		secrets = make([]corev1.Secret, len(pod.Spec.ImagePullSecrets))
-
-		for i, imagePullSecret := range pod.Spec.ImagePullSecrets {
-			if err := getPullSecret(ctx, r.Client, pod.Namespace, imagePullSecret.Name, &secrets[i]); err != nil {
-				return nil, err
-			}
-		}
-	}
-
-	return secrets, nil
-}
-
-func (r *ClusterImageSetMirrorReconciler) MirrorImage(ctx context.Context, cism *kuikv1alpha1.ClusterImageSetMirror, podsByMatchingImages map[string]*corev1.Pod, from string, to *kuikv1alpha1.MirrorStatus) error {
-	srcSecrets, err := r.getPullSecretsFromPods(ctx, podsByMatchingImages, from)
-	if err != nil {
-		return err
-	}
-
-	destSecrets := make([]corev1.Secret, 1)
-	if secret, err := getImageSecretFromMirrors(ctx, r.Client, to.Image, cism.Namespace, cism.Spec.Mirrors); err != nil {
-		return err
-	} else if secret != nil {
-		destSecrets[0] = *secret
-	}
-
-	registry := registry.NewClient(nil, nil).WithPullSecrets(srcSecrets)
-	srcDesc, err := registry.GetDescriptor(from)
-	if err != nil {
-		return err
-	}
-
-	if err := registry.WithTimeout(0).WithPullSecrets(destSecrets).CopyImage(srcDesc, to.Image, []string{"amd64"}); err != nil {
-		return err
-	}
-
-	now := metav1.NewTime(time.Now())
-	to.MirroredAt = &now
-
-	return nil
 }

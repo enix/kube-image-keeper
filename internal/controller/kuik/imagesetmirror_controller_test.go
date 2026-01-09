@@ -53,8 +53,10 @@ var _ = Describe("ImageSetMirror Controller", func() {
 		It("should successfully reconcile the resource", func() {
 			By("Reconciling the created resource")
 			controllerReconciler := &ImageSetMirrorReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+				ImageSetMirrorBaseReconciler: ImageSetMirrorBaseReconciler{
+					Client: k8sClient,
+					Scheme: k8sClient.Scheme(),
+				},
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{

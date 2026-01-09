@@ -3,15 +3,13 @@ package kuik
 import (
 	"context"
 
+	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 )
 
 var _ = Describe("ClusterImageSetMirror Controller", func() {
@@ -53,8 +51,10 @@ var _ = Describe("ClusterImageSetMirror Controller", func() {
 		It("should successfully reconcile the resource", func() {
 			By("Reconciling the created resource")
 			controllerReconciler := &ClusterImageSetMirrorReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+				ImageSetMirrorBaseReconciler: ImageSetMirrorBaseReconciler{
+					Client: k8sClient,
+					Scheme: k8sClient.Scheme(),
+				},
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
