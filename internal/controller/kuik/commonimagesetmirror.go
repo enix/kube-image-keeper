@@ -189,21 +189,18 @@ func newMirroringRateLimiter() workqueue.TypedRateLimiter[reconcile.Request] {
 	)
 }
 
-func getAllOtherMirrorPrefixes(ctx context.Context, c client.Client, self metav1.ObjectMeta, ignoreNamespaces bool) (map[string][]string, error) {
+func (r *ImageSetMirrorBaseReconciler) getAllMirrorPrefixes(ctx context.Context, ignoreNamespaces bool) (map[string][]string, error) {
 	var cismList kuikv1alpha1.ClusterImageSetMirrorList
-	if err := c.List(ctx, &cismList); err != nil {
+	if err := r.List(ctx, &cismList); err != nil {
 		return nil, err
 	}
 	var ismList kuikv1alpha1.ImageSetMirrorList
-	if err := c.List(ctx, &ismList); err != nil {
+	if err := r.List(ctx, &ismList); err != nil {
 		return nil, err
 	}
 
 	clusterwideMirrorPrefixes := make([]string, 0, len(cismList.Items)) // preallocate at least 1 mirror slot per CISM
 	for _, cism := range cismList.Items {
-		if self.Namespace == "" && self.Name == cism.Name {
-			continue
-		}
 		for _, mirror := range cism.Spec.Mirrors {
 			clusterwideMirrorPrefixes = append(clusterwideMirrorPrefixes, mirror.Prefix())
 		}
@@ -214,9 +211,6 @@ func getAllOtherMirrorPrefixes(ctx context.Context, c client.Client, self metav1
 	}
 
 	for _, ism := range ismList.Items {
-		if self.Namespace == ism.Namespace && self.Name == ism.Name {
-			continue
-		}
 		if ignoreNamespaces {
 			ism.Namespace = ""
 		}

@@ -97,7 +97,7 @@ func (r *ClusterImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctr
 		}
 	}
 
-	mirrorPrefixes, err := getAllOtherMirrorPrefixes(ctx, r.Client, cism.ObjectMeta, true)
+	mirrorPrefixes, err := r.getAllMirrorPrefixes(ctx, true)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
