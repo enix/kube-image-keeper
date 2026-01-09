@@ -101,8 +101,13 @@ func (r *ClusterImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctr
 		}
 	}
 
+	mirrorPrefixes, err := getAllOtherMirrorPrefixes(ctx, r.Client, cism.ObjectMeta, true)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
 	spec, status := (*kuikv1alpha1.ImageSetMirrorSpec)(&cism.Spec), (*kuikv1alpha1.ImageSetMirrorStatus)(&cism.Status)
-	podsByMatchingImages, matchingImagesMap, err := mergePreviousAndCurrentMatchingImages(ctx, pods.Items, spec, status)
+	podsByMatchingImages, matchingImagesMap, err := mergePreviousAndCurrentMatchingImages(logf.IntoContext(ctx, log), pods.Items, spec, status, mirrorPrefixes)
 	if err != nil {
 		return ctrl.Result{}, err
 	}

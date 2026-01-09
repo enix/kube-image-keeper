@@ -128,3 +128,7 @@ func (i ImageFilterDefinition) MustBuildWithRegistry(registry string) filter.Fil
 	}
 	return matcher
 }
+
+func (m *Mirror) Prefix() string {
+	return path.Join(m.Registry, m.Path)
+}

@@ -69,9 +69,9 @@ func cleanupMirror(ctx context.Context, k8sClient client.Client, image, namespac
 	return true
 }
 
-func mergePreviousAndCurrentMatchingImages(ctx context.Context, pods []corev1.Pod, ismSpec *kuikv1alpha1.ImageSetMirrorSpec, ismStatus *kuikv1alpha1.ImageSetMirrorStatus) (map[string]*corev1.Pod, map[string]kuikv1alpha1.MatchingImage, error) {
+func mergePreviousAndCurrentMatchingImages(ctx context.Context, pods []corev1.Pod, ismSpec *kuikv1alpha1.ImageSetMirrorSpec, ismStatus *kuikv1alpha1.ImageSetMirrorStatus, mirrorPrefixes map[string][]string) (map[string]*corev1.Pod, map[string]kuikv1alpha1.MatchingImage, error) {
 	imageFilter := ismSpec.ImageFilter.MustBuild()
-	podsByMatchingImages, err := internal.PodsByNormalizedMatchingImages(imageFilter, pods)
+	podsByMatchingImages, err := internal.PodsByNormalizedMatchingImages(ctx, imageFilter, mirrorPrefixes, pods)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -135,4 +135,43 @@ func newMirroringRateLimiter() workqueue.TypedRateLimiter[reconcile.Request] {
 		workqueue.NewTypedItemExponentialFailureRateLimiter[reconcile.Request](1*time.Second, 1000*time.Second),
 		&workqueue.TypedBucketRateLimiter[reconcile.Request]{Limiter: rate.NewLimiter(rate.Limit(10), 100)},
 	)
+}
+
+func getAllOtherMirrorPrefixes(ctx context.Context, c client.Client, self metav1.ObjectMeta, ignoreNamespaces bool) (map[string][]string, error) {
+	var cismList kuikv1alpha1.ClusterImageSetMirrorList
+	if err := c.List(ctx, &cismList); err != nil {
+		return nil, err
+	}
+	var ismList kuikv1alpha1.ImageSetMirrorList
+	if err := c.List(ctx, &ismList); err != nil {
+		return nil, err
+	}
+
+	clusterwideMirrorPrefixes := make([]string, 0, len(cismList.Items)) // preallocate at least 1 mirror slot per CISM
+	for _, cism := range cismList.Items {
+		if self.Namespace == "" && self.Name == cism.Name {
+			continue
+		}
+		for _, mirror := range cism.Spec.Mirrors {
+			clusterwideMirrorPrefixes = append(clusterwideMirrorPrefixes, mirror.Prefix())
+		}
+	}
+
+	mirrorPrefixes := map[string][]string{
+		"": clusterwideMirrorPrefixes,
+	}
+
+	for _, ism := range ismList.Items {
+		if self.Namespace == ism.Namespace && self.Name == ism.Name {
+			continue
+		}
+		if ignoreNamespaces {
+			ism.Namespace = ""
+		}
+		for _, mirror := range ism.Spec.Mirrors {
+			mirrorPrefixes[ism.Namespace] = append(mirrorPrefixes[ism.Namespace], mirror.Prefix())
+		}
+	}
+
+	return mirrorPrefixes, nil
 }

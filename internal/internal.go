@@ -3,12 +3,14 @@ package internal
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/distribution/reference"
 	"github.com/enix/kube-image-keeper/internal/filter"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 func RegistryAndPathFromReference(image string) (string, string, error) {
@@ -48,7 +50,10 @@ func MatchNormalized(filter filter.Filter, image string) bool {
 	return match
 }
 
-func PodsByNormalizedMatchingImages(filter filter.Filter, pods []corev1.Pod) (map[string]*corev1.Pod, error) {
+func PodsByNormalizedMatchingImages(ctx context.Context, filter filter.Filter, mirrorPrefixes map[string][]string, pods []corev1.Pod) (map[string]*corev1.Pod, error) {
+	log := logf.FromContext(ctx)
+
+	filteredOutImages := []string{}
 	matchingImagesMap := map[string]*corev1.Pod{}
 	for _, pod := range pods {
 		for _, container := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
@@ -61,11 +66,22 @@ func PodsByNormalizedMatchingImages(filter filter.Filter, pods []corev1.Pod) (ma
 				return nil, err
 			}
 
+			namedStr := named.String()
+			relevantMirrorPrefixes := append(mirrorPrefixes[""], mirrorPrefixes[pod.Namespace]...)
+			if slices.ContainsFunc(relevantMirrorPrefixes, func(mirrorPrefix string) bool {
+				return strings.HasPrefix(namedStr, mirrorPrefix)
+			}) {
+				filteredOutImages = append(filteredOutImages, namedStr)
+				continue
+			}
+
 			if match {
-				matchingImagesMap[named.String()] = &pod
+				matchingImagesMap[namedStr] = &pod
 			}
 		}
 	}
+
+	log.V(1).Info("filtering out images to prevent mirror loop", "images", filteredOutImages, "count", len(filteredOutImages))
 
 	return matchingImagesMap, nil
 }

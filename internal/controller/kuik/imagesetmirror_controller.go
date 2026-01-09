@@ -88,8 +88,13 @@ func (r *ImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 	}
 
+	mirrorPrefixes, err := getAllOtherMirrorPrefixes(ctx, r.Client, cism.ObjectMeta, false)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
 	spec, status := &cism.Spec, &cism.Status
-	podsByMatchingImages, matchingImagesMap, err := mergePreviousAndCurrentMatchingImages(ctx, pods.Items, spec, status)
+	podsByMatchingImages, matchingImagesMap, err := mergePreviousAndCurrentMatchingImages(logf.IntoContext(ctx, log), pods.Items, spec, status, mirrorPrefixes)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
