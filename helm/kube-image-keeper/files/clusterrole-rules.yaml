@@ -55,6 +55,14 @@
   - kuik.enix.io
   resources:
   - clusterreplicatedimagesets
+  verbs:
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - kuik.enix.io
+  resources:
   - replicatedimagesets
   verbs:
   - get

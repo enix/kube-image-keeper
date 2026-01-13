@@ -8,9 +8,13 @@ package controller
 // +kubebuilder:rbac:groups=kuik.enix.io,resources=imagesetmirrors/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kuik.enix.io,resources=imagesetmirrors/finalizers,verbs=update
 //
-// +kubebuilder:rbac:groups=kuik.enix.io,resources=replicatedimagesets;clusterreplicatedimagesets,verbs=get;list;watch
-// +kubebuilder:rbac:groups=kuik.enix.io,resources=replicatedimagesets/status;clusterreplicatedimagesets/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=kuik.enix.io,resources=replicatedimagesets/finalizers;clusterreplicatedimagesets/finalizers,verbs=update
+// +kubebuilder:rbac:groups=kuik.enix.io,resources=clusterreplicatedimagesets,verbs=get;list;watch;update
+// +kubebuilder:rbac:groups=kuik.enix.io,resources=clusterreplicatedimagesets/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=kuik.enix.io,resources=clusterreplicatedimagesets/finalizers,verbs=update
+//
+// +kubebuilder:rbac:groups=kuik.enix.io,resources=replicatedimagesets,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kuik.enix.io,resources=replicatedimagesets/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=kuik.enix.io,resources=replicatedimagesets/finalizers,verbs=update
 //
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
 //
