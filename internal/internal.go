@@ -81,7 +81,9 @@ func PodsByNormalizedMatchingImages(ctx context.Context, filter filter.Filter, m
 		}
 	}
 
-	log.V(1).Info("filtering out images to prevent mirror loop", "images", filteredOutImages, "count", len(filteredOutImages))
+	if len(filteredOutImages) > 0 {
+		log.V(1).Info("filtering out images to prevent mirror loop", "images", filteredOutImages, "count", len(filteredOutImages))
+	}
 
 	return matchingImagesMap, nil
 }
