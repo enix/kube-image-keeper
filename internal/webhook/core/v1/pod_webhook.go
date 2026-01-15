@@ -158,9 +158,7 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 			Spec:       kuikv1alpha1.ReplicatedImageSetSpec(cris.Spec),
 		})
 	}
-	for _, ris := range risList.Items {
-		replicatedImageSets = append(replicatedImageSets, ris)
-	}
+	replicatedImageSets = append(replicatedImageSets, risList.Items...)
 
 	podCredentialSecrets := make([]*kuikv1alpha1.CredentialSecret, 0, len(pod.Spec.ImagePullSecrets))
 	for _, imagePullSecret := range pod.Spec.ImagePullSecrets {

@@ -143,42 +143,61 @@ func mergePreviousAndCurrentMatchingImages(ctx context.Context, pods []corev1.Po
 		}
 	}
 
-	if err := updateUnusedSince(ctx, matchingImagesMap, ismStatus.MatchingImages, imageFilter); err != nil {
+	if err := updateUnusedSince(ctx, matchingImagesMap, ismStatus, imageFilter); err != nil {
 		return nil, nil, err
 	}
 
 	return podsByMatchingImages, matchingImagesMap, nil
 }
 
-func updateUnusedSince(ctx context.Context, matchingImagesMap map[string]kuikv1alpha1.MatchingImage, matchingImages []kuikv1alpha1.MatchingImage, imageFilter filter.Filter) error {
+func updateUnusedSince(ctx context.Context, matchingImagesMap map[string]kuikv1alpha1.MatchingImage, ismStatus *kuikv1alpha1.ImageSetMirrorStatus, imageFilter filter.Filter) error {
 	log := logf.FromContext(ctx)
 	unusedSinceNotMatching := metav1.Time{Time: (time.Time{}).Add(time.Hour)}
 
-	for _, matchingImage := range matchingImages {
-		named, match, err := internal.NormalizeAndMatch(imageFilter, matchingImage.Image)
+	for i := range ismStatus.MatchingImages {
+		img := &ismStatus.MatchingImages[i]
+
+		named, match, err := internal.NormalizeAndMatch(imageFilter, img.Image)
 		if err != nil {
 			return err
 		} else if !match {
 			// The image isn't matching anymore, which is different from matching but stopped to be used in the cluster.
-			// This, we set UnusedSince to 0001-01-01 01:00:00 +0000 UTC to trigger instant expiry and deletion.
+			// Thus, we set UnusedSince to 0001-01-01 01:00:00 +0000 UTC to trigger instant expiry and deletion.
 			// We add 1 hour to the zero value to prevent the patch to be ignored (zero value is considered == to nil)
-			if !matchingImage.UnusedSince.Equal(&unusedSinceNotMatching) {
-				matchingImage.UnusedSince = &unusedSinceNotMatching
-				log.Info("image is not matching anymore, queuing it for deletion", "image", matchingImage.Image)
+			if !img.UnusedSince.Equal(&unusedSinceNotMatching) {
+				img.UnusedSince = &unusedSinceNotMatching
+				log.Info("image is not matching anymore, queuing it for deletion", "image", img.Image)
 			}
 		} else if _, ok := matchingImagesMap[named.String()]; !ok {
-			if matchingImage.UnusedSince.IsZero() {
-				matchingImage.UnusedSince = &metav1.Time{Time: time.Now()}
-				log.Info("image is not used anymore, marking it as unused", "image", matchingImage.Image)
+			if img.UnusedSince.IsZero() {
+				img.UnusedSince = &metav1.Time{Time: time.Now()}
+				log.Info("image is not used anymore, marking it as unused", "image", img.Image)
 			}
 		} else {
-			matchingImage.UnusedSince = nil
+			img.UnusedSince = nil
 		}
-		// FIXME: update mirrors recursively (add/remove)
-		matchingImagesMap[named.String()] = matchingImage
+
+		img.Mirrors = mergeMirrors(img.Mirrors, matchingImagesMap[named.String()].Mirrors)
+		matchingImagesMap[named.String()] = *img
 	}
 
 	return nil
+}
+
+func mergeMirrors(currentMirrors, expectedMirrors []kuikv1alpha1.MirrorStatus) []kuikv1alpha1.MirrorStatus {
+	// FIXME: remove and cleanup images that are present in current but not in expected
+	currentImages := map[string]struct{}{}
+	for _, mirror := range currentMirrors {
+		currentImages[mirror.Image] = struct{}{}
+	}
+
+	for _, mirror := range expectedMirrors {
+		if _, ok := currentImages[mirror.Image]; !ok {
+			currentMirrors = append(currentMirrors, mirror)
+		}
+	}
+
+	return currentMirrors
 }
 
 func newMirroringRateLimiter() workqueue.TypedRateLimiter[reconcile.Request] {
