@@ -210,16 +210,20 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 		"podImagePullSecrets", len(podCredentialSecrets),
 	)
 
-	if err := d.buildAlternativesList(logf.IntoContext(ctx, log), imageSetMirrors, replicatedImageSets, containers); err != nil {
-		return err
-	}
-
 	for i := range containers {
 		container := &containers[i]
-		if alternativeImage := d.rerouteContainerImage(ctx, container, podImagePullSecrets); alternativeImage != nil {
+
+		if err := d.buildAlternativesList(logf.IntoContext(ctx, log), imageSetMirrors, replicatedImageSets, container); err != nil {
+			return err
+		}
+
+		if alternativeImage := d.findBestAlternative(ctx, container, podImagePullSecrets); alternativeImage != nil {
 			if alternativeImage == nil || alternativeImage.ImagePullSecret == nil {
 				continue
 			}
+
+			log.Info("rerouting image", "container", container.Name, "isInit", container.IsInit, "originalImage", container.Image, "reroutedImage", alternativeImage.Reference)
+			container.Image = alternativeImage.Reference
 
 			if !dryRun {
 				if err := d.ensureSecret(ctx, pod.Namespace, alternativeImage); err != nil {
@@ -242,70 +246,61 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 	return nil
 }
 
-func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSetMirrors []kuikv1alpha1.ImageSetMirror, replicatedImageSets []kuikv1alpha1.ReplicatedImageSet, containers []Container) error {
+func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSetMirrors []kuikv1alpha1.ImageSetMirror, replicatedImageSets []kuikv1alpha1.ReplicatedImageSet, container *Container) error {
 	log := logf.FromContext(ctx)
 
-	for i := range containers {
-		container := &containers[i]
-		container.addAlternative(container.Image, nil, nil)
-	}
+	container.addAlternative(container.Image, nil, nil)
 
 	for _, ism := range imageSetMirrors {
 		imageFilter := ism.Spec.ImageFilter.MustBuild()
 
-		for i := range containers {
-			container := &containers[i]
-			if !internal.MatchNormalized(imageFilter, container.Image) {
-				continue
-			}
-
-			_, imgPath, err := internal.RegistryAndPathFromReference(container.Image)
-			if err != nil {
-				return err
-			}
-
-			for _, mirror := range ism.Spec.Mirrors {
-				container.addAlternative(path.Join(mirror.Registry, mirror.Path, imgPath), mirror.CredentialSecret, &ism)
-			}
-		}
-	}
-
-	for i := range containers {
-		container := &containers[i]
-		for _, ris := range replicatedImageSets {
-			index := slices.IndexFunc(ris.Spec.Upstreams, func(upstream kuikv1alpha1.ReplicatedUpstream) bool {
-				// TODO: use a validating admission policy to ensure the regexp is valid
-				return internal.MatchNormalized(upstream.ImageFilter.MustBuildWithRegistry(upstream.Registry), container.Image)
-			})
-			if index == -1 {
-				continue
-			}
-
-			match := &ris.Spec.Upstreams[index]
-			prefix := path.Join(match.Registry, match.Path)
-			suffix := strings.TrimPrefix(container.Image, prefix)
-
-			for _, upstream := range ris.Spec.Upstreams {
-				reference := path.Join(upstream.Registry, upstream.Path) + suffix
-				container.addAlternative(reference, upstream.CredentialSecret, &ris)
-			}
+		if !internal.MatchNormalized(imageFilter, container.Image) {
+			continue
 		}
 
-		if err := container.loadAlternativesSecrets(ctx, d.Client); err != nil {
+		_, imgPath, err := internal.RegistryAndPathFromReference(container.Image)
+		if err != nil {
 			return err
 		}
 
-		alternativeReferences := []string{}
-		for _, image := range container.Images {
-			alternativeReferences = append(alternativeReferences, image.Reference)
+		for _, mirror := range ism.Spec.Mirrors {
+			container.addAlternative(path.Join(mirror.Registry, mirror.Path, imgPath), mirror.CredentialSecret, &ism)
 		}
-		log.V(1).Info("found alternatives", "references", alternativeReferences)
 	}
+
+	for _, ris := range replicatedImageSets {
+		index := slices.IndexFunc(ris.Spec.Upstreams, func(upstream kuikv1alpha1.ReplicatedUpstream) bool {
+			// TODO: use a validating admission policy to ensure the regexp is valid
+			return internal.MatchNormalized(upstream.ImageFilter.MustBuildWithRegistry(upstream.Registry), container.Image)
+		})
+		if index == -1 {
+			continue
+		}
+
+		match := &ris.Spec.Upstreams[index]
+		prefix := path.Join(match.Registry, match.Path)
+		suffix := strings.TrimPrefix(container.Image, prefix)
+
+		for _, upstream := range ris.Spec.Upstreams {
+			reference := path.Join(upstream.Registry, upstream.Path) + suffix
+			container.addAlternative(reference, upstream.CredentialSecret, &ris)
+		}
+	}
+
+	if err := container.loadAlternativesSecrets(ctx, d.Client); err != nil {
+		return err
+	}
+
+	alternativeReferences := []string{}
+	for _, image := range container.Images {
+		alternativeReferences = append(alternativeReferences, image.Reference)
+	}
+	log.V(1).Info("found alternatives", "references", alternativeReferences)
 
 	return nil
 }
 
-func (d *PodCustomDefaulter) rerouteContainerImage(ctx context.Context, container *Container, pullSecrets []corev1.Secret) *AlternativeImage {
+func (d *PodCustomDefaulter) findBestAlternative(ctx context.Context, container *Container, pullSecrets []corev1.Secret) *AlternativeImage {
 	log := logf.FromContext(ctx)
 
 	if len(container.Images) > 1 {
@@ -320,10 +315,9 @@ func (d *PodCustomDefaulter) rerouteContainerImage(ctx context.Context, containe
 				continue
 			} else if available {
 				if container.Image != image.Reference {
-					log.Info("rerouting image", "container", container.Name, "isInit", container.IsInit, "originalImage", container.Image, "reroutedImage", image.Reference)
-					container.Image = image.Reference
+					return &image
 				}
-				return &image
+				return nil // using base image
 			}
 		}
 	}
