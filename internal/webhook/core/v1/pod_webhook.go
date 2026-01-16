@@ -8,6 +8,7 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/cespare/xxhash"
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
@@ -15,6 +16,8 @@ import (
 	"github.com/enix/kube-image-keeper/internal/config"
 	kuikcontroller "github.com/enix/kube-image-keeper/internal/controller/kuik"
 	"github.com/enix/kube-image-keeper/internal/registry"
+	"github.com/maypok86/otter"
+	"go4.org/syncutil/singleflight"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,6 +39,17 @@ var errRateLimited = errors.New("registry limit reached")
 
 // SetupPodWebhookWithManager registers the webhook for Pod in the manager.
 func SetupPodWebhookWithManager(mgr ctrl.Manager, d *PodCustomDefaulter) error {
+	cache, err := otter.MustBuilder[string, CheckResult](1000).
+		Cost(func(key string, value CheckResult) uint32 { return 1 }).
+		WithTTL(time.Second).
+		Build()
+	if err != nil {
+		return err
+	}
+
+	d.cache = cache
+	d.requestGroup = &singleflight.Group{}
+
 	return ctrl.NewWebhookManagedBy(mgr).For(&corev1.Pod{}).
 		WithDefaulter(d).
 		Complete()
@@ -51,6 +65,9 @@ func SetupPodWebhookWithManager(mgr ctrl.Manager, d *PodCustomDefaulter) error {
 type PodCustomDefaulter struct {
 	client.Client
 	Config *config.Config
+
+	cache        otter.Cache[string, CheckResult]
+	requestGroup *singleflight.Group
 }
 
 type AlternativeImage struct {
@@ -65,6 +82,11 @@ type Container struct {
 	IsInit       bool
 	Images       []AlternativeImage
 	Alternatives map[string]struct{}
+}
+
+type CheckResult struct {
+	Available bool
+	Error     error
 }
 
 var _ webhook.CustomDefaulter = &PodCustomDefaulter{}
@@ -293,7 +315,7 @@ func (d *PodCustomDefaulter) rerouteContainerImage(ctx context.Context, containe
 				imagePullSecrets = append(imagePullSecrets, *image.ImagePullSecret)
 			}
 
-			if available, err := d.checkImageAvailability(ctx, image.Reference, imagePullSecrets); err != nil {
+			if available, err := d.checkImageAvailabilityCached(ctx, image.Reference, imagePullSecrets); err != nil {
 				log.Error(err, "could not check image availability", "image", image.Reference)
 				continue
 			} else if available {
@@ -309,6 +331,23 @@ func (d *PodCustomDefaulter) rerouteContainerImage(ctx context.Context, containe
 	log.Info("no alternative image is available, keep using the default one")
 
 	return nil
+}
+
+func (d *PodCustomDefaulter) checkImageAvailabilityCached(ctx context.Context, reference string, pullSecrets []corev1.Secret) (bool, error) {
+	if result, ok := d.cache.Get(reference); ok {
+		return result.Available, result.Error
+	}
+
+	available, err := d.requestGroup.Do(reference, func() (any, error) {
+		available, err := d.checkImageAvailability(ctx, reference, pullSecrets)
+		d.cache.Set(reference, CheckResult{
+			Available: available,
+			Error:     err,
+		})
+		return available, err
+	})
+
+	return available.(bool), err
 }
 
 func (d *PodCustomDefaulter) checkImageAvailability(ctx context.Context, reference string, pullSecrets []corev1.Secret) (bool, error) {
