@@ -39,15 +39,23 @@ var errRateLimited = errors.New("registry limit reached")
 
 // SetupPodWebhookWithManager registers the webhook for Pod in the manager.
 func SetupPodWebhookWithManager(mgr ctrl.Manager, d *PodCustomDefaulter) error {
-	cache, err := otter.MustBuilder[string, CheckResult](1000).
+	checkCache, err := otter.MustBuilder[string, CheckResult](1000).
 		Cost(func(key string, value CheckResult) uint32 { return 1 }).
 		WithTTL(time.Second).
 		Build()
 	if err != nil {
 		return err
 	}
+	alternativeCache, err := otter.MustBuilder[string, *AlternativeImage](100).
+		Cost(func(key string, value *AlternativeImage) uint32 { return 1 }).
+		WithTTL(time.Second).
+		Build()
+	if err != nil {
+		return err
+	}
 
-	d.cache = cache
+	d.checkCache = checkCache
+	d.alternativeCache = alternativeCache
 	d.requestGroup = &singleflight.Group{}
 
 	return ctrl.NewWebhookManagedBy(mgr).For(&corev1.Pod{}).
@@ -66,8 +74,9 @@ type PodCustomDefaulter struct {
 	client.Client
 	Config *config.Config
 
-	cache        otter.Cache[string, CheckResult]
-	requestGroup *singleflight.Group
+	checkCache       otter.Cache[string, CheckResult]
+	alternativeCache otter.Cache[string, *AlternativeImage]
+	requestGroup     *singleflight.Group
 }
 
 type AlternativeImage struct {
@@ -213,18 +222,19 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 	for i := range containers {
 		container := &containers[i]
 
-		if err := d.buildAlternativesList(logf.IntoContext(ctx, log), imageSetMirrors, replicatedImageSets, container); err != nil {
+		alternativeImage, err := d.findBestAlternativeCached(logf.IntoContext(ctx, log), imageSetMirrors, replicatedImageSets, container, podImagePullSecrets)
+		if err != nil {
 			return err
 		}
 
-		if alternativeImage := d.findBestAlternative(ctx, container, podImagePullSecrets); alternativeImage != nil {
-			if alternativeImage == nil || alternativeImage.ImagePullSecret == nil {
-				continue
-			}
+		if alternativeImage == nil {
+			continue
+		}
 
-			log.Info("rerouting image", "container", container.Name, "isInit", container.IsInit, "originalImage", container.Image, "reroutedImage", alternativeImage.Reference)
-			container.Image = alternativeImage.Reference
+		log.Info("rerouting image", "container", container.Name, "isInit", container.IsInit, "originalImage", container.Image, "reroutedImage", alternativeImage.Reference)
+		container.Image = alternativeImage.Reference
 
+		if alternativeImage.ImagePullSecret != nil {
 			if !dryRun {
 				if err := d.ensureSecret(ctx, pod.Namespace, alternativeImage); err != nil {
 					return err
@@ -246,6 +256,24 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 	return nil
 }
 
+func (d *PodCustomDefaulter) findBestAlternativeCached(ctx context.Context, imageSetMirrors []kuikv1alpha1.ImageSetMirror, replicatedImageSets []kuikv1alpha1.ReplicatedImageSet, container *Container, pullSecrets []corev1.Secret) (*AlternativeImage, error) {
+	if alternativeImage, ok := d.alternativeCache.Get(container.Image); ok {
+		return alternativeImage, nil
+	}
+
+	alternativeImage, err := d.requestGroup.Do("alternative:"+container.Image, func() (any, error) {
+		if err := d.buildAlternativesList(ctx, imageSetMirrors, replicatedImageSets, container); err != nil {
+			return nil, err
+		}
+
+		alternativeImage := d.findBestAlternative(ctx, container, pullSecrets)
+		d.alternativeCache.Set(container.Image, alternativeImage)
+		return alternativeImage, nil
+	})
+
+	return alternativeImage.(*AlternativeImage), err
+}
+
 func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSetMirrors []kuikv1alpha1.ImageSetMirror, replicatedImageSets []kuikv1alpha1.ReplicatedImageSet, container *Container) error {
 	log := logf.FromContext(ctx)
 
@@ -255,6 +283,7 @@ func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSet
 		imageFilter := ism.Spec.ImageFilter.MustBuild()
 
 		if !internal.MatchNormalized(imageFilter, container.Image) {
+			// FIXME: if it doesn't match the filter, also check if it matches one of the mirrored images
 			continue
 		}
 
@@ -328,13 +357,13 @@ func (d *PodCustomDefaulter) findBestAlternative(ctx context.Context, container 
 }
 
 func (d *PodCustomDefaulter) checkImageAvailabilityCached(ctx context.Context, reference string, pullSecrets []corev1.Secret) (bool, error) {
-	if result, ok := d.cache.Get(reference); ok {
+	if result, ok := d.checkCache.Get(reference); ok {
 		return result.Available, result.Error
 	}
 
-	available, err := d.requestGroup.Do(reference, func() (any, error) {
+	available, err := d.requestGroup.Do("availability:"+reference, func() (any, error) {
 		available, err := d.checkImageAvailability(ctx, reference, pullSecrets)
-		d.cache.Set(reference, CheckResult{
+		d.checkCache.Set(reference, CheckResult{
 			Available: available,
 			Error:     err,
 		})
