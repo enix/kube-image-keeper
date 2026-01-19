@@ -25,7 +25,7 @@ type ActiveCheck struct {
 var defaultConfig = Config{
 	Routing: Routing{
 		ActiveCheck: ActiveCheck{
-			Timeout: 2 * time.Second,
+			Timeout: time.Second,
 		},
 	},
 }

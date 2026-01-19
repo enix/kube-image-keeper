@@ -15,6 +15,7 @@ import (
 	"github.com/enix/kube-image-keeper/internal"
 	"github.com/enix/kube-image-keeper/internal/config"
 	kuikcontroller "github.com/enix/kube-image-keeper/internal/controller/kuik"
+	"github.com/enix/kube-image-keeper/internal/parallel"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/maypok86/otter"
 	"go4.org/syncutil/singleflight"
@@ -109,6 +110,8 @@ func (d *PodCustomDefaulter) Default(ctx context.Context, obj runtime.Object) er
 	if !ok {
 		return fmt.Errorf("expected a Pod object but got %T", obj)
 	}
+
+	log = log.WithValues("generateName", pod.GenerateName)
 
 	if err := d.defaultPod(logf.IntoContext(ctx, log), pod, *request.DryRun); err != nil {
 		log.Error(err, "defaulting webhook error")
@@ -221,17 +224,26 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 
 	for i := range containers {
 		container := &containers[i]
+		log := log.WithValues("container", container.Name, "isInit", container.IsInit)
 
 		alternativeImage, err := d.findBestAlternativeCached(logf.IntoContext(ctx, log), imageSetMirrors, replicatedImageSets, container, podImagePullSecrets)
 		if err != nil {
 			return err
 		}
 
+		log = log.WithValues("originalImage", container.Image)
+
 		if alternativeImage == nil {
+			log.Info("no alternative image is available, keep using the original one")
 			continue
 		}
 
-		log.Info("rerouting image", "container", container.Name, "isInit", container.IsInit, "originalImage", container.Image, "reroutedImage", alternativeImage.Reference)
+		if container.Image == alternativeImage.Reference {
+			log.V(1).Info("original image is available, using it")
+			continue
+		}
+
+		log.Info("rerouting image", "reroutedImage", alternativeImage.Reference)
 		container.Image = alternativeImage.Reference
 
 		if alternativeImage.ImagePullSecret != nil {
@@ -333,7 +345,7 @@ func (d *PodCustomDefaulter) findBestAlternative(ctx context.Context, container 
 	log := logf.FromContext(ctx)
 
 	if len(container.Images) > 1 {
-		for _, image := range container.Images {
+		if image := parallel.FirstSuccessful(container.Images, func(image *AlternativeImage) (*AlternativeImage, bool) {
 			imagePullSecrets := pullSecrets
 			if image.ImagePullSecret != nil {
 				imagePullSecrets = append(imagePullSecrets, *image.ImagePullSecret)
@@ -341,17 +353,16 @@ func (d *PodCustomDefaulter) findBestAlternative(ctx context.Context, container 
 
 			if available, err := d.checkImageAvailabilityCached(ctx, image.Reference, imagePullSecrets); err != nil {
 				log.Error(err, "could not check image availability", "image", image.Reference)
-				continue
+				return nil, false
 			} else if available {
-				if container.Image != image.Reference {
-					return &image
-				}
-				return nil // using base image
+				return image, true
 			}
+
+			return nil, false
+		}); image != nil {
+			return image
 		}
 	}
-
-	log.Info("no alternative image is available, keep using the default one")
 
 	return nil
 }
