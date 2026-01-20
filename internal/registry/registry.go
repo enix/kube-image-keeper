@@ -51,11 +51,11 @@ func (c *Client) newTransportOption(ref name.Reference) remote.Option {
 	return remote.WithTransport(c.headerCapture)
 }
 
-func (c *Client) newContextOption(ctx context.Context) (opt remote.Option, cancel func()) {
+func (c *Client) newContextOption(ctx context.Context) (remote.Option, func()) {
+	cancel := func() {}
 	if c.timeout > 0 {
 		ctx, cancel = context.WithTimeout(ctx, c.timeout)
 	}
-
 	return remote.WithContext(ctx), cancel
 }
 
@@ -91,21 +91,25 @@ func (c *Client) Execute(imageName string, action func(ref name.Reference, opts 
 
 	var errs []error
 	for _, keychain := range keychains {
-		contextOption, cancel := c.newContextOption(ctx)
-		defer cancel()
+		err := func() error {
+			contextOption, cancel := c.newContextOption(ctx)
+			defer cancel()
 
-		opts := []remote.Option{
-			remote.WithAuthFromKeychain(keychain),
-			transportOption,
-			contextOption,
-		}
-		err := action(sourceRef, opts...)
+			opts := []remote.Option{
+				remote.WithAuthFromKeychain(keychain),
+				transportOption,
+				contextOption,
+			}
 
-		if err == nil { // stops at the first success
+			return action(sourceRef, opts...)
+		}()
+
+		// stops at first success
+		if err == nil {
 			return nil
-		} else {
-			errs = append(errs, err)
 		}
+
+		errs = append(errs, err)
 	}
 
 	return errors.Join(errs...)
