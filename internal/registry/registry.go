@@ -38,7 +38,7 @@ func NewClient(insecureRegistries []string, rootCAs *x509.CertPool) *Client {
 	}
 }
 
-func (c *Client) options(ctx context.Context, ref name.Reference) []remote.Option {
+func (c *Client) newTransportOption(ref name.Reference) remote.Option {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = &tls.Config{RootCAs: c.rootCAs}
 
@@ -48,10 +48,15 @@ func (c *Client) options(ctx context.Context, ref name.Reference) []remote.Optio
 
 	c.headerCapture.roundTripper = transport
 
-	return []remote.Option{
-		remote.WithTransport(c.headerCapture),
-		remote.WithContext(ctx),
+	return remote.WithTransport(c.headerCapture)
+}
+
+func (c *Client) newContextOption(ctx context.Context) (opt remote.Option, cancel func()) {
+	if c.timeout > 0 {
+		ctx, cancel = context.WithTimeout(ctx, c.timeout)
 	}
+
+	return remote.WithContext(ctx), cancel
 }
 
 func (c *Client) WithTimeout(timeout time.Duration) *Client {
@@ -78,17 +83,7 @@ func (c *Client) Execute(imageName string, action func(ref name.Reference, opts 
 	}
 
 	ctx := context.Background()
-
-	if c.timeout > 0 {
-		// global timeout for all keychains
-		var cancel func()
-		ctx, cancel = context.WithTimeout(ctx, c.timeout)
-		defer func() {
-			cancel()
-		}()
-	}
-
-	options := c.options(ctx, sourceRef)
+	transportOption := c.newTransportOption(sourceRef)
 
 	if len(keychains) == 0 {
 		keychains = append(keychains, authn.DefaultKeychain)
@@ -96,7 +91,14 @@ func (c *Client) Execute(imageName string, action func(ref name.Reference, opts 
 
 	var errs []error
 	for _, keychain := range keychains {
-		opts := append([]remote.Option{remote.WithAuthFromKeychain(keychain)}, options...)
+		contextOption, cancel := c.newContextOption(ctx)
+		defer cancel()
+
+		opts := []remote.Option{
+			remote.WithAuthFromKeychain(keychain),
+			transportOption,
+			contextOption,
+		}
 		err := action(sourceRef, opts...)
 
 		if err == nil { // stops at the first success
