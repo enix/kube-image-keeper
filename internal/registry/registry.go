@@ -54,7 +54,7 @@ func (c *Client) newTransportOption(ref name.Reference) remote.Option {
 func (c *Client) newContextOption(ctx context.Context) (remote.Option, func()) {
 	cancel := func() {}
 	if c.timeout > 0 {
-		ctx, cancel = context.WithTimeout(ctx, c.timeout)
+		ctx, cancel = context.WithTimeoutCause(ctx, c.timeout, fmt.Errorf("timed out after %v", c.timeout))
 	}
 	return remote.WithContext(ctx), cancel
 }
