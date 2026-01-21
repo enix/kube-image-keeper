@@ -77,7 +77,9 @@ func main() {
 	flag.IntVar(&unusedImageTTL, "unused-image-ttl", 24, "Unused image TTL in hours.")
 	flag.StringVar(&configPath, "config", "/etc/kube-image-keeper/config.yaml", "Path to the configuration file")
 
-	opts := zap.Options{}
+	opts := zap.Options{
+		StacktraceLevel: zapcore.DPanicLevel,
+	}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
