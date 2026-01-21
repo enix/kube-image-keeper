@@ -45,7 +45,7 @@ func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client) {
 		return 1
 	}))
 
-	const subsystemMonitoring = "registry_monitor" // FIXME: rename this to "monitoring"
+	// const subsystemMonitoring = "registry_monitor" // FIXME: rename this to "monitoring"
 
 	// m.monitoringTasks = prometheus.NewCounterVec(
 	// 	prometheus.CounterOpts{

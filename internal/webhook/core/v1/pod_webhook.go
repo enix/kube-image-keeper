@@ -40,8 +40,8 @@ var errRateLimited = errors.New("registry limit reached")
 
 // SetupPodWebhookWithManager registers the webhook for Pod in the manager.
 func SetupPodWebhookWithManager(mgr ctrl.Manager, d *PodCustomDefaulter) error {
-	checkCache, err := otter.MustBuilder[string, CheckResult](1000).
-		Cost(func(key string, value CheckResult) uint32 { return 1 }).
+	checkCache, err := otter.MustBuilder[string, bool](1000).
+		Cost(func(key string, value bool) uint32 { return 1 }).
 		WithTTL(time.Second).
 		Build()
 	if err != nil {
@@ -75,7 +75,7 @@ type PodCustomDefaulter struct {
 	client.Client
 	Config *config.Config
 
-	checkCache       otter.Cache[string, CheckResult]
+	checkCache       otter.Cache[string, bool]
 	alternativeCache otter.Cache[string, *AlternativeImage]
 	requestGroup     *singleflight.Group
 }
@@ -92,11 +92,6 @@ type Container struct {
 	IsInit       bool
 	Images       []AlternativeImage
 	Alternatives map[string]struct{}
-}
-
-type CheckResult struct {
-	Available bool
-	Error     error
 }
 
 var _ webhook.CustomDefaulter = &PodCustomDefaulter{}
@@ -342,8 +337,6 @@ func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSet
 }
 
 func (d *PodCustomDefaulter) findBestAlternative(ctx context.Context, container *Container, pullSecrets []corev1.Secret) *AlternativeImage {
-	log := logf.FromContext(ctx)
-
 	if len(container.Images) > 1 {
 		if image := parallel.FirstSuccessful(container.Images, func(image *AlternativeImage) (*AlternativeImage, bool) {
 			imagePullSecrets := pullSecrets
@@ -351,10 +344,7 @@ func (d *PodCustomDefaulter) findBestAlternative(ctx context.Context, container 
 				imagePullSecrets = append(imagePullSecrets, *image.ImagePullSecret)
 			}
 
-			if available, err := d.checkImageAvailabilityCached(ctx, image.Reference, imagePullSecrets); err != nil {
-				log.Error(err, "could not check image availability", "image", image.Reference)
-				return nil, false
-			} else if available {
+			if d.checkImageAvailabilityCached(ctx, image.Reference, imagePullSecrets) {
 				return image, true
 			}
 
@@ -367,24 +357,21 @@ func (d *PodCustomDefaulter) findBestAlternative(ctx context.Context, container 
 	return nil
 }
 
-func (d *PodCustomDefaulter) checkImageAvailabilityCached(ctx context.Context, reference string, pullSecrets []corev1.Secret) (bool, error) {
+func (d *PodCustomDefaulter) checkImageAvailabilityCached(ctx context.Context, reference string, pullSecrets []corev1.Secret) bool {
 	if result, ok := d.checkCache.Get(reference); ok {
-		return result.Available, result.Error
+		return result
 	}
 
-	available, err := d.requestGroup.Do("availability:"+reference, func() (any, error) {
-		available, err := d.checkImageAvailability(ctx, reference, pullSecrets)
-		d.checkCache.Set(reference, CheckResult{
-			Available: available,
-			Error:     err,
-		})
-		return available, err
+	available, _ := d.requestGroup.Do("availability:"+reference, func() (any, error) {
+		available := d.checkImageAvailability(ctx, reference, pullSecrets)
+		d.checkCache.Set(reference, available)
+		return available, nil
 	})
 
-	return available.(bool), err
+	return available.(bool)
 }
 
-func (d *PodCustomDefaulter) checkImageAvailability(ctx context.Context, reference string, pullSecrets []corev1.Secret) (bool, error) {
+func (d *PodCustomDefaulter) checkImageAvailability(ctx context.Context, reference string, pullSecrets []corev1.Secret) bool {
 	log := logf.FromContext(ctx, "reference", reference)
 
 	// registryMonitorName, err := internal.RegistryMonitorNameFromReference(reference)
@@ -413,7 +400,7 @@ func (d *PodCustomDefaulter) checkImageAvailability(ctx context.Context, referen
 		log.V(1).Info("image is available")
 	}
 
-	return err == nil, nil
+	return err == nil
 }
 
 func (d *PodCustomDefaulter) ensureSecret(ctx context.Context, namespace string, alternativeImage *AlternativeImage) error {

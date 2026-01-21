@@ -89,7 +89,7 @@ func (c *Client) Execute(imageName string, action func(ref name.Reference, opts 
 		keychains = append(keychains, authn.DefaultKeychain)
 	}
 
-	var errs []error
+	errs := make([]error, 0, len(keychains))
 	for _, keychain := range keychains {
 		err := func() error {
 			contextOption, cancel := c.newContextOption(ctx)
