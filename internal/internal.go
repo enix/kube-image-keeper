@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -53,7 +54,7 @@ func MatchNormalized(filter filter.Filter, image string) bool {
 func PodsByNormalizedMatchingImages(ctx context.Context, filter filter.Filter, mirrorPrefixes map[string][]string, pods []corev1.Pod) (map[string]*corev1.Pod, error) {
 	log := logf.FromContext(ctx)
 
-	filteredOutImages := []string{}
+	filteredOutImagesMap := map[string]struct{}{}
 	matchingImagesMap := map[string]*corev1.Pod{}
 	for _, pod := range pods {
 		for _, container := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
@@ -71,7 +72,7 @@ func PodsByNormalizedMatchingImages(ctx context.Context, filter filter.Filter, m
 			if slices.ContainsFunc(relevantMirrorPrefixes, func(mirrorPrefix string) bool {
 				return strings.HasPrefix(namedStr, mirrorPrefix)
 			}) {
-				filteredOutImages = append(filteredOutImages, namedStr)
+				filteredOutImagesMap[namedStr] = struct{}{}
 				continue
 			}
 
@@ -81,8 +82,9 @@ func PodsByNormalizedMatchingImages(ctx context.Context, filter filter.Filter, m
 		}
 	}
 
-	if len(filteredOutImages) > 0 {
-		log.V(1).Info("filtering out images to prevent mirror loop", "images", filteredOutImages, "count", len(filteredOutImages))
+	if len(filteredOutImagesMap) > 0 {
+		filteredOutImages := slices.Collect(maps.Keys(filteredOutImagesMap))
+		log.V(1).Info("filtering out images to prevent mirror loop", "images", filteredOutImages, "count", len(filteredOutImagesMap))
 	}
 
 	return matchingImagesMap, nil
