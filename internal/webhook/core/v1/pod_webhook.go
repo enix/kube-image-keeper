@@ -118,22 +118,50 @@ func (d *PodCustomDefaulter) Default(ctx context.Context, obj runtime.Object) er
 
 func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dryRun bool) error {
 	log := logf.FromContext(ctx)
-	log.Info("defaulting for Pod")
 
+	if pod.Annotations == nil {
+		pod.Annotations = map[string]string{}
+	}
+
+	processedContainersMap := map[string]struct{}{}
+	if processedContainers, ok := pod.Annotations["kuik.enix.io/processed-containers"]; ok {
+		for name := range strings.SplitSeq(processedContainers, ",") {
+			processedContainersMap[name] = struct{}{}
+		}
+	}
+
+	processedContainers := make([]string, 0, len(pod.Spec.Containers)+len(pod.Spec.InitContainers))
 	containers := make([]Container, 0, len(pod.Spec.Containers)+len(pod.Spec.InitContainers))
 	for i := range pod.Spec.Containers {
+		name := pod.Spec.Containers[i].Name
+		processedContainers = append(processedContainers, name)
+		if _, ok := processedContainersMap[name]; ok {
+			continue
+		}
 		containers = append(containers, Container{
 			Container:    &pod.Spec.Containers[i],
 			Alternatives: map[string]struct{}{},
 		})
 	}
 	for i := range pod.Spec.InitContainers {
+		name := "init:" + pod.Spec.InitContainers[i].Name
+		processedContainers = append(processedContainers, name)
+		if _, ok := processedContainersMap[name]; ok {
+			continue
+		}
 		containers = append(containers, Container{
 			Container:    &pod.Spec.InitContainers[i],
 			IsInit:       true,
 			Alternatives: map[string]struct{}{},
 		})
 	}
+	pod.Annotations["kuik.enix.io/processed-containers"] = strings.Join(processedContainers, ",")
+
+	if len(containers) == 0 {
+		return nil // all containers have been processed already
+	}
+
+	log.Info("defaulting for Pod")
 
 	// filter containers using digest-based images
 	containers = slices.DeleteFunc(containers, func(container Container) bool {
