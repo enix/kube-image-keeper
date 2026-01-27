@@ -39,6 +39,30 @@ func TestFirstSuccessful(t *testing.T) {
 			expected: ptr("SUCCESS"),
 		},
 		{
+			name:   "First fails after, second succeeds first",
+			params: []string{"FAIL", "SUCCESS"},
+			f: func(p *string) (*string, bool) {
+				if *p == "SUCCESS" {
+					return p, true
+				}
+				time.Sleep(50 * time.Millisecond)
+				return nil, false
+			},
+			expected: ptr("SUCCESS"),
+		},
+		{
+			name:   "Firsts fails after, last succeeds first",
+			params: []string{"FAIL1", "FAIL2", "SUCCESS"},
+			f: func(p *string) (*string, bool) {
+				if *p == "SUCCESS" {
+					return p, true
+				}
+				time.Sleep(50 * time.Millisecond)
+				return nil, false
+			},
+			expected: ptr("SUCCESS"),
+		},
+		{
 			name:   "Ordered priority (slower first element wins)",
 			params: []string{"slow", "fast"},
 			f: func(p *string) (*string, bool) {

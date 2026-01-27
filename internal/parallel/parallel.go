@@ -23,26 +23,18 @@ func FirstSuccessful[P any, R any](
 		}(i, &params[i])
 	}
 
-	pending := make([]*R, n)
+	pending := make([]*Result[R], n)
 	nextToReturn := 0
 
 	for range n {
 		res := <-resChan
+		pending[res.Index] = &res
 
-		if res.Success {
-			val := res.Value
-			pending[res.Index] = val
-		}
-		for nextToReturn < n {
-			if pending[nextToReturn] != nil {
-				return pending[nextToReturn]
+		for nextToReturn < n && pending[nextToReturn] != nil {
+			if pending[nextToReturn].Success {
+				return pending[nextToReturn].Value
 			}
-
-			if res.Index == nextToReturn && !res.Success {
-				nextToReturn++
-				continue
-			}
-			break
+			nextToReturn++
 		}
 	}
 
