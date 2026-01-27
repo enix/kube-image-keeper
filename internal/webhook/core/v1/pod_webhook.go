@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cespare/xxhash"
+	"github.com/distribution/reference"
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal"
 	"github.com/enix/kube-image-keeper/internal/config"
@@ -261,7 +262,8 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 			continue
 		}
 
-		if container.Image == alternativeImage.Reference {
+		originalNamed, _ := reference.ParseNormalizedNamed(container.Image)
+		if originalNamed.String() == alternativeImage.Reference {
 			log.V(1).Info("original image is available, using it")
 			continue
 		}
@@ -312,12 +314,14 @@ func (d *PodCustomDefaulter) findBestAlternativeCached(ctx context.Context, imag
 func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSetMirrors []kuikv1alpha1.ImageSetMirror, replicatedImageSets []kuikv1alpha1.ReplicatedImageSet, container *Container) error {
 	log := logf.FromContext(ctx)
 
-	container.addAlternative(container.Image, nil, nil)
+	named, _ := reference.ParseNormalizedNamed(container.Image)
+	normalizedImage := named.String()
+	container.addAlternative(normalizedImage, nil, nil)
 
 	for _, ism := range imageSetMirrors {
 		imageFilter := ism.Spec.ImageFilter.MustBuild()
 
-		if !internal.MatchNormalized(imageFilter, container.Image) {
+		if !imageFilter.Match(normalizedImage) {
 			// FIXME: if it doesn't match the filter, also check if it matches one of the mirrored images
 			continue
 		}
@@ -333,9 +337,9 @@ func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSet
 	}
 
 	for _, ris := range replicatedImageSets {
-		index := slices.IndexFunc(ris.Spec.Upstreams, func(upstream kuikv1alpha1.ReplicatedUpstream) bool {
+		index := slices.IndexFunc(ris.Spec.Upstreams, func(upstream kuikv1alpha1.ReplicatedUpstream) (match bool) {
 			// TODO: use a validating admission policy to ensure the regexp is valid
-			return internal.MatchNormalized(upstream.ImageFilter.MustBuildWithRegistry(upstream.Registry), container.Image)
+			return upstream.ImageFilter.MustBuildWithRegistry(upstream.Registry).Match(normalizedImage)
 		})
 		if index == -1 {
 			continue
@@ -343,7 +347,7 @@ func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSet
 
 		match := &ris.Spec.Upstreams[index]
 		prefix := path.Join(match.Registry, match.Path)
-		suffix := strings.TrimPrefix(container.Image, prefix)
+		suffix := strings.TrimPrefix(normalizedImage, prefix)
 
 		for _, upstream := range ris.Spec.Upstreams {
 			reference := path.Join(upstream.Registry, upstream.Path) + suffix

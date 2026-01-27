@@ -46,11 +46,6 @@ func NormalizeAndMatch(filter filter.Filter, image string) (reference.Named, boo
 	return named, filter.Match(named.String()), nil
 }
 
-func MatchNormalized(filter filter.Filter, image string) bool {
-	_, match, _ := NormalizeAndMatch(filter, image)
-	return match
-}
-
 func PodsByNormalizedMatchingImages(ctx context.Context, filter filter.Filter, mirrorPrefixes map[string][]string, pods []corev1.Pod) (map[string]*corev1.Pod, error) {
 	log := logf.FromContext(ctx)
 
