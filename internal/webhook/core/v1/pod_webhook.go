@@ -164,9 +164,10 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 
 	log.Info("defaulting for Pod")
 
-	// filter containers using digest-based images
+	// filter containers using invalid or digest-based images
 	containers = slices.DeleteFunc(containers, func(container Container) bool {
-		return strings.Contains(container.Image, "@")
+		_, err := reference.Parse(container.Image)
+		return err != nil || strings.Contains(container.Image, "@")
 	})
 	if len(containers) == 0 {
 		log.Info("pod has no containers eligible for image rewriting, ignoring (digest-based images are not supported)")
