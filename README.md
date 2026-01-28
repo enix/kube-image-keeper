@@ -15,14 +15,6 @@
 > [!CAUTION]
 > Not recommended for production use yet. Kuik v2 is currently being battle tested on several clusters.
 
-### Known limitation to date
-
-- Digest tags are not supported, ex: `@sha256:cb4e4ffc5789fd5ff6a534e3b1460623df61cba00f5ea1c7b40153b5efb81805`
-- Mirrored images are considered replicated even if the image was letter deleted
-- The mutating webhook do not support the Pod Update call
-- With replication enabled from registry A to registry B, launching a Pod with image on B will be rerouted (rewrittent) to image on A
-- Competition between Kuik's cluster wide custom ressources and namespaced ressources might lead to weird scenarios
-
 ## ✨ What's New in v2
 
 ### 🔍 Redesigned Architecture
@@ -41,6 +33,14 @@ Planned features for future minor versions (subject to change):
 - Implement priorities for routing and replication
 - Completion of the monitoring implementation
 - Support of concurrent access to a single registry (in particular regarding the garbage collect mechanism) by multiple Kuik instances on multiple clusters.
+
+## Known limitations to date
+
+- Digest tags are not supported, ex: `@sha256:cb4e4ffc5789fd5ff6a534e3b1460623df61cba00f5ea1c7b40153b5efb81805`
+- Mirrored images are considered replicated even if the image was letter deleted
+- The mutating webhook do not support the Pod Update call
+- With replication enabled from registry A to registry B, launching a Pod with image on B will be rerouted (rewrittent) to image on A
+- Competition between Kuik's cluster wide custom ressources and namespaced ressources might lead to weird scenarios
 
 ## 📦 Installation
 
