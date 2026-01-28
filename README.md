@@ -22,24 +22,24 @@
 - **Minimal default features**: core functionality enabled by default, others opt-in
 - **Image routing**: kuik can rewrite Pod images on-the-fly to point to an operational registry
 - **Image replication**: kuik can manage copy between registries to create a virtual highly available registry
-- **Image monitoring**: kuik can monitor image availability across various registries
+- **Image monitoring**: kuik can monitor image availability across various registries (planned for v2.2)
 - **Redesigned CRDs** for better clarity and extensibility
 
 ## 🚧 Roadmap
 
 Planned features for future minor versions (subject to change):
 
-- We expect to communicate the launch of the General Availability of v2.0 at the [Cloud Native Days France 2026 convention](https://www.cloudnativedays.fr/)
-- Implement priorities for routing and replication
-- Completion of the monitoring implementation
-- Support of concurrent access to a single registry (in particular regarding the garbage collect mechanism) by multiple Kuik instances on multiple clusters.
+- **v2.0** We expect to communicate the launch of the General Availability of v2.0 at the [Cloud Native Days France 2026 convention](https://www.cloudnativedays.fr/)
+- **v2.1** Implement priorities for routing and replication
+- **v2.2** Complete implementation of the **Image monitoring** feature
+- **TBD** Support of concurrent access to a single registry (in particular regarding the garbage collect mechanism) by multiple Kuik instances on multiple clusters.
 
 ## Known limitations to date
 
 - Digest tags are not supported, ex: `@sha256:cb4e4ffc5789fd5ff6a534e3b1460623df61cba00f5ea1c7b40153b5efb81805`
-- Mirrored images are considered replicated even if the image was letter deleted
+- Mirrored images are considered replicated even if the image was later deleted
 - The mutating webhook do not support the Pod Update call
-- With replication enabled from registry A to registry B, launching a Pod with image on B will be rerouted (rewrittent) to image on A
+- With replication enabled from registry A to registry B, launching a Pod with image on B will be rerouted (rewritten) to image on A
 - Competition between Kuik's cluster wide custom ressources and namespaced ressources might lead to weird scenarios
 
 ## 📦 Installation
