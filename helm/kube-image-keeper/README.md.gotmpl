@@ -1,0 +1,7 @@
+{{- .Files.Get "repo/README.md" -}}
+
+{{ template "chart.valuesSection" . }}
+
+## License
+
+{{ .Files.Get "repo/LICENSE" -}}

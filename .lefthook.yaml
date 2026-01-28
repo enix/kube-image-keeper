@@ -1,0 +1,18 @@
+pre-commit:
+  parallel: true
+  jobs:
+    - name: generate manifests and code
+      run: make manifests generate
+      stage_fixed: true
+    - name: run go fmt
+      run: make fmt vet
+      stage_fixed: true
+    - name: lint and fix
+      run: make lint-fix
+      stage_fixed: true
+
+pre-push:
+  parallel: true
+  jobs:
+    - name: run go vet
+      run: make vet

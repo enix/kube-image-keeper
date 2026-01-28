@@ -1,15 +1,14 @@
 package registry
 
 import (
-	"crypto/sha1"
-	"crypto/sha256"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"fmt"
 	"net/http"
-	"regexp"
-	"strings"
+	"slices"
+	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -19,28 +18,188 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	"github.com/google/go-containerregistry/pkg/v1/types"
 	corev1 "k8s.io/api/core/v1"
-	utilerrors "k8s.io/apimachinery/pkg/util/errors"
-	"k8s.io/utils/strings/slices"
 )
 
-var Endpoint = ""
-var Protocol = "http://"
+type descriptorReader func(ref name.Reference, options ...remote.Option) (*v1.Descriptor, error)
 
-var ErrNotFound = errors.New("could not find source image")
+type Client struct {
+	insecureRegistries []string
+	rootCAs            *x509.CertPool
+	timeout            time.Duration
+	pullSecrets        []corev1.Secret
+	headerCapture      *HeaderCapture
+}
 
-// See https://github.com/kubernetes/apimachinery/blob/v0.20.6/pkg/util/validation/validation.go#L198
-var sanitizeNameRegex = regexp.MustCompile(`[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*`)
+func NewClient(insecureRegistries []string, rootCAs *x509.CertPool) *Client {
+	return &Client{
+		insecureRegistries: insecureRegistries,
+		rootCAs:            rootCAs,
+		headerCapture:      &HeaderCapture{},
+	}
+}
 
-func imageExists(ref name.Reference, options ...remote.Option) (bool, error) {
-	_, err := remote.Head(ref, options...)
-	if err != nil {
-		if errIsImageNotFound(err) {
-			return false, nil
-		}
-		return false, err
+func (c *Client) newTransportOption(ref name.Reference) remote.Option {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{RootCAs: c.rootCAs}
+
+	if slices.Contains(c.insecureRegistries, ref.Context().RegistryStr()) {
+		transport.TLSClientConfig.InsecureSkipVerify = true
 	}
 
-	return true, nil
+	c.headerCapture.roundTripper = transport
+
+	return remote.WithTransport(c.headerCapture)
+}
+
+func (c *Client) newContextOption(ctx context.Context) (remote.Option, func()) {
+	cancel := func() {}
+	if c.timeout > 0 {
+		ctx, cancel = context.WithTimeoutCause(ctx, c.timeout, fmt.Errorf("timed out after %v", c.timeout))
+	}
+	return remote.WithContext(ctx), cancel
+}
+
+func (c *Client) WithTimeout(timeout time.Duration) *Client {
+	c.timeout = timeout
+	return c
+}
+
+func (c *Client) WithPullSecrets(pullSecrets []corev1.Secret) *Client {
+	// TODO: rename into WithCredentialSecrets
+	c.pullSecrets = pullSecrets
+	return c
+}
+
+// Execute execute a callback options including authentication and an optional timeout
+func (c *Client) Execute(imageName string, action func(ref name.Reference, opts ...remote.Option) error) error {
+	keychains, err := GetKeychains(imageName, c.pullSecrets)
+	if err != nil {
+		return err
+	}
+
+	sourceRef, err := name.ParseReference(imageName)
+	if err != nil {
+		return err
+	}
+
+	ctx := context.Background()
+	transportOption := c.newTransportOption(sourceRef)
+
+	if len(keychains) == 0 {
+		keychains = append(keychains, authn.DefaultKeychain)
+	}
+
+	errs := make([]error, 0, len(keychains))
+	for _, keychain := range keychains {
+		err := func() error {
+			contextOption, cancel := c.newContextOption(ctx)
+			defer cancel()
+
+			opts := []remote.Option{
+				remote.WithAuthFromKeychain(keychain),
+				transportOption,
+				contextOption,
+			}
+
+			return action(sourceRef, opts...)
+		}()
+
+		// stops at first success
+		if err == nil {
+			return nil
+		}
+
+		errs = append(errs, err)
+	}
+
+	return errors.Join(errs...)
+}
+
+func (c *Client) ReadDescriptor(httpMethod string, imageName string) (desc *v1.Descriptor, h http.Header, err error) {
+	err = c.Execute(imageName, func(ref name.Reference, opts ...remote.Option) (e error) {
+		desc, e = getReader(httpMethod)(ref, opts...)
+		return e
+	})
+	return desc, c.headerCapture.GetLastHeaders(), err
+}
+
+func (c *Client) GetDescriptor(imageName string) (*remote.Descriptor, error) {
+	var desc *remote.Descriptor
+	return desc, c.Execute(imageName, func(ref name.Reference, opts ...remote.Option) (err error) {
+		desc, err = remote.Get(ref, opts...)
+		return err
+	})
+}
+
+func (c *Client) CopyImage(src *remote.Descriptor, dest string, architectures []string) error {
+	return c.Execute(dest, func(destRef name.Reference, opts ...remote.Option) (err error) {
+		switch src.MediaType {
+		case types.OCIImageIndex, types.DockerManifestList:
+			index, err := src.ImageIndex()
+			if err != nil {
+				return err
+			}
+
+			filteredIndex := mutate.RemoveManifests(index, func(src v1.Descriptor) bool {
+				return !slices.ContainsFunc(architectures, func(arch string) bool {
+					return src.Platform.Satisfies(v1.Platform{
+						Architecture: arch,
+					})
+				})
+			})
+
+			if err := remote.WriteIndex(destRef, filteredIndex, opts...); err != nil {
+				return err
+			}
+		default:
+			image, err := src.Image()
+			if err != nil {
+				return err
+			}
+			if err := remote.Write(destRef, image, opts...); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+}
+
+func (c *Client) DeleteImage(imageName string) error {
+	return c.Execute(imageName, func(ref name.Reference, opts ...remote.Option) (err error) {
+		descriptor, err := remote.Head(ref, opts...)
+		if err != nil {
+			if errIsImageNotFound(err) {
+				return nil
+			}
+			return err
+		}
+
+		digest, err := name.NewDigest(ref.Name()+"@"+descriptor.Digest.String(), name.Insecure)
+		if err != nil {
+			return err
+		}
+		return remote.Delete(digest, opts...)
+	})
+}
+
+func getReader(httpMethod string) descriptorReader {
+	switch httpMethod {
+	case http.MethodGet:
+		return getDescriptor
+	case http.MethodHead:
+		return remote.Head
+	default:
+		panic(fmt.Sprintf("unsupported http method (%s)", httpMethod))
+	}
+}
+
+func getDescriptor(ref name.Reference, options ...remote.Option) (*v1.Descriptor, error) {
+	desc, err := remote.Get(ref, options...)
+	if err != nil {
+		return nil, err
+	}
+	return &desc.Descriptor, nil
 }
 
 func errIsImageNotFound(err error) bool {
@@ -50,181 +209,4 @@ func errIsImageNotFound(err error) bool {
 		}
 	}
 	return false
-}
-
-func getDestinationName(sourceName string) (string, error) {
-	sourceRef, err := name.ParseReference(sourceName)
-	if err != nil {
-		return "", err
-	}
-
-	sanitizedRegistryName := strings.ReplaceAll(sourceRef.Context().RegistryStr(), ":", "-")
-	fullname := strings.ReplaceAll(sourceRef.Name(), "index.docker.io", "docker.io")
-	fullname = strings.ReplaceAll(fullname, sourceRef.Context().RegistryStr(), sanitizedRegistryName)
-
-	return Endpoint + "/" + fullname, nil
-}
-
-func parseLocalReference(imageName string) (name.Reference, error) {
-	destName, err := getDestinationName(imageName)
-	if err != nil {
-		return nil, err
-	}
-	return name.ParseReference(destName, name.Insecure)
-}
-
-func options(ref name.Reference, keychain authn.Keychain, insecureRegistries []string, rootCAs *x509.CertPool) []remote.Option {
-	auth := remote.WithAuthFromKeychain(keychain)
-	opts := []remote.Option{auth}
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.TLSClientConfig = &tls.Config{RootCAs: rootCAs}
-
-	if slices.Contains(insecureRegistries, ref.Context().Registry.RegistryStr()) {
-		transport.TLSClientConfig.InsecureSkipVerify = true
-	}
-
-	opts = append(opts, remote.WithTransport(transport))
-
-	return opts
-}
-
-func ImageIsCached(imageName string) (bool, error) {
-	reference, err := parseLocalReference(imageName)
-	if err != nil {
-		return false, err
-	}
-
-	exists, err := imageExists(reference)
-	if err != nil {
-		err = fmt.Errorf("could not determine if the image present in cache: %w", err)
-	}
-	return exists, err
-}
-
-func DeleteImage(imageName string) error {
-	ref, err := parseLocalReference(imageName)
-	if err != nil {
-		return err
-	}
-
-	descriptor, err := remote.Head(ref)
-	if err != nil {
-		if errIsImageNotFound(err) {
-			return nil
-		}
-		return err
-	}
-
-	digest, err := name.NewDigest(ref.Name()+"@"+descriptor.Digest.String(), name.Insecure)
-	if err != nil {
-		return err
-	}
-
-	return remote.Delete(digest)
-}
-
-func CacheImage(imageName string, desc *remote.Descriptor, architectures []string) error {
-	destRef, err := parseLocalReference(imageName)
-	if err != nil {
-		return err
-	}
-
-	switch desc.MediaType {
-	case types.OCIImageIndex, types.DockerManifestList:
-		index, err := desc.ImageIndex()
-		if err != nil {
-			return err
-		}
-
-		filteredIndex := mutate.RemoveManifests(index, func(desc v1.Descriptor) bool {
-			for _, arch := range architectures {
-				if arch == desc.Platform.Architecture {
-					return false
-				}
-			}
-			return true
-		})
-
-		if err := remote.WriteIndex(destRef, filteredIndex); err != nil {
-			return err
-		}
-	default:
-		image, err := desc.Image()
-		if err != nil {
-			return err
-		}
-		if err := remote.Write(destRef, image); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func GetLocalDescriptor(imageName string) (*remote.Descriptor, error) {
-	ref, err := parseLocalReference(imageName)
-	if err != nil {
-		return nil, err
-	}
-
-	descriptor, err := remote.Get(ref)
-	if err != nil {
-		return nil, err
-	}
-
-	return descriptor, nil
-}
-
-func GetDescriptor(imageName string, pullSecrets []corev1.Secret, insecureRegistries []string, rootCAs *x509.CertPool) (*remote.Descriptor, error) {
-	keychains, err := GetKeychains(imageName, pullSecrets)
-	if err != nil {
-		return nil, err
-	}
-
-	sourceRef, err := name.ParseReference(imageName)
-	if err != nil {
-		return nil, err
-	}
-
-	var cacheErrors []error
-	for _, keychain := range keychains {
-		opts := options(sourceRef, keychain, insecureRegistries, rootCAs)
-		desc, err := remote.Get(sourceRef, opts...)
-
-		if err == nil { // stops at the first success
-			return desc, nil
-		} else if errIsImageNotFound(err) {
-			err = ErrNotFound
-		}
-		cacheErrors = append(cacheErrors, err)
-	}
-
-	return nil, utilerrors.NewAggregate(cacheErrors)
-}
-
-func SanitizeName(image string) string {
-	return strings.Join(sanitizeNameRegex.FindAllString(strings.ToLower(image), -1), "-")
-}
-
-func RepositoryLabel(repositoryName string) string {
-	sanitizedName := SanitizeName(repositoryName)
-
-	if len(sanitizedName) > 63 {
-		return fmt.Sprintf("%x", sha256.Sum224([]byte(sanitizedName)))
-	}
-
-	return sanitizedName
-}
-
-func ContainerAnnotationKey(containerName string, initContainer bool) string {
-	template := "original-image-%s"
-	if initContainer {
-		template = "original-init-image-%s"
-	}
-
-	if len(containerName)+len(template)-2 > 63 {
-		containerName = fmt.Sprintf("%x", sha1.Sum([]byte(containerName)))
-	}
-
-	return fmt.Sprintf(template, containerName)
 }

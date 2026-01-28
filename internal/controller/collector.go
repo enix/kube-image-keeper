@@ -1,59 +1,41 @@
 package controller
 
 import (
-	"context"
-	"strconv"
-
-	"github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
-	"github.com/enix/kube-image-keeper/internal/controller/core"
-	kuikMetrics "github.com/enix/kube-image-keeper/internal/metrics"
-	"github.com/enix/kube-image-keeper/internal/registry"
+	"github.com/enix/kube-image-keeper/internal/info"
 	"github.com/prometheus/client_golang/prometheus"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
-	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/metrics"
 )
 
-const subsystem = "controller"
+type kuikMetrics struct {
+	collectors []prometheus.Collector
+	// monitoringTasks *prometheus.CounterVec
+}
 
-var (
-	ImageCachingRequest = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Namespace: kuikMetrics.Namespace,
-			Subsystem: subsystem,
-			Name:      "image_caching_request",
-			Help:      "Number of request to cache an image",
-		},
-		[]string{"successful", "upstream_registry"},
-	)
-	ImagePutInCache = prometheus.NewCounter(
-		prometheus.CounterOpts{
-			Namespace: kuikMetrics.Namespace,
-			Subsystem: subsystem,
-			Name:      "image_put_in_cache_total",
-			Help:      "Number of images put in cache successfully",
-		},
-	)
-	ImageRemovedFromCache = prometheus.NewCounter(
-		prometheus.CounterOpts{
-			Namespace: kuikMetrics.Namespace,
-			Subsystem: subsystem,
-			Name:      "image_removed_from_cache_total",
-			Help:      "Number of images removed from cache successfully",
-		},
-	)
-	isLeader = prometheus.NewGauge(prometheus.GaugeOpts{
-		Namespace: kuikMetrics.Namespace,
-		Subsystem: subsystem,
+var Metrics kuikMetrics
+
+func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client) {
+	const subsystemManager = "manager"
+
+	m.addCollector(info.NewInfoCollector(subsystemManager))
+
+	m.addCollector(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Namespace: info.MetricsNamespace,
+		Subsystem: subsystemManager,
 		Name:      "is_leader",
 		Help:      "Whether or not this replica is a leader. 1 if it is, 0 otherwise.",
-	})
-	Up = prometheus.NewGaugeFunc(prometheus.GaugeOpts{
-		Namespace: kuikMetrics.Namespace,
-		Subsystem: subsystem,
+	}, func() float64 {
+		select {
+		case <-elected:
+			return 1
+		default:
+			return 0
+		}
+	}))
+
+	m.addCollector(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Namespace: info.MetricsNamespace,
+		Subsystem: subsystemManager,
 		Name:      "up",
 		Help:      "Whether or not this replica is healthy.",
 	}, func() float64 {
@@ -61,164 +43,218 @@ var (
 			return 0
 		}
 		return 1
-	})
+	}))
 
-	cachedImagesMetric = prometheus.BuildFQName(kuikMetrics.Namespace, subsystem, "cached_images")
-	cachedImagesHelp   = "Number of images expected to be cached"
-	cachedImagesDesc   = prometheus.NewDesc(cachedImagesMetric, cachedImagesHelp, []string{"status", "cached", "expiring"}, nil)
+	// const subsystemMonitoring = "registry_monitor" // FIXME: rename this to "monitoring"
 
-	repositoriesMetric = prometheus.BuildFQName(kuikMetrics.Namespace, subsystem, "repositories")
-	repositoriesHelp   = "Number of repositories"
-	repositoriesDesc   = prometheus.NewDesc(repositoriesMetric, repositoriesHelp, []string{"status"}, nil)
+	// m.monitoringTasks = prometheus.NewCounterVec(
+	// 	prometheus.CounterOpts{
+	// 		Namespace: info.MetricsNamespace,
+	// 		Subsystem: subsystemMonitoring,
+	// 		Name:      "tasks_total",
+	// 		Help:      "Total number of image monitoring tasks, labeled by registry and status.",
+	// 	},
+	// 	[]string{"registry", "status", "used"},
+	// )
+	// m.addCollector(m.monitoringTasks)
 
-	containersWithCachedImageMetric = prometheus.BuildFQName(kuikMetrics.Namespace, subsystem, "containers_with_cached_image")
-	containersWithCachedImageHelp   = "Number of containers that have been rewritten to use a cached image"
-	containersWithCachedImageDesc   = prometheus.NewDesc(containersWithCachedImageMetric, containersWithCachedImageHelp, []string{"status", "cached"}, nil)
-)
+	// m.addCollector(NewGenericCollectorFunc(
+	// 	prometheus.Opts{
+	// 		Namespace: info.MetricsNamespace,
+	// 		Subsystem: subsystemMonitoring,
+	// 		Name:      "images",
+	// 		Help:      "Number of image monitors, labeled by registry and status.",
+	// 	},
+	// 	prometheus.GaugeValue,
+	// 	[]string{"registry", "status", "used"},
+	// 	func(collect func(value float64, labels ...string)) {
+	// 		registryMonitorList := &kuikv1alpha1.RegistryMonitorList{}
+	// 		if err := client.List(context.Background(), registryMonitorList); err != nil {
+	// 			logf.Log.Error(err, "failed to list images for metrics")
+	// 			return
+	// 		}
+	//
+	// 		areImagesUsed := map[string]bool{}
+	// 		for _, registryMonitor := range registryMonitorList.Items {
+	// 			areImagesUsed[registryMonitor.Reference()] = registryMonitor.IsUsedByPods()
+	// 		}
+	//
+	// 		imageMonitorList := &kuikv1alpha1.ImageMonitorList{}
+	// 		if err := client.List(context.Background(), imageMonitorList); err != nil {
+	// 			logf.Log.Error(err, "failed to list images monitors for metrics")
+	// 			return
+	// 		}
+	//
+	// 		imageMonitors := make(map[string]map[string]map[bool]float64)
+	// 		for _, imageMonitor := range imageMonitorList.Items {
+	// 			registry := imageMonitor.Spec.Registry
+	// 			if _, exists := imageMonitors[registry]; !exists {
+	// 				imageMonitors[registry] = make(map[string]map[bool]float64)
+	// 				for _, status := range kuikv1alpha1.ImageMonitorStatusUpstreamList {
+	// 					imageMonitors[registry][status.ToString()] = map[bool]float64{
+	// 						true:  0,
+	// 						false: 0,
+	// 					}
+	// 				}
+	// 			}
+	//
+	// 			status := imageMonitor.Status.Upstream.Status.ToString()
+	// 			imageMonitors[registry][status][areImagesUsed[imageMonitor.Reference()]]++
+	// 		}
+	//
+	// 		for registry, statuses := range imageMonitors {
+	// 			for status, used := range statuses {
+	// 				collect(used[true], registry, status, strconv.FormatBool(true))
+	// 				collect(used[false], registry, status, strconv.FormatBool(false))
+	// 			}
+	// 		}
+	// 	}))
+	//
+	// imageLastMonitorHistogramOpts := prometheus.Opts{
+	// 	Namespace: info.MetricsNamespace,
+	// 	Subsystem: subsystemMonitoring,
+	// 	Name:      "image_last_monitor_age_minutes",
+	// 	Help:      "Histogram of image last monitor age in minutes",
+	// }
+	// imageLastMonitorHistogramLabels := []string{"registry"}
+	// imageLastMonitorHistogramBuckets, err := m.getImageLastMonitorAgeMinutesBuckets()
+	// if err != nil {
+	// 	// TODO: handle error properly: return it to the caller
+	// 	panic(err)
+	// }
+	// // TODO: refactor NewGenericCollector to avoid duplicating Opts and labels usage
+	// m.addCollector(NewGenericCollector(imageLastMonitorHistogramOpts, prometheus.GaugeValue, imageLastMonitorHistogramLabels, func(ch chan<- prometheus.Metric) {
+	// 	imageMonitorList := &kuikv1alpha1.ImageMonitorList{}
+	// 	if err := client.List(context.Background(), imageMonitorList); err != nil {
+	// 		return
+	// 	}
+	//
+	// 	histogram := prometheus.NewHistogramVec(prometheus.HistogramOpts{
+	// 		Namespace: imageLastMonitorHistogramOpts.Namespace,
+	// 		Subsystem: imageLastMonitorHistogramOpts.Subsystem,
+	// 		Name:      imageLastMonitorHistogramOpts.Name,
+	// 		Help:      imageLastMonitorHistogramOpts.Help,
+	// 		Buckets:   imageLastMonitorHistogramBuckets,
+	// 	}, imageLastMonitorHistogramLabels)
+	//
+	// 	now := time.Now()
+	// 	for _, imageMonitor := range imageMonitorList.Items {
+	// 		if imageMonitor.Status.Upstream.LastMonitor.IsZero() {
+	// 			continue
+	// 		}
+	// 		histogram.WithLabelValues(imageMonitor.Spec.Registry).Observe(now.Sub(imageMonitor.Status.Upstream.LastMonitor.Time).Minutes())
+	// 	}
+	//
+	// 	histogram.Collect(ch)
+	// }))
+	//
+	// metrics.Registry.MustRegister(m.collectors...)
+}
 
-func RegisterMetrics(client client.Client) {
-	// Register custom metrics with the global prometheus registry
-	metrics.Registry.MustRegister(
-		ImageCachingRequest,
-		ImagePutInCache,
-		ImageRemovedFromCache,
-		kuikMetrics.NewInfo(subsystem),
-		isLeader,
-		Up,
-		&ControllerCollector{
-			Client: client,
-		},
+func (m *kuikMetrics) addCollector(collector prometheus.Collector) {
+	m.collectors = append(m.collectors, collector)
+}
+
+// func (m *kuikMetrics) InitMonitoringTaskRegistry(registry string) {
+// 	for _, status := range kuikv1alpha1.ImageMonitorStatusUpstreamList {
+// 		if status != kuikv1alpha1.ImageMonitorStatusUpstreamScheduled {
+// 			m.monitoringTasks.WithLabelValues(registry, status.ToString(), "true").Add(0)
+// 			m.monitoringTasks.WithLabelValues(registry, status.ToString(), "false").Add(0)
+// 		}
+// 	}
+// }
+
+// func (m *kuikMetrics) MonitoringTaskCompleted(registry string, imageIsUsed bool, imageMonitor *kuikv1alpha1.ImageMonitor) {
+// 	m.monitoringTasks.WithLabelValues(registry, imageMonitor.Status.Upstream.Status.ToString(), strconv.FormatBool(imageIsUsed)).Inc()
+// }
+
+// func (m *kuikMetrics) getImageLastMonitorAgeMinutesBuckets() ([]float64, error) {
+// 	// TODO: read this from config instead
+// 	envPrefix := "KUIK_METRICS_IMAGE_LAST_MONITOR_AGE_MINUTES_BUCKETS_"
+// 	switch bucketsType := getenv.EnvOrDefault(envPrefix+"TYPE", "custom"); bucketsType {
+// 	case "exponential":
+// 		envPrefix += "EXPONENTIAL_"
+// 		start, err := getenv.Env[float64](envPrefix + "START")
+// 		if err != nil {
+// 			return nil, err
+// 		}
+// 		factor, err := getenv.Env[float64](envPrefix + "FACTOR")
+// 		if err != nil {
+// 			return nil, err
+// 		}
+// 		count, err := getenv.Env[int](envPrefix + "COUNT")
+// 		if err != nil {
+// 			return nil, err
+// 		}
+// 		return prometheus.ExponentialBuckets(start, factor, count), nil
+// 	case "exponentialRange":
+// 		envPrefix += "EXPONENTIAL_RANGE_"
+// 		minBucket, err := getenv.Env[float64](envPrefix + "MIN")
+// 		if err != nil {
+// 			return nil, err
+// 		}
+// 		maxBucket, err := getenv.Env[float64](envPrefix + "MAX")
+// 		if err != nil {
+// 			return nil, err
+// 		}
+// 		count, err := getenv.Env[int](envPrefix + "COUNT")
+// 		if err != nil {
+// 			return nil, err
+// 		}
+// 		return prometheus.ExponentialBucketsRange(minBucket, maxBucket, count), nil
+// 	case "custom":
+// 		buckets, err := getenv.Env[[]float64](envPrefix+"CUSTOM", option.WithSeparator(","))
+// 		if err != nil && errors.Is(err, getenv.ErrNotSet) {
+// 			return []float64{2, 10}, nil
+// 		}
+// 		return buckets, err
+// 	default:
+// 		return nil, fmt.Errorf("invalid %s: %s", envPrefix+"TYPE", bucketsType)
+// 	}
+// }
+
+type GenericCollector struct {
+	desc      *prometheus.Desc
+	valueType prometheus.ValueType
+	callback  func(ch chan<- prometheus.Metric)
+}
+
+func (g *GenericCollector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- g.desc
+}
+
+func (g *GenericCollector) Collect(ch chan<- prometheus.Metric) {
+	g.callback(ch)
+}
+
+func NewEmptyGenericCollector(opts prometheus.Opts, valueType prometheus.ValueType, labels []string) *GenericCollector {
+	desc := prometheus.NewDesc(
+		prometheus.BuildFQName(opts.Namespace, opts.Subsystem, opts.Name),
+		opts.Help,
+		labels,
+		opts.ConstLabels,
 	)
-}
 
-type ControllerCollector struct {
-	client.Client
-}
-
-func (c *ControllerCollector) Describe(ch chan<- *prometheus.Desc) {
-	ch <- cachedImagesDesc
-	ch <- repositoriesDesc
-	ch <- containersWithCachedImageDesc
-}
-
-func (c *ControllerCollector) Collect(ch chan<- prometheus.Metric) {
-	if cachedImagesGaugeVec, err := c.getCachedImagesMetric(); err == nil {
-		cachedImagesGaugeVec.Collect(ch)
-	} else {
-		log.FromContext(context.Background()).Error(err, "could not collect "+cachedImagesMetric+" metric")
-	}
-
-	if repositoriesGaugeVec, err := c.getRepositoriesMetric(); err == nil {
-		repositoriesGaugeVec.Collect(ch)
-	} else {
-		log.FromContext(context.Background()).Error(err, "could not collect "+repositoriesMetric+" metric")
-	}
-
-	if containersWithCachedImageGaugeVec, err := c.getContainersWithCachedImageMetric(); err == nil {
-		containersWithCachedImageGaugeVec.Collect(ch)
-	} else {
-		log.FromContext(context.Background()).Error(err, "could not collect "+containersWithCachedImageMetric+" metric")
+	return &GenericCollector{
+		desc:      desc,
+		valueType: valueType,
 	}
 }
 
-func (c *ControllerCollector) getCachedImagesMetric() (*prometheus.GaugeVec, error) {
-	cachedImageList := &v1alpha1.CachedImageList{}
-	if err := c.List(context.Background(), cachedImageList); err != nil {
-		return nil, err
-	}
-
-	cachedImagesGaugeVec := prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: cachedImagesMetric,
-			Help: cachedImagesHelp,
-		},
-		[]string{"status", "cached", "expiring"},
-	)
-	for _, cachedImage := range cachedImageList.Items {
-		cachedImagesGaugeVec.
-			WithLabelValues(cachedImage.Status.Phase, strconv.FormatBool(cachedImage.Status.IsCached), strconv.FormatBool(cachedImage.Spec.ExpiresAt != nil)).
-			Inc()
-	}
-
-	return cachedImagesGaugeVec, nil
+func NewGenericCollector(opts prometheus.Opts, valueType prometheus.ValueType, labels []string, collectorCallback func(ch chan<- prometheus.Metric)) prometheus.Collector {
+	collector := NewEmptyGenericCollector(opts, valueType, labels)
+	collector.callback = collectorCallback
+	return collector
 }
 
-func (c *ControllerCollector) getContainersWithCachedImageMetric() (*prometheus.GaugeVec, error) {
-	cachedImageList := &v1alpha1.CachedImageList{}
-	if err := c.List(context.Background(), cachedImageList); err != nil {
-		return nil, err
+func NewGenericCollectorFunc(opts prometheus.Opts, valueType prometheus.ValueType, labels []string, callback func(collect func(value float64, labels ...string))) prometheus.Collector {
+	collector := NewGenericCollector(opts, valueType, labels, nil).(*GenericCollector)
+
+	collector.callback = func(ch chan<- prometheus.Metric) {
+		callback(func(value float64, labels ...string) {
+			ch <- prometheus.MustNewConstMetric(collector.desc, collector.valueType, value, labels...)
+		})
 	}
 
-	cachedImages := map[string]v1alpha1.CachedImage{}
-	for _, cachedImage := range cachedImageList.Items {
-		cachedImages[cachedImage.Name] = cachedImage
-	}
-
-	podList := &corev1.PodList{}
-	labelSelector := metav1.LabelSelector{
-		MatchLabels: map[string]string{
-			core.LabelManagedName: "true",
-		},
-	}
-	selector, err := metav1.LabelSelectorAsSelector(&labelSelector)
-	if err != nil {
-		return nil, err
-	}
-	if err := c.List(context.Background(), podList, &client.ListOptions{LabelSelector: selector}); err != nil {
-		return nil, err
-	}
-
-	containersWithCachedImageGaugeVec := prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: containersWithCachedImageMetric,
-			Help: containersWithCachedImageHelp,
-		},
-		[]string{"status", "cached"},
-	)
-	for _, pod := range podList.Items {
-		for _, container := range pod.Spec.Containers {
-			annotationKey := registry.ContainerAnnotationKey(container.Name, false)
-			if sourceImage, ok := pod.ObjectMeta.Annotations[annotationKey]; ok {
-				cachedImageName, err := v1alpha1.CachedImageNameFromSourceImage(sourceImage)
-				if err != nil {
-					return nil, err
-				}
-				if cachedImage, ok := cachedImages[cachedImageName]; ok {
-					containersWithCachedImageGaugeVec.
-						WithLabelValues(cachedImage.Status.Phase, strconv.FormatBool(cachedImage.Status.IsCached)).
-						Inc()
-				}
-			}
-		}
-	}
-
-	return containersWithCachedImageGaugeVec, nil
-}
-
-func (c *ControllerCollector) getRepositoriesMetric() (*prometheus.GaugeVec, error) {
-	repositoriesList := &v1alpha1.RepositoryList{}
-	if err := c.List(context.Background(), repositoriesList); err != nil {
-		return nil, err
-	}
-
-	repositoriesGaugeVec := prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: repositoriesMetric,
-			Help: repositoriesHelp,
-		},
-		[]string{"status"},
-	)
-	for _, repository := range repositoriesList.Items {
-		repositoriesGaugeVec.WithLabelValues(repository.Status.Phase).Inc()
-	}
-
-	return repositoriesGaugeVec, nil
-}
-
-func SetLeader(leader bool) {
-	if leader {
-		isLeader.Set(1)
-	} else {
-		isLeader.Set(0)
-	}
+	return collector
 }

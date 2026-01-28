@@ -1,0 +1,134 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.2
+  name: clusterimagesetmirrors.kuik.enix.io
+spec:
+  group: kuik.enix.io
+  names:
+    kind: ClusterImageSetMirror
+    listKind: ClusterImageSetMirrorList
+    plural: clusterimagesetmirrors
+    shortNames:
+    - cism
+    singular: clusterimagesetmirror
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: ClusterImageSetMirror is the Schema for the clusterimagesetmirrors
+          API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: ClusterImageSetMirrorSpec defines the desired state of ClusterImageSetMirror.
+            properties:
+              cleanup:
+                description: Cleanup defines a cleanup strategy
+                properties:
+                  enabled:
+                    type: boolean
+                  retention:
+                    type: string
+                type: object
+              imageFilter:
+                description: ImageFilterDefinition is the definition of an image filter
+                properties:
+                  exclude:
+                    items:
+                      type: string
+                    type: array
+                  include:
+                    items:
+                      type: string
+                    type: array
+                type: object
+              mirrors:
+                items:
+                  properties:
+                    cleanup:
+                      description: Cleanup defines a cleanup strategy
+                      properties:
+                        enabled:
+                          type: boolean
+                        retention:
+                          type: string
+                      type: object
+                    credentialSecret:
+                      properties:
+                        name:
+                          description: Name is the name of the secret
+                          type: string
+                        namespace:
+                          description: |-
+                            Namespace is the namespace where the secret is located.
+                            This value is ignored for namespaced resources and the namespace of the parent object is used instead.
+                          type: string
+                      type: object
+                    path:
+                      type: string
+                    registry:
+                      type: string
+                  type: object
+                type: array
+            type: object
+          status:
+            description: ClusterImageSetMirrorStatus defines the observed state of
+              ClusterImageSetMirror.
+            properties:
+              matchingImages:
+                items:
+                  properties:
+                    image:
+                      type: string
+                    mirrors:
+                      items:
+                        properties:
+                          image:
+                            type: string
+                          lastError:
+                            type: string
+                          mirroredAt:
+                            format: date-time
+                            type: string
+                        required:
+                        - image
+                        type: object
+                      type: array
+                      x-kubernetes-list-map-keys:
+                      - image
+                      x-kubernetes-list-type: map
+                    unusedSince:
+                      format: date-time
+                      type: string
+                  required:
+                  - image
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - image
+                x-kubernetes-list-type: map
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

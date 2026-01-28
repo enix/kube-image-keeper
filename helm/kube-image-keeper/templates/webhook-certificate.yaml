@@ -8,14 +8,14 @@ spec:
   - {{ include "kube-image-keeper.fullname" . }}-webhook.{{ .Release.Namespace }}.svc.cluster.local
   secretName: {{ include "kube-image-keeper.fullname" . }}-webhook-server-cert
   issuerRef:
-    {{- if .Values.controllers.webhook.createCertificateIssuer }}
+    {{- if .Values.manager.webhook.createCertificateIssuer }}
     kind: Issuer
     name: {{ include "kube-image-keeper.fullname" . }}-selfsigned-issuer
     {{- else -}}
-    {{- toYaml .Values.controllers.webhook.certificateIssuerRef | nindent 4 }}
+    {{- toYaml .Values.manager.webhook.certificateIssuerRef | nindent 4 }}
     {{- end }}
 ---
-{{- if .Values.controllers.webhook.createCertificateIssuer }}
+{{- if .Values.manager.webhook.createCertificateIssuer }}
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:

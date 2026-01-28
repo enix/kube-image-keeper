@@ -1,15 +1,143 @@
-# v2 branch has a release.yaml workflow and can't be triggered if main doesn't have it.
-# However renaming release.yml to release.yaml make us lose the history of v1 releases.
-# So instead, we have this dummy workflow to allow triggering it on v2 branch.
 name: Release
 
 on:
   workflow_dispatch:
 
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  COMMIT_NAME: Monkeynator
+  COMMIT_EMAIL: monkeynator@enix.io
+
 jobs:
-  release:
-    name: Release v2
-    runs-on: ubuntu-22.04
+  semver:
+    name: Semantic Version (dry-run)
+    runs-on: ubuntu-24.04
+    outputs:
+      published: ${{ steps.dry-run.outputs.new_release_published }}
+      last: ${{ steps.dry-run.outputs.last_release_version }}
+      version: ${{ steps.dry-run.outputs.new_release_version }}
+      channel: ${{ steps.dry-run.outputs.new_release_channel }}
     steps:
-      - name: Requirements
-        run: echo "This must be run on branch v2"; exit 1
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Run semantic-release (dry-run)
+        id: dry-run
+        uses: cycjimmy/semantic-release-action@v4
+        with:
+          dry_run: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
+
+      - name: Inspect semantic-release (dry-run) outcome
+        shell: python
+        env:
+          PYTHONPATH: ${{ github.workspace }}/.github
+          SR_PUBLISHED: ${{ steps.dry-run.outputs.new_release_published }}
+          SR_LAST: ${{ steps.dry-run.outputs.last_release_version }}
+          SR_VERSION: ${{ steps.dry-run.outputs.new_release_version }}
+          SR_CHANNEL: ${{ steps.dry-run.outputs.new_release_channel }}
+        run: |
+          import os
+          import sys
+          from lib import *
+
+          if os.environ["SR_PUBLISHED"] == "true":
+            print("A new release should be published!")
+            print("Previous version: {}, next version: {}".format(os.environ["SR_LAST"], os.environ["SR_VERSION"]))
+          else:
+            print("Nothing should be published, skipping...")
+            sys.exit(1)
+
+  lint:
+    name: Lint
+    uses: ./.github/workflows/lint.yaml
+
+  build:
+    name: Build
+    uses: ./.github/workflows/build.yaml
+    needs:
+      - lint
+      - semver
+    with:
+      REPO_IMAGE: ${{ vars.REPO_IMAGE }}
+      REPO_CHART: ${{ vars.REPO_CHART }}
+      VERSION: ${{ needs.semver.outputs.version }}
+      PRERELEASE: ${{ needs.semver.outputs.channel != '' }}
+    secrets:
+      REPO_LOGIN: ${{ secrets.QUAY_USERNAME }}
+      REPO_TOKEN: ${{ secrets.QUAY_ROBOT_TOKEN }}
+      GH_TOKEN_PUBLISH_HELM_CHART: ${{ secrets.GH_TOKEN_PUBLISH_HELM_CHART }}
+
+  release:
+    name: Release
+    runs-on: ubuntu-22.04
+    needs:
+      - semver
+      - build
+    outputs:
+      last: ${{ steps.release.outputs.last_release_version }}
+      published: ${{ steps.release.outputs.new_release_published }}
+      channel: ${{ steps.release.outputs.new_release_channel }}
+      version: ${{ steps.release.outputs.new_release_version }}
+      major: ${{ steps.release.outputs.new_release_major_version }}
+      minor: ${{ steps.release.outputs.new_release_minor_version }}
+      patch: ${{ steps.release.outputs.new_release_patch_version }}
+      notes: ${{ steps.release.outputs.new_release_notes }}
+      prerelease: ${{ needs.semver.outputs.prerelease }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Run semantic-release
+        id: release
+        uses: cycjimmy/semantic-release-action@v4
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
+          GIT_COMMITTER_NAME: ${{ env.COMMIT_NAME }}
+          GIT_COMMITTER_EMAIL: ${{ env.COMMIT_EMAIL }}
+          GIT_AUTHOR_NAME: ${{ env.COMMIT_NAME }}
+          GIT_AUTHOR_EMAIL: ${{ env.COMMIT_EMAIL }}
+
+      - name: Inspect semantic-release outcome
+        id: inspect
+        shell: python
+        env:
+          PYTHONPATH: ${{ github.workspace }}/.github
+          PRERELEASE: ${{ needs.semver.outputs.prerelease }}
+          SRDRY_CHANNEL: ${{ needs.semver.outputs.channel }}
+          SRDRY_VERSION: ${{ needs.semver.outputs.version }}
+          SR_LAST: ${{ steps.release.outputs.last_release_version }}
+          SR_PUBLISHED: ${{ steps.release.outputs.new_release_published }}
+          SR_CHANNEL: ${{ steps.release.outputs.new_release_channel }}
+          SR_VERSION: ${{ steps.release.outputs.new_release_version }}
+          SR_MAJOR: ${{ steps.release.outputs.new_release_major_version }}
+          SR_MINOR: ${{ steps.release.outputs.new_release_minor_version }}
+          SR_PATCH: ${{ steps.release.outputs.new_release_patch_version }}
+          SR_NOTES: ${{ steps.release.outputs.new_release_notes }}
+        run: |
+          from lib import *
+          import os
+
+          header('semantic-release job outputs')
+          info('last        = {}'.format(os.environ['SR_LAST']))
+          info('published   = {}'.format(os.environ['SR_PUBLISHED']))
+          info('channel     = {}'.format(os.environ['SR_CHANNEL']))
+          info('version     = {}'.format(os.environ['SR_VERSION']))
+          info('major       = {}'.format(os.environ['SR_MAJOR']))
+          info('minor       = {}'.format(os.environ['SR_MINOR']))
+          info('patch       = {}'.format(os.environ['SR_PATCH']))
+          info('notes ⏎\n{}'.format(os.environ['SR_NOTES']))
+
+          action('consistency with the dry-run')
+          assert_equality((
+              (os.environ['SR_CHANNEL'], os.environ['SRDRY_CHANNEL']),
+              (os.environ['SR_VERSION'], os.environ['SRDRY_VERSION']),
+          ))

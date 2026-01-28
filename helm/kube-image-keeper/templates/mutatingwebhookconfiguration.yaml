@@ -7,12 +7,11 @@ metadata:
 webhooks:
 - admissionReviewVersions:
   - v1
-  - v1beta1
   clientConfig:
     service:
       name: {{ include "kube-image-keeper.fullname" . }}-webhook
       namespace: {{ .Release.Namespace }}
-      path: /mutate-core-v1-pod
+      path: /mutate--v1-pod
   failurePolicy: Ignore
   reinvocationPolicy: IfNeeded
   namespaceSelector:
@@ -22,21 +21,7 @@ webhooks:
       values:
       - kube-system
       - {{ .Release.Namespace }}
-      {{- if .Values.controllers.webhook.ignoredNamespaces }}
-      {{- range .Values.controllers.webhook.ignoredNamespaces }}
-      - {{ . | toYaml | indent 8 | trim  }}
-      {{- end }}
-      {{- end }}
-  objectSelector:
-    matchExpressions:
-    - key: kube-image-keeper.enix.io/image-caching-policy
-      operator: NotIn
-      values:
-      - ignore
-    {{- range .Values.controllers.webhook.objectSelector.matchExpressions }}
-    - {{ . | toYaml | indent 6 | trim  }}
-    {{- end }}
-  name: mpod.kb.io
+  name: mpod-v1.kb.io
   rules:
   - apiGroups:
     - ""
@@ -44,27 +29,6 @@ webhooks:
     - v1
     operations:
     - CREATE
-    - UPDATE
     resources:
     - pods
-  sideEffects: None
-- admissionReviewVersions:
-  - v1
-  clientConfig:
-    service:
-      name: {{ include "kube-image-keeper.fullname" . }}-webhook
-      namespace: {{ .Release.Namespace }}
-      path: /mutate-kuik-enix-io-v1alpha1-cachedimage
-  failurePolicy: Fail
-  name: mcachedimage.kb.io
-  rules:
-  - apiGroups:
-    - kuik.enix.io
-    apiVersions:
-    - v1alpha1
-    operations:
-    - CREATE
-    - UPDATE
-    resources:
-    - cachedimages
-  sideEffects: None
+  sideEffects: NoneOnDryRun

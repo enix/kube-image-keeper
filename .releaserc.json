@@ -14,17 +14,20 @@
         "assets": [
           "CHANGELOG.md",
           "../assets/*"
-        ]
+        ],
+        "successComment": false,
+        "failComment": false
       }
-    ] 
+    ]
   ],
   "branches": [
     {
-      "name": "main",
-      "prerelease": "beta"
+      "name": "release"
     },
     {
-      "name": "release"
+      "name": "v2",
+      "channel": "2.x",
+      "prerelease": "beta"
     }
   ]
 }

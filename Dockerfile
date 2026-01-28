@@ -1,9 +1,9 @@
 # Build the manager binary
-FROM --platform=${BUILDPLATFORM} golang:1.24-alpine3.20 AS builder
+FROM --platform=${BUILDPLATFORM} golang:1.25-alpine3.22 AS builder
 
 WORKDIR /workspace
 
-RUN go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.15.0
+RUN go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.17.2
 
 # Copy the Go Modules manifests
 COPY go.mod go.mod
@@ -27,21 +27,20 @@ ENV CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH}
 ARG VERSION
 ARG REVISION
 ENV LD_FLAGS="\
-    -X 'github.com/enix/kube-image-keeper/internal/metrics.Version=${VERSION}' \
-    -X 'github.com/enix/kube-image-keeper/internal/metrics.Revision=${REVISION}' \
-    -X 'github.com/enix/kube-image-keeper/internal/metrics.BuildDateTime=BUILD_DATE_TIME'"
+  -X 'github.com/enix/kube-image-keeper/internal/info.Version=${VERSION}' \
+  -X 'github.com/enix/kube-image-keeper/internal/info.Revision=${REVISION}' \
+  -X 'github.com/enix/kube-image-keeper/internal/info.BuildDateTime=BUILD_DATE_TIME'"
 
 RUN --mount=type=cache,target="/root/.cache/go-build" \
-    BUILD_DATE_TIME=$(date -u +"%Y-%m-%dT%H:%M:%S") && \
-    LD_FLAGS=$(/bin/ash -c "set -o pipefail && echo $LD_FLAGS | sed -e \"s/BUILD_DATE_TIME/$BUILD_DATE_TIME/g\"") && \
-    controller-gen object paths="./..." && \
-    go build -ldflags="$LD_FLAGS" -o manager cmd/cache/main.go && \
-    go build -ldflags="$LD_FLAGS" -o registry-proxy cmd/proxy/main.go
+  BUILD_DATE_TIME=$(date -u +"%Y-%m-%dT%H:%M:%S") && \
+  LD_FLAGS=$(/bin/ash -c "set -o pipefail && echo $LD_FLAGS | sed -e \"s/BUILD_DATE_TIME/$BUILD_DATE_TIME/g\"") && \
+  controller-gen object paths="./..." && \
+  go build -ldflags="$LD_FLAGS" -o manager cmd/main.go
 
-FROM alpine:3.20 AS alpine
+# For development/debug purposes, we can run the manager in an Alpine container in order to have access to a shell and other tools
+FROM alpine:3.22 AS alpine
 
 COPY --from=builder /workspace/manager /usr/local/bin/
-COPY --from=builder /workspace/registry-proxy /usr/local/bin/
 USER 65532:65532
 
 ENTRYPOINT ["manager"]
@@ -51,7 +50,7 @@ ENTRYPOINT ["manager"]
 FROM gcr.io/distroless/static:nonroot
 WORKDIR /
 COPY --from=builder /workspace/manager /usr/local/bin/
-COPY --from=builder /workspace/registry-proxy /usr/local/bin/
 USER 65532:65532
 
 ENTRYPOINT ["manager"]
+

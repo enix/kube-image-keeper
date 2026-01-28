@@ -18,7 +18,6 @@ go.work
 
 # Kubernetes Generated files - skip generated files, except for vendored files
 !vendor/**/zz_generated.*
-zz_generated.*
 
 # editor and IDE paraphernalia
 .idea
@@ -26,12 +25,3 @@ zz_generated.*
 *.swp
 *.swo
 *~
-
-# helm dependencies
-helm/**/charts/*.tgz
-
-# generated helm README template
-helm/**/README.md.gotmpl
-
-# kustomize resources
-config

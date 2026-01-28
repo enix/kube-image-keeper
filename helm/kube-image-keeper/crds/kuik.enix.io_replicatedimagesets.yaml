@@ -1,0 +1,92 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.2
+  name: replicatedimagesets.kuik.enix.io
+spec:
+  group: kuik.enix.io
+  names:
+    kind: ReplicatedImageSet
+    listKind: ReplicatedImageSetList
+    plural: replicatedimagesets
+    shortNames:
+    - ris
+    singular: replicatedimageset
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: ReplicatedImageSet is the Schema for the replicatedimagesets
+          API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: ReplicatedImageSetSpec defines the desired state of ReplicatedImageSet.
+            properties:
+              upstreams:
+                items:
+                  properties:
+                    credentialSecret:
+                      description: CredentialSecret is a reference to the secret used
+                        to pull matching images.
+                      properties:
+                        name:
+                          description: Name is the name of the secret
+                          type: string
+                        namespace:
+                          description: |-
+                            Namespace is the namespace where the secret is located.
+                            This value is ignored for namespaced resources and the namespace of the parent object is used instead.
+                          type: string
+                      type: object
+                    imageFilter:
+                      description: ImageFilter defines the rules used to select replicated
+                        images.
+                      properties:
+                        exclude:
+                          items:
+                            type: string
+                          type: array
+                        include:
+                          items:
+                            type: string
+                          type: array
+                      type: object
+                    path:
+                      description: Path is a string identifying the image in a registry
+                      type: string
+                    registry:
+                      description: Registry is the registry where the image is located
+                      type: string
+                  required:
+                  - path
+                  - registry
+                  type: object
+                type: array
+            type: object
+          status:
+            description: ReplicatedImageSetStatus defines the observed state of ReplicatedImageSet.
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

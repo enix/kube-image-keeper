@@ -1,27 +1,23 @@
 package registry
 
 import (
-	"context"
 	"fmt"
 
-	ecrLogin "github.com/awslabs/amazon-ecr-credential-helper/ecr-login"
-	"github.com/awslabs/amazon-ecr-credential-helper/ecr-login/api"
-	"github.com/chrismellard/docker-credential-acr-env/pkg/credhelper"
 	"github.com/distribution/reference"
 	"github.com/enix/kube-image-keeper/internal/registry/credentialprovider/secrets"
 	"github.com/google/go-containerregistry/pkg/authn"
-	"github.com/google/go-containerregistry/pkg/v1/google"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type authConfigKeychain struct {
 	authn.AuthConfig
+	repositoryName string
 }
 
 func (a *authConfigKeychain) Resolve(target authn.Resource) (authn.Authenticator, error) {
+	if target.String() != a.repositoryName {
+		return authn.Anonymous, nil
+	}
 	return authn.FromConfig(a.AuthConfig), nil
 }
 
@@ -46,48 +42,23 @@ func getKeychainsFromSecrets(repositoryName string, pullSecrets []corev1.Secret)
 		return nil, err
 	}
 
-	if keyring != nil {
-		creds, _ := keyring.Lookup(named.Name())
-		for _, cred := range creds {
-			keychains = append(keychains, &authConfigKeychain{
-				AuthConfig: authn.AuthConfig{
-					Username:      cred.Username,
-					Password:      cred.Password,
-					Auth:          cred.Auth,
-					IdentityToken: cred.IdentityToken,
-					RegistryToken: cred.RegistryToken,
-				},
-			})
-		}
+	if keyring == nil {
+		return keychains, nil
 	}
 
-	if _, err := api.ExtractRegistry(repositoryName); err == nil {
-		keychains = append(keychains, authn.NewKeychainFromHelper(ecrLogin.NewECRHelper()))
+	creds, _ := keyring.Lookup(named.Name())
+	for _, cred := range creds {
+		keychains = append(keychains, &authConfigKeychain{
+			repositoryName: named.Name(),
+			AuthConfig: authn.AuthConfig{
+				Username:      cred.Username,
+				Password:      cred.Password,
+				Auth:          cred.Auth,
+				IdentityToken: cred.IdentityToken,
+				RegistryToken: cred.RegistryToken,
+			},
+		})
 	}
-	keychains = append(keychains, google.Keychain)
-	keychains = append(keychains, authn.NewKeychainFromHelper(credhelper.NewACRCredentialsHelper()))
 
 	return keychains, nil
-}
-
-func GetPullSecrets(apiReader client.Reader, namespace string, pullSecretNames []string) ([]corev1.Secret, error) {
-	pullSecrets := []corev1.Secret{}
-	for _, pullSecretName := range pullSecretNames {
-		var pullSecret corev1.Secret
-		err := apiReader.Get(context.Background(), types.NamespacedName{
-			Namespace: namespace,
-			Name:      pullSecretName,
-		}, &pullSecret)
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				continue
-			} else {
-				return nil, err
-			}
-		}
-
-		pullSecrets = append(pullSecrets, pullSecret)
-	}
-
-	return pullSecrets, nil
 }

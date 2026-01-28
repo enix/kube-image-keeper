@@ -1,7 +1,5 @@
 # Image URL to use all building/pushing image targets
 IMG ?= controller:latest
-# ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION ?= 1.31.0
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -20,6 +18,18 @@ CONTAINER_TOOL ?= docker
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
+
+# Args to pass to go run
+RUN_FLAG_DEVEL ?= true
+_RUN_FLAG_LOG_LEVEL = $(if $(RUN_FLAG_LOG_LEVEL),-zap-log-level=$(RUN_FLAG_LOG_LEVEL),)
+_RUN_FLAG_ZAP_ENCODER = $(if $(RUN_FLAG_ZAP_ENCODER),-zap-encoder=$(RUN_FLAG_ZAP_ENCODER),)
+METRICS_PORT ?= 8080
+RUN_ADDITIONAL_ARGS ?= 
+RUN_ARGS ?= -metrics-bind-address=:$(METRICS_PORT) -metrics-secure=false \
+	-zap-devel=$(RUN_FLAG_DEVEL) \
+	$(_RUN_FLAG_LOG_LEVEL) \
+	$(_RUN_FLAG_ZAP_ENCODER) \
+	$(RUN_ADDITIONAL_ARGS)
 
 .PHONY: all
 all: build
@@ -46,12 +56,28 @@ help: ## Display this help.
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
-	tail -n+2 config/crd/bases/kuik.enix.io_cachedimages.yaml > helm/kube-image-keeper/crds/cachedimage-crd.yaml
-	tail -n+2 config/crd/bases/kuik.enix.io_repositories.yaml > helm/kube-image-keeper/crds/repository-crd.yaml
+	for f in config/crd/bases/*.yaml; do \
+		tail -n+2 "$$f" > helm/kube-image-keeper/crds/$$(basename "$$f"); \
+	done
+	tail -n+7 config/rbac/role.yaml                 > helm/kube-image-keeper/files/clusterrole-rules.yaml
+	tail -n+10 config/rbac/leader_election_role.yaml > helm/kube-image-keeper/files/clusterrole-leader-elec-rules.yaml
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
 	$(CONTROLLER_GEN) object paths="./..."
+
+VERSION ?= 2.0.0-beta.X
+.PHONY: generate-helm-docs
+generate-helm-docs: helm-docs
+	mkdir -p ./helm/kube-image-keeper/repo
+	cp LICENSE ./helm/kube-image-keeper/repo
+
+	sed -re 's/^VERSION=.+/VERSION=$(VERSION) # Latest available beta version/g' \
+	    -e '/<!-- HELM_DOCS_END -->/,$$d' \
+	    README.md > ./helm/kube-image-keeper/repo/README.md
+
+	$(HELM_DOCS)
+	rm -rf ./helm/kube-image-keeper/repo
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
@@ -62,18 +88,46 @@ vet: ## Run go vet against code.
 	go vet ./...
 
 .PHONY: test
-test: manifests generate fmt vet envtest ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test -v ./... -covermode=count -coverprofile cover.out
+test: manifests generate fmt vet setup-envtest ## Run tests.
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
+
+# TODO(user): To use a different vendor for e2e tests, modify the setup under 'tests/e2e'.
+# The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
+# CertManager is installed by default; skip with:
+# - CERT_MANAGER_INSTALL_SKIP=true
+.PHONY: test-e2e
+test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
+	@command -v $(KIND) >/dev/null 2>&1 || { \
+		echo "Kind is not installed. Please install Kind manually."; \
+		exit 1; \
+	}
+	@$(KIND) get clusters | grep -q 'kind' || { \
+		echo "No Kind cluster is running. Please start a Kind cluster before running the e2e tests."; \
+		exit 1; \
+	}
+	go test ./test/e2e/ -v -ginkgo.v
+
+.PHONY: lint
+lint: golangci-lint ## Run golangci-lint linter
+	$(GOLANGCI_LINT) run
+
+.PHONY: lint-fix
+lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
+	$(GOLANGCI_LINT) run --fix
+
+.PHONY: lint-config
+lint-config: golangci-lint ## Verify golangci-lint linter configuration
+	$(GOLANGCI_LINT) config verify
 
 ##@ Build
 
 .PHONY: build
 build: manifests generate fmt vet ## Build manager binary.
-	go build -o bin/manager cmd/cache/main.go
+	go build -o bin/manager cmd/main.go
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
-	go run ./cmd/cache/main.go
+	go run ./cmd/main.go $(RUN_ARGS)
 
 # If you wish to build the manager image targeting other platforms you can use the --platform flag.
 # (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
@@ -141,16 +195,22 @@ $(LOCALBIN):
 
 ## Tool Binaries
 KUBECTL ?= kubectl
+KIND ?= kind
 KUSTOMIZE ?= $(LOCALBIN)/kustomize
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
+HELM_DOCS = $(LOCALBIN)/helm-docs
 
 ## Tool Versions
-KUSTOMIZE_VERSION ?= v5.5.0
-CONTROLLER_TOOLS_VERSION ?= v0.16.4
-ENVTEST_VERSION ?= release-0.19
-GOLANGCI_LINT_VERSION ?= v1.61.0
+KUSTOMIZE_VERSION ?= v5.6.0
+CONTROLLER_TOOLS_VERSION ?= v0.17.2
+#ENVTEST_VERSION is the version of controller-runtime release branch to fetch the envtest setup script (i.e. release-0.20)
+ENVTEST_VERSION ?= $(shell go list -m -f "{{ .Version }}" sigs.k8s.io/controller-runtime | awk -F'[v.]' '{printf "release-%d.%d", $$2, $$3}')
+#ENVTEST_K8S_VERSION is the version of Kubernetes to use for setting up ENVTEST binaries (i.e. 1.31)
+ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
+GOLANGCI_LINT_VERSION ?= v1.64.8
+HELM_DOCS_VERSION ?= v1.14.2
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
@@ -162,6 +222,14 @@ controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessar
 $(CONTROLLER_GEN): $(LOCALBIN)
 	$(call go-install-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen,$(CONTROLLER_TOOLS_VERSION))
 
+.PHONY: setup-envtest
+setup-envtest: envtest ## Download the binaries required for ENVTEST in the local bin directory.
+	@echo "Setting up envtest binaries for Kubernetes version $(ENVTEST_K8S_VERSION)..."
+	@$(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path || { \
+		echo "Error: Failed to set up envtest binaries for version $(ENVTEST_K8S_VERSION)."; \
+		exit 1; \
+	}
+
 .PHONY: envtest
 envtest: $(ENVTEST) ## Download setup-envtest locally if necessary.
 $(ENVTEST): $(LOCALBIN)
@@ -171,6 +239,11 @@ $(ENVTEST): $(LOCALBIN)
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
 $(GOLANGCI_LINT): $(LOCALBIN)
 	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
+
+.PHONY: helm-docs
+helm-docs: $(HELM_DOCS) ## Download helm-docs locally if necessary.
+$(HELM_DOCS): $(LOCALBIN)
+	$(call go-install-tool,$(HELM_DOCS),github.com/norwoodj/helm-docs/cmd/helm-docs,$(HELM_DOCS_VERSION))
 
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
 # $1 - target path with name of binary
@@ -187,12 +260,3 @@ mv $(1) $(1)-$(3) ;\
 } ;\
 ln -sf $(1)-$(3) $(1)
 endef
-
-# This is not used for kubebuilder, but to generate the Helm chart template README.
-.PHONY: helm-docs
-helm-docs:
-	{ \
-		sed 's/<!-- VALUES -->/{{ template "chart.valuesSection" . }}/' README.md ; \
-		printf "\n\n## License\n\n" ; \
-		cat LICENSE ; \
-	} > helm/kube-image-keeper/README.md.gotmpl

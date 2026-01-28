@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kube-image-keeper.fullname" . }}-manager
+  labels:
+    {{- include "kube-image-keeper.manager-labels" . | nindent 4 }}
+spec:
+  {{- with .Values.manager.replicas }}
+  replicas: {{ . }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "kube-image-keeper.manager-selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.manager.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "kube-image-keeper.manager-selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.manager.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "kube-image-keeper.serviceAccountName" . }}
+      {{- if .Values.manager.priorityClassName }}
+      priorityClassName: {{ .Values.manager.priorityClassName | quote }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.manager.podSecurityContext | nindent 8 }}
+      containers:
+        - name: manager
+          securityContext:
+            {{- toYaml .Values.manager.securityContext | nindent 12 }}
+          image: "{{ .Values.manager.image.repository }}:{{ .Values.manager.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.manager.image.pullPolicy }}
+          command:
+            - manager
+            {{- if gt (.Values.manager.replicas | int) 1 }}
+            - -leader-elect
+            {{- end }}
+            - -zap-log-level={{ .Values.manager.verbosity }}
+            - -unused-image-ttl={{ .Values.unusedImageTTL }}
+          env:
+            # custom environment variables
+            {{- range .Values.manager.env }}
+            - name: {{ .name }}
+              value: {{ .value }}
+            {{- end }}
+          ports:
+            - containerPort: 9443
+              name: webhook-server
+              protocol: TCP
+          volumeMounts:
+            - mountPath: /tmp/k8s-webhook-server/serving-certs
+              name: webhook-cert
+              readOnly: true
+            - mountPath: /etc/kube-image-keeper
+              name: config
+              readOnly: true
+          {{- with .Values.manager.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.manager.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.manager.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.manager.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.manager.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.manager.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.manager.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+      - name: webhook-cert
+        secret:
+          defaultMode: 420
+          secretName: {{ include "kube-image-keeper.fullname" . }}-webhook-server-cert
+      - name: config
+        configMap:
+          name: {{ include "kube-image-keeper.fullname" . }}-manager-config

@@ -42,29 +42,10 @@ app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
-{{- define "kube-image-keeper.controllers-labels" -}}
+{{- define "kube-image-keeper.manager-labels" -}}
 {{ include "kube-image-keeper.labels" . }}
-app.kubernetes.io/component: controllers
-{{- end }}
-
-{{- define "kube-image-keeper.proxy-labels" -}}
-{{ include "kube-image-keeper.labels" . }}
-app.kubernetes.io/component: proxy
-{{- end }}
-
-{{- define "kube-image-keeper.registry-labels" -}}
-{{ include "kube-image-keeper.labels" . }}
-app.kubernetes.io/component: registry
-{{- end }}
-
-{{- define "kube-image-keeper.registry-ui-labels" -}}
-{{ include "kube-image-keeper.labels" . }}
-app.kubernetes.io/component: registry-ui
-{{- end }}
-
-{{- define "kube-image-keeper.garbage-collection-labels" -}}
-{{ include "kube-image-keeper.labels" . }}
-app.kubernetes.io/component: garbage-collection
+app.kubernetes.io/component: manager
+control-plane: controller-manager
 {{- end }}
 
 {{/*
@@ -75,38 +56,16 @@ app.kubernetes.io/name: {{ include "kube-image-keeper.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
-{{- define "kube-image-keeper.controllers-selectorLabels" -}}
+{{- define "kube-image-keeper.manager-selectorLabels" -}}
 {{ include "kube-image-keeper.selectorLabels" . }}
-app.kubernetes.io/component: controllers
-control-plane: controller-manager
-{{- end }}
-
-{{- define "kube-image-keeper.proxy-selectorLabels" -}}
-{{ include "kube-image-keeper.selectorLabels" . }}
-app.kubernetes.io/component: proxy
-control-plane: controller-manager
-{{- end }}
-
-{{- define "kube-image-keeper.registry-selectorLabels" -}}
-{{ include "kube-image-keeper.selectorLabels" . }}
-app.kubernetes.io/component: registry
-{{- end }}
-
-{{- define "kube-image-keeper.registry-ui-selectorLabels" -}}
-{{ include "kube-image-keeper.selectorLabels" . }}
-app.kubernetes.io/component: registry-ui
-{{- end }}
-
-{{- define "kube-image-keeper.garbage-collection-selectorLabels" -}}
-{{ include "kube-image-keeper.selectorLabels" . }}
-app.kubernetes.io/component: garbage-collection
+app.kubernetes.io/component: manager
 {{- end }}
 
 {{/*
 Create the name of the ClusterRole to use
 */}}
 {{- define "kube-image-keeper.clusterRoleName" -}}
-{{- printf "%s-%s" (include "kube-image-keeper.fullname" .) "controllers" }}
+{{- printf "%s-%s" (include "kube-image-keeper.fullname" .) "manager" }}
 {{- end }}
 
 {{/*
@@ -120,17 +79,4 @@ Create the name of the service account to use
 {{- end -}}
 {{- end }}
 
-{{/*
-Create the name of the registry service account to use
-*/}}
-{{- define "kube-image-keeper.registry-serviceAccountName" -}}
-{{- if .Values.registry.serviceAccount.create -}}
-  {{- default (printf "%s-%s" (include "kube-image-keeper.fullname" .) "registry") .Values.registry.serviceAccount.name }}
-{{- else -}}
-  {{- default "default" .Values.registry.serviceAccount.name }}
-{{- end -}}
-{{- end }}
 
-{{- define "kube-image-keeper.registry-stateless-mode" -}}
-{{- ternary "true" "false" (or .Values.minio.enabled (not (empty .Values.registry.persistence.s3)) (not (empty .Values.registry.persistence.gcs)) (not (empty .Values.registry.persistence.azure))) }}
-{{- end }}
