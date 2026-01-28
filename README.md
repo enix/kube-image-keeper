@@ -15,7 +15,9 @@
 > [!CAUTION]
 > Not recommended for production use yet. Kuik v2 is currently being battle tested on several clusters.
 
-## ✨ What's New in v2 : redesigned architecture
+## ✨ What's New in v2
+
+Mostly a redesigned architecture
 
 - **Minimal default features**: core functionality enabled by default, others opt-in
 - **Image routing**: kuik can rewrite Pod images on-the-fly to point to an operational registry
