@@ -7,7 +7,7 @@
 
 **kuik** (pronounced /kwɪk/, like "quick") is the shortname of **kube-image-keeper**, a container image routing, mirroring and replication system for Kubernetes developed by Enix. It helps make applications more highly available by ensuring reliable access to container images.
 
-## 🧪 Status: General Availability
+## 🚀 Status: General Availability
 
 > [!NOTE]
 > kuik v2 is a **complete rewrite** of the project with a focus on **simplicity** and **ease of use**.
@@ -15,9 +15,7 @@
 > [!CAUTION]
 > Not recommended for production use yet. Kuik v2 is currently being battle tested on several clusters.
 
-## ✨ What's New in v2
-
-### 🔍 Redesigned Architecture
+## ✨ What's New in v2 : redesigned architecture
 
 - **Minimal default features**: core functionality enabled by default, others opt-in
 - **Image routing**: kuik can rewrite Pod images on-the-fly to point to an operational registry
@@ -25,7 +23,7 @@
 - **Image monitoring**: kuik can monitor image availability across various registries (planned for v2.2)
 - **Redesigned CRDs** for better clarity and extensibility
 
-## 🚧 Roadmap
+## 🧪 Roadmap
 
 Planned features for future minor versions (subject to change):
 
@@ -34,7 +32,7 @@ Planned features for future minor versions (subject to change):
 - **v2.2** Complete implementation of the **Image monitoring** feature
 - **TBD** Support of concurrent access to a single registry (in particular regarding the garbage collect mechanism) by multiple Kuik instances on multiple clusters.
 
-## Known limitations to date
+## 🚧 Known limitations to date
 
 - Digest tags are not supported, ex: `@sha256:cb4e4ffc5789fd5ff6a534e3b1460623df61cba00f5ea1c7b40153b5efb81805`
 - Mirrored images are considered replicated even if the image was later deleted
