@@ -17,8 +17,11 @@
 
 ### Known limitation to date
 
+- Digest tags are not supported, ex: `@sha256:cb4e4ffc5789fd5ff6a534e3b1460623df61cba00f5ea1c7b40153b5efb81805`
+- Mirrored images are considered replicated even if the image was letter deleted
 - The mutating webhook do not support the Pod Update call
 - With replication enabled from registry A to registry B, launching a Pod with image on B will be rerouted (rewrittent) to image on A
+- Competition between Kuik's cluster wide custom ressources and namespaced ressources might lead to weird scenarios
 
 ## ✨ What's New in v2
 
@@ -43,7 +46,7 @@ Planned features for future minor versions (subject to change):
 
 ```bash
 kubectl create namespace kuik-system
-VERSION=2.0.0-beta.X
+VERSION=2.0.0
 helm upgrade --install --namespace kuik-system kube-image-keeper oci://quay.io/enix/charts/kube-image-keeper:$VERSION
 ```
 
@@ -56,26 +59,6 @@ helm upgrade --install --namespace kuik-system kube-image-keeper oci://quay.io/e
 make install
 # run the manager locally against the cluster you're connected to and export metrics to :8080
 make run
-```
-
-### Gather metrics locally
-
-In another terminal, you can run prometheus to gather metrics:
-
-```bash
-docker run --rm --network host --name prometheus -p 9090:9090 -v /etc/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml prom/prometheus
-```
-
-Sample prom configuration:
-
-```yaml
-global:
-  scrape_interval: 3s
-
-scrape_configs:
-  - job_name: "myapp"
-    static_configs:
-      - targets: ["localhost:8080"]
 ```
 
 ### Makefile options
