@@ -52,6 +52,8 @@ helm upgrade --install --namespace kuik-system kube-image-keeper oci://quay.io/e
 
 <!-- HELM_DOCS_END -->
 
+Custom Resource Definitions (CRDs) are used to configure the behavior of kuik such as its routing and mirroring features. Those are described in the [docs/crds.md](./docs/crds.md) document.
+
 ## 🔧 Development
 
 ```bash
