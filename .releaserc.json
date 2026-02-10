@@ -22,12 +22,11 @@
   ],
   "branches": [
     {
-      "name": "release"
+      "name": "main",
+      "prerelease": "beta"
     },
     {
-      "name": "v2",
-      "channel": "2.x",
-      "prerelease": "beta"
+      "name": "release"
     }
   ]
 }
