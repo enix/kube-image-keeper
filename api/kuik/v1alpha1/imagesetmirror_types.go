@@ -10,6 +10,11 @@ import (
 
 // ImageSetMirrorSpec defines the desired state of ImageSetMirror.
 type ImageSetMirrorSpec struct {
+	// Priority controls the ordering of alternatives from this CR relative to the original image and other CRs.
+	// Negative values place alternatives before the original image; positive values place them after.
+	// Default is 0 (original image first, then alternatives in default type order).
+	// +optional
+	Priority int `json:"priority,omitempty"`
 	// +optional
 	ImageFilter ImageFilterDefinition `json:"imageFilter,omitempty"`
 	Cleanup     Cleanup               `json:"cleanup,omitempty"`
@@ -59,6 +64,11 @@ type Cleanup struct {
 }
 
 type Mirror struct {
+	// Priority controls the ordering of this mirror in comparaison to similar alternatives (mirrors with same parent priority) when re-routing images.
+	// 0 means no specific ordering (YAML declaration order is preserved).
+	// Positive values are sorted ascending: lower value = higher priority.
+	// +optional
+	Priority         uint              `json:"priority,omitempty"`
 	Registry         string            `json:"registry,omitempty"`
 	Path             string            `json:"path,omitempty"`
 	CredentialSecret *CredentialSecret `json:"credentialSecret,omitempty"`

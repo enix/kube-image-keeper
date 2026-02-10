@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -93,6 +94,40 @@ type Container struct {
 	IsInit       bool
 	Images       []AlternativeImage
 	Alternatives map[string]struct{}
+}
+
+// crTypeOrder represents the default ordering of CR types when priorities are equal.
+type crTypeOrder int
+
+const (
+	crTypeOrderOriginal crTypeOrder = iota
+	crTypeOrderCISM
+	crTypeOrderISM
+	crTypeOrderCRIS
+	crTypeOrderRIS
+)
+
+// prioritizedAlternative holds an alternative image reference along with
+// the metadata needed to sort it according to the two-level priority system.
+type prioritizedAlternative struct {
+	reference        string
+	credentialSecret *kuikv1alpha1.CredentialSecret
+	secretOwner      client.Object
+	crPriority       int         // from spec.priority (signed, default 0)
+	intraPriority    uint        // from mirror/upstream priority (unsigned, default 0)
+	typeOrder        crTypeOrder // default type ordering
+	declarationOrder int         // YAML declaration index within CR
+}
+
+// compareAlternatives defines the sort order for prioritized alternatives.
+// Sort key: (crPriority asc, typeOrder asc, intraPriority asc, declOrder asc).
+func compareAlternatives(a, b prioritizedAlternative) int {
+	return cmp.Or(
+		cmp.Compare(a.crPriority, b.crPriority),
+		cmp.Compare(a.typeOrder, b.typeOrder),
+		cmp.Compare(a.intraPriority, b.intraPriority),
+		cmp.Compare(a.declarationOrder, b.declarationOrder),
+	)
 }
 
 var _ webhook.CustomDefaulter = &PodCustomDefaulter{}
@@ -317,9 +352,17 @@ func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSet
 
 	named, _ := reference.ParseNormalizedNamed(container.Image)
 	normalizedImage := named.String()
-	container.addAlternative(normalizedImage, nil, nil)
 
-	for _, ism := range imageSetMirrors {
+	alternatives := []prioritizedAlternative{
+		{
+			reference: normalizedImage,
+			typeOrder: crTypeOrderOriginal,
+		},
+	}
+
+	// Collect from ImageSetMirrors
+	for ismIdx := range imageSetMirrors {
+		ism := &imageSetMirrors[ismIdx]
 		imageFilter := ism.Spec.ImageFilter.MustBuild()
 
 		if !imageFilter.Match(normalizedImage) {
@@ -332,12 +375,27 @@ func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSet
 			return err
 		}
 
-		for _, mirror := range ism.Spec.Mirrors {
-			container.addAlternative(path.Join(mirror.Registry, mirror.Path, imgPath), mirror.CredentialSecret, &ism)
+		typeOrder := crTypeOrderISM
+		if ism.Namespace == "" {
+			typeOrder = crTypeOrderCISM
+		}
+
+		for declarationIdx, mirror := range ism.Spec.Mirrors {
+			alternatives = append(alternatives, prioritizedAlternative{
+				reference:        path.Join(mirror.Registry, mirror.Path, imgPath),
+				credentialSecret: mirror.CredentialSecret,
+				secretOwner:      ism,
+				crPriority:       ism.Spec.Priority,
+				intraPriority:    mirror.Priority,
+				typeOrder:        typeOrder,
+				declarationOrder: declarationIdx,
+			})
 		}
 	}
 
-	for _, ris := range replicatedImageSets {
+	// Collect from ReplicatedImageSets
+	for risIdx := range replicatedImageSets {
+		ris := &replicatedImageSets[risIdx]
 		index := slices.IndexFunc(ris.Spec.Upstreams, func(upstream kuikv1alpha1.ReplicatedUpstream) (match bool) {
 			// TODO: use a validating admission policy to ensure the regexp is valid
 			return upstream.ImageFilter.MustBuildWithRegistry(upstream.Registry).Match(normalizedImage)
@@ -350,10 +408,29 @@ func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSet
 		prefix := path.Join(match.Registry, match.Path)
 		suffix := strings.TrimPrefix(normalizedImage, prefix)
 
-		for _, upstream := range ris.Spec.Upstreams {
-			reference := path.Join(upstream.Registry, upstream.Path) + suffix
-			container.addAlternative(reference, upstream.CredentialSecret, &ris)
+		typeOrder := crTypeOrderRIS
+		if ris.Namespace == "" {
+			typeOrder = crTypeOrderCRIS
 		}
+
+		for declarationIdx, upstream := range ris.Spec.Upstreams {
+			alternatives = append(alternatives, prioritizedAlternative{
+				reference:        path.Join(upstream.Registry, upstream.Path) + suffix,
+				credentialSecret: upstream.CredentialSecret,
+				secretOwner:      ris,
+				crPriority:       ris.Spec.Priority,
+				intraPriority:    upstream.Priority,
+				typeOrder:        typeOrder,
+				declarationOrder: declarationIdx,
+			})
+		}
+	}
+
+	// Stable sort by priority
+	slices.SortStableFunc(alternatives, compareAlternatives)
+
+	for _, alt := range alternatives {
+		container.addAlternative(alt.reference, alt.credentialSecret, alt.secretOwner)
 	}
 
 	if err := container.loadAlternativesSecrets(ctx, d.Client); err != nil {
