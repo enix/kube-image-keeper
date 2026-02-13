@@ -54,33 +54,6 @@ helm upgrade --install --namespace kuik-system kube-image-keeper oci://quay.io/e
 
 Custom Resource Definitions (CRDs) are used to configure the behavior of kuik such as its routing and mirroring features. Those are described in the [docs/crds.md](./docs/crds.md) document.
 
-## 🔧 Development
-
-```bash
-# generate CRDs definitions from go code and install them on the cluster you're connected to
-make install
-# run the manager locally against the cluster you're connected to and export metrics to :8080
-make run
-```
-
-### Makefile options
-
-The way kuik is run using the Makefile can be configured through environment variables:
-
-- `RUN_FLAG_DEVEL`: sets the `-zap-devel` flag, defaults to `true`
-- `RUN_FLAG_LOG_LEVEL`: sets the `-zap-log-level` flag if present
-- `RUN_FLAG_ZAP_ENCODER`: sets the `-zap-encoder` flag if present
-- `METRICS_PORT`: sets the port to bind for the metrics, defaults to `8080`
-- `RUN_ADDITIONAL_ARGS`: add any additional argument to the `go run ./cmd/main.go` command (you can even `| grep` here)
-- `RUN_ARGS`: default arguments to the `go run ./cmd/main.go` command, it combines all previous variables together. Don't touch it if you don't need to.
-
-I highly suggest that you try [github.com/pamburus/hl](https://github.com/pamburus/hl), an awesome tool to make json logs human readable. It can be setup with kuik like this:
-
-```bash
-export RUN_FLAG_ZAP_ENCODER=json RUN_ADDITIONAL_ARGS="2>&1 | hl --paging=never"
-make run
-```
-
 ## 🤷 Why Version 2?
 
 Even if we are _proud_ of what we achieved with the v1 of **kube-image-keeper**, it was too often painful to work with: it was hard to deploy, overly complex, and the image caching feature — while ambitious — introduced often too much issues. We missed our original goal: to make kube-image-keeper an **easy, no-brainer install for any cluster** which would help ops in their day to day work and **provide confidence**.
