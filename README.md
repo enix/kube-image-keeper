@@ -29,18 +29,19 @@ Mostly a redesigned architecture
 
 Planned features for future minor versions (subject to change):
 
-- **v2.0** We expect to communicate the launch of the General Availability of v2.0 at the [Cloud Native Days France 2026 convention](https://www.cloudnativedays.fr/)
-- **v2.1** Implement priorities for routing and replication
-- **v2.2** Complete implementation of the **Image monitoring** feature
-- **TBD** Support of concurrent access to a single registry (in particular regarding the garbage collect mechanism) by multiple Kuik instances on multiple clusters.
+- [**v2.0**](https://github.com/enix/kube-image-keeper/releases/tag/v2.1.0) We announced the launch of version 2.0 (General Availability) at the [Cloud Native Days France 2026 convention](https://www.cloudnativedays.fr/)
+- [**v2.1**](https://github.com/enix/kube-image-keeper/releases/tag/v2.1.0) Priorities for routing and replication are now a thing
+  - **v2.1.1** Fix concurrent access to a single registry (in particular regarding the garbage collect mechanism) by multiple Kuik instances on multiple clusters
+- **v2.2** Complete implementation of the **Image monitoring** feature with associated metrics
+- **v2.3** Improve stability of critical components (such as the mutating webhook) by deploying them individually
 
 ## 🚧 Known limitations to date
 
 - Digest tags are not supported, ex: `@sha256:cb4e4ffc5789fd5ff6a534e3b1460623df61cba00f5ea1c7b40153b5efb81805`
-- Mirrored images are considered replicated even if the image was later deleted
-- The mutating webhook do not support the Pod Update call
+- Mirrored images are considered replicated even if the image was later deleted (to be fixed in `v2.1.1`)
+- The mutating webhook do not support the Pod `Update` call
 - With replication enabled from registry A to registry B, launching a Pod with image on B will be rerouted (rewritten) to image on A
-- Competition between Kuik's cluster wide custom ressources and namespaced ressources might lead to weird scenarios
+- Competition between Kuik's cluster wide custom ressources and namespaced ressources might lead to weird scenarios (to be partially fixed in `v2.1.1`)
 
 ## 📦 Installation
 
