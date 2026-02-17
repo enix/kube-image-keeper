@@ -15,7 +15,7 @@
 > [!CAUTION]
 > Not recommended for production use yet. Kuik v2 is currently being battle tested on several clusters.
 
-## ✨ What's New in v2
+## What's new in v2 !
 
 Mostly a redesigned architecture
 
@@ -25,13 +25,26 @@ Mostly a redesigned architecture
 - **Image monitoring**: kuik can monitor image availability across various registries (planned for v2.2)
 - **Redesigned CRDs** for better clarity and extensibility
 
-## 🧪 Roadmap
+## When to use Kube Image Keeper
 
-Planned features for future minor versions (subject to change):
+### 🪨 Container Image Redundancy
+Replicate your container images from you developement registry to a production ready (aka more resilient) one.
 
+Kuik automaticaly clone your images to a new "prime" registry, and redirect all calls to it. This process is based on real usage, forget about complex configuration !
+
+### ⛵ Container Image Availability Monitoring
+Detect images that are no longer available on any registry prior to Pod scheduling failures.
+
+Anticipate potential ImagePullBackoff scenarios triggered during maintenance or worker failure.
+
+## 📅 Releases & Roadmap
+
+Already available :
 - [**v2.0**](https://github.com/enix/kube-image-keeper/releases/tag/v2.1.0) We announced the launch of version 2.0 (General Availability) at the [Cloud Native Days France 2026 convention](https://www.cloudnativedays.fr/)
 - [**v2.1**](https://github.com/enix/kube-image-keeper/releases/tag/v2.1.0) Priorities for routing and replication are now a thing
   - **v2.1.1** Fix concurrent access to a single registry (in particular regarding the garbage collect mechanism) by multiple Kuik instances on multiple clusters
+ 
+Planned features (subject to change):
 - **v2.2** Complete implementation of the **Image monitoring** feature with associated metrics
 - **v2.3** Improve stability of critical components (such as the mutating webhook) by deploying them individually
 
