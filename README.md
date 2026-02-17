@@ -28,14 +28,14 @@ Mostly a redesigned architecture
 ## When to use Kube Image Keeper
 
 ### ✅ Container Image Redundancy
-Replicate your container images from you developement registry to a production ready (aka more resilient) one.
+Replicate your container images from you developement registry to a production ready (i.e., more resilient) one.
 
-Kuik automaticaly clone your images to a new "prime" registry, and redirect all calls to it. This process is based on real usage, forget about complex configuration !
+Kuik automaticaly clones your images to a new "prime" registry, and redirect all calls to it. This process is based on running Pods, no complex configuration required !
 
 ### ✅ Container Image Availability Monitoring
 Detect images that are no longer available on any registry prior to Pod scheduling failures.
 
-Anticipate potential ImagePullBackoff scenarios triggered during maintenance or worker failure.
+Anticipate potential `ImagePullBackoff` scenarios caused by maintenance or worker node failures.
 
 ## 📅 Releases & Roadmap
 
