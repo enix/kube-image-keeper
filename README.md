@@ -15,7 +15,7 @@
 > [!CAUTION]
 > Not recommended for production use yet. Kuik v2 is currently being battle tested on several clusters.
 
-## ✨ What's new in v2 !
+## What's new in v2 !
 
 Mostly a redesigned architecture
 
@@ -27,26 +27,26 @@ Mostly a redesigned architecture
 
 ## When to use Kube Image Keeper
 
-### 🪨 Container Image Redundancy
+### ✅ Container Image Redundancy
 Replicate your container images from you developement registry to a production ready (aka more resilient) one.
 
 Kuik automaticaly clone your images to a new "prime" registry, and redirect all calls to it. This process is based on real usage, forget about complex configuration !
 
-### ⛵ Container Image Availability Monitoring
+### ✅ Container Image Availability Monitoring
 Detect images that are no longer available on any registry prior to Pod scheduling failures.
 
 Anticipate potential ImagePullBackoff scenarios triggered during maintenance or worker failure.
 
 ## 📅 Releases & Roadmap
 
-**Already available:**
+### Already available
 
 - [**v2.0**](https://github.com/enix/kube-image-keeper/releases/tag/v2.1.0) We announced the launch of version 2.0 (General Availability) at the [Cloud Native Days France 2026 convention](https://www.cloudnativedays.fr/)
 - [**v2.1**](https://github.com/enix/kube-image-keeper/releases/tag/v2.1.0) Priorities for routing and replication are now a thing
   - [**v2.1.1**](https://github.com/enix/kube-image-keeper/releases/tag/v2.1.1) Fix concurrent access to a single registry (in particular regarding the garbage collect mechanism) by multiple Kuik instances on multiple clusters
 - [**v2.2**](https://github.com/enix/kube-image-keeper/releases/tag/v2.2.0) Complete implementation of the **Image monitoring** feature with associated metrics
 
-**Planned features (subject to change):**
+### Planned features
 
 - **v2.3** Various quality of life improvements
   - Better filtering for cluster wide resources (`includeNamespace` & `excludeNamespace`)
@@ -73,7 +73,7 @@ helm upgrade --install --namespace kuik-system kube-image-keeper oci://quay.io/e
 
 Custom Resource Definitions (CRDs) are used to configure the behavior of kuik such as its routing and mirroring features. Those are described in the [docs/crds.md](./docs/crds.md) document.
 
-## 🤷 Why Version 2?
+## Why Version 2?
 
 Even if we are _proud_ of what we achieved with the v1 of **kube-image-keeper**, it was too often painful to work with: it was hard to deploy, overly complex, and the image caching feature — while ambitious — introduced often too much issues. We missed our original goal: to make kube-image-keeper an **easy, no-brainer install for any cluster** which would help ops in their day to day work and **provide confidence**.
 
