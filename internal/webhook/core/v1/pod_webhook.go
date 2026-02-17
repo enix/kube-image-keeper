@@ -3,6 +3,7 @@ package v1
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -25,6 +26,8 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	apimachinerytypes "k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
@@ -39,6 +42,24 @@ import (
 var podlog = logf.Log.WithName("pod-resource")
 
 var errRateLimited = errors.New("registry limit reached")
+
+// ImageAvailability represents the result of an image availability check.
+type ImageAvailability int
+
+const (
+	// ImageScheduled means the check has not been executed yet.
+	ImageScheduled ImageAvailability = iota
+	// ImageAvailable means the image is reachable and exists.
+	ImageAvailable
+	// ImageNotFound means the registry returned HTTP 404.
+	ImageNotFound
+	// ImageUnreachable means the registry could not be contacted (timeout, DNS, connection refused, etc.).
+	ImageUnreachable
+	// ImageInvalidAuth means the registry rejected credentials (HTTP 401/403).
+	ImageInvalidAuth
+	// ImageQuotaExceeded means the registry rate limit has been reached.
+	ImageQuotaExceeded
+)
 
 // SetupPodWebhookWithManager registers the webhook for Pod in the manager.
 func SetupPodWebhookWithManager(mgr ctrl.Manager, d *PodCustomDefaulter) error {
@@ -235,6 +256,7 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 		imageSetMirrors = append(imageSetMirrors, kuikv1alpha1.ImageSetMirror{
 			ObjectMeta: cism.ObjectMeta,
 			Spec:       kuikv1alpha1.ImageSetMirrorSpec(cism.Spec),
+			Status:     kuikv1alpha1.ImageSetMirrorStatus(cism.Status),
 		})
 	}
 	for _, ism := range ismList.Items {
@@ -454,7 +476,7 @@ func (d *PodCustomDefaulter) findBestAlternative(ctx context.Context, container 
 				imagePullSecrets = append(imagePullSecrets, *image.ImagePullSecret)
 			}
 
-			if d.checkImageAvailabilityCached(ctx, image.Reference, imagePullSecrets) {
+			if d.checkImageAvailabilityCached(ctx, image, imagePullSecrets) {
 				return image, true
 			}
 
@@ -467,21 +489,27 @@ func (d *PodCustomDefaulter) findBestAlternative(ctx context.Context, container 
 	return nil
 }
 
-func (d *PodCustomDefaulter) checkImageAvailabilityCached(ctx context.Context, reference string, pullSecrets []corev1.Secret) bool {
-	if result, ok := d.checkCache.Get(reference); ok {
+func (d *PodCustomDefaulter) checkImageAvailabilityCached(ctx context.Context, image *AlternativeImage, pullSecrets []corev1.Secret) bool {
+	if result, ok := d.checkCache.Get(image.Reference); ok {
 		return result
 	}
 
-	available, _ := d.requestGroup.Do("availability:"+reference, func() (any, error) {
-		available := d.checkImageAvailability(ctx, reference, pullSecrets)
-		d.checkCache.Set(reference, available)
+	available, _ := d.requestGroup.Do("availability:"+image.Reference, func() (any, error) {
+		result := d.checkImageAvailability(ctx, image.Reference, pullSecrets)
+		available := result == ImageAvailable
+		d.checkCache.Set(image.Reference, available)
+
+		if result == ImageNotFound && image.SecretOwner != nil {
+			go d.clearStaleMirrorStatus(image)
+		}
+
 		return available, nil
 	})
 
 	return available.(bool)
 }
 
-func (d *PodCustomDefaulter) checkImageAvailability(ctx context.Context, reference string, pullSecrets []corev1.Secret) bool {
+func (d *PodCustomDefaulter) checkImageAvailability(ctx context.Context, reference string, pullSecrets []corev1.Secret) ImageAvailability {
 	log := logf.FromContext(ctx, "reference", reference)
 
 	// registryMonitorName, err := internal.RegistryMonitorNameFromReference(reference)
@@ -501,16 +529,112 @@ func (d *PodCustomDefaulter) checkImageAvailability(ctx context.Context, referen
 		// ReadDescriptor(registryMonitor.Spec.Method, reference)
 
 	if isRateLimited(headers) {
-		err = errRateLimited
+		log.V(1).Info("image is not available", "error", errRateLimited)
+		return ImageQuotaExceeded
 	}
 
 	if err != nil {
 		log.V(1).Info("image is not available", "error", err)
-	} else {
-		log.V(1).Info("image is available")
+
+		switch registry.TransportStatusCode(err) {
+		case http.StatusNotFound:
+			return ImageNotFound
+		case http.StatusUnauthorized, http.StatusForbidden:
+			return ImageInvalidAuth
+		default:
+			return ImageUnreachable
+		}
 	}
 
-	return err == nil
+	log.V(1).Info("image is available")
+	return ImageAvailable
+}
+
+// clearStaleMirrorStatus clears the mirroredAt field on the ISM/CISM status entry
+// matching the given mirror reference. This signals the controller to re-mirror the image.
+func (d *PodCustomDefaulter) clearStaleMirrorStatus(image *AlternativeImage) {
+	ctx := context.Background()
+	log := podlog.WithValues("reference", image.Reference)
+
+	ism := image.SecretOwner.(*kuikv1alpha1.ImageSetMirror)
+
+	// Determine the actual CR kind: CISMs have no namespace
+	var obj client.Object
+	if ism.Namespace == "" {
+		obj = &kuikv1alpha1.ClusterImageSetMirror{
+			ObjectMeta: ism.ObjectMeta,
+		}
+	} else {
+		obj = &kuikv1alpha1.ImageSetMirror{
+			ObjectMeta: ism.ObjectMeta,
+		}
+	}
+
+	gvk, err := apiutil.GVKForObject(obj, d.Scheme())
+	if err != nil {
+		log.Error(err, "failed to get GVK")
+		return
+	}
+
+	for _, matchingImage := range ism.Status.MatchingImages {
+		for _, mirror := range matchingImage.Mirrors {
+			if mirror.Image != image.Reference || mirror.MirroredAt == nil {
+				continue
+			}
+
+			// take ownership on mirroredAt
+			d.patchMirror(logf.IntoContext(ctx, log), obj, gvk, matchingImage.Image, map[string]any{
+				"image":      image.Reference,
+				"mirroredAt": metav1.Time{Time: time.Now()},
+			})
+			// remove mirroredAt
+			d.patchMirror(logf.IntoContext(ctx, log), obj, gvk, matchingImage.Image, map[string]any{
+				"image": image.Reference,
+			})
+
+			return
+		}
+	}
+}
+
+func (d *PodCustomDefaulter) patchMirror(ctx context.Context, obj client.Object, gvk schema.GroupVersionKind, matchingImage string, mirror map[string]any) {
+	log := logf.FromContext(ctx)
+
+	patch := map[string]any{
+		"apiVersion": gvk.Group + "/" + gvk.Version,
+		"kind":       gvk.Kind,
+		"metadata": map[string]any{
+			"name": obj.GetName(),
+		},
+		"status": map[string]any{
+			"matchingImages": []map[string]any{
+				{
+					"image":   matchingImage,
+					"mirrors": []map[string]any{mirror},
+				},
+			},
+		},
+	}
+
+	if ns := obj.GetNamespace(); ns != "" {
+		patch["metadata"].(map[string]any)["namespace"] = ns
+	}
+
+	patchData, err := json.Marshal(patch)
+	if err != nil {
+		log.Error(err, "failed to marshal SSA patch")
+		return
+	}
+
+	if err := d.Status().Patch(ctx, obj,
+		client.RawPatch(apimachinerytypes.ApplyPatchType, patchData),
+		client.FieldOwner("kuik-webhook"),
+		client.ForceOwnership,
+	); err != nil {
+		log.Error(err, "failed to clear stale mirroredAt", "owner", client.ObjectKeyFromObject(obj))
+	} else {
+		log.Info("cleared stale mirroredAt", "owner", client.ObjectKeyFromObject(obj), "matchingImage", matchingImage)
+	}
 }
 
 func (d *PodCustomDefaulter) ensureSecret(ctx context.Context, namespace string, alternativeImage *AlternativeImage) error {

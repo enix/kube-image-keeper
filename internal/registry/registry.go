@@ -169,7 +169,7 @@ func (c *Client) DeleteImage(imageName string) error {
 	return c.Execute(imageName, func(ref name.Reference, opts ...remote.Option) (err error) {
 		descriptor, err := remote.Head(ref, opts...)
 		if err != nil {
-			if errIsImageNotFound(err) {
+			if ErrIsImageNotFound(err) {
 				return nil
 			}
 			return err
@@ -202,11 +202,19 @@ func getDescriptor(ref name.Reference, options ...remote.Option) (*v1.Descriptor
 	return &desc.Descriptor, nil
 }
 
-func errIsImageNotFound(err error) bool {
-	if err, ok := err.(*transport.Error); ok {
-		if err.StatusCode == http.StatusNotFound {
-			return true
-		}
+// TransportStatusCode extracts the HTTP status code from a registry transport
+// error, handling wrapped and joined errors. Returns 0 if the error is not a
+// transport error.
+func TransportStatusCode(err error) int {
+	var transportErr *transport.Error
+	if errors.As(err, &transportErr) {
+		return transportErr.StatusCode
 	}
-	return false
+	return 0
+}
+
+// ErrIsImageNotFound returns true if the error (or any wrapped/joined error)
+// is a registry transport error with HTTP 404 status code.
+func ErrIsImageNotFound(err error) bool {
+	return TransportStatusCode(err) == http.StatusNotFound
 }
