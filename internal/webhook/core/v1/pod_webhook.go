@@ -583,23 +583,28 @@ func (d *PodCustomDefaulter) clearStaleMirrorStatus(image *AlternativeImage) {
 			}
 
 			// take ownership on mirroredAt
-			d.patchMirror(logf.IntoContext(ctx, log), obj, gvk, matchingImage.Image, map[string]any{
+			if err := d.patchMirror(ctx, obj, gvk, matchingImage.Image, map[string]any{
 				"image":      image.Reference,
 				"mirroredAt": metav1.Time{Time: time.Now()},
-			})
-			// remove mirroredAt
-			d.patchMirror(logf.IntoContext(ctx, log), obj, gvk, matchingImage.Image, map[string]any{
-				"image": image.Reference,
-			})
+			}); err != nil {
+				log.Error(err, "failed to take ownership on stale mirroredAt", "owner", client.ObjectKeyFromObject(obj))
+				continue
+			}
 
-			return
+			// remove mirroredAt
+			if err := d.patchMirror(ctx, obj, gvk, matchingImage.Image, map[string]any{
+				"image": image.Reference,
+			}); err != nil {
+				log.Error(err, "failed to clear stale mirroredAt", "owner", client.ObjectKeyFromObject(obj))
+				continue
+			}
+
+			log.Info("cleared stale mirroredAt", "owner", client.ObjectKeyFromObject(obj), "matchingImage", matchingImage)
 		}
 	}
 }
 
-func (d *PodCustomDefaulter) patchMirror(ctx context.Context, obj client.Object, gvk schema.GroupVersionKind, matchingImage string, mirror map[string]any) {
-	log := logf.FromContext(ctx)
-
+func (d *PodCustomDefaulter) patchMirror(ctx context.Context, obj client.Object, gvk schema.GroupVersionKind, matchingImage string, mirror map[string]any) error {
 	patch := map[string]any{
 		"apiVersion": gvk.Group + "/" + gvk.Version,
 		"kind":       gvk.Kind,
@@ -622,8 +627,7 @@ func (d *PodCustomDefaulter) patchMirror(ctx context.Context, obj client.Object,
 
 	patchData, err := json.Marshal(patch)
 	if err != nil {
-		log.Error(err, "failed to marshal SSA patch")
-		return
+		return fmt.Errorf("failed to marshal SSA patch: %w", err)
 	}
 
 	if err := d.Status().Patch(ctx, obj,
@@ -631,10 +635,10 @@ func (d *PodCustomDefaulter) patchMirror(ctx context.Context, obj client.Object,
 		client.FieldOwner("kuik-webhook"),
 		client.ForceOwnership,
 	); err != nil {
-		log.Error(err, "failed to clear stale mirroredAt", "owner", client.ObjectKeyFromObject(obj))
-	} else {
-		log.Info("cleared stale mirroredAt", "owner", client.ObjectKeyFromObject(obj), "matchingImage", matchingImage)
+		return err
 	}
+
+	return nil
 }
 
 func (d *PodCustomDefaulter) ensureSecret(ctx context.Context, namespace string, alternativeImage *AlternativeImage) error {

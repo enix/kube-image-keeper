@@ -240,3 +240,17 @@ func (r *ImageSetMirrorBaseReconciler) getAllMirrorPrefixes(ctx context.Context,
 
 	return mirrorPrefixes, nil
 }
+
+func matchMirrorFromMatchingImages(normalizedImage string, matchingImages []kuikv1alpha1.MatchingImage) bool {
+	for i := range matchingImages {
+		matchingImage := &matchingImages[i]
+		for j := range matchingImage.Mirrors {
+			mirror := matchingImage.Mirrors[j]
+			if normalizedImage == mirror.Image {
+				return true
+			}
+		}
+	}
+
+	return false
+}

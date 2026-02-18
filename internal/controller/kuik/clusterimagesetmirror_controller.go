@@ -249,13 +249,14 @@ func (r *ClusterImageSetMirrorReconciler) SetupWithManager(mgr ctrl.Manager) err
 							continue // ignore digest-based images
 						}
 
-						_, match, err := internal.NormalizeAndMatch(imageFilter, container.Image)
+						normalizedNamed, match, err := internal.NormalizeAndMatch(imageFilter, container.Image)
 						if err != nil {
 							log.Error(err, "failed to match an image", "image", container.Image)
 							continue
 						}
 
-						if match {
+						normalizedImage := normalizedNamed.String()
+						if match || matchMirrorFromMatchingImages(normalizedImage, cism.Status.MatchingImages) {
 							reqs = append(reqs, reconcile.Request{
 								NamespacedName: client.ObjectKeyFromObject(&cism),
 							})
