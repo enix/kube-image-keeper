@@ -368,8 +368,10 @@ func (d *PodCustomDefaulter) findBestAlternativeCached(ctx context.Context, imag
 		d.alternativeCache.Set(container.Image, alternativeImage)
 		return alternativeImage, nil
 	})
-
-	return alternativeImage.(*AlternativeImage), err
+	if err != nil {
+		return nil, err
+	}
+	return alternativeImage.(*AlternativeImage), nil
 }
 
 func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSetMirrors []kuikv1alpha1.ImageSetMirror, replicatedImageSets []kuikv1alpha1.ReplicatedImageSet, container *Container) error {
