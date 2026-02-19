@@ -2,7 +2,9 @@ package kuik
 
 import (
 	"context"
+	"maps"
 	"path"
+	"slices"
 	"strings"
 	"time"
 
@@ -121,7 +123,7 @@ func (r *ImageSetMirrorBaseReconciler) cleanupMirror(ctx context.Context, image,
 
 func mergePreviousAndCurrentMatchingImages(ctx context.Context, pods []corev1.Pod, ismSpec *kuikv1alpha1.ImageSetMirrorSpec, ismStatus *kuikv1alpha1.ImageSetMirrorStatus, mirrorPrefixes map[string][]string) (map[string]*corev1.Pod, map[string]kuikv1alpha1.MatchingImage, error) {
 	imageFilter := ismSpec.ImageFilter.MustBuild()
-	podsByMatchingImages, err := internal.PodsByNormalizedMatchingImages(ctx, imageFilter, mirrorPrefixes, pods)
+	podsByMatchingImages, err := podsByNormalizedMatchingImages(ctx, imageFilter, mirrorPrefixes, pods)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -146,6 +148,45 @@ func mergePreviousAndCurrentMatchingImages(ctx context.Context, pods []corev1.Po
 	}
 
 	return podsByMatchingImages, matchingImagesMap, nil
+}
+
+func podsByNormalizedMatchingImages(ctx context.Context, filter filter.Filter, mirrorPrefixes map[string][]string, pods []corev1.Pod) (map[string]*corev1.Pod, error) {
+	log := logf.FromContext(ctx)
+
+	filteredOutImagesMap := map[string]struct{}{}
+	matchingImagesMap := map[string]*corev1.Pod{}
+	for _, pod := range pods {
+		for _, container := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
+			if strings.Contains(container.Image, "@") {
+				continue // ignore digest-based images
+			}
+
+			named, match, err := internal.NormalizeAndMatch(filter, container.Image)
+			if err != nil {
+				return nil, err
+			}
+
+			namedStr := named.String()
+			relevantMirrorPrefixes := append(mirrorPrefixes[""], mirrorPrefixes[pod.Namespace]...)
+			if slices.ContainsFunc(relevantMirrorPrefixes, func(mirrorPrefix string) bool {
+				return strings.HasPrefix(namedStr, mirrorPrefix)
+			}) {
+				filteredOutImagesMap[namedStr] = struct{}{}
+				continue
+			}
+
+			if match {
+				matchingImagesMap[namedStr] = &pod
+			}
+		}
+	}
+
+	if len(filteredOutImagesMap) > 0 {
+		filteredOutImages := slices.Collect(maps.Keys(filteredOutImagesMap))
+		log.V(1).Info("filtering out images to prevent mirror loop", "images", filteredOutImages, "count", len(filteredOutImagesMap))
+	}
+
+	return matchingImagesMap, nil
 }
 
 func updateUnusedSince(ctx context.Context, matchingImagesMap map[string]kuikv1alpha1.MatchingImage, ismStatus *kuikv1alpha1.ImageSetMirrorStatus, imageFilter filter.Filter) error {
