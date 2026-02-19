@@ -2,12 +2,15 @@ package kuik
 
 import (
 	"context"
+	"encoding/json"
+	"iter"
 	"maps"
 	"path"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/distribution/reference"
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal"
 	"github.com/enix/kube-image-keeper/internal/filter"
@@ -155,28 +158,19 @@ func podsByNormalizedMatchingImages(ctx context.Context, filter filter.Filter, m
 
 	filteredOutImagesMap := map[string]struct{}{}
 	matchingImagesMap := map[string]*corev1.Pod{}
-	for _, pod := range pods {
-		for _, container := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
-			if strings.Contains(container.Image, "@") {
-				continue // ignore digest-based images
-			}
-
-			named, match, err := internal.NormalizeAndMatch(filter, container.Image)
-			if err != nil {
-				return nil, err
-			}
-
-			namedStr := named.String()
+	for i := range pods {
+		pod := &pods[i]
+		for image := range normalizedImageNamesFromPod(ctx, pod) {
 			relevantMirrorPrefixes := append(mirrorPrefixes[""], mirrorPrefixes[pod.Namespace]...)
 			if slices.ContainsFunc(relevantMirrorPrefixes, func(mirrorPrefix string) bool {
-				return strings.HasPrefix(namedStr, mirrorPrefix)
+				return strings.HasPrefix(image, mirrorPrefix)
 			}) {
-				filteredOutImagesMap[namedStr] = struct{}{}
+				filteredOutImagesMap[image] = struct{}{}
 				continue
 			}
 
-			if match {
-				matchingImagesMap[namedStr] = &pod
+			if filter.Match(image) {
+				matchingImagesMap[image] = pod
 			}
 		}
 	}
@@ -187,6 +181,37 @@ func podsByNormalizedMatchingImages(ctx context.Context, filter filter.Filter, m
 	}
 
 	return matchingImagesMap, nil
+}
+
+func normalizedImageNamesFromPod(ctx context.Context, pod *corev1.Pod) iter.Seq[string] {
+	log := logf.FromContext(ctx)
+
+	originalImages := map[string]string{}
+	if originalImagesStr, ok := pod.Annotations[OriginalImagesAnnotation]; ok {
+		if err := json.Unmarshal([]byte(originalImagesStr), &originalImages); err != nil {
+			log.Error(err, "could not unmarshal "+OriginalImagesAnnotation+" annotation")
+		}
+	}
+
+	imageNames := map[string]struct{}{}
+	for _, container := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
+		if strings.Contains(container.Image, "@") {
+			continue // ignore digest-based images
+		}
+		if named, err := reference.ParseNormalizedNamed(container.Image); err == nil {
+			imageNames[named.String()] = struct{}{}
+		}
+	}
+	for _, image := range originalImages {
+		if strings.Contains(image, "@") {
+			continue // ignore digest-based images
+		}
+		if named, err := reference.ParseNormalizedNamed(image); err == nil {
+			imageNames[named.String()] = struct{}{}
+		}
+	}
+
+	return maps.Keys(imageNames)
 }
 
 func updateUnusedSince(ctx context.Context, matchingImagesMap map[string]kuikv1alpha1.MatchingImage, ismStatus *kuikv1alpha1.ImageSetMirrorStatus, imageFilter filter.Filter) error {

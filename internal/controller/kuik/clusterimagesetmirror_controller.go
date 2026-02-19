@@ -2,12 +2,10 @@ package kuik
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 	"time"
 
-	"github.com/distribution/reference"
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/util/retry"
@@ -52,7 +50,7 @@ func (r *ClusterImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctr
 		return ctrl.Result{}, err
 	}
 
-	if !cism.ObjectMeta.DeletionTimestamp.IsZero() {
+	if !cism.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(&cism, imageSetMirrorFinalizer) {
 			log.Info("deleting images from cache")
 
@@ -242,24 +240,7 @@ func (r *ClusterImageSetMirrorReconciler) SetupWithManager(mgr ctrl.Manager) err
 					return nil
 				}
 
-				originalImages := map[string]string{}
-				if originalImagesStr, ok := pod.Annotations[OriginalImagesAnnotation]; ok {
-					if err := json.Unmarshal([]byte(originalImagesStr), &originalImages); err != nil {
-						log.Error(err, "could not unmarshal "+OriginalImagesAnnotation+" annotation")
-					}
-				}
-
-				imageNames := map[string]struct{}{}
-				for _, container := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
-					if named, err := reference.ParseNormalizedNamed(container.Image); err == nil {
-						imageNames[named.String()] = struct{}{}
-					}
-				}
-				for _, image := range originalImages {
-					if named, err := reference.ParseNormalizedNamed(image); err == nil {
-						imageNames[named.String()] = struct{}{}
-					}
-				}
+				imageNames := normalizedImageNamesFromPod(logf.IntoContext(ctx, log), pod)
 
 				reqs := []reconcile.Request{}
 				for _, cism := range cisms.Items {
