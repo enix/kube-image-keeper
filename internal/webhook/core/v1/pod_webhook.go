@@ -559,7 +559,10 @@ func (d *PodCustomDefaulter) clearStaleMirrorStatus(image *AlternativeImage) {
 	ctx := context.Background()
 	log := podlog.WithValues("reference", image.Reference)
 
-	ism := image.SecretOwner.(*kuikv1alpha1.ImageSetMirror)
+	ism, ok := image.SecretOwner.(*kuikv1alpha1.ImageSetMirror)
+	if !ok {
+		return // secret owner is a ReplicatedImageSet
+	}
 
 	// Determine the actual CR kind: CISMs have no namespace
 	var obj client.Object
