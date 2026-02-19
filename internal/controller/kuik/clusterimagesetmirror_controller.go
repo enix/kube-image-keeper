@@ -52,7 +52,7 @@ func (r *ClusterImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctr
 	}
 
 	if !cism.ObjectMeta.DeletionTimestamp.IsZero() {
-		if controllerutil.ContainsFinalizer(&cism, imageSetMirrorFinalizerName) {
+		if controllerutil.ContainsFinalizer(&cism, imageSetMirrorFinalizer) {
 			log.Info("deleting images from cache")
 
 			for _, matchingImages := range cism.Status.MatchingImages {
@@ -74,7 +74,7 @@ func (r *ClusterImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctr
 				if err := r.Get(ctx, client.ObjectKeyFromObject(&cism), &cism); err != nil {
 					return client.IgnoreNotFound(err)
 				}
-				controllerutil.RemoveFinalizer(&cism, imageSetMirrorFinalizerName)
+				controllerutil.RemoveFinalizer(&cism, imageSetMirrorFinalizer)
 				return r.Update(ctx, &cism)
 			})
 			if err != nil {
@@ -85,14 +85,14 @@ func (r *ClusterImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctr
 		return ctrl.Result{}, nil
 	}
 
-	if !controllerutil.ContainsFinalizer(&cism, imageSetMirrorFinalizerName) {
+	if !controllerutil.ContainsFinalizer(&cism, imageSetMirrorFinalizer) {
 		log.Info("adding finalizer")
 		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 			if err := r.Get(ctx, client.ObjectKeyFromObject(&cism), &cism); err != nil {
 				return err
 			}
 
-			controllerutil.AddFinalizer(&cism, imageSetMirrorFinalizerName)
+			controllerutil.AddFinalizer(&cism, imageSetMirrorFinalizer)
 			return r.Update(ctx, &cism)
 		})
 		if err != nil {

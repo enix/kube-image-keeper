@@ -52,7 +52,7 @@ func (r *ImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	if !cism.ObjectMeta.DeletionTimestamp.IsZero() {
-		if controllerutil.ContainsFinalizer(&cism, imageSetMirrorFinalizerName) {
+		if controllerutil.ContainsFinalizer(&cism, imageSetMirrorFinalizer) {
 			log.Info("deleting images from cache")
 
 			for _, matchingImages := range cism.Status.MatchingImages {
@@ -70,7 +70,7 @@ func (r *ImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			}
 
 			log.Info("removing finalizer")
-			controllerutil.RemoveFinalizer(&cism, imageSetMirrorFinalizerName)
+			controllerutil.RemoveFinalizer(&cism, imageSetMirrorFinalizer)
 			if err := r.Update(ctx, &cism); err != nil {
 				return ctrl.Result{}, err
 			}
@@ -79,9 +79,9 @@ func (r *ImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, nil
 	}
 
-	if !controllerutil.ContainsFinalizer(&cism, imageSetMirrorFinalizerName) {
+	if !controllerutil.ContainsFinalizer(&cism, imageSetMirrorFinalizer) {
 		log.Info("adding finalizer")
-		controllerutil.AddFinalizer(&cism, imageSetMirrorFinalizerName)
+		controllerutil.AddFinalizer(&cism, imageSetMirrorFinalizer)
 		if err := r.Update(ctx, &cism); err != nil {
 			return ctrl.Result{}, err
 		}

@@ -15,11 +15,6 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-const (
-	cleanupFinalizer = "kuik.enix.io/secret-cleanup"
-	OwnerUIDLabel    = "kuik.enix.io/owner-uid"
-)
-
 // SecretOwnerReconciler reconciles any object that owns one or more Secret
 type SecretOwnerReconciler[T client.Object] struct {
 	client.Client

@@ -666,11 +666,11 @@ func (d *PodCustomDefaulter) ensureSecret(ctx context.Context, namespace string,
 		target.Data = secret.Data
 		target.Type = secret.Type
 		target.Labels = map[string]string{
-			"kuik.enix.io/owner-version": gvk.Version,
-			"kuik.enix.io/owner-group":   gvk.Group,
-			"kuik.enix.io/owner-kind":    gvk.Kind,
-			kuikcontroller.OwnerUIDLabel: ownerUID,
-			"kuik.enix.io/owner-name":    owner.GetName(),
+			kuikcontroller.OwnerVersionLabel: gvk.Version,
+			kuikcontroller.OwnerGroupLabel:   gvk.Group,
+			kuikcontroller.OwnerKindLabel:    gvk.Kind,
+			kuikcontroller.OwnerUIDLabel:     ownerUID,
+			kuikcontroller.OwnerNameLabel:    owner.GetName(),
 		}
 		return nil
 	})

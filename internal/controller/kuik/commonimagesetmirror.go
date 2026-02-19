@@ -20,8 +20,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-const imageSetMirrorFinalizerName = "kuik.enix.io/mirror-cleanup"
-
 // ImageSetMirrorBaseReconciler provides a base for building ImageSetMirror and ClusterImageSetMirror reconciliers
 type ImageSetMirrorBaseReconciler struct {
 	client.Client
