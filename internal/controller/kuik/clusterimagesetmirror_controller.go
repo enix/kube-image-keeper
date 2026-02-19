@@ -2,12 +2,13 @@ package kuik
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
 
+	"github.com/distribution/reference"
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
-	"github.com/enix/kube-image-keeper/internal"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
@@ -241,22 +242,34 @@ func (r *ClusterImageSetMirrorReconciler) SetupWithManager(mgr ctrl.Manager) err
 					return nil
 				}
 
+				originalImages := map[string]string{}
+				if originalImagesStr, ok := pod.Annotations[OriginalImagesAnnotation]; ok {
+					if err := json.Unmarshal([]byte(originalImagesStr), &originalImages); err != nil {
+						log.Error(err, "could not unmarshal "+OriginalImagesAnnotation+" annotation")
+					}
+				}
+
+				imageNames := map[string]struct{}{}
+				for _, container := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
+					if named, err := reference.ParseNormalizedNamed(container.Image); err == nil {
+						imageNames[named.String()] = struct{}{}
+					}
+				}
+				for _, image := range originalImages {
+					if named, err := reference.ParseNormalizedNamed(image); err == nil {
+						imageNames[named.String()] = struct{}{}
+					}
+				}
+
 				reqs := []reconcile.Request{}
 				for _, cism := range cisms.Items {
 					imageFilter := cism.Spec.ImageFilter.MustBuild()
-					for _, container := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
-						if strings.Contains(container.Image, "@") {
+					for imageName := range imageNames {
+						if strings.Contains(imageName, "@") {
 							continue // ignore digest-based images
 						}
 
-						normalizedNamed, match, err := internal.NormalizeAndMatch(imageFilter, container.Image)
-						if err != nil {
-							log.Error(err, "failed to match an image", "image", container.Image)
-							continue
-						}
-
-						normalizedImage := normalizedNamed.String()
-						if match || matchMirrorFromMatchingImages(normalizedImage, cism.Status.MatchingImages) {
+						if imageFilter.Match(imageName) {
 							reqs = append(reqs, reconcile.Request{
 								NamespacedName: client.ObjectKeyFromObject(&cism),
 							})
