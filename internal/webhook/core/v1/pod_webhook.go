@@ -180,21 +180,20 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 		pod.Annotations = map[string]string{}
 	}
 
-	processedContainersMap := map[string]struct{}{}
-	if processedContainers, ok := pod.Annotations["kuik.enix.io/processed-containers"]; ok {
-		for name := range strings.SplitSeq(processedContainers, ",") {
-			processedContainersMap[name] = struct{}{}
+	originalImages := map[string]string{}
+	if originalImagesStr, ok := pod.Annotations[kuikcontroller.OriginalImagesAnnotation]; ok {
+		if err := json.Unmarshal([]byte(originalImagesStr), &originalImages); err != nil {
+			log.Error(err, "could not unmarshal "+kuikcontroller.OriginalImagesAnnotation+" annotation")
 		}
 	}
 
-	processedContainers := make([]string, 0, len(pod.Spec.Containers)+len(pod.Spec.InitContainers))
 	containers := make([]Container, 0, len(pod.Spec.Containers)+len(pod.Spec.InitContainers))
 	for i := range pod.Spec.Containers {
-		name := pod.Spec.Containers[i].Name
-		processedContainers = append(processedContainers, name)
-		if _, ok := processedContainersMap[name]; ok {
+		container := &pod.Spec.Containers[i]
+		if _, ok := originalImages[container.Name]; ok {
 			continue
 		}
+		originalImages[container.Name] = container.Image
 		containers = append(containers, Container{
 			Container:    &pod.Spec.Containers[i],
 			Alternatives: map[string]struct{}{},
@@ -202,8 +201,7 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 	}
 	for i := range pod.Spec.InitContainers {
 		name := "init:" + pod.Spec.InitContainers[i].Name
-		processedContainers = append(processedContainers, name)
-		if _, ok := processedContainersMap[name]; ok {
+		if _, ok := originalImages[name]; ok {
 			continue
 		}
 		containers = append(containers, Container{
@@ -212,7 +210,12 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 			Alternatives: map[string]struct{}{},
 		})
 	}
-	pod.Annotations["kuik.enix.io/processed-containers"] = strings.Join(processedContainers, ",")
+
+	if originalImagesStr, err := json.Marshal(originalImages); err != nil {
+		log.Error(err, "could not marshal "+kuikcontroller.OriginalImagesAnnotation+" annotation")
+	} else {
+		pod.Annotations[kuikcontroller.OriginalImagesAnnotation] = string(originalImagesStr)
+	}
 
 	if len(containers) == 0 {
 		return nil // all containers have been processed already
