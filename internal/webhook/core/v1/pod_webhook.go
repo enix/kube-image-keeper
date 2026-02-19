@@ -265,7 +265,9 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 	for _, ism := range ismList.Items {
 		for i := range ism.Spec.Mirrors {
 			mirror := &ism.Spec.Mirrors[i]
-			mirror.CredentialSecret.Namespace = pod.Namespace
+			if mirror.CredentialSecret != nil {
+				mirror.CredentialSecret.Namespace = ism.Namespace
+			}
 		}
 		imageSetMirrors = append(imageSetMirrors, ism)
 	}
@@ -277,7 +279,15 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 			Spec:       kuikv1alpha1.ReplicatedImageSetSpec(cris.Spec),
 		})
 	}
-	replicatedImageSets = append(replicatedImageSets, risList.Items...)
+	for _, ris := range risList.Items {
+		for i := range ris.Spec.Upstreams {
+			upstream := &ris.Spec.Upstreams[i]
+			if upstream.CredentialSecret != nil {
+				upstream.CredentialSecret.Namespace = ris.Namespace
+			}
+		}
+		replicatedImageSets = append(replicatedImageSets, ris)
+	}
 
 	podCredentialSecrets := make([]*kuikv1alpha1.CredentialSecret, 0, len(pod.Spec.ImagePullSecrets))
 	for _, imagePullSecret := range pod.Spec.ImagePullSecrets {
