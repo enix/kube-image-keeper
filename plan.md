@@ -16,19 +16,29 @@ The feature touches five areas: **config**, **API types**, **registry package re
 
 **File:** `internal/config/config.go`
 
-Add a `RegistriesMonitoring` map keyed by registry hostname. Each entry configures the monitoring behaviour for that registry. The existing `kuikv1alpha1.CredentialSecret` type (defined in `api/kuik/v1alpha1/imagesetmirror_types.go`) is reused directly — no new struct needed. The `config` package will import `api/kuik/v1alpha1`, which is safe since `api/kuik/v1alpha1` only imports `internal/filter` and there is no circular dependency.
+Add a `RegistriesMonitoring` struct that separates the baseline `Default` config from per-registry overrides stored under `Items`. The existing `kuikv1alpha1.CredentialSecret` type (defined in `api/kuik/v1alpha1/imagesetmirror_types.go`) is reused directly — no new struct needed. The `config` package will import `api/kuik/v1alpha1`, which is safe since `api/kuik/v1alpha1` only imports `internal/filter` and there is no circular dependency.
 
 ```go
 import kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 
 type Config struct {
-    Routing              Routing                       `koanf:"routing"`
-    RegistriesMonitoring map[string]RegistryMonitoring `koanf:"registriesMonitoring"`
+    Routing              Routing              `koanf:"routing"`
+    RegistriesMonitoring RegistriesMonitoring `koanf:"registriesMonitoring"`
+}
+
+// RegistriesMonitoring separates the baseline config from per-registry overrides.
+type RegistriesMonitoring struct {
+    // Default is the baseline configuration applied to all registries.
+    // Registry-specific entries in Items override individual fields.
+    Default RegistryMonitoring `koanf:"default"`
+
+    // Items maps registry hostnames to their per-registry overrides.
+    // Only the fields that differ from Default need to be specified.
+    Items map[string]RegistryMonitoring `koanf:"items"`
 }
 
 type RegistryMonitoring struct {
     // Method is the HTTP method used for availability checks: "HEAD" or "GET".
-    // Default: "HEAD"
     Method string `koanf:"method"`
 
     // Interval is the period of one drip-feed cycle for this registry.
@@ -48,11 +58,9 @@ type RegistryMonitoring struct {
 }
 ```
 
-### Special `"default"` key
+### Default and per-registry configuration
 
-@NOTE: actually `default` is not a special key, per-registry configuration are stored in `registriesMonitoring.items` dictionary.
-
-The reserved key `"default"` acts as a catch-all for registries not explicitly configured. If an image's registry is not a key in `RegistriesMonitoring`, the `"default"` entry is used. `"default"` supports all fields except `FallbackCredentialSecret` (which is always nil for the default).
+`Default` provides the baseline that applies to every registry. Entries in `Items` only need to specify the fields that differ from the default — unset fields (zero values) inherit the default.
 
 ```yaml
 # /etc/kuik/config.yaml
@@ -62,26 +70,52 @@ registriesMonitoring:
     interval: 5m
     maxPerInterval: 1
     timeout: 5s
-  docker.io:
-    method: HEAD
-    interval: 1h
-    maxPerInterval: 3
-    timeout: 5s
-    fallbackCredentialSecret:
-      name: registry-secret
-      namespace: kuik-system
+  items:
+    docker.io:
+      # Inherits method=HEAD and timeout=5s from default.
+      interval: 1h
+      maxPerInterval: 3
+      fallbackCredentialSecret:
+        name: registry-secret
+        namespace: kuik-system
 ```
 
-A helper on the reconciler (see Phase 3) resolves the effective config for any registry:
-@NOTE: it should also merges both config so docker.io could override only the interval but still use default values for instance.
+A helper on the reconciler (see Phase 4) resolves the effective merged config for a given registry. It starts from `Default` and applies only the non-zero fields from the matching `Items` entry, so a per-registry override only needs to declare what it changes:
 
 ```go
 func (r *ClusterImageSetAvailabilityReconciler) registryConfig(registry string) (config.RegistryMonitoring, bool) {
-    if cfg, ok := r.Config.RegistriesMonitoring[registry]; ok {
-        return cfg, true
+    mon := r.Config.RegistriesMonitoring
+
+    // Start from the baseline default.
+    merged := mon.Default
+
+    override, hasOverride := mon.Items[registry]
+
+    // A registry with no matching entry and no configured default is not monitored.
+    if merged.Interval == 0 && !hasOverride {
+        return config.RegistryMonitoring{}, false
     }
-    cfg, ok := r.Config.RegistriesMonitoring["default"]
-    return cfg, ok
+
+    // Apply per-registry overrides: only non-zero fields replace the default.
+    if hasOverride {
+        if override.Method != "" {
+            merged.Method = override.Method
+        }
+        if override.Interval != 0 {
+            merged.Interval = override.Interval
+        }
+        if override.MaxPerInterval != 0 {
+            merged.MaxPerInterval = override.MaxPerInterval
+        }
+        if override.Timeout != 0 {
+            merged.Timeout = override.Timeout
+        }
+        if override.FallbackCredentialSecret != nil {
+            merged.FallbackCredentialSecret = override.FallbackCredentialSecret
+        }
+    }
+
+    return merged, true
 }
 ```
 
@@ -689,25 +723,22 @@ kubebuilder create api \
   --version v1alpha1 \
   --group kuik \
   --resource \
-  --controller=false \
+  --controller=true \
   --namespaced=false
 ```
 
-This updates `PROJECT` and generates the types stub (to be replaced by our implementation). The `--controller=false` flag skips generating a controller stub since we write it manually.
-
-@NOTE: use `--controller=true` and overwrite it manually then, so `PROJECT` file is updated in consequence.
+This updates `PROJECT` (including the controller entry), generates the types stub, and generates the controller stub along with its registration in `cmd/main.go`. Both stubs are replaced by our implementation.
 
 ### 5.2 Register the controller
 
-@NOTE: this will be done by kubebuilder, only add the missing configuration field afterward.
-
-In `cmd/main.go`, add after the existing controllers:
+kubebuilder generates the controller registration in `cmd/main.go`. The only manual edit needed afterward is adding the `Config` field, which kubebuilder cannot know about:
 
 ```go
+// Generated by kubebuilder — add Config: configuration manually.
 if err = (&kuikcontroller.ClusterImageSetAvailabilityReconciler{
     Client: mgr.GetClient(),
     Scheme: mgr.GetScheme(),
-    Config: configuration,
+    Config: configuration, // add this line
 }).SetupWithManager(mgr); err != nil {
     setupLog.Error(err, "unable to create controller", "controller", "ClusterImageSetAvailability")
     os.Exit(1)
@@ -757,9 +788,11 @@ The registry hostname is extracted with `internal.RegistryAndPathFromReference(i
 
 `imageFilter` patterns are matched against the registry-relative path (everything after `registry/`) using `MustBuildWithRegistry(registry + "/")`. This means patterns like `library/nginx:.+` work naturally without embedding the registry hostname. The same filter is tested per configured (or default) registry.
 
-### `"default"` registry key
+### Default and per-registry config merging
 
-The reserved `"default"` key in `registriesMonitoring` is a catch-all for registries not explicitly configured. The `registryConfig(registry)` helper hides the two-step lookup. `"default"` is never passed to `findNextImageToCheck` or treated as a real registry hostname — the monitoring loop iterates over the unique registries found in `status.images`.
+`RegistriesMonitoring.Default` provides the baseline for all registries. `RegistriesMonitoring.Items` holds per-registry overrides; only non-zero fields in an override replace the corresponding default field.
+
+The `registryConfig(registry)` helper applies this merge and returns `false` only when both `Default.Interval` is zero and the registry has no entry in `Items` — meaning the registry is not monitored at all. `"default"` is never a registry hostname: the monitoring loop iterates over unique registries found in `status.images` (via `uniqueRegistriesFromStatus`) and resolves config through `registryConfig`.
 
 ### Unified `ImageAvailabilityStatus` type
 
@@ -775,7 +808,7 @@ If `unusedImageExpiry` is not set (zero value), unused images are never removed 
 
 | File | Action |
 |---|---|
-| `internal/config/config.go` | Add `RegistriesMonitoring`, `RegistryMonitoring`; import `kuikv1alpha1`; remove `CredentialSecretRef` |
+| `internal/config/config.go` | Add `RegistriesMonitoring` struct (with `Default` + `Items`), `RegistryMonitoring`; import `kuikv1alpha1` |
 | `api/kuik/v1alpha1/clusterimagesetavailability_types.go` | **New**: CRD types, `ImageAvailabilityStatus` enum |
 | `api/kuik/v1alpha1/zz_generated.deepcopy.go` | Auto-generated by `make generate` |
 | `config/crd/bases/kuik.enix.io_clusterimagesetavailabilities.yaml` | Auto-generated by `make manifests` |
