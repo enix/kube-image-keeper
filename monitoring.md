@@ -8,14 +8,15 @@ registriesMonitoring:
     interval: 5m
     maxPerInterval: 1
     timeout: 5s
-  docker.io:
-    method: HEAD
-    interval: 1h
-    maxPerInterval: 3
-    timeout: 5s
-    fallbackCredentialSecret: # optionnel : si le pod n'existe plus
-      name: registry-secret
-      namespace: kuik-system
+  items:
+    docker.io:
+      method: HEAD
+      interval: 1h
+      maxPerInterval: 3
+      timeout: 5s
+      fallbackCredentialSecret: # optionnel : si le pod n'existe plus
+        name: registry-secret
+        namespace: kuik-system
 ```
 
 CRD ClusterImageSetAvailability :

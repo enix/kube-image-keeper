@@ -50,6 +50,8 @@ type RegistryMonitoring struct {
 
 ### Special `"default"` key
 
+@NOTE: actually `default` is not a special key, per-registry configuration are stored in `registriesMonitoring.items` dictionary.
+
 The reserved key `"default"` acts as a catch-all for registries not explicitly configured. If an image's registry is not a key in `RegistriesMonitoring`, the `"default"` entry is used. `"default"` supports all fields except `FallbackCredentialSecret` (which is always nil for the default).
 
 ```yaml
@@ -71,6 +73,7 @@ registriesMonitoring:
 ```
 
 A helper on the reconciler (see Phase 3) resolves the effective config for any registry:
+@NOTE: it should also merges both config so docker.io could override only the interval but still use default values for instance.
 
 ```go
 func (r *ClusterImageSetAvailabilityReconciler) registryConfig(registry string) (config.RegistryMonitoring, bool) {
@@ -692,7 +695,11 @@ kubebuilder create api \
 
 This updates `PROJECT` and generates the types stub (to be replaced by our implementation). The `--controller=false` flag skips generating a controller stub since we write it manually.
 
+@NOTE: use `--controller=true` and overwrite it manually then, so `PROJECT` file is updated in consequence.
+
 ### 5.2 Register the controller
+
+@NOTE: this will be done by kubebuilder, only add the missing configuration field afterward.
 
 In `cmd/main.go`, add after the existing controllers:
 
