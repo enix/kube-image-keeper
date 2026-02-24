@@ -8,7 +8,7 @@ Add a new `ClusterImageSetAvailability` CRD (cluster-scoped) that:
 3. Rate-limits checks per registry via a drip-feed mechanism (`maxPerInterval` checks per `interval`)
 4. Expires and removes images from tracking after `unusedImageExpiry` once no Pod uses them
 
-The feature touches four areas: **config**, **API types**, **controller**, and **main.go registration**.
+The feature touches five areas: **config**, **API types**, **registry package refactor**, **controller**, and **main.go registration**.
 
 ---
 
@@ -16,59 +16,73 @@ The feature touches four areas: **config**, **API types**, **controller**, and *
 
 **File:** `internal/config/config.go`
 
-Add a `RegistriesMonitoring` map keyed by registry hostname. Each entry configures the monitoring behaviour for that registry.
-
-@NOTE: `CredentialSecret` is already defined in `api/kuik/v1alpha1/imagesetmirror_types.go`.
+Add a `RegistriesMonitoring` map keyed by registry hostname. Each entry configures the monitoring behaviour for that registry. The existing `kuikv1alpha1.CredentialSecret` type (defined in `api/kuik/v1alpha1/imagesetmirror_types.go`) is reused directly — no new struct needed. The `config` package will import `api/kuik/v1alpha1`, which is safe since `api/kuik/v1alpha1` only imports `internal/filter` and there is no circular dependency.
 
 ```go
+import kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
+
 type Config struct {
-    Routing              Routing                        `koanf:"routing"`
-    RegistriesMonitoring map[string]RegistryMonitoring  `koanf:"registriesMonitoring"`
+    Routing              Routing                       `koanf:"routing"`
+    RegistriesMonitoring map[string]RegistryMonitoring `koanf:"registriesMonitoring"`
 }
 
 type RegistryMonitoring struct {
-    // Method is the HTTP method used for availability checks. "HEAD" or "GET".
+    // Method is the HTTP method used for availability checks: "HEAD" or "GET".
     // Default: "HEAD"
     Method string `koanf:"method"`
 
-    // Interval is the period between check cycles for this registry.
+    // Interval is the period of one drip-feed cycle for this registry.
     Interval time.Duration `koanf:"interval"`
 
-    // MaxPerInterval is the maximum number of images checked per Interval.
-    // Together they define the drip-feed rate: one check every Interval/MaxPerInterval.
+    // MaxPerInterval is the number of images checked per Interval.
+    // Together they define the tick rate: one check every Interval/MaxPerInterval.
     MaxPerInterval int `koanf:"maxPerInterval"`
 
-    // Timeout is the per-request timeout for availability checks.
+    // Timeout is the per-request deadline for availability checks.
     Timeout time.Duration `koanf:"timeout"`
 
-    // FallbackCredentialSecret is used for images no longer referenced by any Pod.
-    FallbackCredentialSecret *CredentialSecretRef `koanf:"fallbackCredentialSecret"`
-}
-
-// CredentialSecretRef is a namespace/name reference to a Kubernetes Secret.
-// It is defined here (not in the API package) to keep the config package self-contained.
-type CredentialSecretRef struct {
-    Name      string `koanf:"name"`
-    Namespace string `koanf:"namespace"`
+    // FallbackCredentialSecret is used to authenticate against the registry
+    // when no running Pod references the image (e.g. it has become unused).
+    // Optional. If absent, checks are attempted anonymously.
+    FallbackCredentialSecret *kuikv1alpha1.CredentialSecret `koanf:"fallbackCredentialSecret"`
 }
 ```
 
-**Default config snippet** (for documentation):
+### Special `"default"` key
+
+The reserved key `"default"` acts as a catch-all for registries not explicitly configured. If an image's registry is not a key in `RegistriesMonitoring`, the `"default"` entry is used. `"default"` supports all fields except `FallbackCredentialSecret` (which is always nil for the default).
 
 ```yaml
 # /etc/kuik/config.yaml
 registriesMonitoring:
-  docker.io:
+  default:
     method: HEAD
     interval: 5m
     maxPerInterval: 1
+    timeout: 5s
+  docker.io:
+    method: HEAD
+    interval: 1h
+    maxPerInterval: 3
     timeout: 5s
     fallbackCredentialSecret:
       name: registry-secret
       namespace: kuik-system
 ```
 
-**Note on durations:** `metav1.Duration` / `time.Duration` in Go does not support the `d` suffix. Users must write `720h` instead of `30d`. Document this in the CRD or consider a custom webhook validation.
+A helper on the reconciler (see Phase 3) resolves the effective config for any registry:
+
+```go
+func (r *ClusterImageSetAvailabilityReconciler) registryConfig(registry string) (config.RegistryMonitoring, bool) {
+    if cfg, ok := r.Config.RegistriesMonitoring[registry]; ok {
+        return cfg, true
+    }
+    cfg, ok := r.Config.RegistriesMonitoring["default"]
+    return cfg, ok
+}
+```
+
+**Note on durations:** Go's `time.Duration` does not support the `d` suffix. Users must write `720h` instead of `30d`. This should be documented on the CRD field.
 
 ---
 
@@ -77,6 +91,8 @@ registriesMonitoring:
 **New file:** `api/kuik/v1alpha1/clusterimagesetavailability_types.go`
 
 ### 2.1 Status enum
+
+The existing `ImageAvailability` int iota in `pod_webhook.go` is retired (see Phase 3 refactor). A single string-typed enum is used everywhere:
 
 ```go
 // ImageAvailabilityStatus represents the result of an image availability check.
@@ -103,34 +119,35 @@ const (
 
 ### 2.2 Spec and Status types
 
-@NOTE: since one `ClusterImageSetAvailability` can monitor multiple registries, `status.path` should be the full path (eg. `quay.io/nginx/nginx` or `nginx:latest` for an image from the docker hub).
+`MonitoredImage.Path` stores the **full normalized image reference** (e.g. `docker.io/library/nginx:1.27`, `quay.io/enix/x509-certificate-exporter:v1.0.0`). Storing the full reference — not the registry-relative path — ensures uniqueness even when a single `ClusterImageSetAvailability` monitors images from multiple registries, and avoids the ambiguity between `nginx:1.25` and `library/nginx:1.25` that would arise with Docker Hub's image normalisation.
 
 ```go
 // ClusterImageSetAvailabilitySpec defines the desired monitoring configuration.
 type ClusterImageSetAvailabilitySpec struct {
     // UnusedImageExpiry is how long to keep tracking an image after no Pod uses it.
-    // Once elapsed, the image is removed from status. Example: "720h" (30 days).
+    // Once elapsed the image is removed from status. Example: "720h" (equivalent to 30 days).
+    // Zero means unused images are never removed.
     // +optional
     UnusedImageExpiry metav1.Duration `json:"unusedImageExpiry,omitempty"`
 
-    // ImageFilter selects which images (by registry-relative path) to monitor.
-    // Patterns are matched against the path component of the image reference,
-    // i.e. everything after "registry/". Example include pattern: "library/nginx:.+"
+    // ImageFilter selects which images to monitor.
+    // Patterns are matched against the registry-relative path component of each image
+    // (everything after "registry/"), so patterns do not need to include the registry hostname.
+    // Example include pattern: "library/nginx:.+"
     // +optional
     ImageFilter ImageFilterDefinition `json:"imageFilter,omitempty"`
 }
 
 // MonitoredImage holds the current availability state for a single image.
 type MonitoredImage struct {
-    // Path is the registry-relative image reference, e.g. "library/nginx:1.27".
-    // The registry is determined by the registriesMonitoring config key.
+    // Path is the full normalised image reference, e.g. "docker.io/library/nginx:1.27".
     Path string `json:"path"`
 
     // Status is the result of the last availability check.
     Status ImageAvailabilityStatus `json:"status"`
 
     // UnusedSince is the timestamp when the last Pod referencing this image disappeared.
-    // Nil means the image is currently in use.
+    // Nil means at least one Pod currently uses this image.
     // +optional
     UnusedSince *metav1.Time `json:"unusedSince,omitempty"`
 
@@ -139,13 +156,16 @@ type MonitoredImage struct {
     LastError string `json:"lastError,omitempty"`
 
     // LastMonitor is the timestamp of the last availability check.
-    // Nil means the image has not been checked yet (status is Scheduled).
+    // Nil means the image has not been checked yet (Status is Scheduled).
     // +optional
     LastMonitor *metav1.Time `json:"lastMonitor,omitempty"`
 }
 
 // ClusterImageSetAvailabilityStatus defines the observed state.
 type ClusterImageSetAvailabilityStatus struct {
+    // ImageCount is the total number of images currently being tracked.
+    ImageCount int `json:"imageCount,omitempty"`
+
     // +listType=map
     // +listMapKey=path
     Images []MonitoredImage `json:"images,omitempty"`
@@ -154,13 +174,13 @@ type ClusterImageSetAvailabilityStatus struct {
 
 ### 2.3 CRD root types
 
-@NOTE: make sure that `JSONPath=".status.images[*]"` really count images and is accepted in this context
+`JSONPath` on array fields cannot count elements; `ImageCount` is a plain integer field maintained by the controller and used for the print column.
 
 ```go
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster,shortName=cisa
-// +kubebuilder:printcolumn:name="Images",type=integer,JSONPath=".status.images[*]",description="Number of monitored images"
+// +kubebuilder:printcolumn:name="Images",type=integer,JSONPath=".status.imageCount",description="Total number of monitored images"
 
 // ClusterImageSetAvailability monitors the availability of images across configured registries.
 type ClusterImageSetAvailability struct {
@@ -194,13 +214,99 @@ make manifests   # regenerates CRD YAML in config/crd/bases/
 
 ---
 
-## Phase 3 — Controller
+## Phase 3 — Registry Package Refactor
+
+Before writing the controller, two pieces of logic currently in the webhook package are moved into `internal/registry/` so they can be shared with the new controller.
+
+### 3.1 Move `isRateLimited` → `internal/registry/ratelimit.go`
+
+```go
+// internal/registry/ratelimit.go
+
+// IsRateLimited returns true if the registry response headers indicate the
+// rate limit has been reached ("ratelimit-remaining: 0;...").
+func IsRateLimited(headers http.Header) bool {
+    return strings.HasPrefix(headers.Get("ratelimit-remaining"), "0;")
+}
+```
+
+Update `pod_webhook.go` to call `registry.IsRateLimited(headers)` and remove the local `isRateLimited`.
+
+### 3.2 Move `checkImageAvailability` → `internal/registry/availability.go`
+
+The `ImageAvailability` int iota in `pod_webhook.go` is retired and replaced by `kuikv1alpha1.ImageAvailabilityStatus` everywhere. The function moves to the registry package as a standalone exported function.
+
+```go
+// internal/registry/availability.go
+
+// CheckImageAvailability performs an HTTP HEAD or GET request against the registry
+// and returns the availability status of the image.
+func CheckImageAvailability(
+    ctx context.Context,
+    reference string,
+    method string,
+    timeout time.Duration,
+    pullSecrets []corev1.Secret,
+) kuikv1alpha1.ImageAvailabilityStatus {
+    _, headers, err := NewClient(nil, nil).
+        WithTimeout(timeout).
+        WithPullSecrets(pullSecrets).
+        ReadDescriptor(method, reference)
+
+    if IsRateLimited(headers) {
+        return kuikv1alpha1.ImageAvailabilityQuotaExceeded
+    }
+
+    if err != nil {
+        switch TransportStatusCode(err) {
+        case http.StatusNotFound:
+            return kuikv1alpha1.ImageAvailabilityNotFound
+        case http.StatusUnauthorized, http.StatusForbidden:
+            return kuikv1alpha1.ImageAvailabilityInvalidAuth
+        default:
+            return kuikv1alpha1.ImageAvailabilityUnreachable
+        }
+    }
+
+    return kuikv1alpha1.ImageAvailabilityAvailable
+}
+```
+
+Update `pod_webhook.go`:
+- Remove the `ImageAvailability` iota and its constants.
+- Remove `checkImageAvailability` and `isRateLimited`.
+- Rewrite `checkImageAvailabilityCached` to call `registry.CheckImageAvailability` and map `ImageAvailabilityAvailable` → `true` for the bool cache.
+
+```go
+// in pod_webhook.go — updated checkImageAvailabilityCached
+func (d *PodCustomDefaulter) checkImageAvailabilityCached(...) bool {
+    // ... singleflight + cache logic unchanged ...
+    result := registry.CheckImageAvailability(ctx, image.Reference,
+        http.MethodHead, d.Config.Routing.ActiveCheck.Timeout, pullSecrets)
+    available := result == kuikv1alpha1.ImageAvailabilityAvailable
+    d.checkCache.Set(image.Reference, available)
+
+    if result == kuikv1alpha1.ImageAvailabilityNotFound && image.SecretOwner != nil {
+        go d.clearStaleMirrorStatus(image)
+    }
+    return available
+}
+```
+
+---
+
+## Phase 4 — Controller
 
 **New file:** `internal/controller/kuik/clusterimagesetavailability_controller.go`
 
-### 3.1 Struct
+### 4.1 Struct
 
 ```go
+// +kubebuilder:rbac:groups=kuik.enix.io,resources=clusterimagesetavailabilities,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=kuik.enix.io,resources=clusterimagesetavailabilities/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+
 // ClusterImageSetAvailabilityReconciler reconciles a ClusterImageSetAvailability object.
 type ClusterImageSetAvailabilityReconciler struct {
     client.Client
@@ -209,7 +315,7 @@ type ClusterImageSetAvailabilityReconciler struct {
 }
 ```
 
-### 3.2 SetupWithManager
+### 4.2 SetupWithManager
 
 ```go
 func (r *ClusterImageSetAvailabilityReconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -230,18 +336,23 @@ func (r *ClusterImageSetAvailabilityReconciler) SetupWithManager(mgr ctrl.Manage
 
                 reqs := []reconcile.Request{}
                 for _, cisa := range cisaList.Items {
-                    for registry := range r.Config.RegistriesMonitoring {
-                        f := cisa.Spec.ImageFilter.MustBuildWithRegistry(registry + "/")
-                        for imageName := range imageNames {
-                            if f.Match(imageName) {
-                                reqs = append(reqs, reconcile.Request{
-                                    NamespacedName: client.ObjectKeyFromObject(&cisa),
-                                })
-                                goto nextCisa
-                            }
+                    for imageName := range imageNames {
+                        reg, _, err := internal.RegistryAndPathFromReference(imageName)
+                        if err != nil {
+                            continue
+                        }
+                        _, monitored := r.registryConfig(reg)
+                        if !monitored {
+                            continue
+                        }
+                        imageFilter := cisa.Spec.ImageFilter.MustBuildWithRegistry(reg + "/")
+                        if imageFilter.Match(imageName) {
+                            reqs = append(reqs, reconcile.Request{
+                                NamespacedName: client.ObjectKeyFromObject(&cisa),
+                            })
+                            break
                         }
                     }
-                nextCisa:
                 }
                 return reqs
             })),
@@ -250,19 +361,17 @@ func (r *ClusterImageSetAvailabilityReconciler) SetupWithManager(mgr ctrl.Manage
 }
 ```
 
-### 3.3 Main Reconcile loop
+### 4.3 Main Reconcile loop
 
-The reconciler has two responsibilities on each cycle:
+The reconciler has two responsibilities per cycle:
 
-1. **Sync image list** — reflect current Pod usage into `status.images`
-2. **Check next due image** — per registry, check 1 image if the drip-feed tick has elapsed; requeue for the next tick
+1. **Sync image list** — reflect current Pod usage in `status.images`
+2. **Drip-feed monitoring** — per unique registry present in status, check the next due image
 
-@NOTE: extract per registry check into its own function so the cyclomatic complexity stays low
+The per-registry check logic is extracted into `checkNextForRegistry` to keep cyclomatic complexity low.
 
 ```go
 func (r *ClusterImageSetAvailabilityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-    log := logf.FromContext(ctx)
-
     var cisa kuikv1alpha1.ClusterImageSetAvailability
     if err := r.Get(ctx, req.NamespacedName, &cisa); err != nil {
         return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -273,50 +382,31 @@ func (r *ClusterImageSetAvailabilityReconciler) Reconcile(ctx context.Context, r
         return ctrl.Result{}, err
     }
 
-    // --- Step 1: sync image list ---
+    // Step 1: sync the image list from current pods.
     original := cisa.DeepCopy()
     r.syncImageList(ctx, &cisa, pods.Items)
     if err := r.Status().Patch(ctx, &cisa, client.MergeFrom(original)); err != nil {
         return ctrl.Result{}, err
     }
 
-    // --- Step 2: drip-feed monitoring checks ---
+    // Step 2: drip-feed monitoring — one check per configured registry per tick.
+    // Iterate over the unique registries present in status (not over config keys directly,
+    // so that the "default" key is never treated as a real registry hostname).
+    uniqueRegistries := uniqueRegistriesFromStatus(&cisa)
     minRequeueAfter := time.Duration(0)
 
-    for registry, registryMonitoringConfig := range r.Config.RegistriesMonitoring {
-        tickDuration := registryMonitoringConfig.Interval / time.Duration(registryMonitoringConfig.MaxPerInterval)
-
-        // Find the image with the oldest lastMonitor for this registry (nil = never checked).
-        nextImage := r.findNextImageToCheck(&cisa, registry)
-        if nextImage == nil {
-            continue // no images for this registry
-        }
-
-        // How long until this image is due for a check?
-        var timeUntilDue time.Duration
-        if nextImage.LastMonitor != nil {
-            timeUntilDue = tickDuration - time.Since(nextImage.LastMonitor.Time)
-        }
-        // timeUntilDue <= 0 means the check is due now.
-
-        if timeUntilDue > 0 {
-            if minRequeueAfter == 0 || timeUntilDue < minRequeueAfter {
-                minRequeueAfter = timeUntilDue
-            }
+    for _, registry := range uniqueRegistries {
+        monCfg, ok := r.registryConfig(registry)
+        if !ok {
             continue
         }
 
-        // Perform the check.
-        log.V(1).Info("checking image availability", "registry", registry, "path", nextImage.Path)
-        original = cisa.DeepCopy()
-        r.performCheck(ctx, nextImage, registry, registryMonitoringConfig, pods.Items)
-        if err := r.Status().Patch(ctx, &cisa, client.MergeFrom(original)); err != nil {
+        requeueAfter, err := r.checkNextForRegistry(ctx, &cisa, registry, monCfg, pods.Items)
+        if err != nil {
             return ctrl.Result{}, err
         }
-
-        // The next image for this registry is due after tickDuration.
-        if minRequeueAfter == 0 || tickDuration < minRequeueAfter {
-            minRequeueAfter = tickDuration
+        if requeueAfter > 0 && (minRequeueAfter == 0 || requeueAfter < minRequeueAfter) {
+            minRequeueAfter = requeueAfter
         }
     }
 
@@ -325,14 +415,67 @@ func (r *ClusterImageSetAvailabilityReconciler) Reconcile(ctx context.Context, r
     }
     return ctrl.Result{}, nil
 }
+
+// uniqueRegistriesFromStatus returns the deduplicated list of registry hostnames
+// present in cisa.Status.Images.
+func uniqueRegistriesFromStatus(cisa *kuikv1alpha1.ClusterImageSetAvailability) []string {
+    seen := map[string]struct{}{}
+    for _, img := range cisa.Status.Images {
+        reg, _, err := internal.RegistryAndPathFromReference(img.Path)
+        if err == nil {
+            seen[reg] = struct{}{}
+        }
+    }
+    return slices.Collect(maps.Keys(seen))
+}
 ```
 
-### 3.4 syncImageList
+### 4.4 checkNextForRegistry
 
-Mirrors the `mergePreviousAndCurrentMatchingImages` logic from ISM/CISM.
+Performs the drip-feed logic for a single registry: finds the image with the oldest `LastMonitor`, checks whether the tick has elapsed, and either performs the check or returns the time remaining until it is due.
 
-@NOTE: what is Sentinel ?
-@NOTE: don't use single letter names for variables (except for i): f => filter, p => path
+```go
+func (r *ClusterImageSetAvailabilityReconciler) checkNextForRegistry(
+    ctx context.Context,
+    cisa *kuikv1alpha1.ClusterImageSetAvailability,
+    registry string,
+    monCfg config.RegistryMonitoring,
+    pods []corev1.Pod,
+) (requeueAfter time.Duration, err error) {
+    log := logf.FromContext(ctx)
+    tickDuration := monCfg.Interval / time.Duration(monCfg.MaxPerInterval)
+
+    nextImage := findNextImageToCheck(cisa, registry)
+    if nextImage == nil {
+        return 0, nil // no images for this registry yet
+    }
+
+    // Compute how long until this image is due (nil LastMonitor = due immediately).
+    var timeUntilDue time.Duration
+    if nextImage.LastMonitor != nil {
+        timeUntilDue = tickDuration - time.Since(nextImage.LastMonitor.Time)
+    }
+
+    if timeUntilDue > 0 {
+        return timeUntilDue, nil // not due yet, report when to requeue
+    }
+
+    log.V(1).Info("checking image availability", "registry", registry, "path", nextImage.Path)
+    original := cisa.DeepCopy()
+    r.performCheck(ctx, nextImage, monCfg, pods)
+    if err := r.Status().Patch(ctx, cisa, client.MergeFrom(original)); err != nil {
+        return 0, err
+    }
+
+    return tickDuration, nil // requeue after the tick for the next image in this registry
+}
+```
+
+### 4.5 syncImageList
+
+Mirrors the `mergePreviousAndCurrentMatchingImages` pattern from ISM/CISM.
+
+The instant-expiry marker is a non-zero timestamp far in the past (`time.Time{} + 1h`) used to mark images that no longer match the filter at all. On the next reconciliation, the expiry check removes them immediately. The non-zero value is required because `nil` and the zero `time.Time` are both treated as "no expiry" in JSON marshalling.
 
 ```go
 func (r *ClusterImageSetAvailabilityReconciler) syncImageList(
@@ -342,65 +485,59 @@ func (r *ClusterImageSetAvailabilityReconciler) syncImageList(
 ) {
     log := logf.FromContext(ctx)
     now := metav1.NewTime(time.Now())
-    // Sentinel used to trigger instant expiry for images that no longer match the filter.
-    // (Same pattern as ISM/CISM: 0001-01-01 + 1h avoids the zero-value == nil ambiguity.)
-    instantExpiry := metav1.NewTime(time.Time{}.Add(time.Hour))
+    // instantExpiryMarker triggers immediate removal on the next reconciliation.
+    // It uses 0001-01-01 01:00:00 UTC (1 hour after the Go zero time) to be
+    // distinguishable from nil while guaranteeing time.Since() >= any expiry duration.
+    instantExpiryMarker := metav1.NewTime(time.Time{}.Add(time.Hour))
 
-    // Build a set of currently-used (registry-relative) paths per registry.
-    currentPaths := map[string]map[string]struct{}{} // registry -> set of paths
-    for registry := range r.Config.RegistriesMonitoring {
-        currentPaths[registry] = map[string]struct{}{}
-        f := cisa.Spec.ImageFilter.MustBuildWithRegistry(registry + "/")
-
-        for i := range pods {
-            for imageName := range normalizedImageNamesFromPod(ctx, &pods[i]) {
-                if !f.Match(imageName) {
-                    continue
-                }
-                reg, imgPath, err := internal.RegistryAndPathFromReference(imageName)
-                if err != nil || reg != registry {
-                    continue
-                }
-                currentPaths[registry][imgPath] = struct{}{}
+    // Build the set of currently-used full references per registry.
+    currentImages := map[string]struct{}{} // full normalised references
+    for i := range pods {
+        for imageName := range normalizedImageNamesFromPod(ctx, &pods[i]) {
+            reg, _, err := internal.RegistryAndPathFromReference(imageName)
+            if err != nil {
+                continue
+            }
+            monCfg, ok := r.registryConfig(reg)
+            if !ok {
+                continue // registry is not monitored
+            }
+            _ = monCfg
+            imageFilter := cisa.Spec.ImageFilter.MustBuildWithRegistry(reg + "/")
+            if imageFilter.Match(imageName) {
+                currentImages[imageName] = struct{}{}
             }
         }
     }
 
-    // Build a flat set of all currently-active paths (across all registries).
-    allCurrentPaths := map[string]struct{}{}
-    for _, paths := range currentPaths {
-        for p := range paths {
-            allCurrentPaths[p] = struct{}{}
-        }
-    }
-
-    // Update existing status entries.
+    // Update existing status entries: track usage changes and filter scope changes.
     for i := range cisa.Status.Images {
         img := &cisa.Status.Images[i]
 
-        // Check if this image is still within the scope of a configured registry.
-        inScope := false
-        for registry, paths := range currentPaths {
-            f := cisa.Spec.ImageFilter.MustBuildWithRegistry(registry + "/")
-            fullRef := registry + "/" + img.Path
-            if f.Match(fullRef) {
-                inScope = true
-                if _, inUse := paths[img.Path]; inUse {
-                    img.UnusedSince = nil // back in use
-                } else if img.UnusedSince == nil {
-                    img.UnusedSince = &now // just became unused
-                    log.Info("image is no longer used by any pod", "path", img.Path)
-                }
-                break
-            }
+        reg, _, err := internal.RegistryAndPathFromReference(img.Path)
+        if err != nil {
+            continue
         }
 
+        _, monitored := r.registryConfig(reg)
+        imageFilter := cisa.Spec.ImageFilter.MustBuildWithRegistry(reg + "/")
+        inScope := monitored && imageFilter.Match(img.Path)
+
         if !inScope {
-            // Image no longer matches the filter at all: mark for instant expiry.
-            if img.UnusedSince == nil || !img.UnusedSince.Equal(&instantExpiry) {
-                img.UnusedSince = &instantExpiry
-                log.Info("image no longer matches filter, queuing for removal", "path", img.Path)
+            // The image no longer matches the filter or its registry became unconfigured.
+            // Use the instant-expiry marker so it is removed on the next reconciliation.
+            if img.UnusedSince == nil || !img.UnusedSince.Equal(&instantExpiryMarker) {
+                img.UnusedSince = &instantExpiryMarker
+                log.Info("image no longer in scope, marking for removal", "path", img.Path)
             }
+            continue
+        }
+
+        if _, inUse := currentImages[img.Path]; inUse {
+            img.UnusedSince = nil // back in use or still in use
+        } else if img.UnusedSince == nil {
+            img.UnusedSince = &now // just became unused
+            log.Info("image is no longer used by any pod", "path", img.Path)
         }
     }
 
@@ -408,10 +545,7 @@ func (r *ClusterImageSetAvailabilityReconciler) syncImageList(
     expiry := cisa.Spec.UnusedImageExpiry.Duration
     if expiry > 0 {
         cisa.Status.Images = slices.DeleteFunc(cisa.Status.Images, func(img kuikv1alpha1.MonitoredImage) bool {
-            if img.UnusedSince == nil {
-                return false
-            }
-            return time.Since(img.UnusedSince.Time) >= expiry
+            return img.UnusedSince != nil && time.Since(img.UnusedSince.Time) >= expiry
         })
     }
 
@@ -420,44 +554,39 @@ func (r *ClusterImageSetAvailabilityReconciler) syncImageList(
     for _, img := range cisa.Status.Images {
         existingPaths[img.Path] = struct{}{}
     }
-
-    for _, paths := range currentPaths {
-        for p := range paths {
-            if _, exists := existingPaths[p]; !exists {
-                cisa.Status.Images = append(cisa.Status.Images, kuikv1alpha1.MonitoredImage{
-                    Path:   p,
-                    Status: kuikv1alpha1.ImageAvailabilityScheduled,
-                })
-                log.Info("discovered new image to monitor", "path", p)
-            }
+    for imageName := range currentImages {
+        if _, exists := existingPaths[imageName]; !exists {
+            cisa.Status.Images = append(cisa.Status.Images, kuikv1alpha1.MonitoredImage{
+                Path:   imageName,
+                Status: kuikv1alpha1.ImageAvailabilityScheduled,
+            })
+            log.Info("discovered new image to monitor", "path", imageName)
         }
     }
+
+    cisa.Status.ImageCount = len(cisa.Status.Images)
 }
 ```
 
-### 3.5 findNextImageToCheck
+### 4.6 findNextImageToCheck
 
-Returns the entry from `status.images` for the given registry that should be checked next (i.e. has the oldest `lastMonitor`, with `nil` treated as the oldest possible).
+Returns the `MonitoredImage` for the given registry that has the oldest `LastMonitor` (`nil` counts as the oldest).
 
 ```go
-func (r *ClusterImageSetAvailabilityReconciler) findNextImageToCheck(
+func findNextImageToCheck(
     cisa *kuikv1alpha1.ClusterImageSetAvailability,
     registry string,
 ) *kuikv1alpha1.MonitoredImage {
-    f := cisa.Spec.ImageFilter.MustBuildWithRegistry(registry + "/")
-
     var oldest *kuikv1alpha1.MonitoredImage
     for i := range cisa.Status.Images {
         img := &cisa.Status.Images[i]
-        if !f.Match(registry + "/" + img.Path) {
-            continue // image belongs to a different registry
-        }
-        if oldest == nil {
-            oldest = img
+
+        imgRegistry, _, err := internal.RegistryAndPathFromReference(img.Path)
+        if err != nil || imgRegistry != registry {
             continue
         }
-        // nil LastMonitor (never checked) sorts before any timestamp.
-        if img.LastMonitor == nil {
+
+        if oldest == nil || img.LastMonitor == nil {
             oldest = img
             continue
         }
@@ -469,107 +598,72 @@ func (r *ClusterImageSetAvailabilityReconciler) findNextImageToCheck(
 }
 ```
 
-### 3.6 performCheck
+### 4.7 performCheck
 
-Executes the availability check and updates the `MonitoredImage` entry in place.
-
-@NOTE: this code should re-use what have been done for `pod_webhook`. This function could call `PodCustomDefaulter.checkImageAvailability`. `checkImageAvailability` should be moved  in `internal/registry` first.
+Calls `registry.CheckImageAvailability` (moved from the webhook in Phase 3) and updates the `MonitoredImage` entry in place.
 
 ```go
 func (r *ClusterImageSetAvailabilityReconciler) performCheck(
     ctx context.Context,
     img *kuikv1alpha1.MonitoredImage,
-    registry string,
-    registryMonitoringConfig config.RegistryMonitoring,
+    monCfg config.RegistryMonitoring,
     pods []corev1.Pod,
 ) {
-    log := logf.FromContext(ctx)
-    fullRef := registry + "/" + img.Path
     now := metav1.NewTime(time.Now())
 
-    // Resolve credentials: prefer pod secrets, fall back to configured secret.
-    pullSecrets, err := r.resolveCredentials(ctx, fullRef, img, registryMonitoringConfig, pods)
+    pullSecrets, err := r.resolveCredentials(ctx, img.Path, monCfg, pods)
     if err != nil {
-        // Secret referenced in fallbackCredentialSecret does not exist.
         img.Status = kuikv1alpha1.ImageAvailabilityUnavailableSecret
         img.LastError = err.Error()
         img.LastMonitor = &now
         return
     }
 
-    _, headers, err := registry.NewClient(nil, nil).
-        WithTimeout(registryMonitoringConfig.Timeout).
-        WithPullSecrets(pullSecrets).
-        ReadDescriptor(registryMonitoringConfig.Method, fullRef)
+    result := registry.CheckImageAvailability(ctx, img.Path, monCfg.Method, monCfg.Timeout, pullSecrets)
 
+    img.Status = result
     img.LastMonitor = &now
-    img.LastError = ""
-
-    if isRateLimited(headers) {
-        img.Status = kuikv1alpha1.ImageAvailabilityQuotaExceeded
-        log.V(1).Info("quota exceeded", "image", fullRef)
-        return
+    if result == kuikv1alpha1.ImageAvailabilityAvailable {
+        img.LastError = ""
     }
-
-    if err != nil {
-        switch registry.TransportStatusCode(err) {
-        case http.StatusNotFound:
-            img.Status = kuikv1alpha1.ImageAvailabilityNotFound
-        case http.StatusUnauthorized, http.StatusForbidden:
-            img.Status = kuikv1alpha1.ImageAvailabilityInvalidAuth
-        default:
-            img.Status = kuikv1alpha1.ImageAvailabilityUnreachable
-        }
-        img.LastError = err.Error()
-        log.V(1).Info("image unavailable", "image", fullRef, "status", img.Status)
-        return
-    }
-
-    img.Status = kuikv1alpha1.ImageAvailabilityAvailable
-    log.V(1).Info("image available", "image", fullRef)
 }
 ```
 
-**Note:** `isRateLimited` is currently defined in `internal/webhook/core/v1/pod_webhook.go`. It should be moved to `internal/registry/` (e.g. `registry/ratelimit.go`) and exported so both the webhook and this controller can use it.
-
-### 3.7 resolveCredentials
+### 4.8 resolveCredentials
 
 ```go
 func (r *ClusterImageSetAvailabilityReconciler) resolveCredentials(
     ctx context.Context,
     fullRef string,
-    img *kuikv1alpha1.MonitoredImage,
-    registryMonitoringConfig config.RegistryMonitoring,
+    monCfg config.RegistryMonitoring,
     pods []corev1.Pod,
 ) ([]corev1.Secret, error) {
-    // Try to find a pod that uses this image and has pull secrets.
+    // Prefer pull secrets from a running pod that references this image.
     for i := range pods {
         pod := &pods[i]
         for imageName := range normalizedImageNamesFromPod(ctx, pod) {
-            if imageName != fullRef {
+            if imageName != fullRef || len(pod.Spec.ImagePullSecrets) == 0 {
                 continue
-            }
-            if len(pod.Spec.ImagePullSecrets) == 0 {
-                break
             }
             secrets, err := internal.GetPullSecretsFromPod(ctx, r.Client, pod)
             if err == nil {
                 return secrets, nil
             }
-            // Log but don't fail — try another pod or fall through to fallback.
-            logf.FromContext(ctx).V(1).Info("could not read pod pull secrets", "pod", klog.KObj(pod), "error", err)
+            // Log and try the next pod; fall through to fallback if none succeed.
+            logf.FromContext(ctx).V(1).Info("could not read pod pull secrets",
+                "pod", klog.KObj(pod), "error", err)
         }
     }
 
-    // Fall back to the configured fallback secret.
-    if registryMonitoringConfig.FallbackCredentialSecret == nil {
-        return nil, nil // anonymous access
+    // Fall back to the registry-level credential secret.
+    if monCfg.FallbackCredentialSecret == nil {
+        return nil, nil // attempt anonymous access
     }
 
     secret := &corev1.Secret{}
     key := client.ObjectKey{
-        Namespace: registryMonitoringConfig.FallbackCredentialSecret.Namespace,
-        Name:      registryMonitoringConfig.FallbackCredentialSecret.Name,
+        Namespace: monCfg.FallbackCredentialSecret.Namespace,
+        Name:      monCfg.FallbackCredentialSecret.Name,
     }
     if err := r.Get(ctx, key, secret); err != nil {
         return nil, fmt.Errorf("fallback credential secret %s not found: %w", key, err)
@@ -578,24 +672,29 @@ func (r *ClusterImageSetAvailabilityReconciler) resolveCredentials(
 }
 ```
 
-### 3.8 RBAC markers
-
-Add at the top of the controller file:
-
-```go
-// +kubebuilder:rbac:groups=kuik.enix.io,resources=clusterimagesetavailabilities,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=kuik.enix.io,resources=clusterimagesetavailabilities/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
-```
-
 ---
 
-## Phase 4 — Register in main.go
+## Phase 5 — Register in main.go
 
-@NOTE: the file `PROJECT` should be updated too, actually you can use `kubebuilder` CLI to generate required files and scaffolding before editing (eg. `kubebuilder create api --kind ClusterReplicatedImageSet --version v1alpha1 --group kuik --resource --controller=false --namespaced=false`).
+### 5.1 Scaffold with kubebuilder CLI first
 
-In `cmd/main.go`, instantiate and register the new controller after the existing ones:
+Before editing `cmd/main.go`, run the kubebuilder CLI to generate the resource scaffolding and update the `PROJECT` file automatically:
+
+```bash
+kubebuilder create api \
+  --kind ClusterImageSetAvailability \
+  --version v1alpha1 \
+  --group kuik \
+  --resource \
+  --controller=false \
+  --namespaced=false
+```
+
+This updates `PROJECT` and generates the types stub (to be replaced by our implementation). The `--controller=false` flag skips generating a controller stub since we write it manually.
+
+### 5.2 Register the controller
+
+In `cmd/main.go`, add after the existing controllers:
 
 ```go
 if err = (&kuikcontroller.ClusterImageSetAvailabilityReconciler{
@@ -610,19 +709,16 @@ if err = (&kuikcontroller.ClusterImageSetAvailabilityReconciler{
 
 ---
 
-## Phase 5 — Generate & Manifests
-
-After all code changes:
+## Phase 6 — Generate & Manifests
 
 ```bash
-make generate    # regenerates DeepCopy methods for new types
+make generate    # regenerates zz_generated.deepcopy.go for new types
 make manifests   # regenerates CRD YAML and RBAC
 make lint-fix    # fix any linting issues
 make test        # run unit tests
 ```
 
-The CRD YAML will be generated at:
-`config/crd/bases/kuik.enix.io_clusterimagesetavailabilities.yaml`
+CRD YAML output: `config/crd/bases/kuik.enix.io_clusterimagesetavailabilities.yaml`
 
 ---
 
@@ -635,75 +731,36 @@ The CRD YAML will be generated at:
 With `interval=5m, maxPerInterval=1`: one check every 5 minutes.
 With `interval=10m, maxPerInterval=2`: one check every 5 minutes (two checks spread over 10 minutes).
 
-The reconciler computes `tickDuration` and compares `time.Since(lastMonitor)` against it. If due, it checks and requeues after `tickDuration`. If not due, it requeues after the remaining time.
-
-This means the total cycle time to check all N images for a registry is `N × tickDuration`.
+The reconciler computes `tickDuration` per registry and compares `time.Since(lastMonitor)` against it. If due, it checks and returns `tickDuration` as the next requeue duration. If not due, it returns the remaining time. The total cycle time to check all N images for a registry is `N × tickDuration`.
 
 ### Why no separate monitoring goroutine
 
-The `ctrl.Result{RequeueAfter: tickDuration}` pattern is sufficient and avoids the complexity of goroutine lifecycle management, especially across leader-election transitions. The reconciler is triggered by pod changes *and* by time, and the tick-gate ensures the monitoring rate is respected regardless of how often the reconciler runs.
+The `ctrl.Result{RequeueAfter: tickDuration}` pattern is sufficient and avoids goroutine lifecycle complexity, particularly across leader-election transitions. The reconciler is triggered by Pod changes and by timer; the tick-gate ensures the monitoring rate is respected regardless of how often the reconciler runs.
 
-### Image path representation
+### Full normalised reference as the primary key
 
-Status stores the **registry-relative path** (`library/nginx:1.25`), not the full normalized reference. The registry is implicit from the `registriesMonitoring` config. This matches the spec and makes the status more readable when all images are from the same registry.
+`MonitoredImage.Path` stores the full normalised reference (e.g. `docker.io/library/nginx:1.27`) rather than the registry-relative path. This:
+- Avoids Docker Hub deduplication issues (`nginx:1.25` vs `library/nginx:1.25` both normalise to `docker.io/library/nginx:1.25`)
+- Works correctly when a single `ClusterImageSetAvailability` monitors images from multiple registries
+- Is consistent with how `normalizedImageNamesFromPod` produces references
 
-@NOTE: be careful to not store twice the same image (eg. `nginx:1.25` and `library/nginx:1.25`). it is maybe easier to store full normalized reference.
+The registry hostname is extracted with `internal.RegistryAndPathFromReference(img.Path)` whenever needed.
 
-### `imageFilter` matching is registry-scoped
+### `imageFilter` patterns are registry-relative
 
-`imageFilter` patterns are matched against the registry-relative path using `MustBuildWithRegistry(registry + "/")`. This means:
-- Pattern `library/nginx:.+` matches `docker.io/library/nginx:1.25` for registry `docker.io`
-- The same pattern is tested per configured registry
+`imageFilter` patterns are matched against the registry-relative path (everything after `registry/`) using `MustBuildWithRegistry(registry + "/")`. This means patterns like `library/nginx:.+` work naturally without embedding the registry hostname. The same filter is tested per configured (or default) registry.
 
-An image is monitored even if its registry doesn't appears in `registriesMonitoring`. Images from unconfigured registries are using default values.
+### `"default"` registry key
 
-Example:
+The reserved `"default"` key in `registriesMonitoring` is a catch-all for registries not explicitly configured. The `registryConfig(registry)` helper hides the two-step lookup. `"default"` is never passed to `findNextImageToCheck` or treated as a real registry hostname — the monitoring loop iterates over the unique registries found in `status.images`.
 
-```yaml
-# /etc/kuik/config.yaml
-registriesMonitoring:
-  default:
-    method: HEAD
-    interval: 5m
-    maxPerInterval: 1
-    timeout: 5s
-  docker.io:
-    method: HEAD
-    interval: 1h
-    maxPerInterval: 3
-    timeout: 5s
-    fallbackCredentialSecret:
-      name: registry-secret
-      namespace: kuik-system
-```
+### Unified `ImageAvailabilityStatus` type
 
-Default includes all fields from per registry configuration except `fallbackCredentialSecret`.
-
-### `isRateLimited` refactor
-
-The `isRateLimited` function currently lives in the webhook package. It should be moved to `internal/registry/ratelimit.go` as an exported function to avoid duplication:
-
-```go
-// internal/registry/ratelimit.go
-
-// IsRateLimited returns true if the registry response headers indicate that
-// the rate limit has been reached (ratelimit-remaining: 0;...).
-func IsRateLimited(headers http.Header) bool {
-    return strings.HasPrefix(headers.Get("ratelimit-remaining"), "0;")
-}
-```
-
-The webhook's `isRateLimited` call is updated to `registry.IsRateLimited(headers)`.
-
-### `UnavailableSecret` status
-
-This is a new status value that doesn't exist in the webhook's `ImageAvailability` enum. It covers the case where the `fallbackCredentialSecret` is configured but the referenced Secret does not exist in the cluster. The check fails before even contacting the registry.
-
-@NOTE: `ImageAvailability` enum should be probably removed and replaced by the `ImageAvailabilityStatus` enum.
+The old `ImageAvailability` int iota in `pod_webhook.go` is retired. Both the webhook and the new controller use `kuikv1alpha1.ImageAvailabilityStatus` (the string type) via `registry.CheckImageAvailability`. The webhook's bool availability cache is populated by comparing the result against `ImageAvailabilityAvailable`.
 
 ### `unusedImageExpiry` with zero value
 
-If `unusedImageExpiry` is not set (zero value), unused images are **never** removed from `status.images`. This is intentional: the user must opt into cleanup by setting the expiry. This mirrors ISM's `cleanup.enabled` requirement.
+If `unusedImageExpiry` is not set (zero value), unused images are never removed from `status.images`. Users must explicitly opt into expiry, mirroring ISM's `cleanup.enabled` requirement.
 
 ---
 
@@ -711,11 +768,13 @@ If `unusedImageExpiry` is not set (zero value), unused images are **never** remo
 
 | File | Action |
 |---|---|
-| `internal/config/config.go` | Add `RegistriesMonitoring`, `RegistryMonitoring`, `CredentialSecretRef` |
-| `api/kuik/v1alpha1/clusterimagesetavailability_types.go` | New file: CRD types |
+| `internal/config/config.go` | Add `RegistriesMonitoring`, `RegistryMonitoring`; import `kuikv1alpha1`; remove `CredentialSecretRef` |
+| `api/kuik/v1alpha1/clusterimagesetavailability_types.go` | **New**: CRD types, `ImageAvailabilityStatus` enum |
 | `api/kuik/v1alpha1/zz_generated.deepcopy.go` | Auto-generated by `make generate` |
 | `config/crd/bases/kuik.enix.io_clusterimagesetavailabilities.yaml` | Auto-generated by `make manifests` |
-| `internal/registry/ratelimit.go` | New file: move + export `isRateLimited` |
-| `internal/webhook/core/v1/pod_webhook.go` | Update call to `registry.IsRateLimited` |
-| `internal/controller/kuik/clusterimagesetavailability_controller.go` | New file: controller |
+| `internal/registry/ratelimit.go` | **New**: exported `IsRateLimited` (moved from webhook) |
+| `internal/registry/availability.go` | **New**: exported `CheckImageAvailability` (moved from webhook) |
+| `internal/webhook/core/v1/pod_webhook.go` | Remove `ImageAvailability` enum, `isRateLimited`, `checkImageAvailability`; call `registry.CheckImageAvailability` |
+| `internal/controller/kuik/clusterimagesetavailability_controller.go` | **New**: controller |
 | `cmd/main.go` | Register new controller |
+| `PROJECT` | Updated by `kubebuilder create api` CLI command |
