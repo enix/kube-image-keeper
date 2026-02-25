@@ -70,8 +70,8 @@ func SetupPodWebhookWithManager(mgr ctrl.Manager, d *PodCustomDefaulter) error {
 	if err != nil {
 		return err
 	}
-	alternativeCache, err := otter.MustBuilder[string, *AlternativeImage](100).
-		Cost(func(key string, value *AlternativeImage) uint32 { return 1 }).
+	alternativeCache, err := otter.MustBuilder[string, *cachedAlternativeImage](100).
+		Cost(func(key string, value *cachedAlternativeImage) uint32 { return 1 }).
 		WithTTL(time.Second).
 		Build()
 	if err != nil {
@@ -99,7 +99,7 @@ type PodCustomDefaulter struct {
 	Config *config.Config
 
 	checkCache       otter.Cache[string, bool]
-	alternativeCache otter.Cache[string, *AlternativeImage]
+	alternativeCache otter.Cache[string, *cachedAlternativeImage]
 	requestGroup     *singleflight.Group
 }
 
@@ -108,6 +108,11 @@ type AlternativeImage struct {
 	CredentialSecret *kuikv1alpha1.CredentialSecret
 	ImagePullSecret  *corev1.Secret
 	SecretOwner      client.Object
+}
+
+type cachedAlternativeImage struct {
+	*AlternativeImage
+	alternativesCount int
 }
 
 type Container struct {
@@ -321,7 +326,7 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 		container := &containers[i]
 		log := log.WithValues("container", container.Name, "isInit", container.IsInit)
 
-		alternativeImage, err := d.findBestAlternativeCached(logf.IntoContext(ctx, log), imageSetMirrors, replicatedImageSets, container, podImagePullSecrets)
+		alternativeImage, alternativesCount, err := d.findBestAlternativeCached(logf.IntoContext(ctx, log), imageSetMirrors, replicatedImageSets, container, podImagePullSecrets)
 		if err != nil {
 			return err
 		}
@@ -329,7 +334,9 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 		log = log.WithValues("originalImage", container.Image)
 
 		if alternativeImage == nil {
-			log.Info("no alternative image is available, keep using the original one")
+			if alternativesCount > 1 {
+				log.Info("no alternative image is available, keep using the original one")
+			}
 			continue
 		}
 
@@ -364,9 +371,9 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 	return nil
 }
 
-func (d *PodCustomDefaulter) findBestAlternativeCached(ctx context.Context, imageSetMirrors []kuikv1alpha1.ImageSetMirror, replicatedImageSets []kuikv1alpha1.ReplicatedImageSet, container *Container, pullSecrets []corev1.Secret) (*AlternativeImage, error) {
-	if alternativeImage, ok := d.alternativeCache.Get(container.Image); ok {
-		return alternativeImage, nil
+func (d *PodCustomDefaulter) findBestAlternativeCached(ctx context.Context, imageSetMirrors []kuikv1alpha1.ImageSetMirror, replicatedImageSets []kuikv1alpha1.ReplicatedImageSet, container *Container, pullSecrets []corev1.Secret) (*AlternativeImage, int, error) {
+	if cached, ok := d.alternativeCache.Get(container.Image); ok {
+		return cached.AlternativeImage, cached.alternativesCount, nil
 	}
 
 	alternativeImage, err := d.requestGroup.Do("alternative:"+container.Image, func() (any, error) {
@@ -374,14 +381,19 @@ func (d *PodCustomDefaulter) findBestAlternativeCached(ctx context.Context, imag
 			return nil, err
 		}
 
-		alternativeImage := d.findBestAlternative(ctx, container, pullSecrets)
+		alternativeImage := &cachedAlternativeImage{
+			AlternativeImage:  d.findBestAlternative(ctx, container, pullSecrets),
+			alternativesCount: len(container.Alternatives),
+		}
 		d.alternativeCache.Set(container.Image, alternativeImage)
 		return alternativeImage, nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return alternativeImage.(*AlternativeImage), nil
+
+	cached := alternativeImage.(*cachedAlternativeImage)
+	return cached.AlternativeImage, cached.alternativesCount, nil
 }
 
 func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSetMirrors []kuikv1alpha1.ImageSetMirror, replicatedImageSets []kuikv1alpha1.ReplicatedImageSet, container *Container) error {
