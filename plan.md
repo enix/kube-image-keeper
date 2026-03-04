@@ -884,20 +884,20 @@ If `unusedImageExpiry` is not set (zero value), unused images are never removed 
 
 ### Phase 3 — Registry Package Refactor
 
-- [ ] **3.1** Create `internal/registry/ratelimit.go`
+- [x] **3.1** Create `internal/registry/ratelimit.go`
   - Move `isRateLimited` from `pod_webhook.go` as exported `IsRateLimited`
-- [ ] **3.2** Create `internal/registry/availability.go`
+- [x] **3.2** Create `internal/registry/availability.go`
   - Move `checkImageAvailability` from `pod_webhook.go` as exported `CheckImageAvailability`
   - Return `(ImageAvailabilityStatus, error)` — error carries the underlying cause
   - Use `kuikv1alpha1.ImageAvailabilityStatus` enum instead of int iota
   - Import `kuikv1alpha1` and `fmt`
-- [ ] **3.3** Update `pod_webhook.go`
+- [x] **3.3** Update `pod_webhook.go`
   - Remove `ImageAvailability` int iota and its constants
   - Remove local `checkImageAvailability` function
   - Remove local `isRateLimited` function
   - Update `checkImageAvailabilityCached` to call `registry.CheckImageAvailability`
   - Discard error return (`result, _ :=`), map `ImageAvailabilityAvailable` → `true` for bool cache
-- [ ] **3.4** Verify webhook tests still pass (`go test ./internal/webhook/...`)
+- [x] **3.4** Verify webhook tests still pass (`go test ./internal/webhook/...`)
 
 ### Phase 4 — Controller
 
