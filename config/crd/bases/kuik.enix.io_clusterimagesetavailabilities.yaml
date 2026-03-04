@@ -11,10 +11,17 @@ spec:
     kind: ClusterImageSetAvailability
     listKind: ClusterImageSetAvailabilityList
     plural: clusterimagesetavailabilities
+    shortNames:
+    - cisa
     singular: clusterimagesetavailability
   scope: Cluster
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - description: Total number of monitored images
+      jsonPath: .status.imageCount
+      name: Images
+      type: integer
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: ClusterImageSetAvailability is the Schema for the clusterimagesetavailabilities
@@ -38,17 +45,79 @@ spec:
           metadata:
             type: object
           spec:
-            description: ClusterImageSetAvailabilitySpec defines the desired state
-              of ClusterImageSetAvailability.
+            description: ClusterImageSetAvailabilitySpec defines the desired monitoring
+              configuration.
             properties:
-              foo:
-                description: Foo is an example field of ClusterImageSetAvailability.
-                  Edit clusterimagesetavailability_types.go to remove/update
+              imageFilter:
+                description: ImageFilter selects which images to monitor.
+                properties:
+                  exclude:
+                    items:
+                      type: string
+                    type: array
+                  include:
+                    items:
+                      type: string
+                    type: array
+                type: object
+              unusedImageExpiry:
+                description: |-
+                  UnusedImageExpiry is how long to keep tracking an image after no Pod uses it.
+                  Once elapsed the image is removed from status. Example: "720h" (30 days).
+                  Zero means unused images are never removed.
                 type: string
             type: object
           status:
-            description: ClusterImageSetAvailabilityStatus defines the observed state
-              of ClusterImageSetAvailability.
+            description: ClusterImageSetAvailabilityStatus defines the observed state.
+            properties:
+              imageCount:
+                description: ImageCount is the total number of images currently being
+                  tracked.
+                type: integer
+              images:
+                items:
+                  description: MonitoredImage holds the current availability state
+                    for a single image.
+                  properties:
+                    lastError:
+                      description: LastError contains the error message from the last
+                        failed check, if any.
+                      type: string
+                    lastMonitor:
+                      description: |-
+                        LastMonitor is the timestamp of the last availability check.
+                        Nil means the image has not been checked yet.
+                      format: date-time
+                      type: string
+                    path:
+                      description: Path is the full normalised image reference, e.g.
+                        "docker.io/library/nginx:1.27".
+                      type: string
+                    status:
+                      description: Status is the result of the last availability check.
+                      enum:
+                      - Scheduled
+                      - Available
+                      - NotFound
+                      - Unreachable
+                      - InvalidAuth
+                      - UnavailableSecret
+                      - QuotaExceeded
+                      type: string
+                    unusedSince:
+                      description: |-
+                        UnusedSince is the timestamp when the last Pod referencing this image disappeared.
+                        Nil means at least one Pod currently uses this image.
+                      format: date-time
+                      type: string
+                  required:
+                  - path
+                  - status
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - path
+                x-kubernetes-list-type: map
             type: object
         type: object
     served: true
