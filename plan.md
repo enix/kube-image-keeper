@@ -82,6 +82,8 @@ registriesMonitoring:
 
 A helper on the reconciler (see Phase 4) resolves the effective merged config for a given registry. It starts from `Default` and applies only the non-zero fields from the matching `Items` entry, so a per-registry override only needs to declare what it changes:
 
+@NOTE: regsitryConfig should always return a valid config, so we don't need the 2nd return parameter (bool). To do so, the default config should have defaults itself. Method HEAD, interval 1h, maxPerInterval 1, timeout 0 (since `Client.newContextOption` by pass the timeout if == 0) (unset) and fallbackCredentialSecret nil (unset)
+
 ```go
 func (r *ClusterImageSetAvailabilityReconciler) registryConfig(registry string) (config.RegistryMonitoring, bool) {
     mon := r.Config.RegistriesMonitoring
@@ -407,6 +409,9 @@ The reconciler has two responsibilities per cycle:
 
 The per-registry check logic is extracted into `checkNextForRegistry` to keep cyclomatic complexity low.
 
+@NOTE: your assumption about the default key is wrong, we extracted it next to the list of registries
+@NOTE: maybe you can use `minRequeueAfter := time.Duration(math.MaxInt64)` and `if requeueAfter > 0 then minRequeueAfter = min(minRequeueAfter, requeueAfter)`, then check `if minRequeueAfter == time.Duration(math.MaxInt64)` before re-queuing ?
+
 ```go
 func (r *ClusterImageSetAvailabilityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
     var cisa kuikv1alpha1.ClusterImageSetAvailability
@@ -470,6 +475,8 @@ func uniqueRegistriesFromStatus(cisa *kuikv1alpha1.ClusterImageSetAvailability) 
 ### 4.4 checkNextForRegistry
 
 Performs the drip-feed logic for a single registry: finds the image with the oldest `LastMonitor`, checks whether the tick has elapsed, and either performs the check or returns the time remaining until it is due.
+
+@NOTE: what if there are 100 new images, but maxPerInterval == 1 and interval == 1h ? It looks like it will check all 100 new images anyway since their lastMonitor == nil, or I missed something ?
 
 ```go
 func (r *ClusterImageSetAvailabilityReconciler) checkNextForRegistry(
@@ -638,6 +645,8 @@ func findNextImageToCheck(
 ### 4.7 performCheck
 
 Calls `registry.CheckImageAvailability` (moved from the webhook in Phase 3) and updates the `MonitoredImage` entry in place.
+
+@NOTE: `CheckImageAvailability` should return an error so it can be stored in `img.LastError`
 
 ```go
 func (r *ClusterImageSetAvailabilityReconciler) performCheck(
