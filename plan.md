@@ -80,26 +80,46 @@ registriesMonitoring:
         namespace: kuik-system
 ```
 
-A helper on the reconciler (see Phase 4) resolves the effective merged config for a given registry. It starts from `Default` and applies only the non-zero fields from the matching `Items` entry, so a per-registry override only needs to declare what it changes:
+`RegistryMonitoring` has built-in defaults so that `registryConfig` always returns a usable config — no `bool` return needed. The built-in defaults are:
 
-@NOTE: regsitryConfig should always return a valid config, so we don't need the 2nd return parameter (bool). To do so, the default config should have defaults itself. Method HEAD, interval 1h, maxPerInterval 1, timeout 0 (since `Client.newContextOption` by pass the timeout if == 0) (unset) and fallbackCredentialSecret nil (unset)
+| Field | Default | Rationale |
+|---|---|---|
+| `Method` | `"HEAD"` | Lightest request for availability checks |
+| `Interval` | `1h` | Conservative rate for unconfigured registries |
+| `MaxPerInterval` | `1` | Single check per interval |
+| `Timeout` | `0` | No timeout — `Client.newContextOption` bypasses when 0 |
+| `FallbackCredentialSecret` | `nil` | Anonymous access by default |
+
+These defaults are set through koanf's `structs.Provider(defaultConfig, "koanf")` in `config.Load`, same as the existing `Routing.ActiveCheck.Timeout`:
 
 ```go
-func (r *ClusterImageSetAvailabilityReconciler) registryConfig(registry string) (config.RegistryMonitoring, bool) {
+var defaultConfig = Config{
+    Routing: Routing{
+        ActiveCheck: ActiveCheck{
+            Timeout: time.Second,
+        },
+    },
+    RegistriesMonitoring: RegistriesMonitoring{
+        Default: RegistryMonitoring{
+            Method:         "HEAD",
+            Interval:       time.Hour,
+            MaxPerInterval: 1,
+        },
+    },
+}
+```
+
+A helper on the reconciler (see Phase 4) resolves the effective merged config for a given registry. It starts from `Default` and applies only the non-zero fields from the matching `Items` entry, so a per-registry override only needs to declare what it changes:
+
+```go
+func (r *ClusterImageSetAvailabilityReconciler) registryConfig(registry string) config.RegistryMonitoring {
     mon := r.Config.RegistriesMonitoring
 
-    // Start from the baseline default.
+    // Start from the baseline default (always has usable values).
     merged := mon.Default
 
-    override, hasOverride := mon.Items[registry]
-
-    // A registry with no matching entry and no configured default is not monitored.
-    if merged.Interval == 0 && !hasOverride {
-        return config.RegistryMonitoring{}, false
-    }
-
     // Apply per-registry overrides: only non-zero fields replace the default.
-    if hasOverride {
+    if override, ok := mon.Items[registry]; ok {
         if override.Method != "" {
             merged.Method = override.Method
         }
@@ -117,7 +137,7 @@ func (r *ClusterImageSetAvailabilityReconciler) registryConfig(registry string) 
         }
     }
 
-    return merged, true
+    return merged
 }
 ```
 
@@ -279,35 +299,38 @@ The `ImageAvailability` int iota in `pod_webhook.go` is retired and replaced by 
 // internal/registry/availability.go
 
 // CheckImageAvailability performs an HTTP HEAD or GET request against the registry
-// and returns the availability status of the image.
+// and returns the availability status of the image along with any error encountered.
+// The error is non-nil for all non-Available statuses and contains the underlying
+// cause (e.g. HTTP status text, transport error). Callers that need a human-readable
+// explanation (such as the controller's LastError field) can use err.Error().
 func CheckImageAvailability(
     ctx context.Context,
     reference string,
     method string,
     timeout time.Duration,
     pullSecrets []corev1.Secret,
-) kuikv1alpha1.ImageAvailabilityStatus {
+) (kuikv1alpha1.ImageAvailabilityStatus, error) {
     _, headers, err := NewClient(nil, nil).
         WithTimeout(timeout).
         WithPullSecrets(pullSecrets).
         ReadDescriptor(method, reference)
 
     if IsRateLimited(headers) {
-        return kuikv1alpha1.ImageAvailabilityQuotaExceeded
+        return kuikv1alpha1.ImageAvailabilityQuotaExceeded, fmt.Errorf("rate limit exceeded")
     }
 
     if err != nil {
         switch TransportStatusCode(err) {
         case http.StatusNotFound:
-            return kuikv1alpha1.ImageAvailabilityNotFound
+            return kuikv1alpha1.ImageAvailabilityNotFound, fmt.Errorf("image not found: %w", err)
         case http.StatusUnauthorized, http.StatusForbidden:
-            return kuikv1alpha1.ImageAvailabilityInvalidAuth
+            return kuikv1alpha1.ImageAvailabilityInvalidAuth, fmt.Errorf("authentication failed: %w", err)
         default:
-            return kuikv1alpha1.ImageAvailabilityUnreachable
+            return kuikv1alpha1.ImageAvailabilityUnreachable, fmt.Errorf("registry unreachable: %w", err)
         }
     }
 
-    return kuikv1alpha1.ImageAvailabilityAvailable
+    return kuikv1alpha1.ImageAvailabilityAvailable, nil
 }
 ```
 
@@ -320,7 +343,7 @@ Update `pod_webhook.go`:
 // in pod_webhook.go — updated checkImageAvailabilityCached
 func (d *PodCustomDefaulter) checkImageAvailabilityCached(...) bool {
     // ... singleflight + cache logic unchanged ...
-    result := registry.CheckImageAvailability(ctx, image.Reference,
+    result, _ := registry.CheckImageAvailability(ctx, image.Reference,
         http.MethodHead, d.Config.Routing.ActiveCheck.Timeout, pullSecrets)
     available := result == kuikv1alpha1.ImageAvailabilityAvailable
     d.checkCache.Set(image.Reference, available)
@@ -380,10 +403,6 @@ func (r *ClusterImageSetAvailabilityReconciler) SetupWithManager(mgr ctrl.Manage
                         if err != nil {
                             continue
                         }
-                        _, monitored := r.registryConfig(reg)
-                        if !monitored {
-                            continue
-                        }
                         imageFilter := cisa.Spec.ImageFilter.MustBuildWithRegistry(reg + "/")
                         if imageFilter.Match(imageName) {
                             reqs = append(reqs, reconcile.Request{
@@ -409,9 +428,6 @@ The reconciler has two responsibilities per cycle:
 
 The per-registry check logic is extracted into `checkNextForRegistry` to keep cyclomatic complexity low.
 
-@NOTE: your assumption about the default key is wrong, we extracted it next to the list of registries
-@NOTE: maybe you can use `minRequeueAfter := time.Duration(math.MaxInt64)` and `if requeueAfter > 0 then minRequeueAfter = min(minRequeueAfter, requeueAfter)`, then check `if minRequeueAfter == time.Duration(math.MaxInt64)` before re-queuing ?
-
 ```go
 func (r *ClusterImageSetAvailabilityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
     var cisa kuikv1alpha1.ClusterImageSetAvailability
@@ -431,31 +447,26 @@ func (r *ClusterImageSetAvailabilityReconciler) Reconcile(ctx context.Context, r
         return ctrl.Result{}, err
     }
 
-    // Step 2: drip-feed monitoring — one check per configured registry per tick.
-    // Iterate over the unique registries present in status (not over config keys directly,
-    // so that the "default" key is never treated as a real registry hostname).
+    // Step 2: drip-feed monitoring — one check per registry per tick.
     uniqueRegistries := uniqueRegistriesFromStatus(&cisa)
-    minRequeueAfter := time.Duration(0)
+    minRequeueAfter := time.Duration(math.MaxInt64)
 
     for _, registry := range uniqueRegistries {
-        monCfg, ok := r.registryConfig(registry)
-        if !ok {
-            continue
-        }
+        monCfg := r.registryConfig(registry)
 
         requeueAfter, err := r.checkNextForRegistry(ctx, &cisa, registry, monCfg, pods.Items)
         if err != nil {
             return ctrl.Result{}, err
         }
-        if requeueAfter > 0 && (minRequeueAfter == 0 || requeueAfter < minRequeueAfter) {
-            minRequeueAfter = requeueAfter
+        if requeueAfter > 0 {
+            minRequeueAfter = min(minRequeueAfter, requeueAfter)
         }
     }
 
-    if minRequeueAfter > 0 {
-        return ctrl.Result{RequeueAfter: minRequeueAfter}, nil
+    if minRequeueAfter == time.Duration(math.MaxInt64) {
+        return ctrl.Result{}, nil // nothing to requeue for
     }
-    return ctrl.Result{}, nil
+    return ctrl.Result{RequeueAfter: minRequeueAfter}, nil
 }
 
 // uniqueRegistriesFromStatus returns the deduplicated list of registry hostnames
@@ -476,7 +487,7 @@ func uniqueRegistriesFromStatus(cisa *kuikv1alpha1.ClusterImageSetAvailability) 
 
 Performs the drip-feed logic for a single registry: finds the image with the oldest `LastMonitor`, checks whether the tick has elapsed, and either performs the check or returns the time remaining until it is due.
 
-@NOTE: what if there are 100 new images, but maxPerInterval == 1 and interval == 1h ? It looks like it will check all 100 new images anyway since their lastMonitor == nil, or I missed something ?
+This function checks **exactly one image per call** — even if 100 new images have `LastMonitor == nil` (all "due immediately"), only the single image returned by `findNextImageToCheck` is checked. After that check its `LastMonitor` is set, and the function returns `tickDuration`. On the next reconciliation (triggered by `RequeueAfter`), the next nil-`LastMonitor` image is picked. This naturally enforces the drip-feed rate: 100 new images with `maxPerInterval=1, interval=1h` take 100 hours to fully cycle through.
 
 ```go
 func (r *ClusterImageSetAvailabilityReconciler) checkNextForRegistry(
@@ -504,6 +515,7 @@ func (r *ClusterImageSetAvailabilityReconciler) checkNextForRegistry(
         return timeUntilDue, nil // not due yet, report when to requeue
     }
 
+    // Check exactly one image and return — the next one will be picked on the next tick.
     log.V(1).Info("checking image availability", "registry", registry, "path", nextImage.Path)
     original := cisa.DeepCopy()
     r.performCheck(ctx, nextImage, monCfg, pods)
@@ -511,7 +523,7 @@ func (r *ClusterImageSetAvailabilityReconciler) checkNextForRegistry(
         return 0, err
     }
 
-    return tickDuration, nil // requeue after the tick for the next image in this registry
+    return tickDuration, nil
 }
 ```
 
@@ -542,11 +554,7 @@ func (r *ClusterImageSetAvailabilityReconciler) syncImageList(
             if err != nil {
                 continue
             }
-            monCfg, ok := r.registryConfig(reg)
-            if !ok {
-                continue // registry is not monitored
-            }
-            _ = monCfg
+            monCfg := r.registryConfig(reg)
             imageFilter := cisa.Spec.ImageFilter.MustBuildWithRegistry(reg + "/")
             if imageFilter.Match(imageName) {
                 currentImages[imageName] = struct{}{}
@@ -646,8 +654,6 @@ func findNextImageToCheck(
 
 Calls `registry.CheckImageAvailability` (moved from the webhook in Phase 3) and updates the `MonitoredImage` entry in place.
 
-@NOTE: `CheckImageAvailability` should return an error so it can be stored in `img.LastError`
-
 ```go
 func (r *ClusterImageSetAvailabilityReconciler) performCheck(
     ctx context.Context,
@@ -665,11 +671,13 @@ func (r *ClusterImageSetAvailabilityReconciler) performCheck(
         return
     }
 
-    result := registry.CheckImageAvailability(ctx, img.Path, monCfg.Method, monCfg.Timeout, pullSecrets)
+    result, checkErr := registry.CheckImageAvailability(ctx, img.Path, monCfg.Method, monCfg.Timeout, pullSecrets)
 
     img.Status = result
     img.LastMonitor = &now
-    if result == kuikv1alpha1.ImageAvailabilityAvailable {
+    if checkErr != nil {
+        img.LastError = checkErr.Error()
+    } else {
         img.LastError = ""
     }
 }
@@ -801,7 +809,7 @@ The registry hostname is extracted with `internal.RegistryAndPathFromReference(i
 
 `RegistriesMonitoring.Default` provides the baseline for all registries. `RegistriesMonitoring.Items` holds per-registry overrides; only non-zero fields in an override replace the corresponding default field.
 
-The `registryConfig(registry)` helper applies this merge and returns `false` only when both `Default.Interval` is zero and the registry has no entry in `Items` — meaning the registry is not monitored at all. `"default"` is never a registry hostname: the monitoring loop iterates over unique registries found in `status.images` (via `uniqueRegistriesFromStatus`) and resolves config through `registryConfig`.
+The `registryConfig(registry)` helper applies this merge and always returns a valid config. When neither `Default` nor `Items[registry]` provides explicit values, the built-in defaults apply (Method=HEAD, Interval=1h, MaxPerInterval=1, Timeout=0, FallbackCredentialSecret=nil). This means every registry is always monitorable — there is no "unmonitored" state. The monitoring loop iterates over unique registries found in `status.images` (via `uniqueRegistriesFromStatus`) and resolves config through `registryConfig`.
 
 ### Unified `ImageAvailabilityStatus` type
 
