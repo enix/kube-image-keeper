@@ -35,16 +35,6 @@
 - apiGroups:
   - kuik.enix.io
   resources:
-  - clusterimagesetavailabilities/finalizers
-  - clusterimagesetmirrors/finalizers
-  - clusterreplicatedimagesets/finalizers
-  - imagesetmirrors/finalizers
-  - replicatedimagesets/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - kuik.enix.io
-  resources:
   - clusterimagesetavailabilities/status
   - clusterimagesetmirrors/status
   - clusterreplicatedimagesets/status
@@ -53,6 +43,15 @@
   verbs:
   - get
   - patch
+  - update
+- apiGroups:
+  - kuik.enix.io
+  resources:
+  - clusterimagesetmirrors/finalizers
+  - clusterreplicatedimagesets/finalizers
+  - imagesetmirrors/finalizers
+  - replicatedimagesets/finalizers
+  verbs:
   - update
 - apiGroups:
   - kuik.enix.io
