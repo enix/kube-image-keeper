@@ -487,6 +487,8 @@ func uniqueRegistriesFromStatus(cisa *kuikv1alpha1.ClusterImageSetAvailability) 
 
 Performs the drip-feed logic for a single registry. It enforces the rate limit by counting how many images have been checked within the current `interval` window and comparing against `maxPerInterval`. The tick duration (`interval / maxPerInterval`) determines the minimum spacing between checks.
 
+@NOTE: instead of counting, only rely on checking the mostRecentCheck and tick spacing, update `findNextImageToCheck` so it returns oldest and latest checked images
+
 ```go
 func (r *ClusterImageSetAvailabilityReconciler) checkNextForRegistry(
     ctx context.Context,
