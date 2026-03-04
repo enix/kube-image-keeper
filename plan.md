@@ -485,9 +485,7 @@ func uniqueRegistriesFromStatus(cisa *kuikv1alpha1.ClusterImageSetAvailability) 
 
 ### 4.4 checkNextForRegistry
 
-Performs the drip-feed logic for a single registry: finds the image with the oldest `LastMonitor`, checks whether the tick has elapsed, and either performs the check or returns the time remaining until it is due.
-
-@NOTE: this function must not check an image if there are already more than maxPerInterval images that have been checked for this registry in the current interval. You can ensure this by comparing last check timestamp and interval / maxPerInterval.
+Performs the drip-feed logic for a single registry. It enforces the rate limit by counting how many images have been checked within the current `interval` window and comparing against `maxPerInterval`. The tick duration (`interval / maxPerInterval`) determines the minimum spacing between checks.
 
 ```go
 func (r *ClusterImageSetAvailabilityReconciler) checkNextForRegistry(
@@ -499,20 +497,46 @@ func (r *ClusterImageSetAvailabilityReconciler) checkNextForRegistry(
 ) (requeueAfter time.Duration, err error) {
     log := logf.FromContext(ctx)
     tickDuration := monCfg.Interval / time.Duration(monCfg.MaxPerInterval)
+    now := time.Now()
+
+    // Count how many images for this registry were checked within the current interval.
+    var recentChecks int
+    var mostRecentCheck time.Time
+    for i := range cisa.Status.Images {
+        img := &cisa.Status.Images[i]
+        imgRegistry, _, err := internal.RegistryAndPathFromReference(img.Path)
+        if err != nil || imgRegistry != registry || img.LastMonitor == nil {
+            continue
+        }
+        if now.Sub(img.LastMonitor.Time) < monCfg.Interval {
+            recentChecks++
+            if img.LastMonitor.Time.After(mostRecentCheck) {
+                mostRecentCheck = img.LastMonitor.Time
+            }
+        }
+    }
+
+    // If we've already used all slots in this interval, wait until the oldest
+    // check in the window expires (i.e. falls outside the interval).
+    if recentChecks >= monCfg.MaxPerInterval {
+        timeUntilSlotFrees := tickDuration - now.Sub(mostRecentCheck)
+        if timeUntilSlotFrees <= 0 {
+            timeUntilSlotFrees = tickDuration
+        }
+        return timeUntilSlotFrees, nil
+    }
 
     nextImage := findNextImageToCheck(cisa, registry)
     if nextImage == nil {
         return 0, nil // no images for this registry yet
     }
 
-    // Compute how long until this image is due (nil LastMonitor = due immediately).
-    var timeUntilDue time.Duration
-    if nextImage.LastMonitor != nil {
-        timeUntilDue = tickDuration - time.Since(nextImage.LastMonitor.Time)
-    }
-
-    if timeUntilDue > 0 {
-        return timeUntilDue, nil // not due yet, report when to requeue
+    // Even if a slot is available, respect the tick spacing from the last check.
+    if !mostRecentCheck.IsZero() {
+        timeUntilDue := tickDuration - now.Sub(mostRecentCheck)
+        if timeUntilDue > 0 {
+            return timeUntilDue, nil
+        }
     }
 
     log.V(1).Info("checking image availability", "registry", registry, "path", nextImage.Path)
