@@ -27,6 +27,7 @@ rules:
 - apiGroups:
   - kuik.enix.io
   resources:
+  - clusterimagesetavailabilities
   - clusterimagesetmirrors
   - imagesetmirrors
   verbs:
@@ -40,6 +41,7 @@ rules:
 - apiGroups:
   - kuik.enix.io
   resources:
+  - clusterimagesetavailabilities/finalizers
   - clusterimagesetmirrors/finalizers
   - clusterreplicatedimagesets/finalizers
   - imagesetmirrors/finalizers
@@ -49,6 +51,7 @@ rules:
 - apiGroups:
   - kuik.enix.io
   resources:
+  - clusterimagesetavailabilities/status
   - clusterimagesetmirrors/status
   - clusterreplicatedimagesets/status
   - imagesetmirrors/status

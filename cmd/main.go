@@ -264,6 +264,13 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "ClusterReplicatedImageSetSecretOwner")
 		os.Exit(1)
 	}
+	if err = (&kuikcontroller.ClusterImageSetAvailabilityReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ClusterImageSetAvailability")
+		os.Exit(1)
+	}
 	// +kubebuilder:scaffold:builder
 
 	if metricsCertWatcher != nil {
