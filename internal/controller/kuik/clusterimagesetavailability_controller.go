@@ -2,6 +2,7 @@ package kuik
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"math"
@@ -288,6 +289,8 @@ func (r *ClusterImageSetAvailabilityReconciler) performCheck(ctx context.Context
 }
 
 func (r *ClusterImageSetAvailabilityReconciler) resolveCredentials(ctx context.Context, fullRef string, registryConfig config.RegistryMonitoring, pods []corev1.Pod) ([]corev1.Secret, error) {
+	var errs []error
+
 	for i := range pods {
 		pod := &pods[i]
 		for imageName := range normalizedImageNamesFromPod(ctx, pod) {
@@ -299,10 +302,14 @@ func (r *ClusterImageSetAvailabilityReconciler) resolveCredentials(ctx context.C
 				return secrets, nil
 			}
 			logf.FromContext(ctx).V(1).Info("could not read pod pull secrets", "pod", klog.KObj(pod), "error", err)
+			errs = append(errs, err)
 		}
 	}
 
 	if registryConfig.FallbackCredentialSecret == nil {
+		if len(errs) > 0 {
+			return nil, fmt.Errorf("unavailable secret: %w", errors.Join(errs...))
+		}
 		return nil, nil
 	}
 

@@ -2,7 +2,6 @@ package internal
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/distribution/reference"
@@ -26,7 +25,7 @@ func GetPullSecretsFromPod(ctx context.Context, c client.Client, pod *corev1.Pod
 	for _, imagePullSecret := range pod.Spec.ImagePullSecrets {
 		secret := &corev1.Secret{}
 		if err := c.Get(ctx, client.ObjectKey{Namespace: pod.Namespace, Name: imagePullSecret.Name}, secret); err != nil {
-			return nil, fmt.Errorf("could not get image pull secret %q: %w", imagePullSecret.Name, err)
+			return nil, err
 		}
 		secrets = append(secrets, *secret)
 	}
