@@ -2,8 +2,8 @@ package kuik
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"maps"
 	"math"
 	"slices"
 	"time"
@@ -20,6 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
@@ -36,10 +37,17 @@ type ClusterImageSetAvailabilityReconciler struct {
 	Config *config.Config
 }
 
+type monitoringCandidate struct {
+	image               *kuikv1alpha1.MonitoredImage
+	cisa                *kuikv1alpha1.ClusterImageSetAvailability
+	registryLastMonitor time.Time
+}
+
 func (r *ClusterImageSetAvailabilityReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kuikv1alpha1.ClusterImageSetAvailability{}).
 		Named("kuik-clusterimagesetavailability").
+		WithEventFilter(predicate.GenerationChangedPredicate{}).
 		WatchesRawSource(source.TypedKind(mgr.GetCache(), &corev1.Pod{},
 			handler.TypedEnqueueRequestsFromMapFunc(func(ctx context.Context, pod *corev1.Pod) []reconcile.Request {
 				log := logf.FromContext(ctx).WithName("pod-mapper").WithValues("pod", klog.KObj(pod))
@@ -54,12 +62,8 @@ func (r *ClusterImageSetAvailabilityReconciler) SetupWithManager(mgr ctrl.Manage
 
 				var reqs []reconcile.Request
 				for _, cisa := range cisaList.Items {
+					imageFilter := cisa.Spec.ImageFilter.MustBuild()
 					for imageName := range imageNames {
-						registry, _, err := internal.RegistryAndPathFromReference(imageName)
-						if err != nil {
-							continue
-						}
-						imageFilter := cisa.Spec.ImageFilter.MustBuildWithRegistry(registry + "/")
 						if imageFilter.Match(imageName) {
 							reqs = append(reqs, reconcile.Request{
 								NamespacedName: client.ObjectKeyFromObject(&cisa),
@@ -92,13 +96,16 @@ func (r *ClusterImageSetAvailabilityReconciler) Reconcile(ctx context.Context, r
 		return ctrl.Result{}, err
 	}
 
-	uniqueRegistries := uniqueRegistriesFromStatus(&cisa)
-	minRequeueAfter := time.Duration(math.MaxInt64)
+	candidates, err := r.getRegistriesCandidates(ctx)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 
-	for _, registry := range uniqueRegistries {
+	minRequeueAfter := time.Duration(math.MaxInt64)
+	for registry, candidate := range candidates {
 		registryConfig := r.registryConfig(registry)
 
-		requeueAfter, err := r.checkNextForRegistry(ctx, &cisa, registry, registryConfig, pods.Items)
+		requeueAfter, err := r.checkNextForRegistry(ctx, candidate, registry, registryConfig, pods.Items)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -112,6 +119,44 @@ func (r *ClusterImageSetAvailabilityReconciler) Reconcile(ctx context.Context, r
 	}
 
 	return ctrl.Result{RequeueAfter: minRequeueAfter}, nil
+}
+
+func (r *ClusterImageSetAvailabilityReconciler) getRegistriesCandidates(ctx context.Context) (map[string]*monitoringCandidate, error) {
+	var cisas kuikv1alpha1.ClusterImageSetAvailabilityList
+	if err := r.List(ctx, &cisas); err != nil {
+		return nil, err
+	}
+
+	candidates := map[string]*monitoringCandidate{}
+	for i := range cisas.Items {
+		cisa := &cisas.Items[i]
+
+		for j := range cisa.Status.Images {
+			image := &cisa.Status.Images[j]
+
+			registry, _, err := internal.RegistryAndPathFromReference(image.Path)
+			if err != nil {
+				continue
+			}
+
+			candidate, hasCandidate := candidates[registry]
+			if !hasCandidate {
+				candidate = &monitoringCandidate{}
+				candidates[registry] = candidate
+			}
+
+			if image.LastMonitor == nil || !hasCandidate || image.LastMonitor.Before(candidate.image.LastMonitor) {
+				candidate.image = image
+				candidate.cisa = cisa
+			}
+
+			if image.LastMonitor != nil && image.LastMonitor.After(candidate.registryLastMonitor) {
+				candidate.registryLastMonitor = image.LastMonitor.Time
+			}
+		}
+	}
+
+	return candidates, nil
 }
 
 func (r *ClusterImageSetAvailabilityReconciler) registryConfig(registry string) config.RegistryMonitoring {
@@ -140,81 +185,37 @@ func (r *ClusterImageSetAvailabilityReconciler) registryConfig(registry string) 
 	return merged
 }
 
-func uniqueRegistriesFromStatus(cisa *kuikv1alpha1.ClusterImageSetAvailability) []string {
-	seen := map[string]struct{}{}
-	for _, image := range cisa.Status.Images {
-		reg, _, err := internal.RegistryAndPathFromReference(image.Path)
-		if err == nil {
-			seen[reg] = struct{}{}
-		}
-	}
-	return slices.Collect(maps.Keys(seen))
-}
-
-func (r *ClusterImageSetAvailabilityReconciler) checkNextForRegistry(ctx context.Context, cisa *kuikv1alpha1.ClusterImageSetAvailability, registry string, registryConfig config.RegistryMonitoring, pods []corev1.Pod) (time.Duration, error) {
+func (r *ClusterImageSetAvailabilityReconciler) checkNextForRegistry(ctx context.Context, candidate *monitoringCandidate, registry string, registryConfig config.RegistryMonitoring, pods []corev1.Pod) (time.Duration, error) {
 	log := logf.FromContext(ctx)
 	tickDuration := registryConfig.Interval / time.Duration(registryConfig.MaxPerInterval)
+	timeUntilDue := tickDuration - time.Since(candidate.registryLastMonitor)
 
-	nextImage, latestChecked := findNextImageToCheck(cisa, registry)
-	if nextImage == nil {
-		return 0, nil
+	if timeUntilDue > 0 {
+		return timeUntilDue, nil
 	}
 
-	if latestChecked != nil {
-		timeUntilDue := tickDuration - time.Since(latestChecked.LastMonitor.Time)
-		if timeUntilDue > 0 {
-			return timeUntilDue, nil
-		}
-	}
+	original := candidate.cisa.DeepCopy()
 
-	log.V(1).Info("checking image availability", "registry", registry, "path", nextImage.Path)
-	original := cisa.DeepCopy()
-	r.performCheck(ctx, nextImage, registryConfig, pods)
-	if err := r.Status().Patch(ctx, cisa, client.MergeFrom(original)); err != nil {
+	log.V(1).Info("checking image availability", "registry", registry, "path", candidate.image.Path)
+	r.performCheck(ctx, candidate.image, registryConfig, pods)
+	log.V(1).Info("image monitoring done", "status", candidate.image.Status)
+
+	if err := r.Status().Patch(ctx, candidate.cisa, client.MergeFrom(original)); err != nil {
 		return 0, err
 	}
 
 	return tickDuration, nil
 }
 
-func findNextImageToCheck(cisa *kuikv1alpha1.ClusterImageSetAvailability, registry string) (oldest, latest *kuikv1alpha1.MonitoredImage) {
-	for i := range cisa.Status.Images {
-		image := &cisa.Status.Images[i]
-
-		imageRegistry, _, err := internal.RegistryAndPathFromReference(image.Path)
-		if err != nil || imageRegistry != registry {
-			continue
-		}
-
-		if oldest == nil || image.LastMonitor == nil {
-			oldest = image
-		} else if oldest.LastMonitor != nil && image.LastMonitor.Before(oldest.LastMonitor) {
-			oldest = image
-		}
-
-		if image.LastMonitor != nil {
-			if latest == nil || image.LastMonitor.After(latest.LastMonitor.Time) {
-				latest = image
-			}
-		}
-	}
-
-	return oldest, latest
-}
-
 func (r *ClusterImageSetAvailabilityReconciler) syncImageList(ctx context.Context, cisa *kuikv1alpha1.ClusterImageSetAvailability, pods []corev1.Pod) {
 	log := logf.FromContext(ctx)
 	now := metav1.NewTime(time.Now())
 	instantExpiryMarker := metav1.NewTime(time.Time{}.Add(time.Hour))
+	imageFilter := cisa.Spec.ImageFilter.MustBuild()
 
 	currentImages := map[string]struct{}{}
 	for i := range pods {
 		for imageName := range normalizedImageNamesFromPod(ctx, &pods[i]) {
-			registry, _, err := internal.RegistryAndPathFromReference(imageName)
-			if err != nil {
-				continue
-			}
-			imageFilter := cisa.Spec.ImageFilter.MustBuildWithRegistry(registry + "/")
 			if imageFilter.Match(imageName) {
 				currentImages[imageName] = struct{}{}
 			}
@@ -224,15 +225,7 @@ func (r *ClusterImageSetAvailabilityReconciler) syncImageList(ctx context.Contex
 	for i := range cisa.Status.Images {
 		image := &cisa.Status.Images[i]
 
-		registry, _, err := internal.RegistryAndPathFromReference(image.Path)
-		if err != nil {
-			continue
-		}
-
-		imageFilter := cisa.Spec.ImageFilter.MustBuildWithRegistry(registry + "/")
-		inScope := imageFilter.Match(image.Path)
-
-		if !inScope {
+		if !imageFilter.Match(image.Path) {
 			if image.UnusedSince == nil || !image.UnusedSince.Equal(&instantExpiryMarker) {
 				image.UnusedSince = &instantExpiryMarker
 				log.Info("image no longer in scope, marking for removal", "path", image.Path)
@@ -242,16 +235,24 @@ func (r *ClusterImageSetAvailabilityReconciler) syncImageList(ctx context.Contex
 
 		if _, inUse := currentImages[image.Path]; inUse {
 			image.UnusedSince = nil
+		} else if image.Status == kuikv1alpha1.ImageAvailabilityScheduled {
+			image.UnusedSince = &instantExpiryMarker
+			log.Info("image is no longer used by any pod and has never been monitored, marking it for removal", "path", image.Path)
 		} else if image.UnusedSince == nil {
 			image.UnusedSince = &now
-			log.Info("image is no longer used by any pod", "path", image.Path)
 		}
 	}
 
 	expiry := cisa.Spec.UnusedImageExpiry.Duration
 	if expiry > 0 {
 		cisa.Status.Images = slices.DeleteFunc(cisa.Status.Images, func(image kuikv1alpha1.MonitoredImage) bool {
-			return image.UnusedSince != nil && time.Since(image.UnusedSince.Time) >= expiry
+			if image.UnusedSince != nil && time.Since(image.UnusedSince.Time) >= expiry {
+				if image.UnusedSince.Compare(instantExpiryMarker.Time) != 0 {
+					log.Info("image is unused for more than the retention duration, removing from monitoring", "path", image.Path)
+				}
+				return true
+			}
+			return false
 		})
 	}
 
@@ -259,6 +260,7 @@ func (r *ClusterImageSetAvailabilityReconciler) syncImageList(ctx context.Contex
 	for _, image := range cisa.Status.Images {
 		existingPaths[image.Path] = struct{}{}
 	}
+
 	for imageName := range currentImages {
 		if _, exists := existingPaths[imageName]; !exists {
 			cisa.Status.Images = append(cisa.Status.Images, kuikv1alpha1.MonitoredImage{
@@ -279,14 +281,16 @@ func (r *ClusterImageSetAvailabilityReconciler) performCheck(ctx context.Context
 	if err != nil {
 		image.Status = kuikv1alpha1.ImageAvailabilityUnavailableSecret
 		image.LastError = err.Error()
-		image.LastMonitor = &now
-		return
 	}
 
 	result, checkErr := registry.CheckImageAvailability(ctx, image.Path, registryConfig.Method, registryConfig.Timeout, pullSecrets)
+	image.LastMonitor = &now
+
+	if image.Status == kuikv1alpha1.ImageAvailabilityUnavailableSecret && result == kuikv1alpha1.ImageAvailabilityInvalidAuth {
+		return // In case of InvalidAuth with UnavailableSecret, UnavailableSecret takes precedence over InvalidAuth
+	}
 
 	image.Status = result
-	image.LastMonitor = &now
 	if checkErr != nil {
 		image.LastError = checkErr.Error()
 	} else {
@@ -295,6 +299,8 @@ func (r *ClusterImageSetAvailabilityReconciler) performCheck(ctx context.Context
 }
 
 func (r *ClusterImageSetAvailabilityReconciler) resolveCredentials(ctx context.Context, fullRef string, registryConfig config.RegistryMonitoring, pods []corev1.Pod) ([]corev1.Secret, error) {
+	var errs []error
+
 	for i := range pods {
 		pod := &pods[i]
 		for imageName := range normalizedImageNamesFromPod(ctx, pod) {
@@ -305,12 +311,15 @@ func (r *ClusterImageSetAvailabilityReconciler) resolveCredentials(ctx context.C
 			if err == nil {
 				return secrets, nil
 			}
-			logf.FromContext(ctx).V(1).Info("could not read pod pull secrets",
-				"pod", klog.KObj(pod), "error", err)
+			logf.FromContext(ctx).V(1).Info("could not read pod pull secrets", "pod", klog.KObj(pod), "error", err)
+			errs = append(errs, err)
 		}
 	}
 
 	if registryConfig.FallbackCredentialSecret == nil {
+		if len(errs) > 0 {
+			return nil, fmt.Errorf("unavailable secret: %w", errors.Join(errs...))
+		}
 		return nil, nil
 	}
 
