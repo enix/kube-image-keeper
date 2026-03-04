@@ -226,6 +226,8 @@ func (r *ClusterImageSetAvailabilityReconciler) syncImageList(ctx context.Contex
 
 		if _, inUse := currentImages[image.Path]; inUse {
 			image.UnusedSince = nil
+		} else if image.Status == kuikv1alpha1.ImageAvailabilityScheduled {
+			image.UnusedSince = &instantExpiryMarker
 		} else if image.UnusedSince == nil {
 			image.UnusedSince = &now
 			log.Info("image is no longer used by any pod", "path", image.Path)
