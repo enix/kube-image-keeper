@@ -228,16 +228,22 @@ func (r *ClusterImageSetAvailabilityReconciler) syncImageList(ctx context.Contex
 			image.UnusedSince = nil
 		} else if image.Status == kuikv1alpha1.ImageAvailabilityScheduled {
 			image.UnusedSince = &instantExpiryMarker
+			log.Info("image is no longer used by any pod and has never been monitored, marking it for removal", "path", image.Path)
 		} else if image.UnusedSince == nil {
 			image.UnusedSince = &now
-			log.Info("image is no longer used by any pod", "path", image.Path)
 		}
 	}
 
 	expiry := cisa.Spec.UnusedImageExpiry.Duration
 	if expiry > 0 {
 		cisa.Status.Images = slices.DeleteFunc(cisa.Status.Images, func(image kuikv1alpha1.MonitoredImage) bool {
-			return image.UnusedSince != nil && time.Since(image.UnusedSince.Time) >= expiry
+			if image.UnusedSince != nil && time.Since(image.UnusedSince.Time) >= expiry {
+				if image.UnusedSince.Compare(instantExpiryMarker.Time) != 0 {
+					log.Info("image is unused for more than the retention duration, removing from monitoring", "path", image.Path)
+				}
+				return true
+			}
+			return false
 		})
 	}
 
