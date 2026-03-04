@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"path"
@@ -40,26 +39,6 @@ import (
 // nolint:unused
 // log is for logging in this package.
 var podlog = logf.Log.WithName("pod-resource")
-
-var errRateLimited = errors.New("registry limit reached")
-
-// ImageAvailability represents the result of an image availability check.
-type ImageAvailability int
-
-const (
-	// ImageScheduled means the check has not been executed yet.
-	ImageScheduled ImageAvailability = iota
-	// ImageAvailable means the image is reachable and exists.
-	ImageAvailable
-	// ImageNotFound means the registry returned HTTP 404.
-	ImageNotFound
-	// ImageUnreachable means the registry could not be contacted (timeout, DNS, connection refused, etc.).
-	ImageUnreachable
-	// ImageInvalidAuth means the registry rejected credentials (HTTP 401/403).
-	ImageInvalidAuth
-	// ImageQuotaExceeded means the registry rate limit has been reached.
-	ImageQuotaExceeded
-)
 
 // SetupPodWebhookWithManager registers the webhook for Pod in the manager.
 func SetupPodWebhookWithManager(mgr ctrl.Manager, d *PodCustomDefaulter) error {
@@ -522,11 +501,19 @@ func (d *PodCustomDefaulter) checkImageAvailabilityCached(ctx context.Context, i
 	}
 
 	available, _ := d.requestGroup.Do("availability:"+image.Reference, func() (any, error) {
-		result := d.checkImageAvailability(ctx, image.Reference, pullSecrets)
-		available := result == ImageAvailable
+		log := logf.FromContext(ctx, "reference", image.Reference)
+
+		result, err := registry.CheckImageAvailability(ctx, image.Reference, http.MethodHead, d.Config.Routing.ActiveCheck.Timeout, pullSecrets)
+		if err != nil {
+			log.V(1).Info("image is not available", "error", err)
+		} else {
+			log.V(1).Info("image is available")
+		}
+
+		available := result == kuikv1alpha1.ImageAvailabilityAvailable
 		d.checkCache.Set(image.Reference, available)
 
-		if result == ImageNotFound && image.SecretOwner != nil {
+		if result == kuikv1alpha1.ImageAvailabilityNotFound && image.SecretOwner != nil {
 			go d.clearStaleMirrorStatus(image)
 		}
 
@@ -534,47 +521,6 @@ func (d *PodCustomDefaulter) checkImageAvailabilityCached(ctx context.Context, i
 	})
 
 	return available.(bool)
-}
-
-func (d *PodCustomDefaulter) checkImageAvailability(ctx context.Context, reference string, pullSecrets []corev1.Secret) ImageAvailability {
-	log := logf.FromContext(ctx, "reference", reference)
-
-	// registryMonitorName, err := internal.RegistryMonitorNameFromReference(reference)
-	// if err != nil {
-	// 	return false, err
-	// }
-
-	// var registryMonitor kuikv1alpha1.RegistryMonitor
-	// if err := d.Get(ctx, client.ObjectKey{Name: registryMonitorName}, &registryMonitor); err != nil {
-	// 	return false, err
-	// }
-
-	_, headers, err := registry.NewClient(nil, nil).
-		WithTimeout(d.Config.Routing.ActiveCheck.Timeout).
-		WithPullSecrets(pullSecrets).
-		ReadDescriptor(http.MethodHead, reference)
-		// ReadDescriptor(registryMonitor.Spec.Method, reference)
-
-	if isRateLimited(headers) {
-		log.V(1).Info("image is not available", "error", errRateLimited)
-		return ImageQuotaExceeded
-	}
-
-	if err != nil {
-		log.V(1).Info("image is not available", "error", err)
-
-		switch registry.TransportStatusCode(err) {
-		case http.StatusNotFound:
-			return ImageNotFound
-		case http.StatusUnauthorized, http.StatusForbidden:
-			return ImageInvalidAuth
-		default:
-			return ImageUnreachable
-		}
-	}
-
-	log.V(1).Info("image is available")
-	return ImageAvailable
 }
 
 // clearStaleMirrorStatus clears the mirroredAt field on the ISM/CISM status entry
@@ -741,8 +687,4 @@ func (c *Container) loadAlternativesSecrets(ctx context.Context, cl client.Clien
 func makeSecretName(prefix, name, hashInput string) string {
 	nameLength := min(253-len(prefix)-16-2, len(name))
 	return fmt.Sprintf("%s-%s-%016x", prefix, name[:nameLength], xxhash.Sum64String(hashInput))
-}
-
-func isRateLimited(headers http.Header) bool {
-	return strings.HasPrefix(headers.Get("ratelimit-remaining"), "0;")
 }
