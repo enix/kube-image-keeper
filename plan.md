@@ -901,66 +901,64 @@ If `unusedImageExpiry` is not set (zero value), unused images are never removed 
 
 ### Phase 4 — Controller
 
-- [ ] **4.1** Create `internal/controller/kuik/clusterimagesetavailability_controller.go`
+- [x] **4.1** Create `internal/controller/kuik/clusterimagesetavailability_controller.go`
   - Define `ClusterImageSetAvailabilityReconciler` struct with `client.Client`, `Scheme`, `Config`
   - Add RBAC markers for CISA, pods, secrets
-- [ ] **4.2** Implement `SetupWithManager`
+- [x] **4.2** Implement `SetupWithManager`
   - Watch `ClusterImageSetAvailability` resources
   - Watch Pods via `WatchesRawSource` with `TypedKind` mapper
   - Pod mapper: list all CISAs, check if any pod image matches a CISA's filter, enqueue matching CISAs
   - Use `normalizedImageNamesFromPod` and `MustBuildWithRegistry` for filter matching
-- [ ] **4.3** Implement `normalizedImageNamesFromPod` helper
-  - Iterate pod init + regular containers
-  - Normalise each image name via `internal.RegistryAndPathFromReference`
-  - Return `iter.Seq[string]` (or `map[string]struct{}`)
-- [ ] **4.4** Implement main `Reconcile` method
+- [x] **4.3** Reuse existing `normalizedImageNamesFromPod` from `commonimagesetmirror.go`
+  - Already in the same package, returns `iter.Seq[string]`
+- [x] **4.4** Implement main `Reconcile` method
   - Fetch CISA resource (ignore NotFound)
   - List all Pods cluster-wide
   - Call `syncImageList` and patch status
   - Iterate `uniqueRegistriesFromStatus`, call `checkNextForRegistry` per registry
   - Track `minRequeueAfter` with `math.MaxInt64` sentinel
   - Return `ctrl.Result{RequeueAfter: minRequeueAfter}`
-- [ ] **4.5** Implement `uniqueRegistriesFromStatus` helper
+- [x] **4.5** Implement `uniqueRegistriesFromStatus` helper
   - Deduplicate registry hostnames from `status.images` paths
-- [ ] **4.6** Implement `registryConfig` helper on reconciler
+- [x] **4.6** Implement `registryConfig` helper on reconciler
   - Start from `Config.RegistriesMonitoring.Default`
   - Merge non-zero fields from `Config.RegistriesMonitoring.Items[registry]`
   - Always return a valid `config.RegistryMonitoring` (no bool)
-- [ ] **4.7** Implement `syncImageList`
+- [x] **4.7** Implement `syncImageList`
   - Build `currentImages` set from pods (normalise, filter with `MustBuildWithRegistry`)
   - Update existing entries: clear `UnusedSince` if back in use, set `UnusedSince` if just became unused, set instant-expiry marker if out of filter scope
   - Remove entries that exceeded `unusedImageExpiry`
   - Add newly discovered images with `Scheduled` status
   - Update `ImageCount`
-- [ ] **4.8** Implement `checkNextForRegistry`
+- [x] **4.8** Implement `checkNextForRegistry`
   - Compute `tickDuration = interval / maxPerInterval`
   - Call `findNextImageToCheck` for `(oldest, latest)` pointers
   - Gate on tick spacing from `latest.LastMonitor`
   - Call `performCheck` and patch status
   - Return `tickDuration` as requeue
-- [ ] **4.9** Implement `findNextImageToCheck`
+- [x] **4.9** Implement `findNextImageToCheck`
   - Single pass returning `(oldest, latest *MonitoredImage)`
   - `oldest`: nil `LastMonitor` wins, then earliest timestamp
   - `latest`: most recent non-nil `LastMonitor`
-- [ ] **4.10** Implement `performCheck`
+- [x] **4.10** Implement `performCheck`
   - Call `resolveCredentials` for pull secrets
   - Call `registry.CheckImageAvailability` → `(status, error)`
   - Set `img.Status`, `img.LastMonitor`, `img.LastError` (from error or cleared)
   - Handle `UnavailableSecret` separately when credential resolution fails
-- [ ] **4.11** Implement `resolveCredentials`
+- [x] **4.11** Implement `resolveCredentials`
   - Try pull secrets from running pods that reference the image
   - Fall back to `monCfg.FallbackCredentialSecret` if configured
   - Return `nil, nil` for anonymous access when no secret available
 
 ### Phase 5 — Register in main.go
 
-- [ ] **5.1** Verify kubebuilder generated the controller registration in `cmd/main.go`
-- [ ] **5.2** Add `Config: configuration` field to the generated controller setup block
+- [x] **5.1** Verify kubebuilder generated the controller registration in `cmd/main.go`
+- [x] **5.2** Add `Config: configuration` field to the generated controller setup block
 
 ### Phase 6 — Generate & Validate
 
-- [ ] **6.1** Run `make generate` — regenerate `zz_generated.deepcopy.go`
-- [ ] **6.2** Run `make manifests` — regenerate CRD YAML and RBAC
-- [ ] **6.3** Run `make lint-fix` — fix any linting issues
-- [ ] **6.4** Run `make test` — verify all unit tests pass
-- [ ] **6.5** Verify CRD YAML at `config/crd/bases/kuik.enix.io_clusterimagesetavailabilities.yaml`
+- [x] **6.1** Run `make generate` — regenerate `zz_generated.deepcopy.go`
+- [x] **6.2** Run `make manifests` — regenerate CRD YAML and RBAC
+- [x] **6.3** Run `make lint-fix` — no new lint issues (pre-existing issues in other files)
+- [x] **6.4** Run `make test` — verify all unit tests pass
+- [x] **6.5** Verify CRD YAML at `config/crd/bases/kuik.enix.io_clusterimagesetavailabilities.yaml`
