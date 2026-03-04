@@ -101,7 +101,7 @@ var defaultConfig = Config{
     },
     RegistriesMonitoring: RegistriesMonitoring{
         Default: RegistryMonitoring{
-            Method:         "HEAD",
+            Method:         http.MethodHead,
             Interval:       time.Hour,
             MaxPerInterval: 1,
         },
@@ -487,7 +487,7 @@ func uniqueRegistriesFromStatus(cisa *kuikv1alpha1.ClusterImageSetAvailability) 
 
 Performs the drip-feed logic for a single registry: finds the image with the oldest `LastMonitor`, checks whether the tick has elapsed, and either performs the check or returns the time remaining until it is due.
 
-This function checks **exactly one image per call** — even if 100 new images have `LastMonitor == nil` (all "due immediately"), only the single image returned by `findNextImageToCheck` is checked. After that check its `LastMonitor` is set, and the function returns `tickDuration`. On the next reconciliation (triggered by `RequeueAfter`), the next nil-`LastMonitor` image is picked. This naturally enforces the drip-feed rate: 100 new images with `maxPerInterval=1, interval=1h` take 100 hours to fully cycle through.
+@NOTE: this function must not check an image if there are already more than maxPerInterval images that have been checked for this registry in the current interval. You can ensure this by comparing last check timestamp and interval / maxPerInterval.
 
 ```go
 func (r *ClusterImageSetAvailabilityReconciler) checkNextForRegistry(
@@ -515,7 +515,6 @@ func (r *ClusterImageSetAvailabilityReconciler) checkNextForRegistry(
         return timeUntilDue, nil // not due yet, report when to requeue
     }
 
-    // Check exactly one image and return — the next one will be picked on the next tick.
     log.V(1).Info("checking image availability", "registry", registry, "path", nextImage.Path)
     original := cisa.DeepCopy()
     r.performCheck(ctx, nextImage, monCfg, pods)
@@ -523,7 +522,7 @@ func (r *ClusterImageSetAvailabilityReconciler) checkNextForRegistry(
         return 0, err
     }
 
-    return tickDuration, nil
+    return tickDuration, nil // requeue after the tick for the next image in this registry
 }
 ```
 
