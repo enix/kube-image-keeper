@@ -857,7 +857,7 @@ If `unusedImageExpiry` is not set (zero value), unused images are never removed 
 
 ### Phase 2 — New CRD: ClusterImageSetAvailability
 
-- [ ] **2.1** Run `kubebuilder create api` to scaffold the resource and controller
+- [x] **2.1** Run `kubebuilder create api` to scaffold the resource and controller
   - `kubebuilder create api --kind ClusterImageSetAvailability --version v1alpha1 --group kuik --resource --controller=true --namespaced=false`
   - Verify `PROJECT` file is updated
 - [ ] **2.2** Define `ImageAvailabilityStatus` string enum in `api/kuik/v1alpha1/clusterimagesetavailability_types.go`
