@@ -844,43 +844,43 @@ If `unusedImageExpiry` is not set (zero value), unused images are never removed 
 
 ### Phase 1 — Config Extension
 
-- [ ] **1.1** Add `RegistriesMonitoring` and `RegistryMonitoring` structs to `internal/config/config.go`
+- [x] **1.1** Add `RegistriesMonitoring` and `RegistryMonitoring` structs to `internal/config/config.go`
   - Add `RegistriesMonitoring` field to `Config` struct
   - Add `RegistriesMonitoring` struct with `Default` and `Items` fields
   - Add `RegistryMonitoring` struct with `Method`, `Interval`, `MaxPerInterval`, `Timeout`, `FallbackCredentialSecret` fields
   - Import `kuikv1alpha1` for `CredentialSecret` type reuse
-- [ ] **1.2** Add built-in defaults to `defaultConfig` in `config.go`
+- [x] **1.2** Add built-in defaults to `defaultConfig` in `config.go`
   - Set `RegistriesMonitoring.Default.Method` to `http.MethodHead`
   - Set `RegistriesMonitoring.Default.Interval` to `time.Hour`
   - Set `RegistriesMonitoring.Default.MaxPerInterval` to `1`
-- [ ] **1.3** Verify config loads correctly with koanf (`structs.Provider(defaultConfig, "koanf")`)
+- [x] **1.3** Verify config loads correctly with koanf (`structs.Provider(defaultConfig, "koanf")`)
 
 ### Phase 2 — New CRD: ClusterImageSetAvailability
 
 - [x] **2.1** Run `kubebuilder create api` to scaffold the resource and controller
   - `kubebuilder create api --kind ClusterImageSetAvailability --version v1alpha1 --group kuik --resource --controller=true --namespaced=false`
   - Verify `PROJECT` file is updated
-- [ ] **2.2** Define `ImageAvailabilityStatus` string enum in `api/kuik/v1alpha1/clusterimagesetavailability_types.go`
+- [x] **2.2** Define `ImageAvailabilityStatus` string enum in `api/kuik/v1alpha1/clusterimagesetavailability_types.go`
   - `Scheduled`, `Available`, `NotFound`, `Unreachable`, `InvalidAuth`, `UnavailableSecret`, `QuotaExceeded`
   - Add kubebuilder validation enum marker
-- [ ] **2.3** Define `ClusterImageSetAvailabilitySpec` struct
+- [x] **2.3** Define `ClusterImageSetAvailabilitySpec` struct
   - `UnusedImageExpiry metav1.Duration`
   - `ImageFilter ImageFilterDefinition`
-- [ ] **2.4** Define `MonitoredImage` struct
+- [x] **2.4** Define `MonitoredImage` struct
   - `Path` (full normalised reference)
   - `Status ImageAvailabilityStatus`
   - `UnusedSince *metav1.Time`
   - `LastError string`
   - `LastMonitor *metav1.Time`
-- [ ] **2.5** Define `ClusterImageSetAvailabilityStatus` struct
+- [x] **2.5** Define `ClusterImageSetAvailabilityStatus` struct
   - `ImageCount int`
   - `Images []MonitoredImage` with `+listType=map` and `+listMapKey=path`
-- [ ] **2.6** Define CRD root types with kubebuilder markers
+- [x] **2.6** Define CRD root types with kubebuilder markers
   - `+kubebuilder:resource:scope=Cluster,shortName=cisa`
   - `+kubebuilder:subresource:status`
   - `+kubebuilder:printcolumn` for `ImageCount`
   - Register types in `init()`
-- [ ] **2.7** Run `make generate` (deepcopy) and `make manifests` (CRD YAML, RBAC)
+- [x] **2.7** Run `make generate` (deepcopy) and `make manifests` (CRD YAML, RBAC)
 
 ### Phase 3 — Registry Package Refactor
 
