@@ -54,12 +54,8 @@ func (r *ClusterImageSetAvailabilityReconciler) SetupWithManager(mgr ctrl.Manage
 
 				var reqs []reconcile.Request
 				for _, cisa := range cisaList.Items {
+					imageFilter := cisa.Spec.ImageFilter.MustBuild()
 					for imageName := range imageNames {
-						registry, _, err := internal.RegistryAndPathFromReference(imageName)
-						if err != nil {
-							continue
-						}
-						imageFilter := cisa.Spec.ImageFilter.MustBuildWithRegistry(registry + "/")
 						if imageFilter.Match(imageName) {
 							reqs = append(reqs, reconcile.Request{
 								NamespacedName: client.ObjectKeyFromObject(&cisa),
@@ -206,15 +202,11 @@ func (r *ClusterImageSetAvailabilityReconciler) syncImageList(ctx context.Contex
 	log := logf.FromContext(ctx)
 	now := metav1.NewTime(time.Now())
 	instantExpiryMarker := metav1.NewTime(time.Time{}.Add(time.Hour))
+	imageFilter := cisa.Spec.ImageFilter.MustBuild()
 
 	currentImages := map[string]struct{}{}
 	for i := range pods {
 		for imageName := range normalizedImageNamesFromPod(ctx, &pods[i]) {
-			registry, _, err := internal.RegistryAndPathFromReference(imageName)
-			if err != nil {
-				continue
-			}
-			imageFilter := cisa.Spec.ImageFilter.MustBuildWithRegistry(registry + "/")
 			if imageFilter.Match(imageName) {
 				currentImages[imageName] = struct{}{}
 			}
@@ -224,15 +216,7 @@ func (r *ClusterImageSetAvailabilityReconciler) syncImageList(ctx context.Contex
 	for i := range cisa.Status.Images {
 		image := &cisa.Status.Images[i]
 
-		registry, _, err := internal.RegistryAndPathFromReference(image.Path)
-		if err != nil {
-			continue
-		}
-
-		imageFilter := cisa.Spec.ImageFilter.MustBuildWithRegistry(registry + "/")
-		inScope := imageFilter.Match(image.Path)
-
-		if !inScope {
+		if !imageFilter.Match(image.Path) {
 			if image.UnusedSince == nil || !image.UnusedSince.Equal(&instantExpiryMarker) {
 				image.UnusedSince = &instantExpiryMarker
 				log.Info("image no longer in scope, marking for removal", "path", image.Path)
@@ -259,6 +243,7 @@ func (r *ClusterImageSetAvailabilityReconciler) syncImageList(ctx context.Contex
 	for _, image := range cisa.Status.Images {
 		existingPaths[image.Path] = struct{}{}
 	}
+
 	for imageName := range currentImages {
 		if _, exists := existingPaths[imageName]; !exists {
 			cisa.Status.Images = append(cisa.Status.Images, kuikv1alpha1.MonitoredImage{
@@ -305,8 +290,7 @@ func (r *ClusterImageSetAvailabilityReconciler) resolveCredentials(ctx context.C
 			if err == nil {
 				return secrets, nil
 			}
-			logf.FromContext(ctx).V(1).Info("could not read pod pull secrets",
-				"pod", klog.KObj(pod), "error", err)
+			logf.FromContext(ctx).V(1).Info("could not read pod pull secrets", "pod", klog.KObj(pod), "error", err)
 		}
 	}
 
