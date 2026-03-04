@@ -549,7 +549,6 @@ func (r *ClusterImageSetAvailabilityReconciler) syncImageList(
             if err != nil {
                 continue
             }
-            monCfg := r.registryConfig(reg)
             imageFilter := cisa.Spec.ImageFilter.MustBuildWithRegistry(reg + "/")
             if imageFilter.Match(imageName) {
                 currentImages[imageName] = struct{}{}
@@ -566,9 +565,8 @@ func (r *ClusterImageSetAvailabilityReconciler) syncImageList(
             continue
         }
 
-        _, monitored := r.registryConfig(reg)
         imageFilter := cisa.Spec.ImageFilter.MustBuildWithRegistry(reg + "/")
-        inScope := monitored && imageFilter.Match(img.Path)
+        inScope := imageFilter.Match(img.Path)
 
         if !inScope {
             // The image no longer matches the filter or its registry became unconfigured.
