@@ -1,8 +1,10 @@
 package config
 
 import (
+	"net/http"
 	"time"
 
+	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/file"
@@ -11,7 +13,8 @@ import (
 )
 
 type Config struct {
-	Routing Routing `koanf:"routing"`
+	Routing              Routing              `koanf:"routing"`
+	RegistriesMonitoring RegistriesMonitoring `koanf:"registriesMonitoring"`
 }
 
 type Routing struct {
@@ -22,10 +25,30 @@ type ActiveCheck struct {
 	Timeout time.Duration `koanf:"timeout"`
 }
 
+type RegistriesMonitoring struct {
+	Default RegistryMonitoring            `koanf:"default"`
+	Items   map[string]RegistryMonitoring `koanf:"items"`
+}
+
+type RegistryMonitoring struct {
+	Method                   string                         `koanf:"method"`
+	Interval                 time.Duration                  `koanf:"interval"`
+	MaxPerInterval           int                            `koanf:"maxPerInterval"`
+	Timeout                  time.Duration                  `koanf:"timeout"`
+	FallbackCredentialSecret *kuikv1alpha1.CredentialSecret `koanf:"fallbackCredentialSecret"`
+}
+
 var defaultConfig = Config{
 	Routing: Routing{
 		ActiveCheck: ActiveCheck{
 			Timeout: time.Second,
+		},
+	},
+	RegistriesMonitoring: RegistriesMonitoring{
+		Default: RegistryMonitoring{
+			Method:         http.MethodHead,
+			Interval:       time.Hour,
+			MaxPerInterval: 1,
 		},
 	},
 }
