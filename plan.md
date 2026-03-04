@@ -485,9 +485,7 @@ func uniqueRegistriesFromStatus(cisa *kuikv1alpha1.ClusterImageSetAvailability) 
 
 ### 4.4 checkNextForRegistry
 
-Performs the drip-feed logic for a single registry. It enforces the rate limit by counting how many images have been checked within the current `interval` window and comparing against `maxPerInterval`. The tick duration (`interval / maxPerInterval`) determines the minimum spacing between checks.
-
-@NOTE: instead of counting, only rely on checking the mostRecentCheck and tick spacing, update `findNextImageToCheck` so it returns oldest and latest checked images
+Performs the drip-feed logic for a single registry. `findNextImageToCheck` returns both the oldest image (next candidate) and the latest-checked image. The tick spacing (`interval / maxPerInterval`) is enforced by comparing the latest check's timestamp against `tickDuration` — no counting needed.
 
 ```go
 func (r *ClusterImageSetAvailabilityReconciler) checkNextForRegistry(
@@ -499,43 +497,15 @@ func (r *ClusterImageSetAvailabilityReconciler) checkNextForRegistry(
 ) (requeueAfter time.Duration, err error) {
     log := logf.FromContext(ctx)
     tickDuration := monCfg.Interval / time.Duration(monCfg.MaxPerInterval)
-    now := time.Now()
 
-    // Count how many images for this registry were checked within the current interval.
-    var recentChecks int
-    var mostRecentCheck time.Time
-    for i := range cisa.Status.Images {
-        img := &cisa.Status.Images[i]
-        imgRegistry, _, err := internal.RegistryAndPathFromReference(img.Path)
-        if err != nil || imgRegistry != registry || img.LastMonitor == nil {
-            continue
-        }
-        if now.Sub(img.LastMonitor.Time) < monCfg.Interval {
-            recentChecks++
-            if img.LastMonitor.Time.After(mostRecentCheck) {
-                mostRecentCheck = img.LastMonitor.Time
-            }
-        }
-    }
-
-    // If we've already used all slots in this interval, wait until the oldest
-    // check in the window expires (i.e. falls outside the interval).
-    if recentChecks >= monCfg.MaxPerInterval {
-        timeUntilSlotFrees := tickDuration - now.Sub(mostRecentCheck)
-        if timeUntilSlotFrees <= 0 {
-            timeUntilSlotFrees = tickDuration
-        }
-        return timeUntilSlotFrees, nil
-    }
-
-    nextImage := findNextImageToCheck(cisa, registry)
+    nextImage, latestChecked := findNextImageToCheck(cisa, registry)
     if nextImage == nil {
         return 0, nil // no images for this registry yet
     }
 
-    // Even if a slot is available, respect the tick spacing from the last check.
-    if !mostRecentCheck.IsZero() {
-        timeUntilDue := tickDuration - now.Sub(mostRecentCheck)
+    // Respect tick spacing: if the most recent check is too recent, wait.
+    if latestChecked != nil {
+        timeUntilDue := tickDuration - time.Since(latestChecked.LastMonitor.Time)
         if timeUntilDue > 0 {
             return timeUntilDue, nil
         }
@@ -647,14 +617,17 @@ func (r *ClusterImageSetAvailabilityReconciler) syncImageList(
 
 ### 4.6 findNextImageToCheck
 
-Returns the `MonitoredImage` for the given registry that has the oldest `LastMonitor` (`nil` counts as the oldest).
+Returns two pointers for the given registry:
+- `oldest` — the image with the oldest (or nil) `LastMonitor`, i.e. the next candidate to check.
+- `latest` — the image with the most recent `LastMonitor`, used by `checkNextForRegistry` for tick gating.
+
+Both are `nil` when there are no images for this registry.
 
 ```go
 func findNextImageToCheck(
     cisa *kuikv1alpha1.ClusterImageSetAvailability,
     registry string,
-) *kuikv1alpha1.MonitoredImage {
-    var oldest *kuikv1alpha1.MonitoredImage
+) (oldest, latest *kuikv1alpha1.MonitoredImage) {
     for i := range cisa.Status.Images {
         img := &cisa.Status.Images[i]
 
@@ -663,15 +636,21 @@ func findNextImageToCheck(
             continue
         }
 
+        // Track oldest (nil LastMonitor is always oldest).
         if oldest == nil || img.LastMonitor == nil {
             oldest = img
-            continue
-        }
-        if oldest.LastMonitor != nil && img.LastMonitor.Before(oldest.LastMonitor) {
+        } else if oldest.LastMonitor != nil && img.LastMonitor.Before(oldest.LastMonitor) {
             oldest = img
         }
+
+        // Track latest.
+        if img.LastMonitor != nil {
+            if latest == nil || img.LastMonitor.After(latest.LastMonitor.Time) {
+                latest = img
+            }
+        }
     }
-    return oldest
+    return oldest, latest
 }
 ```
 
