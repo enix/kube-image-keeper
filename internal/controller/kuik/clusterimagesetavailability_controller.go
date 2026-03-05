@@ -281,14 +281,16 @@ func (r *ClusterImageSetAvailabilityReconciler) performCheck(ctx context.Context
 	if err != nil {
 		image.Status = kuikv1alpha1.ImageAvailabilityUnavailableSecret
 		image.LastError = err.Error()
-		image.LastMonitor = &now
-		return
 	}
 
 	result, checkErr := registry.CheckImageAvailability(ctx, image.Path, registryConfig.Method, registryConfig.Timeout, pullSecrets)
+	image.LastMonitor = &now
+
+	if image.Status == kuikv1alpha1.ImageAvailabilityUnavailableSecret && result == kuikv1alpha1.ImageAvailabilityInvalidAuth {
+		return // In case of InvalidAuth with UnavailableSecret, UnavailableSecret takes precedence over InvalidAuth
+	}
 
 	image.Status = result
-	image.LastMonitor = &now
 	if checkErr != nil {
 		image.LastError = checkErr.Error()
 	} else {
