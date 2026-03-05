@@ -14,13 +14,6 @@ webhooks:
       path: /mutate--v1-pod
   failurePolicy: Ignore
   reinvocationPolicy: IfNeeded
-  namespaceSelector:
-    matchExpressions:
-    - key: kubernetes.io/metadata.name
-      operator: NotIn
-      values:
-      - kube-system
-      - {{ .Release.Namespace }}
   name: mpod-v1.kb.io
   rules:
   - apiGroups:

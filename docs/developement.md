@@ -85,10 +85,9 @@ webhooks:
     - v1
     operations:
     - CREATE
-    - UPDATE
     resources:
     - pods
-  sideEffects: None
+  sideEffects: NoneOnDryRun
 
 ---
 apiVersion: cert-manager.io/v1
