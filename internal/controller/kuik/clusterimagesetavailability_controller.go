@@ -132,7 +132,7 @@ func (r *ClusterImageSetAvailabilityReconciler) getRegistriesCandidates(ctx cont
 		for j := range cisa.Status.Images {
 			image := &cisa.Status.Images[j]
 
-			registry, _, err := internal.RegistryAndPathFromReference(image.Path)
+			registry, _, err := internal.RegistryAndPathFromReference(image.Image)
 			if err != nil {
 				continue
 			}
@@ -194,7 +194,7 @@ func (r *ClusterImageSetAvailabilityReconciler) checkNextForRegistry(ctx context
 
 	original := candidate.cisa.DeepCopy()
 
-	log.V(1).Info("checking image availability", "registry", registry, "path", candidate.image.Path)
+	log.V(1).Info("checking image availability", "registry", registry, "image", candidate.image.Image)
 	r.performCheck(ctx, candidate.image, registryConfig, pods)
 	log.V(1).Info("image monitoring done", "status", candidate.image.Status)
 
@@ -223,19 +223,19 @@ func (r *ClusterImageSetAvailabilityReconciler) syncImageList(ctx context.Contex
 	for i := range cisa.Status.Images {
 		image := &cisa.Status.Images[i]
 
-		if !imageFilter.Match(image.Path) {
+		if !imageFilter.Match(image.Image) {
 			if image.UnusedSince == nil || !image.UnusedSince.Equal(&instantExpiryMarker) {
 				image.UnusedSince = &instantExpiryMarker
-				log.Info("image no longer in scope, marking for removal", "path", image.Path)
+				log.Info("image no longer in scope, marking for removal", "image", image.Image)
 			}
 			continue
 		}
 
-		if _, inUse := currentImages[image.Path]; inUse {
+		if _, inUse := currentImages[image.Image]; inUse {
 			image.UnusedSince = nil
 		} else if image.Status == kuikv1alpha1.ImageAvailabilityScheduled {
 			image.UnusedSince = &instantExpiryMarker
-			log.Info("image is no longer used by any pod and has never been monitored, marking it for removal", "path", image.Path)
+			log.Info("image is no longer used by any pod and has never been monitored, marking it for removal", "image", image.Image)
 		} else if image.UnusedSince == nil {
 			image.UnusedSince = &now
 		}
@@ -246,7 +246,7 @@ func (r *ClusterImageSetAvailabilityReconciler) syncImageList(ctx context.Contex
 		cisa.Status.Images = slices.DeleteFunc(cisa.Status.Images, func(image kuikv1alpha1.MonitoredImage) bool {
 			if image.UnusedSince != nil && time.Since(image.UnusedSince.Time) >= expiry {
 				if image.UnusedSince.Compare(instantExpiryMarker.Time) != 0 {
-					log.Info("image is unused for more than the retention duration, removing from monitoring", "path", image.Path)
+					log.Info("image is unused for more than the retention duration, removing from monitoring", "image", image.Image)
 				}
 				return true
 			}
@@ -256,16 +256,16 @@ func (r *ClusterImageSetAvailabilityReconciler) syncImageList(ctx context.Contex
 
 	existingPaths := map[string]struct{}{}
 	for _, image := range cisa.Status.Images {
-		existingPaths[image.Path] = struct{}{}
+		existingPaths[image.Image] = struct{}{}
 	}
 
 	for imageName := range currentImages {
 		if _, exists := existingPaths[imageName]; !exists {
 			cisa.Status.Images = append(cisa.Status.Images, kuikv1alpha1.MonitoredImage{
-				Path:   imageName,
+				Image:  imageName,
 				Status: kuikv1alpha1.ImageAvailabilityScheduled,
 			})
-			log.Info("discovered new image to monitor", "path", imageName)
+			log.Info("discovered new image to monitor", "image", imageName)
 		}
 	}
 
@@ -275,13 +275,13 @@ func (r *ClusterImageSetAvailabilityReconciler) syncImageList(ctx context.Contex
 func (r *ClusterImageSetAvailabilityReconciler) performCheck(ctx context.Context, image *kuikv1alpha1.MonitoredImage, registryConfig *config.RegistryMonitoring, pods []corev1.Pod) {
 	now := metav1.NewTime(time.Now())
 
-	pullSecrets, err := r.resolveCredentials(ctx, image.Path, registryConfig.FallbackCredentialSecret, pods)
+	pullSecrets, err := r.resolveCredentials(ctx, image.Image, registryConfig.FallbackCredentialSecret, pods)
 	if err != nil {
 		image.Status = kuikv1alpha1.ImageAvailabilityUnavailableSecret
 		image.LastError = err.Error()
 	}
 
-	result, checkErr := registry.CheckImageAvailability(ctx, image.Path, registryConfig.Method, registryConfig.Timeout, pullSecrets)
+	result, checkErr := registry.CheckImageAvailability(ctx, image.Image, registryConfig.Method, registryConfig.Timeout, pullSecrets)
 	image.LastMonitor = &now
 
 	if image.Status == kuikv1alpha1.ImageAvailabilityUnavailableSecret && result == kuikv1alpha1.ImageAvailabilityInvalidAuth {

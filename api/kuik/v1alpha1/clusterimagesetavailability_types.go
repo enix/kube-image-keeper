@@ -33,8 +33,8 @@ type ClusterImageSetAvailabilitySpec struct {
 
 // MonitoredImage holds the current availability state for a single image.
 type MonitoredImage struct {
-	// Path is the full normalised image reference, e.g. "docker.io/library/nginx:1.27".
-	Path string `json:"path"`
+	// Image is the full normalised image reference, e.g. "docker.io/library/nginx:1.27".
+	Image string `json:"path"`
 
 	// Status is the result of the last availability check.
 	Status ImageAvailabilityStatus `json:"status"`

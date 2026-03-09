@@ -90,5 +90,13 @@ unusedImageTTL: 24
 configuration:
   routing:
     activeCheck:
-      enabled: true
       timeout: 1s
+  registriesMonitoring:
+    default:
+      method: HEAD
+      interval: 3h
+      maxPerInterval: 25
+    items:
+      docker.io:
+        interval: 1h
+        maxPerInterval: 2

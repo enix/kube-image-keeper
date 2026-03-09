@@ -47,8 +47,8 @@ var defaultConfig = Config{
 	RegistriesMonitoring: RegistriesMonitoring{
 		Default: RegistryMonitoring{
 			Method:         http.MethodHead,
-			Interval:       time.Hour,
-			MaxPerInterval: 1,
+			Interval:       3 * time.Hour,
+			MaxPerInterval: 25,
 		},
 	},
 }
