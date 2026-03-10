@@ -1,7 +1,7 @@
 package registry
 
 import (
-	"crypto/sha1"
+	"crypto/sha1" // #nosec G505 -- SHA-1 is used for non-cryptographic hashing of annotation keys
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
@@ -123,10 +123,21 @@ func DeleteImage(imageName string) error {
 	return remote.Delete(digest)
 }
 
-func CacheImage(imageName string, desc *remote.Descriptor, architectures []string) error {
+func CacheImageWithProgress(imageName string, desc *remote.Descriptor, architectures []string, onUpdated func(v1.Update)) error {
 	destRef, err := parseLocalReference(imageName)
 	if err != nil {
 		return err
+	}
+
+	var progressOption remote.Option
+	if onUpdated != nil {
+		ch := make(chan v1.Update, 100)
+		go func() {
+			for update := range ch {
+				onUpdated(update)
+			}
+		}()
+		progressOption = remote.WithProgress(ch)
 	}
 
 	switch desc.MediaType {
@@ -145,16 +156,28 @@ func CacheImage(imageName string, desc *remote.Descriptor, architectures []strin
 			return true
 		})
 
-		if err := remote.WriteIndex(destRef, filteredIndex); err != nil {
-			return err
+		if onUpdated != nil {
+			if err := remote.WriteIndex(destRef, filteredIndex, progressOption); err != nil {
+				return err
+			}
+		} else {
+			if err := remote.WriteIndex(destRef, filteredIndex); err != nil {
+				return err
+			}
 		}
 	default:
 		image, err := desc.Image()
 		if err != nil {
 			return err
 		}
-		if err := remote.Write(destRef, image); err != nil {
-			return err
+		if onUpdated != nil {
+			if err := remote.Write(destRef, image, progressOption); err != nil {
+				return err
+			}
+		} else {
+			if err := remote.Write(destRef, image); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -223,6 +246,7 @@ func ContainerAnnotationKey(containerName string, initContainer bool) string {
 	}
 
 	if len(containerName)+len(template)-2 > 63 {
+		// #nosec G401 -- SHA-1 is used for non-cryptographic hashing of annotation keys, not for security purposes
 		containerName = fmt.Sprintf("%x", sha1.Sum([]byte(containerName)))
 	}
 

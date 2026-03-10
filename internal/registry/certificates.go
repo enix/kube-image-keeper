@@ -4,6 +4,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"os"
+	"path/filepath"
 )
 
 func LoadRootCAPoolFromFiles(certificatePaths []string) (*x509.CertPool, error) {
@@ -17,12 +18,22 @@ func LoadRootCAPoolFromFiles(certificatePaths []string) (*x509.CertPool, error) 
 	}
 
 	for _, path := range certificatePaths {
-		caCert, err := os.ReadFile(path)
+		cleanPath := filepath.Clean(path)
+
+		info, err := os.Stat(cleanPath)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("cannot access certificate file %s: %w", cleanPath, err)
+		}
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("certificate path %s is not a regular file", cleanPath)
+		}
+
+		caCert, err := os.ReadFile(cleanPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read certificate file %s: %w", cleanPath, err)
 		}
 		if !rootCAs.AppendCertsFromPEM(caCert) {
-			return nil, fmt.Errorf("failed to add certificate from %s", path)
+			return nil, fmt.Errorf("failed to add certificate from %s", cleanPath)
 		}
 	}
 

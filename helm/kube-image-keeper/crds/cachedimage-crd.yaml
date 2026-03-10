@@ -106,6 +106,21 @@ spec:
               phase:
                 description: Phase is the current phase of the image
                 type: string
+              progress:
+                description: Progress is the progress of the image being pulled from
+                  source to local registry cache
+                properties:
+                  available:
+                    description: Available is the size of data has already been copied
+                      over to the local registry cache
+                    format: int64
+                    type: integer
+                  total:
+                    description: Total is the total size of data to be copied over
+                      to local registry cache
+                    format: int64
+                    type: integer
+                type: object
               upToDate:
                 description: UpToDate indicate whether if the cached image is up to
                   date with the upstream one or not

@@ -2,11 +2,29 @@ package proxy
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 )
+
+var errInvalidURL = errors.New("invalid URL: must use http or https scheme")
+
+func validateURL(rawURL string) (*url.URL, error) {
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return nil, err
+	}
+	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		return nil, errInvalidURL
+	}
+	if parsedURL.Host == "" {
+		return nil, errors.New("invalid URL: missing host")
+	}
+	return parsedURL, nil
+}
 
 type Bearer struct {
 	Token        string
@@ -38,7 +56,13 @@ func (b *Bearer) GetToken() string {
 }
 
 func NewBearer(endpoint string, path string) (*Bearer, error) {
-	response, err := http.Get(endpoint + path)
+	fullURL := endpoint + path
+	if _, err := validateURL(fullURL); err != nil {
+		return nil, fmt.Errorf("invalid endpoint URL: %w", err)
+	}
+
+	// #nosec G107,G704 -- URL is validated above to ensure it uses http/https scheme and has a valid host
+	response, err := http.Get(fullURL)
 	if response != nil && response.Body != nil {
 		defer response.Body.Close()
 	}
@@ -49,9 +73,14 @@ func NewBearer(endpoint string, path string) (*Bearer, error) {
 	bearer := Bearer{}
 	if response.StatusCode == 401 {
 		wwwAuthenticate := parseWwwAuthenticate(response.Header.Get("www-authenticate"))
-		url := fmt.Sprintf("%s?service=%s&scope=%s", wwwAuthenticate["realm"], wwwAuthenticate["service"], wwwAuthenticate["scope"])
+		realmURL := fmt.Sprintf("%s?service=%s&scope=%s", wwwAuthenticate["realm"], wwwAuthenticate["service"], wwwAuthenticate["scope"])
 
-		response, err := http.Get(url)
+		if _, err := validateURL(realmURL); err != nil {
+			return nil, fmt.Errorf("invalid realm URL from www-authenticate header: %w", err)
+		}
+
+		// #nosec G107 -- URL is validated above to ensure it uses http/https scheme and has a valid host
+		response, err := http.Get(realmURL)
 		if response != nil && response.Body != nil {
 			defer response.Body.Close()
 		}

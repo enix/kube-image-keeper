@@ -2,10 +2,8 @@ package proxy
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"testing"
 	"time"
 
@@ -54,14 +52,15 @@ func Test_parseWwwAuthenticate(t *testing.T) {
 
 func TestNewBearer(t *testing.T) {
 	tests := []struct {
-		name          string
-		token         string
-		accessToken   string
-		firstHttpCode int
-		invalidJson   bool
-		invalidRealm  bool
-		requestNb     int
-		wantErr       error
+		name           string
+		token          string
+		accessToken    string
+		firstHttpCode  int
+		invalidJson    bool
+		invalidRealm   bool
+		requestNb      int
+		wantErr        error
+		wantErrContain string
 	}{
 		{
 			name:  "With token only",
@@ -82,14 +81,10 @@ func TestNewBearer(t *testing.T) {
 			wantErr:     json.Unmarshal([]byte("invalid json"), &[]struct{}{}),
 		},
 		{
-			name:         "Invalid realm",
-			invalidRealm: true,
-			requestNb:    1,
-			wantErr: &url.Error{
-				Op:  "Get",
-				URL: "/token?service=registry.docker.io&scope=repository:samalba/my-app:pull,push",
-				Err: errors.New("unsupported protocol scheme \"\""),
-			},
+			name:           "Invalid realm",
+			invalidRealm:   true,
+			requestNb:      1,
+			wantErrContain: "invalid realm URL from www-authenticate header",
 		},
 	}
 
@@ -146,6 +141,10 @@ func TestNewBearer(t *testing.T) {
 
 			if tt.wantErr != nil {
 				g.Expect(err).To(Equal(tt.wantErr))
+				g.Expect(bearer).To(BeNil())
+			} else if tt.wantErrContain != "" {
+				g.Expect(err).To(HaveOccurred())
+				g.Expect(err.Error()).To(ContainSubstring(tt.wantErrContain))
 				g.Expect(bearer).To(BeNil())
 			} else {
 				g.Expect(err).To(BeNil())

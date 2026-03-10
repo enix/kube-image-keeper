@@ -33,6 +33,13 @@ type UsedBy struct {
 	Count int `json:"count,omitempty"`
 }
 
+type Progress struct {
+	// Total is the total size of data to be copied over to local registry cache
+	Total int64 `json:"total,omitempty"`
+	// Available is the size of data has already been copied over to the local registry cache
+	Available int64 `json:"available,omitempty"`
+}
+
 // CachedImageStatus defines the observed state of CachedImage.
 type CachedImageStatus struct {
 	// IsCached indicate whether the image is already cached or not
@@ -41,6 +48,9 @@ type CachedImageStatus struct {
 	Phase string `json:"phase,omitempty"`
 	// UsedBy is the list of pods using this image
 	UsedBy UsedBy `json:"usedBy,omitempty"`
+
+	// Progress is the progress of the image being pulled from source to local registry cache
+	Progress Progress `json:"progress,omitempty"`
 
 	// Digest is the digest of the cached image
 	Digest string `json:"digest,omitempty"`

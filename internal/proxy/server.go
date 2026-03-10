@@ -315,6 +315,7 @@ func (p *Proxy) getAuthentifiedTransportWithKeychain(repository name.Repository,
 	originalTransport := http.DefaultTransport.(*http.Transport).Clone()
 	originalTransport.TLSClientConfig = &tls.Config{RootCAs: p.rootCAs}
 	if slices.Contains(p.insecureRegistries, repository.Registry.RegistryStr()) {
+		// #nosec G402 -- InsecureSkipVerify is intentionally set for user-configured insecure registries
 		originalTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	}
 

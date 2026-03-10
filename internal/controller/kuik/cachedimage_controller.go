@@ -6,10 +6,12 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/distribution/reference"
 	"github.com/go-logr/logr"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -246,7 +248,7 @@ func (r *CachedImageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 
 		r.Recorder.Eventf(&cachedImage, "Normal", "Caching", "Start caching image %s", cachedImage.Spec.SourceImage)
-		err = r.cacheImage(&cachedImage)
+		err = r.cacheImage(ctx, &cachedImage)
 		kuikController.ImageCachingRequest.WithLabelValues(strconv.FormatBool(err == nil), upstream).Inc()
 		if err != nil {
 			log.Error(err, "failed to cache image")
@@ -314,7 +316,7 @@ func getSanitizedName(cachedImage *kuikv1alpha1.CachedImage) (string, error) {
 	return sanitizedName, nil
 }
 
-func (r *CachedImageReconciler) cacheImage(cachedImage *kuikv1alpha1.CachedImage) error {
+func (r *CachedImageReconciler) cacheImage(ctx context.Context, cachedImage *kuikv1alpha1.CachedImage) error {
 	if err := r.patchPhase(cachedImage, cachedImagePhaseSynchronizing); err != nil {
 		return err
 	}
@@ -350,13 +352,47 @@ func (r *CachedImageReconciler) cacheImage(cachedImage *kuikv1alpha1.CachedImage
 		return err
 	}
 
-	err = registry.CacheImage(cachedImage.Spec.SourceImage, desc, r.Architectures)
+	var statusLock sync.Mutex
+	lastUpdateTime := time.Now()
+	totalSizeAvailable := false
+
+	onUpdated := func(update v1.Update) {
+		needUpdate := false
+		if update.Complete == update.Total {
+			needUpdate = true
+		}
+
+		if time.Since(lastUpdateTime).Seconds() >= 5 {
+			needUpdate = true
+		}
+
+		statusLock.Lock()
+		defer statusLock.Unlock()
+
+		if needUpdate && !totalSizeAvailable {
+			if update.Total > 0 {
+				patch := client.MergeFrom(cachedImage.DeepCopy())
+				cachedImage.Status.Progress.Total = update.Total
+				cachedImage.Status.Progress.Available = update.Complete
+				_ = r.Status().Patch(ctx, cachedImage, patch)
+				lastUpdateTime = time.Now()
+			}
+
+			if update.Complete == update.Total {
+				totalSizeAvailable = true
+			}
+		}
+	}
+
+	err = registry.CacheImageWithProgress(cachedImage.Spec.SourceImage, desc, r.Architectures, onUpdated)
 
 	statusErr = updateStatus(r.Client, cachedImage, desc, func(status *kuikv1alpha1.CachedImageStatus) {
 		if err == nil {
 			cachedImage.Status.IsCached = true
 			cachedImage.Status.Digest = desc.Digest.Hex
 			cachedImage.Status.LastSuccessfulPull = metav1.NewTime(time.Now())
+			cachedImage.Status.Progress.Total = 0
+			cachedImage.Status.Progress.Available = 0
 		}
 	})
 
