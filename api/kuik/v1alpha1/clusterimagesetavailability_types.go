@@ -1,6 +1,8 @@
 package v1alpha1
 
 import (
+	"strings"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -17,6 +19,16 @@ const (
 	ImageAvailabilityUnavailableSecret ImageAvailabilityStatus = "UnavailableSecret"
 	ImageAvailabilityQuotaExceeded     ImageAvailabilityStatus = "QuotaExceeded"
 )
+
+var ImageAvailabilityStatusList = []ImageAvailabilityStatus{
+	ImageAvailabilityScheduled,
+	ImageAvailabilityAvailable,
+	ImageAvailabilityNotFound,
+	ImageAvailabilityUnreachable,
+	ImageAvailabilityInvalidAuth,
+	ImageAvailabilityUnavailableSecret,
+	ImageAvailabilityQuotaExceeded,
+}
 
 // ClusterImageSetAvailabilitySpec defines the desired monitoring configuration.
 type ClusterImageSetAvailabilitySpec struct {
@@ -37,6 +49,7 @@ type MonitoredImage struct {
 	Image string `json:"path"`
 
 	// Status is the result of the last availability check.
+	// +default="Scheduled"
 	Status ImageAvailabilityStatus `json:"status"`
 
 	// UnusedSince is the timestamp when the last Pod referencing this image disappeared.
@@ -89,4 +102,12 @@ type ClusterImageSetAvailabilityList struct {
 
 func init() {
 	SchemeBuilder.Register(&ClusterImageSetAvailability{}, &ClusterImageSetAvailabilityList{})
+}
+
+func (i ImageAvailabilityStatus) ToString() string {
+	value := string(i)
+	if value == "" {
+		value = "unknown"
+	}
+	return strings.ToLower(value)
 }

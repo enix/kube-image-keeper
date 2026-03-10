@@ -11,6 +11,7 @@ import (
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal"
 	"github.com/enix/kube-image-keeper/internal/config"
+	"github.com/enix/kube-image-keeper/internal/controller"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -103,6 +104,7 @@ func (r *ClusterImageSetAvailabilityReconciler) Reconcile(ctx context.Context, r
 
 	minRequeueAfter := time.Duration(math.MaxInt64)
 	for registry, candidate := range candidates {
+		controller.Metrics.InitMonitoringTaskRegistry(&cisa, registry)
 		requeueAfter, err := r.checkNextForRegistry(ctx, candidate, registry, pods.Items)
 		if err != nil {
 			return ctrl.Result{}, err
@@ -198,6 +200,7 @@ func (r *ClusterImageSetAvailabilityReconciler) checkNextForRegistry(ctx context
 	r.performCheck(ctx, candidate.image, registryConfig, pods)
 	log.V(1).Info("image monitoring done", "status", candidate.image.Status)
 
+	controller.Metrics.MonitoringTaskCompleted(candidate.cisa, registry, candidate.image)
 	if err := r.Status().Patch(ctx, candidate.cisa, client.MergeFrom(original)); err != nil {
 		return 0, err
 	}

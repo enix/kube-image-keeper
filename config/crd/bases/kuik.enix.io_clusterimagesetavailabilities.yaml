@@ -90,10 +90,11 @@ spec:
                       format: date-time
                       type: string
                     path:
-                      description: Path is the full normalised image reference, e.g.
+                      description: Image is the full normalised image reference, e.g.
                         "docker.io/library/nginx:1.27".
                       type: string
                     status:
+                      default: Scheduled
                       description: Status is the result of the last availability check.
                       enum:
                       - Scheduled

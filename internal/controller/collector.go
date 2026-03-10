@@ -1,15 +1,19 @@
 package controller
 
 import (
+	"strconv"
+
+	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/info"
 	"github.com/prometheus/client_golang/prometheus"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
 )
 
 type kuikMetrics struct {
-	collectors []prometheus.Collector
-	// monitoringTasks *prometheus.CounterVec
+	collectors      []prometheus.Collector
+	monitoringTasks *prometheus.CounterVec
 }
 
 var Metrics kuikMetrics
@@ -45,18 +49,18 @@ func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client) {
 		return 1
 	}))
 
-	// const subsystemMonitoring = "registry_monitor" // FIXME: rename this to "monitoring"
+	const subsystemMonitoring = "monitoring"
 
-	// m.monitoringTasks = prometheus.NewCounterVec(
-	// 	prometheus.CounterOpts{
-	// 		Namespace: info.MetricsNamespace,
-	// 		Subsystem: subsystemMonitoring,
-	// 		Name:      "tasks_total",
-	// 		Help:      "Total number of image monitoring tasks, labeled by registry and status.",
-	// 	},
-	// 	[]string{"registry", "status", "used"},
-	// )
-	// m.addCollector(m.monitoringTasks)
+	m.monitoringTasks = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: info.MetricsNamespace,
+			Subsystem: subsystemMonitoring,
+			Name:      "tasks_total",
+			Help:      "Total number of image monitoring tasks, labeled by registry and status.",
+		},
+		[]string{"name", "registry", "status", "used"},
+	)
+	m.addCollector(m.monitoringTasks)
 
 	// m.addCollector(NewGenericCollectorFunc(
 	// 	prometheus.Opts{
@@ -148,25 +152,25 @@ func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client) {
 	// 	histogram.Collect(ch)
 	// }))
 	//
-	// metrics.Registry.MustRegister(m.collectors...)
+	metrics.Registry.MustRegister(m.collectors...)
 }
 
 func (m *kuikMetrics) addCollector(collector prometheus.Collector) {
 	m.collectors = append(m.collectors, collector)
 }
 
-// func (m *kuikMetrics) InitMonitoringTaskRegistry(registry string) {
-// 	for _, status := range kuikv1alpha1.ImageMonitorStatusUpstreamList {
-// 		if status != kuikv1alpha1.ImageMonitorStatusUpstreamScheduled {
-// 			m.monitoringTasks.WithLabelValues(registry, status.ToString(), "true").Add(0)
-// 			m.monitoringTasks.WithLabelValues(registry, status.ToString(), "false").Add(0)
-// 		}
-// 	}
-// }
+func (m *kuikMetrics) InitMonitoringTaskRegistry(cisa *kuikv1alpha1.ClusterImageSetAvailability, registry string) {
+	for _, status := range kuikv1alpha1.ImageAvailabilityStatusList {
+		if status != kuikv1alpha1.ImageAvailabilityScheduled {
+			m.monitoringTasks.WithLabelValues(cisa.Name, registry, status.ToString(), "true").Add(0)
+			m.monitoringTasks.WithLabelValues(cisa.Name, registry, status.ToString(), "false").Add(0)
+		}
+	}
+}
 
-// func (m *kuikMetrics) MonitoringTaskCompleted(registry string, imageIsUsed bool, imageMonitor *kuikv1alpha1.ImageMonitor) {
-// 	m.monitoringTasks.WithLabelValues(registry, imageMonitor.Status.Upstream.Status.ToString(), strconv.FormatBool(imageIsUsed)).Inc()
-// }
+func (m *kuikMetrics) MonitoringTaskCompleted(cisa *kuikv1alpha1.ClusterImageSetAvailability, registry string, monitoredImage *kuikv1alpha1.MonitoredImage) {
+	m.monitoringTasks.WithLabelValues(cisa.Name, registry, string(monitoredImage.Status), strconv.FormatBool(monitoredImage.UnusedSince == nil || monitoredImage.UnusedSince.IsZero())).Inc()
+}
 
 // func (m *kuikMetrics) getImageLastMonitorAgeMinutesBuckets() ([]float64, error) {
 // 	// TODO: read this from config instead

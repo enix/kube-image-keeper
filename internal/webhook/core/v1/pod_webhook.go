@@ -510,7 +510,7 @@ func (d *PodCustomDefaulter) checkImageAvailabilityCached(ctx context.Context, i
 			log.V(1).Info("image is available")
 		}
 
-		available := result == kuikv1alpha1.ImageAvailabilityAvailable
+		available := err == nil
 		d.checkCache.Set(image.Reference, available)
 
 		if result == kuikv1alpha1.ImageAvailabilityNotFound && image.SecretOwner != nil {
