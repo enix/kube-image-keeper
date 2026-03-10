@@ -31,9 +31,12 @@ Planned features for future minor versions (subject to change):
 
 - [**v2.0**](https://github.com/enix/kube-image-keeper/releases/tag/v2.1.0) We announced the launch of version 2.0 (General Availability) at the [Cloud Native Days France 2026 convention](https://www.cloudnativedays.fr/)
 - [**v2.1**](https://github.com/enix/kube-image-keeper/releases/tag/v2.1.0) Priorities for routing and replication are now a thing
-  - **v2.1.1** Fix concurrent access to a single registry (in particular regarding the garbage collect mechanism) by multiple Kuik instances on multiple clusters
+  - [**v2.1.1**](https://github.com/enix/kube-image-keeper/releases/tag/v2.1.1) Fix concurrent access to a single registry (in particular regarding the garbage collect mechanism) by multiple Kuik instances on multiple clusters
 - **v2.2** Complete implementation of the **Image monitoring** feature with associated metrics
-- **v2.3** Improve stability of critical components (such as the mutating webhook) by deploying them individually
+- **v2.3** Various quality of life improvements
+  - Better filtering for cluster wide resources (`includeNamespace` & `excludeNamespace`)
+  - Optional monitoring of mirrored images with re-mirroring when needed
+- **v2.4** Improve stability of critical components (such as the mutating webhook) by deploying them individually
 
 ## 🚧 Known limitations to date
 
