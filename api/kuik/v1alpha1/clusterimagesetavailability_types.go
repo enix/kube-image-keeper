@@ -20,16 +20,6 @@ const (
 	ImageAvailabilityQuotaExceeded     ImageAvailabilityStatus = "QuotaExceeded"
 )
 
-var ImageAvailabilityStatusList = []ImageAvailabilityStatus{
-	ImageAvailabilityScheduled,
-	ImageAvailabilityAvailable,
-	ImageAvailabilityNotFound,
-	ImageAvailabilityUnreachable,
-	ImageAvailabilityInvalidAuth,
-	ImageAvailabilityUnavailableSecret,
-	ImageAvailabilityQuotaExceeded,
-}
-
 // ClusterImageSetAvailabilitySpec defines the desired monitoring configuration.
 type ClusterImageSetAvailabilitySpec struct {
 	// UnusedImageExpiry is how long to keep tracking an image after no Pod uses it.

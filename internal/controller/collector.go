@@ -17,8 +17,7 @@ import (
 )
 
 type kuikMetrics struct {
-	collectors      []prometheus.Collector
-	monitoringTasks *prometheus.CounterVec
+	collectors []prometheus.Collector
 }
 
 var (
@@ -58,17 +57,6 @@ func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client, cf
 	}))
 
 	const subsystemMonitoring = "monitoring"
-
-	m.monitoringTasks = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Namespace: info.MetricsNamespace,
-			Subsystem: subsystemMonitoring,
-			Name:      "tasks_total",
-			Help:      "Total number of image monitoring tasks, labeled by registry and status.",
-		},
-		[]string{"name", "registry", "status", "used"},
-	)
-	m.addCollector(m.monitoringTasks)
 
 	m.addCollector(NewGenericCollectorFunc(
 		prometheus.Opts{
@@ -162,19 +150,6 @@ func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client, cf
 
 func (m *kuikMetrics) addCollector(collector prometheus.Collector) {
 	m.collectors = append(m.collectors, collector)
-}
-
-func (m *kuikMetrics) InitMonitoringTaskRegistry(cisa *kuikv1alpha1.ClusterImageSetAvailability, registry string) {
-	for _, status := range kuikv1alpha1.ImageAvailabilityStatusList {
-		if status != kuikv1alpha1.ImageAvailabilityScheduled {
-			m.monitoringTasks.WithLabelValues(cisa.Name, registry, status.ToString(), "true").Add(0)
-			m.monitoringTasks.WithLabelValues(cisa.Name, registry, status.ToString(), "false").Add(0)
-		}
-	}
-}
-
-func (m *kuikMetrics) MonitoringTaskCompleted(cisa *kuikv1alpha1.ClusterImageSetAvailability, registry string, monitoredImage *kuikv1alpha1.MonitoredImage) {
-	m.monitoringTasks.WithLabelValues(cisa.Name, registry, string(monitoredImage.Status), strconv.FormatBool(monitoredImage.UnusedSince == nil || monitoredImage.UnusedSince.IsZero())).Inc()
 }
 
 type GenericCollector struct {
