@@ -99,4 +99,4 @@ configuration:
     items:
       docker.io:
         interval: 1h
-        maxPerInterval: 2
+        maxPerInterval: 6

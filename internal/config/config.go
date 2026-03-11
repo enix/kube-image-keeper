@@ -61,6 +61,12 @@ var defaultConfig = Config{
 			Interval:       3 * time.Hour,
 			MaxPerInterval: 25,
 		},
+		Items: map[string]RegistryMonitoring{
+			"docker.io": {
+				Interval:       time.Hour,
+				MaxPerInterval: 6,
+			},
+		},
 	},
 	Metrics: Metrics{
 		ImageLastMonitorAgeMinutes: NativeHistogramConfig{

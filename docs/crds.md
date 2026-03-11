@@ -60,3 +60,62 @@ spec:
       name: harbor-secret
       namespace: kuik-system
 ```
+
+## ClusterImageSetAvailability
+
+The `ClusterImageSetAvailability` resource continuously monitors the upstream availability of container images used in the cluster. It automatically discovers images from running Pods, checks whether they are still reachable on their source registry, and reports their status.
+
+This is useful for detecting images that have been deleted, made private, or are hosted on unreachable registries before they cause issues during a Pod reschedule.
+
+**How it works**
+
+1. The controller watches all Pods in the cluster and collects their container image references.
+2. Images matching the `imageFilter` are added to `.status.images` with status `Scheduled`.
+3. A rate-limited checker performs availability checks against each image's source registry (one image per registry per tick, configurable via `registriesMonitoring` in the operator config file).
+4. When a Pod is deleted and no other Pod uses the same image, `unusedSince` is set. After `unusedImageExpiry`, the image is removed from tracking.
+
+**Example**
+
+```yaml
+apiVersion: kuik.enix.io/v1alpha1
+kind: ClusterImageSetAvailability
+metadata:
+  name: monitor-critical-images
+spec:
+  unusedImageExpiry: 720h
+  imageFilter:
+    include:
+      - ".*nginx:.+"
+      - ".*redis:.+"
+    exclude:
+      - "localhost[^/]*/.+"
+```
+
+**Operator configuration**
+
+The check rate and method are controlled per-registry in the operator's `config.yaml`, not in the CRD:
+
+```yaml
+registriesMonitoring:
+  default:
+    method: HEAD
+    interval: 3h
+    maxPerInterval: 25
+    timeout: 10s
+  items:
+    docker.io:
+      interval: 1h
+      maxPerInterval: 6
+      fallbackCredentialSecret:
+        name: dockerhub-creds
+        namespace: kuik-system
+```
+
+| Field | Default | Description |
+|---|---|---|
+| `method` | `HEAD` | HTTP method used for the availability check (`HEAD` or `GET`). |
+| `interval` | `1h` | Time window over which `maxPerInterval` checks are spread. |
+| `maxPerInterval` | `1` | Maximum number of image checks per `interval` for a given registry. |
+| `timeout` | `0` (none) | Timeout for each individual check. |
+| `fallbackCredentialSecret` | none | Secret to use when Pod pull secrets are unavailable. |
+
