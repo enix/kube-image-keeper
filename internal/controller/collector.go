@@ -1,13 +1,16 @@
 package controller
 
 import (
+	"context"
 	"strconv"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
+	"github.com/enix/kube-image-keeper/internal"
 	"github.com/enix/kube-image-keeper/internal/info"
 	"github.com/prometheus/client_golang/prometheus"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 )
 
@@ -16,7 +19,10 @@ type kuikMetrics struct {
 	monitoringTasks *prometheus.CounterVec
 }
 
-var Metrics kuikMetrics
+var (
+	Metrics kuikMetrics
+	log     = logf.Log.WithName("metrics")
+)
 
 func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client) {
 	const subsystemManager = "manager"
@@ -62,58 +68,50 @@ func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client) {
 	)
 	m.addCollector(m.monitoringTasks)
 
-	// m.addCollector(NewGenericCollectorFunc(
-	// 	prometheus.Opts{
-	// 		Namespace: info.MetricsNamespace,
-	// 		Subsystem: subsystemMonitoring,
-	// 		Name:      "images",
-	// 		Help:      "Number of image monitors, labeled by registry and status.",
-	// 	},
-	// 	prometheus.GaugeValue,
-	// 	[]string{"registry", "status", "used"},
-	// 	func(collect func(value float64, labels ...string)) {
-	// 		registryMonitorList := &kuikv1alpha1.RegistryMonitorList{}
-	// 		if err := client.List(context.Background(), registryMonitorList); err != nil {
-	// 			logf.Log.Error(err, "failed to list images for metrics")
-	// 			return
-	// 		}
-	//
-	// 		areImagesUsed := map[string]bool{}
-	// 		for _, registryMonitor := range registryMonitorList.Items {
-	// 			areImagesUsed[registryMonitor.Reference()] = registryMonitor.IsUsedByPods()
-	// 		}
-	//
-	// 		imageMonitorList := &kuikv1alpha1.ImageMonitorList{}
-	// 		if err := client.List(context.Background(), imageMonitorList); err != nil {
-	// 			logf.Log.Error(err, "failed to list images monitors for metrics")
-	// 			return
-	// 		}
-	//
-	// 		imageMonitors := make(map[string]map[string]map[bool]float64)
-	// 		for _, imageMonitor := range imageMonitorList.Items {
-	// 			registry := imageMonitor.Spec.Registry
-	// 			if _, exists := imageMonitors[registry]; !exists {
-	// 				imageMonitors[registry] = make(map[string]map[bool]float64)
-	// 				for _, status := range kuikv1alpha1.ImageMonitorStatusUpstreamList {
-	// 					imageMonitors[registry][status.ToString()] = map[bool]float64{
-	// 						true:  0,
-	// 						false: 0,
-	// 					}
-	// 				}
-	// 			}
-	//
-	// 			status := imageMonitor.Status.Upstream.Status.ToString()
-	// 			imageMonitors[registry][status][areImagesUsed[imageMonitor.Reference()]]++
-	// 		}
-	//
-	// 		for registry, statuses := range imageMonitors {
-	// 			for status, used := range statuses {
-	// 				collect(used[true], registry, status, strconv.FormatBool(true))
-	// 				collect(used[false], registry, status, strconv.FormatBool(false))
-	// 			}
-	// 		}
-	// 	}))
-	//
+	m.addCollector(NewGenericCollectorFunc(
+		prometheus.Opts{
+			Namespace: info.MetricsNamespace,
+			Subsystem: subsystemMonitoring,
+			Name:      "images",
+			Help:      "Number of monitored image",
+		},
+		prometheus.GaugeValue,
+		[]string{"name", "registry", "status", "used"},
+		func(collect func(value float64, labels ...string)) {
+			cisaList := &kuikv1alpha1.ClusterImageSetAvailabilityList{}
+			if err := client.List(context.Background(), cisaList); err != nil {
+				log.Error(err, "failed to list images for metrics")
+				return
+			}
+
+			type counterKey struct {
+				name, registry string
+				status         kuikv1alpha1.ImageAvailabilityStatus
+				used           bool
+			}
+			counts := map[counterKey]float64{}
+
+			for _, cisa := range cisaList.Items {
+				for _, image := range cisa.Status.Images {
+					registry, _, err := internal.RegistryAndPathFromReference(image.Image)
+					if err != nil {
+						continue
+					}
+					used := image.UnusedSince == nil || image.UnusedSince.IsZero()
+					counts[counterKey{
+						name:     cisa.Name,
+						registry: registry,
+						status:   image.Status,
+						used:     used,
+					}]++
+				}
+			}
+
+			for key, count := range counts {
+				collect(count, key.name, key.registry, string(key.status), strconv.FormatBool(key.used))
+			}
+		}))
+
 	// imageLastMonitorHistogramOpts := prometheus.Opts{
 	// 	Namespace: info.MetricsNamespace,
 	// 	Subsystem: subsystemMonitoring,
