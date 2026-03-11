@@ -299,7 +299,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	controller.Metrics.Register(mgr.Elected(), mgr.GetClient())
+	controller.Metrics.Register(mgr.Elected(), mgr.GetClient(), configuration)
 
 	setupLogWithInfoValues := setupLog.V(0)
 	for key, value := range info.GetInfo() {

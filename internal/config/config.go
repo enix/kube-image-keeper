@@ -15,6 +15,17 @@ import (
 type Config struct {
 	Routing              Routing              `koanf:"routing"`
 	RegistriesMonitoring RegistriesMonitoring `koanf:"registriesMonitoring"`
+	Metrics              Metrics              `koanf:"metrics"`
+}
+
+type Metrics struct {
+	ImageLastMonitorAgeMinutes NativeHistogramConfig `koanf:"imageLastMonitorAgeMinutes"`
+}
+
+type NativeHistogramConfig struct {
+	BucketFactor    float64 `koanf:"bucketFactor"`
+	ZeroThreshold   float64 `koanf:"zeroThreshold"`
+	MaxBucketNumber uint32  `koanf:"maxBucketNumber"`
 }
 
 type Routing struct {
@@ -49,6 +60,13 @@ var defaultConfig = Config{
 			Method:         http.MethodHead,
 			Interval:       3 * time.Hour,
 			MaxPerInterval: 25,
+		},
+	},
+	Metrics: Metrics{
+		ImageLastMonitorAgeMinutes: NativeHistogramConfig{
+			BucketFactor:    1.1,
+			ZeroThreshold:   1.0,
+			MaxBucketNumber: 20,
 		},
 	},
 }

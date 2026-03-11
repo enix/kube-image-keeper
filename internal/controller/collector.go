@@ -3,9 +3,11 @@ package controller
 import (
 	"context"
 	"strconv"
+	"time"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal"
+	"github.com/enix/kube-image-keeper/internal/config"
 	"github.com/enix/kube-image-keeper/internal/info"
 	"github.com/prometheus/client_golang/prometheus"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -24,7 +26,7 @@ var (
 	log     = logf.Log.WithName("metrics")
 )
 
-func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client) {
+func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client, cfg *config.Config) {
 	const subsystemManager = "manager"
 
 	m.addCollector(info.NewInfoCollector(subsystemManager))
@@ -80,7 +82,7 @@ func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client) {
 		func(collect func(value float64, labels ...string)) {
 			cisaList := &kuikv1alpha1.ClusterImageSetAvailabilityList{}
 			if err := client.List(context.Background(), cisaList); err != nil {
-				log.Error(err, "failed to list images for metrics")
+				log.Error(err, "failed to list images for images metric")
 				return
 			}
 
@@ -112,44 +114,49 @@ func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client) {
 			}
 		}))
 
-	// imageLastMonitorHistogramOpts := prometheus.Opts{
-	// 	Namespace: info.MetricsNamespace,
-	// 	Subsystem: subsystemMonitoring,
-	// 	Name:      "image_last_monitor_age_minutes",
-	// 	Help:      "Histogram of image last monitor age in minutes",
-	// }
-	// imageLastMonitorHistogramLabels := []string{"registry"}
-	// imageLastMonitorHistogramBuckets, err := m.getImageLastMonitorAgeMinutesBuckets()
-	// if err != nil {
-	// 	// TODO: handle error properly: return it to the caller
-	// 	panic(err)
-	// }
-	// // TODO: refactor NewGenericCollector to avoid duplicating Opts and labels usage
-	// m.addCollector(NewGenericCollector(imageLastMonitorHistogramOpts, prometheus.GaugeValue, imageLastMonitorHistogramLabels, func(ch chan<- prometheus.Metric) {
-	// 	imageMonitorList := &kuikv1alpha1.ImageMonitorList{}
-	// 	if err := client.List(context.Background(), imageMonitorList); err != nil {
-	// 		return
-	// 	}
-	//
-	// 	histogram := prometheus.NewHistogramVec(prometheus.HistogramOpts{
-	// 		Namespace: imageLastMonitorHistogramOpts.Namespace,
-	// 		Subsystem: imageLastMonitorHistogramOpts.Subsystem,
-	// 		Name:      imageLastMonitorHistogramOpts.Name,
-	// 		Help:      imageLastMonitorHistogramOpts.Help,
-	// 		Buckets:   imageLastMonitorHistogramBuckets,
-	// 	}, imageLastMonitorHistogramLabels)
-	//
-	// 	now := time.Now()
-	// 	for _, imageMonitor := range imageMonitorList.Items {
-	// 		if imageMonitor.Status.Upstream.LastMonitor.IsZero() {
-	// 			continue
-	// 		}
-	// 		histogram.WithLabelValues(imageMonitor.Spec.Registry).Observe(now.Sub(imageMonitor.Status.Upstream.LastMonitor.Time).Minutes())
-	// 	}
-	//
-	// 	histogram.Collect(ch)
-	// }))
-	//
+	imageLastMonitorHistogramOpts := prometheus.Opts{
+		Namespace: info.MetricsNamespace,
+		Subsystem: subsystemMonitoring,
+		Name:      "image_last_monitor_age_minutes",
+		Help:      "Histogram of image last monitor age in minutes.",
+	}
+	imageLastMonitorHistogramLabels := []string{"name", "registry"}
+	histCfg := cfg.Metrics.ImageLastMonitorAgeMinutes
+
+	m.addCollector(NewGenericCollector(imageLastMonitorHistogramOpts, prometheus.GaugeValue, imageLastMonitorHistogramLabels, func(ch chan<- prometheus.Metric) {
+		cisaList := &kuikv1alpha1.ClusterImageSetAvailabilityList{}
+		if err := client.List(context.Background(), cisaList); err != nil {
+			log.Error(err, "failed to list images for last monitor histogram metric")
+			return
+		}
+
+		histogram := prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace:                      imageLastMonitorHistogramOpts.Namespace,
+			Subsystem:                      imageLastMonitorHistogramOpts.Subsystem,
+			Name:                           imageLastMonitorHistogramOpts.Name,
+			Help:                           imageLastMonitorHistogramOpts.Help,
+			NativeHistogramBucketFactor:    histCfg.BucketFactor,
+			NativeHistogramZeroThreshold:   histCfg.ZeroThreshold,
+			NativeHistogramMaxBucketNumber: histCfg.MaxBucketNumber,
+		}, imageLastMonitorHistogramLabels)
+
+		now := time.Now()
+		for _, cisa := range cisaList.Items {
+			for _, image := range cisa.Status.Images {
+				if image.LastMonitor == nil || image.LastMonitor.IsZero() {
+					continue
+				}
+				registry, _, err := internal.RegistryAndPathFromReference(image.Image)
+				if err != nil {
+					continue
+				}
+				histogram.WithLabelValues(cisa.Name, registry).Observe(now.Sub(image.LastMonitor.Time).Minutes())
+			}
+		}
+
+		histogram.Collect(ch)
+	}))
+
 	metrics.Registry.MustRegister(m.collectors...)
 }
 
@@ -169,51 +176,6 @@ func (m *kuikMetrics) InitMonitoringTaskRegistry(cisa *kuikv1alpha1.ClusterImage
 func (m *kuikMetrics) MonitoringTaskCompleted(cisa *kuikv1alpha1.ClusterImageSetAvailability, registry string, monitoredImage *kuikv1alpha1.MonitoredImage) {
 	m.monitoringTasks.WithLabelValues(cisa.Name, registry, string(monitoredImage.Status), strconv.FormatBool(monitoredImage.UnusedSince == nil || monitoredImage.UnusedSince.IsZero())).Inc()
 }
-
-// func (m *kuikMetrics) getImageLastMonitorAgeMinutesBuckets() ([]float64, error) {
-// 	// TODO: read this from config instead
-// 	envPrefix := "KUIK_METRICS_IMAGE_LAST_MONITOR_AGE_MINUTES_BUCKETS_"
-// 	switch bucketsType := getenv.EnvOrDefault(envPrefix+"TYPE", "custom"); bucketsType {
-// 	case "exponential":
-// 		envPrefix += "EXPONENTIAL_"
-// 		start, err := getenv.Env[float64](envPrefix + "START")
-// 		if err != nil {
-// 			return nil, err
-// 		}
-// 		factor, err := getenv.Env[float64](envPrefix + "FACTOR")
-// 		if err != nil {
-// 			return nil, err
-// 		}
-// 		count, err := getenv.Env[int](envPrefix + "COUNT")
-// 		if err != nil {
-// 			return nil, err
-// 		}
-// 		return prometheus.ExponentialBuckets(start, factor, count), nil
-// 	case "exponentialRange":
-// 		envPrefix += "EXPONENTIAL_RANGE_"
-// 		minBucket, err := getenv.Env[float64](envPrefix + "MIN")
-// 		if err != nil {
-// 			return nil, err
-// 		}
-// 		maxBucket, err := getenv.Env[float64](envPrefix + "MAX")
-// 		if err != nil {
-// 			return nil, err
-// 		}
-// 		count, err := getenv.Env[int](envPrefix + "COUNT")
-// 		if err != nil {
-// 			return nil, err
-// 		}
-// 		return prometheus.ExponentialBucketsRange(minBucket, maxBucket, count), nil
-// 	case "custom":
-// 		buckets, err := getenv.Env[[]float64](envPrefix+"CUSTOM", option.WithSeparator(","))
-// 		if err != nil && errors.Is(err, getenv.ErrNotSet) {
-// 			return []float64{2, 10}, nil
-// 		}
-// 		return buckets, err
-// 	default:
-// 		return nil, fmt.Errorf("invalid %s: %s", envPrefix+"TYPE", bucketsType)
-// 	}
-// }
 
 type GenericCollector struct {
 	desc      *prometheus.Desc
