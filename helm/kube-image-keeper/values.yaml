@@ -100,3 +100,13 @@ configuration:
       docker.io:
         interval: 1h
         maxPerInterval: 6
+  metrics:
+    imageLastMonitorAgeMinutes:
+      bucketFactor: 1.1
+      zeroThreshold: 1.0
+      maxBucketNumber: 20
+      legacy:
+        bucketType: "exponential"
+        count: 12
+        start: 1
+        factor: 1.94

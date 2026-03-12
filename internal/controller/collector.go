@@ -109,7 +109,8 @@ func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client, cf
 		Help:      "Histogram of image last monitor age in minutes.",
 	}
 	imageLastMonitorHistogramLabels := []string{"name", "registry"}
-	histCfg := cfg.Metrics.ImageLastMonitorAgeMinutes
+	imageLastMonitorHistogram := cfg.Metrics.ImageLastMonitorAgeMinutes
+	imageLastMonitorHistogramBuckets := imageLastMonitorHistogram.Legacy.Buckets()
 
 	m.addCollector(NewGenericCollector(imageLastMonitorHistogramOpts, prometheus.GaugeValue, imageLastMonitorHistogramLabels, func(ch chan<- prometheus.Metric) {
 		cisaList := &kuikv1alpha1.ClusterImageSetAvailabilityList{}
@@ -123,9 +124,10 @@ func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client, cf
 			Subsystem:                      imageLastMonitorHistogramOpts.Subsystem,
 			Name:                           imageLastMonitorHistogramOpts.Name,
 			Help:                           imageLastMonitorHistogramOpts.Help,
-			NativeHistogramBucketFactor:    histCfg.BucketFactor,
-			NativeHistogramZeroThreshold:   histCfg.ZeroThreshold,
-			NativeHistogramMaxBucketNumber: histCfg.MaxBucketNumber,
+			NativeHistogramBucketFactor:    imageLastMonitorHistogram.BucketFactor,
+			NativeHistogramZeroThreshold:   imageLastMonitorHistogram.ZeroThreshold,
+			NativeHistogramMaxBucketNumber: imageLastMonitorHistogram.MaxBucketNumber,
+			Buckets:                        imageLastMonitorHistogramBuckets,
 		}, imageLastMonitorHistogramLabels)
 
 		now := time.Now()

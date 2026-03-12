@@ -19,13 +19,7 @@ type Config struct {
 }
 
 type Metrics struct {
-	ImageLastMonitorAgeMinutes NativeHistogramConfig `koanf:"imageLastMonitorAgeMinutes"`
-}
-
-type NativeHistogramConfig struct {
-	BucketFactor    float64 `koanf:"bucketFactor"`
-	ZeroThreshold   float64 `koanf:"zeroThreshold"`
-	MaxBucketNumber uint32  `koanf:"maxBucketNumber"`
+	ImageLastMonitorAgeMinutes HistogramConfig `koanf:"imageLastMonitorAgeMinutes"`
 }
 
 type Routing struct {
@@ -69,10 +63,18 @@ var defaultConfig = Config{
 		},
 	},
 	Metrics: Metrics{
-		ImageLastMonitorAgeMinutes: NativeHistogramConfig{
+		ImageLastMonitorAgeMinutes: HistogramConfig{
 			BucketFactor:    1.1,
 			ZeroThreshold:   1.0,
 			MaxBucketNumber: 20,
+			Legacy: LegacyHistogramConfig{
+				Start:  1,
+				Factor: 1.94,
+				Count:  12,
+				Min:    1,
+				Max:    24 * 60,
+				Custom: []float64{1, 5, 10, 30, 60, 120, 180, 360, 720, 1440},
+			},
 		},
 	},
 }
