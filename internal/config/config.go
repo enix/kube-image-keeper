@@ -13,13 +13,9 @@ import (
 )
 
 type Config struct {
-	Routing              Routing              `koanf:"routing"`
-	RegistriesMonitoring RegistriesMonitoring `koanf:"registriesMonitoring"`
-	Metrics              Metrics              `koanf:"metrics"`
-}
-
-type Metrics struct {
-	ImageLastMonitorAgeMinutes HistogramConfig `koanf:"imageLastMonitorAgeMinutes"`
+	Routing    Routing    `koanf:"routing"`
+	Monitoring Monitoring `koanf:"monitoring"`
+	Metrics    Metrics    `koanf:"metrics"`
 }
 
 type Routing struct {
@@ -30,7 +26,11 @@ type ActiveCheck struct {
 	Timeout time.Duration `koanf:"timeout"`
 }
 
-type RegistriesMonitoring struct {
+type Monitoring struct {
+	Registries Registries `koanf:"registries"`
+}
+
+type Registries struct {
 	Default RegistryMonitoring            `koanf:"default"`
 	Items   map[string]RegistryMonitoring `koanf:"items"`
 }
@@ -43,22 +43,28 @@ type RegistryMonitoring struct {
 	FallbackCredentialSecret *kuikv1alpha1.CredentialSecret `koanf:"fallbackCredentialSecret"`
 }
 
+type Metrics struct {
+	ImageLastMonitorAgeMinutes HistogramConfig `koanf:"imageLastMonitorAgeMinutes"`
+}
+
 var defaultConfig = Config{
 	Routing: Routing{
 		ActiveCheck: ActiveCheck{
 			Timeout: time.Second,
 		},
 	},
-	RegistriesMonitoring: RegistriesMonitoring{
-		Default: RegistryMonitoring{
-			Method:         http.MethodHead,
-			Interval:       3 * time.Hour,
-			MaxPerInterval: 25,
-		},
-		Items: map[string]RegistryMonitoring{
-			"docker.io": {
-				Interval:       time.Hour,
-				MaxPerInterval: 6,
+	Monitoring: Monitoring{
+		Registries: Registries{
+			Default: RegistryMonitoring{
+				Method:         http.MethodHead,
+				Interval:       3 * time.Hour,
+				MaxPerInterval: 25,
+			},
+			Items: map[string]RegistryMonitoring{
+				"docker.io": {
+					Interval:       time.Hour,
+					MaxPerInterval: 6,
+				},
 			},
 		},
 	},

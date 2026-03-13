@@ -102,15 +102,16 @@ configuration:
   routing:
     activeCheck:
       timeout: 1s
-  registriesMonitoring:
-    default:
-      method: HEAD
-      interval: 3h
-      maxPerInterval: 25
-    items:
-      docker.io:
-        interval: 1h
-        maxPerInterval: 6
+  monitoring:
+    registries:
+      default:
+        method: HEAD
+        interval: 3h
+        maxPerInterval: 25
+      items:
+        docker.io:
+          interval: 1h
+          maxPerInterval: 6
   metrics:
     imageLastMonitorAgeMinutes:
       bucketFactor: 1.1

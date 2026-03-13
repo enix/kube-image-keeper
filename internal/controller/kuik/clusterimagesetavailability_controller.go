@@ -158,10 +158,10 @@ func (r *ClusterImageSetAvailabilityReconciler) getRegistriesCandidates(ctx cont
 }
 
 func (r *ClusterImageSetAvailabilityReconciler) registryConfig(registry string) *config.RegistryMonitoring {
-	mon := r.Config.RegistriesMonitoring
-	merged := mon.Default
+	registries := r.Config.Monitoring.Registries
+	merged := registries.Default
 
-	if override, ok := mon.Items[registry]; ok {
+	if override, ok := registries.Items[registry]; ok {
 		if override.Method != "" {
 			merged.Method = override.Method
 		}
