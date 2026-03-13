@@ -41,6 +41,8 @@ spec:
             {{- if gt (.Values.manager.replicas | int) 1 }}
             - -leader-elect
             {{- end }}
+            - -metrics-bind-address=:8080
+            - -metrics-secure=false
             - -zap-log-level={{ .Values.manager.verbosity }}
             - -unused-image-ttl={{ .Values.unusedImageTTL }}
           env:
@@ -50,6 +52,9 @@ spec:
               value: {{ .value }}
             {{- end }}
           ports:
+            - containerPort: 8080
+              name: metrics
+              protocol: TCP
             - containerPort: 9443
               name: webhook-server
               protocol: TCP
