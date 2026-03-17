@@ -80,6 +80,8 @@ func (r *ClusterImageSetAvailabilityReconciler) SetupWithManager(mgr ctrl.Manage
 }
 
 func (r *ClusterImageSetAvailabilityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	log := logf.FromContext(ctx)
+
 	var cisa kuikv1alpha1.ClusterImageSetAvailability
 	if err := r.Get(ctx, req.NamespacedName, &cisa); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -91,15 +93,18 @@ func (r *ClusterImageSetAvailabilityReconciler) Reconcile(ctx context.Context, r
 	}
 
 	original := cisa.DeepCopy()
-	r.syncImageList(ctx, &cisa, pods.Items)
-	if err := r.Status().Patch(ctx, &cisa, client.MergeFrom(original)); err != nil {
-		return ctrl.Result{}, err
+	if changed := r.syncImageList(ctx, &cisa, pods.Items); changed {
+		if err := r.Status().Patch(ctx, &cisa, client.MergeFrom(original)); err != nil {
+			return ctrl.Result{}, err
+		}
+		log.V(1).Info("updated ClusterImageSetAvailability image monitoring list", "count", len(cisa.Status.Images))
 	}
 
 	candidates, err := r.getRegistriesCandidates(ctx)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	log.V(1).Info("found candidates for monitoring", "count", len(candidates))
 
 	minRequeueAfter := time.Duration(math.MaxInt64)
 	for registry, candidate := range candidates {
@@ -113,9 +118,15 @@ func (r *ClusterImageSetAvailabilityReconciler) Reconcile(ctx context.Context, r
 	}
 
 	if minRequeueAfter == time.Duration(math.MaxInt64) {
+		if len(cisa.Status.Images) > 0 {
+			// Handle stale informer cache returning no candidate
+			log.V(1).Info("stale informer cache: no candidate found although it should have some since current ClusterImageSetAvailability monitoring list is not empty, requeuing")
+			return ctrl.Result{Requeue: true}, nil
+		}
 		return ctrl.Result{}, nil
 	}
 
+	log.V(1).Info("reconciliation done", "requeueAfter", minRequeueAfter.String())
 	return ctrl.Result{RequeueAfter: minRequeueAfter}, nil
 }
 
@@ -205,12 +216,13 @@ func (r *ClusterImageSetAvailabilityReconciler) checkNextForRegistry(ctx context
 	return tickDuration, nil
 }
 
-func (r *ClusterImageSetAvailabilityReconciler) syncImageList(ctx context.Context, cisa *kuikv1alpha1.ClusterImageSetAvailability, pods []corev1.Pod) {
+func (r *ClusterImageSetAvailabilityReconciler) syncImageList(ctx context.Context, cisa *kuikv1alpha1.ClusterImageSetAvailability, pods []corev1.Pod) (changed bool) {
 	log := logf.FromContext(ctx)
 	now := metav1.NewTime(time.Now())
 	instantExpiryMarker := metav1.NewTime(time.Time{}.Add(time.Hour))
 	imageFilter := cisa.Spec.ImageFilter.MustBuild()
 
+	// List in-use images from pods
 	currentImages := map[string]struct{}{}
 	for i := range pods {
 		for imageName := range normalizedImageNamesFromPod(ctx, &pods[i]) {
@@ -220,18 +232,17 @@ func (r *ClusterImageSetAvailabilityReconciler) syncImageList(ctx context.Contex
 		}
 	}
 
+	// Update unusedSince field (for both in-use status and instantExpiryMarker)
 	for i := range cisa.Status.Images {
 		image := &cisa.Status.Images[i]
+		previousUnused := image.UnusedSince
 
 		if !imageFilter.Match(image.Image) {
 			if image.UnusedSince == nil || !image.UnusedSince.Equal(&instantExpiryMarker) {
 				image.UnusedSince = &instantExpiryMarker
 				log.Info("image no longer in scope, marking for removal", "image", image.Image)
 			}
-			continue
-		}
-
-		if _, inUse := currentImages[image.Image]; inUse {
+		} else if _, inUse := currentImages[image.Image]; inUse {
 			image.UnusedSince = nil
 		} else if image.Status == kuikv1alpha1.ImageAvailabilityScheduled {
 			image.UnusedSince = &instantExpiryMarker
@@ -239,8 +250,13 @@ func (r *ClusterImageSetAvailabilityReconciler) syncImageList(ctx context.Contex
 		} else if image.UnusedSince == nil {
 			image.UnusedSince = &now
 		}
+
+		if image.UnusedSince != previousUnused {
+			changed = true
+		}
 	}
 
+	// Remove instant expired images from previous step
 	expiry := cisa.Spec.UnusedImageExpiry.Duration
 	if expiry > 0 {
 		cisa.Status.Images = slices.DeleteFunc(cisa.Status.Images, func(image kuikv1alpha1.MonitoredImage) bool {
@@ -254,11 +270,13 @@ func (r *ClusterImageSetAvailabilityReconciler) syncImageList(ctx context.Contex
 		})
 	}
 
+	// List current images from CISA
 	existingPaths := map[string]struct{}{}
 	for _, image := range cisa.Status.Images {
 		existingPaths[image.Image] = struct{}{}
 	}
 
+	// Add newly discovered images
 	for imageName := range currentImages {
 		if _, exists := existingPaths[imageName]; !exists {
 			cisa.Status.Images = append(cisa.Status.Images, kuikv1alpha1.MonitoredImage{
@@ -266,10 +284,12 @@ func (r *ClusterImageSetAvailabilityReconciler) syncImageList(ctx context.Contex
 				Status: kuikv1alpha1.ImageAvailabilityScheduled,
 			})
 			log.Info("discovered new image to monitor", "image", imageName)
+			changed = true
 		}
 	}
 
 	cisa.Status.ImageCount = len(cisa.Status.Images)
+	return
 }
 
 func (r *ClusterImageSetAvailabilityReconciler) performCheck(ctx context.Context, image *kuikv1alpha1.MonitoredImage, registryConfig *config.RegistryMonitoring, pods []corev1.Pod) {
