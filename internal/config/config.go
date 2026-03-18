@@ -19,7 +19,8 @@ type Config struct {
 }
 
 type Routing struct {
-	ActiveCheck ActiveCheck `koanf:"activeCheck"`
+	ActiveCheck                   ActiveCheck `koanf:"activeCheck"`
+	RewriteOnNeverImagePullPolicy bool        `koanf:"rewriteOnNeverImagePullPolicy"`
 }
 
 type ActiveCheck struct {
@@ -52,6 +53,7 @@ var defaultConfig = Config{
 		ActiveCheck: ActiveCheck{
 			Timeout: time.Second,
 		},
+		RewriteOnNeverImagePullPolicy: false,
 	},
 	Monitoring: Monitoring{
 		Registries: Registries{

@@ -207,10 +207,10 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 
 	log.V(1).Info("defaulting for Pod")
 
-	// filter containers using invalid or digest-based images
+	// filter containers using invalid / digest-based images or ImagePullPolicy: Never when routing.rewriteOnNeverImagePullPolicy is enabled
 	containers = slices.DeleteFunc(containers, func(container Container) bool {
 		_, err := reference.Parse(container.Image)
-		return err != nil || strings.Contains(container.Image, "@")
+		return err != nil || strings.Contains(container.Image, "@") || (!d.Config.Routing.RewriteOnNeverImagePullPolicy && container.ImagePullPolicy == corev1.PullNever)
 	})
 	if len(containers) == 0 {
 		log.V(1).Info("pod has no containers eligible for image rewriting, ignoring (digest-based images are not supported)")

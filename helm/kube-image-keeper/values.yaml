@@ -102,6 +102,7 @@ configuration:
   routing:
     activeCheck:
       timeout: 1s
+    rewriteOnNeverImagePullPolicy: false
   monitoring:
     registries:
       default:
