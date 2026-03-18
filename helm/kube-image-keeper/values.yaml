@@ -81,6 +81,9 @@ manager:
       kind: Issuer
       name: kube-image-keeper-selfsigned-issuer
 
+webhookConfiguration:
+  namespaceSelector: {}
+
 rbac:
   # -- Create the ClusterRole and ClusterRoleBinding. If false, need to associate permissions with serviceAccount outside this Helm chart.
   create: true
