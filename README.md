@@ -32,7 +32,7 @@ Planned features for future minor versions (subject to change):
 - [**v2.0**](https://github.com/enix/kube-image-keeper/releases/tag/v2.1.0) We announced the launch of version 2.0 (General Availability) at the [Cloud Native Days France 2026 convention](https://www.cloudnativedays.fr/)
 - [**v2.1**](https://github.com/enix/kube-image-keeper/releases/tag/v2.1.0) Priorities for routing and replication are now a thing
   - [**v2.1.1**](https://github.com/enix/kube-image-keeper/releases/tag/v2.1.1) Fix concurrent access to a single registry (in particular regarding the garbage collect mechanism) by multiple Kuik instances on multiple clusters
-- **v2.2** Complete implementation of the **Image monitoring** feature with associated metrics
+- [**v2.2**](https://github.com/enix/kube-image-keeper/releases/tag/v2.2.0) Complete implementation of the **Image monitoring** feature with associated metrics
 - **v2.3** Various quality of life improvements
   - Better filtering for cluster wide resources (`includeNamespace` & `excludeNamespace`)
   - Optional monitoring of mirrored images with re-mirroring when needed
@@ -50,7 +50,7 @@ Planned features for future minor versions (subject to change):
 
 ```bash
 kubectl create namespace kuik-system
-VERSION=2.0.0
+VERSION=2.2.0
 helm upgrade --install --namespace kuik-system kube-image-keeper oci://quay.io/enix/charts/kube-image-keeper:$VERSION
 ```
 
