@@ -80,9 +80,8 @@ manager:
     certificateIssuerRef:
       kind: Issuer
       name: kube-image-keeper-selfsigned-issuer
-
-webhookConfiguration:
-  namespaceSelector: {}
+    # -- Namespace selector to filter what pods the mutating webhook will rewrite
+    namespaceSelector: {}
 
 rbac:
   # -- Create the ClusterRole and ClusterRoleBinding. If false, need to associate permissions with serviceAccount outside this Helm chart.

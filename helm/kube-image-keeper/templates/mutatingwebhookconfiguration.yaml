@@ -14,7 +14,7 @@ webhooks:
       path: /mutate--v1-pod
   failurePolicy: Ignore
   reinvocationPolicy: IfNeeded
-  {{- with .Values.webhookConfiguration.namespaceSelector }}
+  {{- with .Values.manager.webhook.namespaceSelector }}
   namespaceSelector: {{- . | toYaml | trim | nindent 4 }}
   {{- end }}
   name: mpod-v1.kb.io
