@@ -79,6 +79,10 @@ spec:
                   description: MonitoredImage holds the current availability state
                     for a single image.
                   properties:
+                    image:
+                      description: Image is the full normalised image reference, e.g.
+                        "docker.io/library/nginx:1.27".
+                      type: string
                     lastError:
                       description: LastError contains the error message from the last
                         failed check, if any.
@@ -88,10 +92,6 @@ spec:
                         LastMonitor is the timestamp of the last availability check.
                         Nil means the image has not been checked yet.
                       format: date-time
-                      type: string
-                    path:
-                      description: Image is the full normalised image reference, e.g.
-                        "docker.io/library/nginx:1.27".
                       type: string
                     status:
                       default: Scheduled
@@ -112,12 +112,12 @@ spec:
                       format: date-time
                       type: string
                   required:
-                  - path
+                  - image
                   - status
                   type: object
                 type: array
                 x-kubernetes-list-map-keys:
-                - path
+                - image
                 x-kubernetes-list-type: map
             type: object
         type: object

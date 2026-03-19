@@ -36,7 +36,7 @@ type ClusterImageSetAvailabilitySpec struct {
 // MonitoredImage holds the current availability state for a single image.
 type MonitoredImage struct {
 	// Image is the full normalised image reference, e.g. "docker.io/library/nginx:1.27".
-	Image string `json:"path"`
+	Image string `json:"image"`
 
 	// Status is the result of the last availability check.
 	// +default="Scheduled"
@@ -63,7 +63,7 @@ type ClusterImageSetAvailabilityStatus struct {
 	ImageCount int `json:"imageCount,omitempty"`
 
 	// +listType=map
-	// +listMapKey=path
+	// +listMapKey=image
 	Images []MonitoredImage `json:"images,omitempty"`
 }
 
