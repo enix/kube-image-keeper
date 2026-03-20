@@ -28,11 +28,13 @@ Mostly a redesigned architecture
 ## When to use Kube Image Keeper
 
 ### ✅ Container Image Redundancy
-Replicate your container images from you developement registry to a production ready (i.e., more resilient) one.
 
-Kuik automaticaly clones your images to a new "prime" registry, and redirect all calls to it. This process is based on running Pods, no complex configuration required !
+Replicate your container images from you development registry to a production ready (i.e., more resilient) one.
+
+Kuik automatically clones your images to a new "prime" registry, and redirect all calls to it. This process is based on running Pods, no complex configuration required!
 
 ### ✅ Container Image Availability Monitoring
+
 Detect images that are no longer available on any registry prior to Pod scheduling failures.
 
 Anticipate potential `ImagePullBackoff` scenarios caused by maintenance or worker node failures.
@@ -56,7 +58,7 @@ Anticipate potential `ImagePullBackoff` scenarios caused by maintenance or worke
 ## 🚧 Known limitations to date
 
 - ~~Mirrored images are considered replicated even if the image was later deleted~~ fixed in `v2.1.1`
-- Competition between Kuik's cluster wide custom ressources and namespaced ressources might lead to weird scenarios (to be partially fixed in `v2.1.1`)
+- Competition between Kuik's cluster wide custom resources and namespaced resources might lead to weird scenarios (to be partially fixed in `v2.1.1`)
 - The mutating webhook do not support the Pod `Update` call
 - With replication enabled from registry A to registry B, launching a Pod with image on B will be rerouted (rewritten) to image on A
 - Digest tags are not supported, ex: `@sha256:cb4e4ffc5789fd5ff6a534e3b1460623df61cba00f5ea1c7b40153b5efb81805`
