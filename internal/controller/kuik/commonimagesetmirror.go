@@ -75,7 +75,7 @@ func (r *ImageSetMirrorBaseReconciler) getImageSecretFromMirrors(ctx context.Con
 	return secret, nil
 }
 
-func (r *ImageSetMirrorBaseReconciler) mirrorImage(ctx context.Context, namespace string, mirrors kuikv1alpha1.Mirrors, podsByMatchingImages map[string]*corev1.Pod, from string, to *kuikv1alpha1.MirrorStatus) error {
+func (r *ImageSetMirrorBaseReconciler) mirrorImage(ctx context.Context, namespace string, mirrors kuikv1alpha1.Mirrors, podsByMatchingImages map[string]*corev1.Pod, from string, to *kuikv1alpha1.MirrorStatus) (err error) {
 	srcSecrets, err := r.getPullSecretsFromPods(ctx, podsByMatchingImages, from)
 	if err != nil {
 		return err
@@ -88,13 +88,26 @@ func (r *ImageSetMirrorBaseReconciler) mirrorImage(ctx context.Context, namespac
 		destSecrets[0] = *secret
 	}
 
-	registry := registry.NewClient(nil, nil).WithPullSecrets(srcSecrets)
-	srcDesc, err := registry.GetDescriptor(from)
+	defer func() {
+		if err != nil {
+			client := registry.NewClient(nil, nil).WithPullSecrets(destSecrets)
+			_, destErr := client.GetDescriptor(to.Image)
+			if destErr == nil {
+				logf.FromContext(ctx).V(1).Info("could not mirror image, but the image seems to be already mirrored")
+				err = nil
+				now := metav1.NewTime(time.Now())
+				to.MirroredAt = &now
+			}
+		}
+	}()
+
+	client := registry.NewClient(nil, nil).WithPullSecrets(srcSecrets)
+	srcDesc, err := client.GetDescriptor(from)
 	if err != nil {
 		return err
 	}
 
-	if err := registry.WithTimeout(0).WithPullSecrets(destSecrets).CopyImage(srcDesc, to.Image, []string{"amd64"}); err != nil {
+	if err := client.WithTimeout(0).WithPullSecrets(destSecrets).CopyImage(srcDesc, to.Image, []string{"amd64"}); err != nil {
 		return err
 	}
 
