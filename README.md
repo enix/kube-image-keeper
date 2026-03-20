@@ -31,13 +31,25 @@ Mostly a redesigned architecture
 
 Replicate your container images from you development registry to a production ready (i.e., more resilient) one.
 
-Kuik automatically clones your images to a new "prime" registry, and redirect all calls to it. This process is based on running Pods, no complex configuration required!
+Kuik automatically clones your images to as many registries as you want, with automatic failover in case of unavailability. This process is based on running Pods, no complex configuration required!
+
+See: [`ImageSetMirror` and `ClusterImageSetMirror`](./docs/crds.md#clusterimagesetmirror)
+
+### ✅ Registry Migration
+
+You want to switch from registry `Foo` to registry `Bar` without disruption?
+
+Kuik lets you define multiple sources for the same image, allowing you to gradually migrate from one registry to another.
+
+See: [`ReplicatedImageSet` and `ClusterReplicatedImageSet`](./docs/crds.md#clusterreplicatedimageset)
 
 ### ✅ Container Image Availability Monitoring
 
 Detect images that are no longer available on any registry prior to Pod scheduling failures.
 
 Anticipate potential `ImagePullBackoff` scenarios caused by maintenance or worker node failures.
+
+See: [`ClusterImageSetAvailability`](./docs/crds.md#clusterimagesetavailability)
 
 ## 📅 Releases & Roadmap
 
