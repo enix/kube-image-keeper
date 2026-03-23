@@ -8,6 +8,10 @@ spec:
   {{- with .Values.manager.replicas }}
   replicas: {{ . }}
   {{- end }}
+  {{- with .Values.manager.deploymentStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "kube-image-keeper.manager-selectorLabels" . | nindent 6 }}

@@ -26,6 +26,8 @@ manager:
   nodeSelector: {}
   # -- Toleration for the manager pod
   tolerations: []
+  # -- Deployment strategy for the manager pod
+  deploymentStrategy: {}
   # -- Set the PriorityClassName for the manager pod
   priorityClassName: ""
   pdb:
