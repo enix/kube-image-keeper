@@ -51,9 +51,8 @@ spec:
             - -unused-image-ttl={{ .Values.unusedImageTTL }}
           env:
             # custom environment variables
-            {{- range .Values.manager.env }}
-            - name: {{ .name }}
-              value: {{ .value }}
+            {{- with .Values.manager.env }}
+              {{- toYaml . | nindent 12 }}
             {{- end }}
           ports:
             - containerPort: 8080
