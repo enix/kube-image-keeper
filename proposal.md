@@ -1,12 +1,14 @@
-# Proposal : generer les destinations mirror pour toutes les variantes RIS d'une image
+# Proposal : tests de validation du correctif ISM + RIS cross-path mirroring
 
-## Objectif
+## Contexte
 
-Quand un `ImageSetMirror` (ISM/CISM) matche une image qui existe aussi comme variante dans un `ReplicatedImageSet` (RIS/CRIS), le controller doit mirror l'image vers **toutes les destinations mirror possibles** (une par path de variante RIS), et non pas seulement vers la destination construite a partir du path de l'image source d'origine.
+Le correctif vise a ce que, lorsqu'un ISM et un RIS couvrent la meme image avec des paths differents selon le registry, le systeme :
+1. **Webhook** : genere les alternatives mirror pour toutes les variantes de path (pas seulement celle de l'image d'origine du Pod)
+2. **Controller ISM** : mirror l'image vers toutes les destinations correspondant aux differentes variantes de path, en utilisant n'importe quelle source disponible selon l'ordre de priorite
 
-## Exemple concret
+## Configuration de reference pour les tests
 
-### Configuration
+Tous les tests ci-dessous utilisent la configuration suivante comme base :
 
 **ClusterReplicatedImageSet** `prometheus` :
 ```yaml
@@ -35,164 +37,337 @@ spec:
   mirrors:
     - registry: harbor.enix.io
       path: /mirroir
+      credentialSecret:
+        name: harbor-secret
 ```
 
-### Comportement attendu
+---
 
-Peu importe l'image source parmi les 6 suivantes :
-- `docker.io/prom/prom2json:latest`
-- `quay.io/prometheus/prom2json:latest`
-- `ghcr.io/prmths/prom2json:latest`
-- `harbor.enix.io/mirroir/prom/prom2json:latest`
-- `harbor.enix.io/mirroir/prometheus/prom2json:latest`
-- `harbor.enix.io/mirroir/prmths/prom2json:latest`
+## Partie 1 : tests du webhook (`internal/webhook/core/v1/pod_webhook_test.go`)
 
-Le controller doit mirror vers les **3 destinations** :
-- `harbor.enix.io/mirroir/prom/prom2json:latest`
-- `harbor.enix.io/mirroir/prometheus/prom2json:latest`
-- `harbor.enix.io/mirroir/prmths/prom2json:latest`
+Ces tests portent sur `buildAlternativesList`. Ils ne necessitent pas de mock des registries (pas de `findBestAlternative`), seulement la construction de la liste d'alternatives. Le pattern est le meme que les tests existants de `compareAlternatives` : tests unitaires Ginkgo sur des structs internes du package.
 
-L'image source utilisee pour la copie peut etre n'importe laquelle des 6 images ci-dessus. L'ordre de priorisation pour le choix de la source suit le meme systeme de priorite que le webhook (crPriority, typeOrder, intraPriority, declarationOrder).
+La fonction `buildAlternativesList` a besoin d'un `client.Client` (pour `loadAlternativesSecrets`). Pour les tests qui se concentrent sur la generation de references, il faudra soit :
+- utiliser l'envtest existant et creer les Secrets necessaires
+- soit introduire un refactoring minimal pour separer la generation des alternatives du chargement des secrets
 
-## Analyse de l'existant
+### Test 1.1 : les alternatives mirror sont generees pour chaque variante RIS
 
-### Webhook (`pod_webhook.go:378-475`)
+**Scenario** : un Pod utilise `docker.io/prom/prom2json:latest`, il existe un CRIS avec 3 upstreams et un ISM avec un mirror.
 
-Le webhook genere les alternatives en deux passes independantes :
-1. **ISM pass** (lignes 391-422) : pour chaque ISM dont le filtre matche l'image, genere `path.Join(mirror.Registry, mirror.Path, imgPath)` ou `imgPath` est le path de l'image d'origine
-2. **RIS pass** (lignes 424-455) : pour chaque RIS dont un upstream matche, genere les alternatives en substituant le prefix (registry+path) de l'upstream matche par celui de chaque autre upstream
-
-Les deux passes ne se croisent pas : les alternatives RIS ne generent pas de variantes mirror, et les alternatives ISM ne prennent pas en compte les paths RIS.
-
-### Controller ISM (`commonimagesetmirror.go:140-167`)
-
-La fonction `mergePreviousAndCurrentMatchingImages` construit les `MirrorStatus` pour chaque image matchee :
+**Entree** :
 ```go
-matchingImageWithoutRegistry := strings.SplitN(matchingImage, "/", 2)[1]
-mirrors = append(mirrors, kuikv1alpha1.MirrorStatus{
-    Image: path.Join(mirror.Registry, mirror.Path, matchingImageWithoutRegistry),
-})
+imageSetMirrors := []kuikv1alpha1.ImageSetMirror{{
+    Spec: kuikv1alpha1.ImageSetMirrorSpec{
+        ImageFilter: kuikv1alpha1.ImageFilterDefinition{
+            Include: []string{"docker.io/prom/prom2json:.+"},
+        },
+        Mirrors: kuikv1alpha1.Mirrors{{
+            Registry: "harbor.enix.io",
+            Path:     "/mirroir",
+        }},
+    },
+}}
+
+replicatedImageSets := []kuikv1alpha1.ReplicatedImageSet{{
+    Spec: kuikv1alpha1.ReplicatedImageSetSpec{
+        Upstreams: []kuikv1alpha1.ReplicatedUpstream{
+            {ImageReference: *kuikv1alpha1.NewImageReference("docker.io", "/prom/"),
+             ImageFilter: kuikv1alpha1.ImageFilterDefinition{Include: []string{"/prom/.+"}}},
+            {ImageReference: *kuikv1alpha1.NewImageReference("quay.io", "/prometheus/"),
+             ImageFilter: kuikv1alpha1.ImageFilterDefinition{Include: []string{"/prometheus/.+"}}},
+            {ImageReference: *kuikv1alpha1.NewImageReference("ghcr.io", "/prmths/"),
+             ImageFilter: kuikv1alpha1.ImageFilterDefinition{Include: []string{"/prmths/.+"}}},
+        },
+    },
+}}
+
+container := &Container{
+    Container:    &corev1.Container{Image: "docker.io/prom/prom2json:latest"},
+    Alternatives: map[string]struct{}{},
+}
 ```
 
-Chaque image source ne produit qu'une seule destination mirror par mirror spec, basee sur son propre path. Le controller n'a aucune connaissance des RIS.
-
-### Mirroring effectif (`commonimagesetmirror.go:78-118`)
-
-`mirrorImage(from, to)` copie depuis `from` (= `matchingImage.Image`, l'image source) vers `to.Image` (la destination mirror). La source est toujours l'image originale matchee par le filtre ISM.
-
-## Modifications proposees
-
-### 1. Le controller ISM doit connaitre les RIS
-
-Le controller ISM/CISM doit lister les `ReplicatedImageSet` et `ClusterReplicatedImageSet` pour enrichir les destinations mirror.
-
-**Fichier** : `commonimagesetmirror.go`
-
-Ajouter une fonction qui, a partir d'une image matchee par un ISM, retrouve le RIS correspondant et calcule tous les paths alternatifs :
-
-```
-Entree : image matchee "docker.io/prom/prom2json:latest"
-  1. Chercher un RIS/CRIS dont un upstream matche cette image
-  2. Trouver l'upstream qui matche : {registry: docker.io, path: /prom/}
-  3. Extraire le suffix : "/prom2json:latest"
-  4. Pour chaque upstream du RIS, calculer le path alternatif :
-     - docker.io/prom/ -> /prom/prom2json:latest
-     - quay.io/prometheus/ -> /prometheus/prom2json:latest
-     - ghcr.io/prmths/ -> /prmths/prom2json:latest
-  5. Pour chaque mirror spec de l'ISM, generer les destinations :
-     - harbor.enix.io/mirroir/prom/prom2json:latest
-     - harbor.enix.io/mirroir/prometheus/prom2json:latest
-     - harbor.enix.io/mirroir/prmths/prom2json:latest
-```
-
-### 2. Modifier `mergePreviousAndCurrentMatchingImages`
-
-**Fichier** : `commonimagesetmirror.go`, fonction `mergePreviousAndCurrentMatchingImages` (ligne 140)
-
-Actuellement, les destinations mirror sont calculees ainsi (ligne 151) :
+**Assertion** : apres `buildAlternativesList`, `container.Images` doit contenir exactement ces references (l'ordre respecte le systeme de priorite : original, ISM mirrors, CRIS upstreams) :
 ```go
-matchingImageWithoutRegistry := strings.SplitN(matchingImage, "/", 2)[1]
+Expect(refs(container)).To(Equal([]string{
+    "docker.io/prom/prom2json:latest",               // original
+    "harbor.enix.io/mirroir/prom/prom2json:latest",        // mirror depuis l'image originale (ISM)
+    "harbor.enix.io/mirroir/prometheus/prom2json:latest",   // mirror depuis la variante quay (ISM + RIS)
+    "harbor.enix.io/mirroir/prmths/prom2json:latest",      // mirror depuis la variante ghcr (ISM + RIS)
+    "docker.io/prom/prom2json:latest",                      // RIS upstream docker (dedoublonne avec l'original)
+    "quay.io/prometheus/prom2json:latest",                   // RIS upstream quay
+    "ghcr.io/prmths/prom2json:latest",                      // RIS upstream ghcr
+}))
 ```
 
-La modification consiste a :
-1. Lister tous les RIS/CRIS
-2. Pour chaque `matchingImage`, verifier si elle matche un upstream d'un RIS
-3. Si oui, calculer les paths alternatifs (un par upstream du RIS)
-4. Pour chaque mirror de l'ISM, generer une destination par path alternatif (au lieu d'une seule)
-
-La structure `MatchingImage.Mirrors` (de type `[]MirrorStatus`) contiendra alors plusieurs entrees par mirror spec (une par variante de path RIS), au lieu d'une seule.
-
-### 3. Modifier la source de mirroring
-
-**Fichier** : `commonimagesetmirror.go`, fonction `mirrorImage` (ligne 78) et boucle d'appel dans `clusterimagesetmirror_controller.go:183-199` / `imagesetmirror_controller.go:169-185`
-
-Actuellement, `mirrorImage` utilise `matchingImage.Image` comme source unique. La modification doit :
-
-1. Construire la liste des sources candidates pour un groupe d'images equivalentes (l'image originale + toutes les variantes RIS + toutes les variantes mirror deja mirrorees)
-2. Prioriser ces sources selon le meme ordre que le webhook :
-   - `crPriority` (priorite du CR)
-   - `typeOrder` (original > CISM > ISM > CRIS > RIS)
-   - `intraPriority` (priorite intra-CR)
-   - `declarationOrder` (ordre YAML)
-3. Tenter le mirroring avec la premiere source disponible (premier `GetDescriptor` qui reussit)
-4. Copier cette source vers chaque destination mirror qui n'a pas encore ete mirroree (`MirroredAt == nil`)
-
-Cela permet par exemple, si `docker.io` et `quay.io` sont down mais que `harbor.enix.io/mirroir/prom/prom2json:latest` existe deja, de l'utiliser comme source pour copier vers `harbor.enix.io/mirroir/prometheus/prom2json:latest`.
-
-### 4. Elargir le filtre ISM pour matcher les variantes RIS
-
-**Fichier** : `commonimagesetmirror.go`, fonction `podsByNormalizedMatchingImages` (ligne 169)
-
-Le filtre ISM actuel ne matche que les images qui correspondent directement au `ImageFilter` de l'ISM. Par exemple, si le filtre est `docker.io/prom/prom2json:.+`, l'image `quay.io/prometheus/prom2json:latest` ne sera pas matchee, meme si un RIS declare qu'elles sont equivalentes.
-
-La modification consiste a enrichir le matching : pour chaque image d'un Pod, si elle matche un upstream d'un RIS qui a une autre variante matchant le filtre ISM, alors l'image doit etre consideree comme matchee. Idem pour les images deja presentes sur un mirror.
-
-Cela garantit que si un Pod utilise `quay.io/prometheus/prom2json:latest` (variante RIS), le controller ISM la prend quand meme en charge et genere les destinations mirror appropriees.
-
-### 5. Enrichir les alternatives du webhook
-
-**Fichier** : `internal/webhook/core/v1/pod_webhook.go`, fonction `buildAlternativesList` (ligne 378)
-
-Ajouter une troisieme passe apres les passes ISM et RIS : pour chaque alternative generee par un RIS, verifier si elle matche un ISM, et si oui, generer les destinations mirror correspondantes. Ces alternatives supplementaires sont ajoutees avec un `typeOrder` et une priorite coherente (meme `crPriority` que l'ISM dont elles derivent, mais avec un `typeOrder` ou `intraPriority` qui les place apres les alternatives directes).
-
-Il y a deja un FIXME a la ligne 397 qui anticipe cette problematique :
+Note : `docker.io/prom/prom2json:latest` apparait en double (original + RIS upstream docker.io). La fonction `addAlternative` dedoublonne via `c.Alternatives`, donc dans la liste finale il ne doit apparaitre qu'une fois. La liste attendue est donc :
 ```go
-// FIXME: if it doesn't match the filter, also check if it matches one of the mirrored images
+Expect(refs(container)).To(Equal([]string{
+    "docker.io/prom/prom2json:latest",
+    "harbor.enix.io/mirroir/prom/prom2json:latest",
+    "harbor.enix.io/mirroir/prometheus/prom2json:latest",
+    "harbor.enix.io/mirroir/prmths/prom2json:latest",
+    "quay.io/prometheus/prom2json:latest",
+    "ghcr.io/prmths/prom2json:latest",
+}))
 ```
 
-## Structure du status apres correction
+### Test 1.2 : meme resultat quand le Pod utilise une variante RIS comme image d'origine
 
-Pour l'ISM `prom-mirror` avec l'image `docker.io/prom/prom2json:latest` matchee dans un Pod :
+**Scenario** : un Pod utilise `quay.io/prometheus/prom2json:latest` (pas l'image ciblee directement par l'ISM, mais une variante RIS de celle-ci).
 
-```yaml
-status:
-  matchingImages:
-    - image: docker.io/prom/prom2json:latest
-      mirrors:
-        - image: harbor.enix.io/mirroir/prom/prom2json:latest
-          mirroredAt: "2026-03-24T10:00:00Z"
-        - image: harbor.enix.io/mirroir/prometheus/prom2json:latest
-          mirroredAt: "2026-03-24T10:00:01Z"
-        - image: harbor.enix.io/mirroir/prmths/prom2json:latest
-          mirroredAt: "2026-03-24T10:00:02Z"
+**Entree** : memes ISM et RIS que 1.1, mais :
+```go
+container := &Container{
+    Container:    &corev1.Container{Image: "quay.io/prometheus/prom2json:latest"},
+    Alternatives: map[string]struct{}{},
+}
 ```
 
-Les 3 destinations sont mirrorees, toutes depuis la meme source (la premiere disponible selon l'ordre de priorite).
+**Assertion** : les memes alternatives mirror doivent etre generees. L'ISM ne matche pas directement `quay.io/prometheus/...`, mais via le RIS le lien doit etre fait. L'ordre change (l'original est maintenant quay.io) :
+```go
+Expect(refs(container)).To(Equal([]string{
+    "quay.io/prometheus/prom2json:latest",
+    "harbor.enix.io/mirroir/prom/prom2json:latest",
+    "harbor.enix.io/mirroir/prometheus/prom2json:latest",
+    "harbor.enix.io/mirroir/prmths/prom2json:latest",
+    "docker.io/prom/prom2json:latest",
+    "ghcr.io/prmths/prom2json:latest",
+}))
+```
 
-## Fichiers impactes
+### Test 1.3 : meme resultat quand le Pod utilise une image deja mirroree
 
-| Fichier | Modification |
-|---|---|
-| `internal/controller/kuik/commonimagesetmirror.go` | Logique principale : lister les RIS, calculer les paths alternatifs, enrichir les destinations mirror, modifier la selection de source |
-| `internal/controller/kuik/clusterimagesetmirror_controller.go` | Passer les RIS au reconciler, potentiellement ajuster la boucle de mirroring |
-| `internal/controller/kuik/imagesetmirror_controller.go` | Idem |
-| `internal/webhook/core/v1/pod_webhook.go` | Passe supplementaire pour generer les alternatives mirror des variantes RIS (resout le FIXME ligne 397) |
-| Tests associes | Couvrir les cas : images avec paths differents selon le registry, mirroring multi-destination, fallback de source |
+**Scenario** : un Pod utilise `harbor.enix.io/mirroir/prometheus/prom2json:latest` (une image deja mirroree, sous le path quay.io).
 
-## Risques et points d'attention
+**Entree** : memes ISM et RIS que 1.1, mais :
+```go
+container := &Container{
+    Container:    &corev1.Container{Image: "harbor.enix.io/mirroir/prometheus/prom2json:latest"},
+    Alternatives: map[string]struct{}{},
+}
+```
 
-- **Boucles de mirroring** : le mecanisme existant `getAllMirrorPrefixes` filtre deja les images dont le prefix correspond a un mirror. Les nouvelles destinations generees auront le meme prefix mirror, donc elles seront correctement filtrees. A verifier.
-- **Volumetrie** : si un RIS a N upstreams et un ISM a M mirrors, chaque image matchee genere N * M destinations au lieu de M. Acceptable tant que N reste petit (en pratique 2-3 variantes).
-- **Cleanup** : la suppression des images expirees doit supprimer toutes les variantes de destinations. Le code actuel itere sur `matchingImage.Mirrors`, donc ca devrait fonctionner sans changement si toutes les variantes sont dans la liste.
-- **Architecture hardcodee** : le `CopyImage` actuel filtre pour `amd64` uniquement. C'est une limitation preexistante, orthogonale a cette proposition.
-- **FIXME `mergeMirrors`** : la fonction ne supprime pas les mirrors obsoletes (presents dans le status mais pas dans la spec). Ce probleme preexistant devient plus visible avec N * M destinations. A traiter en meme temps ou separement.
+**Assertion** : les memes alternatives doivent etre generees. Le webhook doit reconnaitre cette image comme faisant partie de l'ensemble ISM+RIS :
+```go
+Expect(refs(container)).To(Equal([]string{
+    "harbor.enix.io/mirroir/prometheus/prom2json:latest",
+    "harbor.enix.io/mirroir/prom/prom2json:latest",
+    "harbor.enix.io/mirroir/prmths/prom2json:latest",
+    "docker.io/prom/prom2json:latest",
+    "quay.io/prometheus/prom2json:latest",
+    "ghcr.io/prmths/prom2json:latest",
+}))
+```
+
+### Test 1.4 : pas d'alternatives mirror supplementaires sans RIS
+
+**Scenario** : un ISM seul, sans RIS correspondant. Verifie que le comportement existant n'est pas casse.
+
+**Entree** : meme ISM que 1.1, mais `replicatedImageSets` vide.
+
+```go
+container := &Container{
+    Container:    &corev1.Container{Image: "docker.io/prom/prom2json:latest"},
+    Alternatives: map[string]struct{}{},
+}
+```
+
+**Assertion** : seule l'alternative mirror "classique" est generee :
+```go
+Expect(refs(container)).To(Equal([]string{
+    "docker.io/prom/prom2json:latest",
+    "harbor.enix.io/mirroir/prom/prom2json:latest",
+}))
+```
+
+### Test 1.5 : pas de doublons dans les alternatives
+
+**Scenario** : un Pod utilise `docker.io/prom/prom2json:latest`. L'ISM matche cette image et le RIS a un upstream docker.io/prom/ qui pointe vers le meme path.
+
+**Assertion** : `harbor.enix.io/mirroir/prom/prom2json:latest` ne doit apparaitre qu'une seule fois (meme s'il est genere a la fois par la passe ISM directe et par la passe ISM+RIS pour l'upstream docker.io).
+
+### Test 1.6 : ISM avec plusieurs mirrors et RIS avec plusieurs upstreams (produit cartesien)
+
+**Scenario** : un ISM avec 2 mirrors et un CRIS avec 3 upstreams.
+
+**Entree** :
+```go
+imageSetMirrors := []kuikv1alpha1.ImageSetMirror{{
+    Spec: kuikv1alpha1.ImageSetMirrorSpec{
+        ImageFilter: kuikv1alpha1.ImageFilterDefinition{
+            Include: []string{"docker.io/prom/prom2json:.+"},
+        },
+        Mirrors: kuikv1alpha1.Mirrors{
+            {Registry: "harbor.enix.io", Path: "/mirroir-a"},
+            {Registry: "registry.local", Path: "/mirroir-b"},
+        },
+    },
+}}
+```
+
+**Assertion** : 2 mirrors x 3 paths RIS = 6 alternatives mirror (plus les 3 upstreams RIS + l'original, moins les doublons) :
+```go
+Expect(refs(container)).To(Equal([]string{
+    "docker.io/prom/prom2json:latest",
+    "harbor.enix.io/mirroir-a/prom/prom2json:latest",
+    "harbor.enix.io/mirroir-a/prometheus/prom2json:latest",
+    "harbor.enix.io/mirroir-a/prmths/prom2json:latest",
+    "registry.local/mirroir-b/prom/prom2json:latest",
+    "registry.local/mirroir-b/prometheus/prom2json:latest",
+    "registry.local/mirroir-b/prmths/prom2json:latest",
+    "quay.io/prometheus/prom2json:latest",
+    "ghcr.io/prmths/prom2json:latest",
+}))
+```
+
+### Test 1.7 : priorites respectees pour les alternatives mirror croisees
+
+**Scenario** : verifier que les alternatives mirror croisees (issues de la passe ISM+RIS) sont placees au bon endroit dans l'ordre de priorite par rapport aux mirrors directs et aux upstreams RIS.
+
+**Assertion** : les mirrors (ISM, typeOrder=2) doivent tous arriver avant les upstreams (CRIS, typeOrder=3), y compris les mirrors generes via les variantes RIS. Les mirrors generes par le croisement ISM+RIS conservent le `typeOrder` et la `crPriority` de l'ISM d'origine.
+
+---
+
+## Partie 2 : tests du controller ISM (`internal/controller/kuik/commonimagesetmirror_test.go`)
+
+Ces tests portent sur `mergePreviousAndCurrentMatchingImages` et les fonctions associees. Ils sont purement unitaires (pas de call registry) et testent la construction de la liste `MatchingImage.Mirrors` dans le status.
+
+### Test 2.1 : les destinations mirror incluent toutes les variantes de path RIS
+
+**Scenario** : un Pod utilise `docker.io/prom/prom2json:latest`, l'ISM le matche, le CRIS declare 3 upstreams.
+
+**Entree** :
+```go
+pods := []corev1.Pod{{
+    ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+    Spec: corev1.PodSpec{
+        Containers: []corev1.Container{{Image: "docker.io/prom/prom2json:latest"}},
+    },
+}}
+
+ismSpec := &kuikv1alpha1.ImageSetMirrorSpec{
+    ImageFilter: kuikv1alpha1.ImageFilterDefinition{
+        Include: []string{"docker.io/prom/prom2json:.+"},
+    },
+    Mirrors: kuikv1alpha1.Mirrors{{
+        Registry: "harbor.enix.io",
+        Path:     "/mirroir",
+    }},
+}
+ismStatus := &kuikv1alpha1.ImageSetMirrorStatus{}
+```
+
+**Assertion** : le `MatchingImage` pour `docker.io/prom/prom2json:latest` doit avoir 3 `MirrorStatus` :
+```go
+Expect(matchingImages["docker.io/prom/prom2json:latest"].Mirrors).To(ConsistOf(
+    HaveField("Image", "harbor.enix.io/mirroir/prom/prom2json:latest"),
+    HaveField("Image", "harbor.enix.io/mirroir/prometheus/prom2json:latest"),
+    HaveField("Image", "harbor.enix.io/mirroir/prmths/prom2json:latest"),
+))
+```
+
+### Test 2.2 : un Pod avec une variante RIS produit les memes destinations mirror
+
+**Scenario** : un Pod utilise `quay.io/prometheus/prom2json:latest` (variante RIS). L'ISM filtre `docker.io/prom/prom2json:.+`.
+
+**Assertion** : le controller reconnait via le RIS que cette image est couverte par l'ISM, et genere les 3 memes destinations mirror.
+
+### Test 2.3 : pas de destinations supplementaires sans RIS (non-regression)
+
+**Scenario** : meme ISM, pas de RIS, Pod avec `docker.io/prom/prom2json:latest`.
+
+**Assertion** : un seul `MirrorStatus` :
+```go
+Expect(matchingImages["docker.io/prom/prom2json:latest"].Mirrors).To(HaveLen(1))
+Expect(matchingImages["docker.io/prom/prom2json:latest"].Mirrors[0].Image).To(
+    Equal("harbor.enix.io/mirroir/prom/prom2json:latest"),
+)
+```
+
+### Test 2.4 : pas de doublon dans les destinations mirror
+
+**Scenario** : l'ISM a un mirror vers `harbor.enix.io/mirroir`, et le RIS a un upstream docker.io qui produit le meme path que l'image d'origine.
+
+**Assertion** : `harbor.enix.io/mirroir/prom/prom2json:latest` n'apparait qu'une seule fois dans `Mirrors`.
+
+### Test 2.5 : `UnusedSince` fonctionne correctement avec les variantes RIS
+
+**Scenario** : un Pod utilisait `quay.io/prometheus/prom2json:latest` (matchant via RIS). Le Pod est supprime.
+
+**Assertion** : l'image est marquee `UnusedSince != nil`. Si un nouveau Pod arrive avec `docker.io/prom/prom2json:latest` (meme image via RIS), l'`UnusedSince` est reset a nil car l'image est toujours couverte.
+
+### Test 2.6 : cleanup supprime toutes les variantes de destinations mirror
+
+**Scenario** : une image a ete mirroree vers 3 destinations (les 3 variantes). L'image est marquee unused et la retention est depassee.
+
+**Assertion** : les 3 destinations sont supprimees (les 3 `MirrorStatus` disparaissent de la liste).
+
+---
+
+## Partie 3 : tests du mirroring effectif (`internal/controller/kuik/commonimagesetmirror_test.go`)
+
+Ces tests portent sur `mirrorImage` et la boucle de mirroring dans les controllers. Ils necessitent un mock/stub de `registry.NewClient` pour simuler la disponibilite des images sans faire de vrais appels reseau.
+
+### Test 3.1 : le mirroring utilise la premiere source disponible selon la priorite
+
+**Scenario** : 3 sources possibles, la premiere (docker.io) echoue, la deuxieme (harbor mirror) echoue, la troisieme (quay.io) reussit.
+
+**Assertion** : l'image est mirroree depuis `quay.io/prometheus/prom2json:latest` vers les 3 destinations. Le `MirroredAt` est renseigne sur les 3 `MirrorStatus`.
+
+### Test 3.2 : une source deja mirroree peut servir de source pour les autres destinations
+
+**Scenario** : `harbor.enix.io/mirroir/prom/prom2json:latest` est deja mirroree (`MirroredAt` renseigne). Les registries sources (`docker.io`, `quay.io`, `ghcr.io`) sont toutes injoignables.
+
+**Assertion** : `harbor.enix.io/mirroir/prom/prom2json:latest` est utilisee comme source pour copier vers `harbor.enix.io/mirroir/prometheus/prom2json:latest` et `harbor.enix.io/mirroir/prmths/prom2json:latest`.
+
+### Test 3.3 : le mirroring ne re-copie pas les destinations deja mirrorees
+
+**Scenario** : sur les 3 destinations, 2 ont deja `MirroredAt` renseigne, 1 est a nil.
+
+**Assertion** : seule la destination manquante est mirroree. Les 2 autres ne sont pas re-copiees.
+
+### Test 3.4 : erreur partielle (certaines destinations echouent, d'autres reussissent)
+
+**Scenario** : la source est disponible, 2 destinations sont copiees avec succes, 1 echoue.
+
+**Assertion** : les 2 reussies ont `MirroredAt` renseigne et `LastError` vide. La 3eme a `MirroredAt` nil et `LastError` renseigne. Le controller retourne une erreur pour requeue.
+
+---
+
+## Partie 4 : tests d'integration webhook + controller (optionnels, plus lourds)
+
+Ces tests simulent le scenario complet de bout en bout avec envtest. Ils sont plus proches des e2e mais sans cluster reel.
+
+### Test 4.1 : scenario complet - panne en cascade
+
+1. Creer le CRIS, l'ISM, et un Pod avec `docker.io/prom/prom2json:latest`
+2. Simuler docker.io down : le webhook reroute vers `quay.io/prometheus/prom2json:latest`
+3. Le controller mirror vers les 3 destinations
+4. Simuler docker.io ET quay.io down : le webhook reroute vers `harbor.enix.io/mirroir/prometheus/prom2json:latest` (ou `/prom/` selon la priorite)
+5. Verifier que le Pod demarre avec une image disponible
+
+### Test 4.2 : scenario complet - ajout d'un upstream RIS apres le premier mirroring
+
+1. Creer le CRIS avec 2 upstreams, l'ISM, et un Pod
+2. Le controller mirror vers 2 destinations
+3. Ajouter un 3eme upstream au CRIS
+4. Verifier que le controller genere la 3eme destination mirror au prochain reconcile
+
+---
+
+## Strategie d'implementation des tests
+
+### Priorite d'implementation
+
+1. **Tests 1.1 a 1.7** (webhook `buildAlternativesList`) : les plus critiques car ils testent le coeur du probleme (la generation des alternatives). Pattern deja en place dans `pod_webhook_test.go`.
+2. **Tests 2.1 a 2.6** (controller `mergePreviousAndCurrentMatchingImages`) : testent le calcul des destinations mirror. Necessite d'etendre les tests scaffold existants.
+3. **Tests 3.1 a 3.4** (mirroring effectif) : necessitent un mecanisme de mock pour `registry.NewClient`, qui n'existe pas encore.
+4. **Tests 4.1 et 4.2** (integration) : complexes, a considerer pour une phase ulterieure.
+
+### Infrastructure requise
+
+- **Pour la partie 1** : aucune infra supplementaire, le pattern de test de `compareAlternatives` fonctionne (tests unitaires sur structs internes dans le meme package). Un client envtest est necessaire si on teste `buildAlternativesList` directement (a cause de `loadAlternativesSecrets`), sinon on peut tester une sous-fonction qui ne genere que les `prioritizedAlternative` sans charger les secrets.
+- **Pour la partie 2** : les tests sont unitaires sur `mergePreviousAndCurrentMatchingImages`. Il faudra passer les RIS en parametre (modification de la signature de la fonction).
+- **Pour la partie 3** : necessite une interface pour `registry.NewClient` (ou l'injection d'un client registry mockable). C'est le changement le plus structurant.
