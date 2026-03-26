@@ -4,7 +4,9 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"path"
 	"slices"
@@ -92,6 +94,11 @@ type AlternativeImage struct {
 type cachedAlternativeImage struct {
 	*AlternativeImage
 	alternativesCount int
+}
+
+type cachedAlternativeImageWithReason struct {
+	*cachedAlternativeImage
+	reason string
 }
 
 type Container struct {
@@ -305,7 +312,7 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 		container := &containers[i]
 		log := log.WithValues("container", container.Name, "isInit", container.IsInit)
 
-		alternativeImage, alternativesCount, err := d.findBestAlternativeCached(logf.IntoContext(ctx, log), imageSetMirrors, replicatedImageSets, container, podImagePullSecrets)
+		alternativeImage, alternativesCount, reason, err := d.findBestAlternativeCached(logf.IntoContext(ctx, log), imageSetMirrors, replicatedImageSets, container, podImagePullSecrets)
 		if err != nil {
 			return err
 		}
@@ -314,7 +321,7 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 
 		if alternativeImage == nil {
 			if alternativesCount > 1 {
-				log.Info("no alternative image is available, keep using the original one")
+				log.V(1).Info("no alternative image is available, keep using the original one")
 			}
 			continue
 		}
@@ -325,7 +332,7 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 			continue
 		}
 
-		log.Info("rerouting image", "reroutedImage", alternativeImage.Reference)
+		log.Info("rerouting image", "reroutedImage", alternativeImage.Reference, "reason", reason)
 		container.Image = alternativeImage.Reference
 
 		if alternativeImage.ImagePullSecret != nil {
@@ -350,29 +357,33 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 	return nil
 }
 
-func (d *PodCustomDefaulter) findBestAlternativeCached(ctx context.Context, imageSetMirrors []kuikv1alpha1.ImageSetMirror, replicatedImageSets []kuikv1alpha1.ReplicatedImageSet, container *Container, pullSecrets []corev1.Secret) (*AlternativeImage, int, error) {
+func (d *PodCustomDefaulter) findBestAlternativeCached(ctx context.Context, imageSetMirrors []kuikv1alpha1.ImageSetMirror, replicatedImageSets []kuikv1alpha1.ReplicatedImageSet, container *Container, pullSecrets []corev1.Secret) (*AlternativeImage, int, string, error) {
 	if cached, ok := d.alternativeCache.Get(container.Image); ok {
-		return cached.AlternativeImage, cached.alternativesCount, nil
+		return cached.AlternativeImage, cached.alternativesCount, "cached", nil
 	}
 
-	alternativeImage, err := d.requestGroup.Do("alternative:"+container.Image, func() (any, error) {
+	result, err := d.requestGroup.Do("alternative:"+container.Image, func() (any, error) {
 		if err := d.buildAlternativesList(ctx, imageSetMirrors, replicatedImageSets, container); err != nil {
 			return nil, err
 		}
 
-		alternativeImage := &cachedAlternativeImage{
-			AlternativeImage:  d.findBestAlternative(ctx, container, pullSecrets),
+		alternativeImage, errs := d.findBestAlternative(ctx, container, pullSecrets)
+		cachedAlternativeImage := &cachedAlternativeImage{
+			AlternativeImage:  alternativeImage,
 			alternativesCount: len(container.Alternatives),
 		}
-		d.alternativeCache.Set(container.Image, alternativeImage)
-		return alternativeImage, nil
+		d.alternativeCache.Set(container.Image, cachedAlternativeImage)
+		return &cachedAlternativeImageWithReason{
+			cachedAlternativeImage: cachedAlternativeImage,
+			reason:                 fmt.Sprintf("alternatives: %+v, errors:\n%v", slices.Collect(maps.Keys(container.Alternatives)), errors.Join(errs...)),
+		}, nil
 	})
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, "", err
 	}
 
-	cached := alternativeImage.(*cachedAlternativeImage)
-	return cached.AlternativeImage, cached.alternativesCount, nil
+	typedResult := result.(*cachedAlternativeImageWithReason)
+	return typedResult.AlternativeImage, typedResult.alternativesCount, typedResult.reason, nil
 }
 
 func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSetMirrors []kuikv1alpha1.ImageSetMirror, replicatedImageSets []kuikv1alpha1.ReplicatedImageSet, container *Container) error {
@@ -474,33 +485,32 @@ func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSet
 	return nil
 }
 
-func (d *PodCustomDefaulter) findBestAlternative(ctx context.Context, container *Container, pullSecrets []corev1.Secret) *AlternativeImage {
+func (d *PodCustomDefaulter) findBestAlternative(ctx context.Context, container *Container, pullSecrets []corev1.Secret) (*AlternativeImage, []error) {
 	if len(container.Images) > 1 {
-		if image := parallel.FirstSuccessful(container.Images, func(image *AlternativeImage) (*AlternativeImage, bool) {
+		if image, errs := parallel.FirstSuccessful(container.Images, func(image *AlternativeImage) (*AlternativeImage, error) {
 			imagePullSecrets := pullSecrets
 			if image.ImagePullSecret != nil {
 				imagePullSecrets = append(imagePullSecrets, *image.ImagePullSecret)
 			}
 
-			if d.checkImageAvailabilityCached(ctx, image, imagePullSecrets) {
-				return image, true
-			}
-
-			return nil, false
+			return image, d.checkImageAvailabilityCached(ctx, image, imagePullSecrets)
 		}); image != nil {
-			return image
+			return image, errs
 		}
 	}
 
-	return nil
+	return nil, nil
 }
 
-func (d *PodCustomDefaulter) checkImageAvailabilityCached(ctx context.Context, image *AlternativeImage, pullSecrets []corev1.Secret) bool {
+func (d *PodCustomDefaulter) checkImageAvailabilityCached(ctx context.Context, image *AlternativeImage, pullSecrets []corev1.Secret) error {
 	if result, ok := d.checkCache.Get(image.Reference); ok {
-		return result
+		if result {
+			return nil
+		}
+		return errors.New("cached")
 	}
 
-	available, _ := d.requestGroup.Do("availability:"+image.Reference, func() (any, error) {
+	err, _ := d.requestGroup.Do("availability:"+image.Reference, func() (any, error) {
 		log := logf.FromContext(ctx, "reference", image.Reference)
 
 		result, err := registry.CheckImageAvailability(ctx, image.Reference, http.MethodHead, d.Config.Routing.ActiveCheck.Timeout, pullSecrets)
@@ -510,17 +520,20 @@ func (d *PodCustomDefaulter) checkImageAvailabilityCached(ctx context.Context, i
 			log.V(1).Info("image is available")
 		}
 
-		available := err == nil
-		d.checkCache.Set(image.Reference, available)
+		d.checkCache.Set(image.Reference, err == nil)
 
 		if result == kuikv1alpha1.ImageAvailabilityNotFound && image.SecretOwner != nil {
 			go d.clearStaleMirrorStatus(image)
 		}
 
-		return available, nil
+		return err, nil
 	})
 
-	return available.(bool)
+	if err != nil {
+		return err.(error)
+	}
+
+	return nil
 }
 
 // clearStaleMirrorStatus clears the mirroredAt field on the ISM/CISM status entry
