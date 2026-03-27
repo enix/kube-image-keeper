@@ -32,6 +32,10 @@ routing:
   rewriteOnNeverImagePullPolicy: false
   honorPrioritiesOnAlwaysImagePullPolicy: false
 
+mirroring:
+  platforms:
+    - architecture: amd64
+
 monitoring:
   registries:
     default:
@@ -84,6 +88,46 @@ routing:
   activeCheck:
     timeout: 500ms
   honorPrioritiesOnAlwaysImagePullPolicy: true
+```
+
+## `mirroring`
+
+Controls how `ImageSetMirror` and `ClusterImageSetMirror` reconcilers copy images to their destination registries.
+
+### `mirroring.platforms`
+
+List of platform manifests to keep when copying multi-arch images. Single-arch source images are copied as long as they satisfy at least one entry; multi-arch indexes are filtered to only include matching manifests, and the copy fails if any configured platform is missing from the source.
+
+Defaults to `[{architecture: amd64}]` (single entry, OS and variant unset).
+
+> [!NOTE]
+> Setting `mirroring.platforms` **replaces** the default, koanf does not deep-merge slices. If you want to keep `amd64` while adding more platforms, list it explicitly.
+
+Each entry supports the following fields:
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `os` | string | `""` (any) | Operating system (`linux`, `windows`, ...). Empty matches any. |
+| `architecture` | string | (required) | CPU architecture (`amd64`, `arm64`, `arm`, ...). |
+| `variant` | string | `""` (any) | Architecture variant (`v8`, `v7`, ...). Empty matches any. |
+
+The list must contain at least one entry with a non-empty `architecture`; the operator refuses to start otherwise.
+
+> [!WARNING]
+> Changing this list after images have been mirrored does not re-mirror or delete previously copied manifests; the new platform set only applies to subsequent mirror operations.
+
+### Example
+
+Mirror Linux `amd64` and `arm64/v8`:
+
+```yaml
+mirroring:
+  platforms:
+    - os: linux
+      architecture: amd64
+    - os: linux
+      architecture: arm64
+      variant: v8
 ```
 
 ## `monitoring`

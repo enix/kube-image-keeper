@@ -110,6 +110,7 @@ While both Custom Resources generate alternatives, their behavior differs slight
 
 - The mutating webhook do not support the Pod `Update` call
 - Digest tags are not supported, ex: `@sha256:cb4e4ffc5789fd5ff6a534e3b1460623df61cba00f5ea1c7b40153b5efb81805`
+- Changing `mirroring.platforms` after images have been mirrored does not re-mirror or clean up already-copied manifests (added or removed platforms only apply to subsequent mirror operations)
 
 ## 📦 Installation
 
