@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/tls"
+	"errors"
 	"flag"
 	"net/http"
 	"os"
@@ -104,6 +105,12 @@ func main() {
 	configuration, err := config.Load(configPath)
 	if err != nil {
 		setupLog.Error(err, "Failed to load configuration")
+		os.Exit(1)
+	}
+
+	// TODO: setup a real configuration validation tool (like github.com/go-playground/validator/v10)
+	if len(configuration.Mirroring.Platforms) == 0 {
+		setupLog.Error(errors.New("must contain at least 1 platform"), "Invalid mirroring platforms")
 		os.Exit(1)
 	}
 
@@ -246,6 +253,7 @@ func main() {
 		ImageSetMirrorBaseReconciler: kuikcontroller.ImageSetMirrorBaseReconciler{
 			Client: mgr.GetClient(),
 			Scheme: mgr.GetScheme(),
+			Config: configuration,
 		},
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ClusterImageSetMirror")
@@ -255,6 +263,7 @@ func main() {
 		ImageSetMirrorBaseReconciler: kuikcontroller.ImageSetMirrorBaseReconciler{
 			Client: mgr.GetClient(),
 			Scheme: mgr.GetScheme(),
+			Config: configuration,
 		},
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ImageSetMirror")

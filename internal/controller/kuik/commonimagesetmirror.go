@@ -13,8 +13,10 @@ import (
 	"github.com/distribution/reference"
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal"
+	"github.com/enix/kube-image-keeper/internal/config"
 	"github.com/enix/kube-image-keeper/internal/filter"
 	"github.com/enix/kube-image-keeper/internal/registry"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"golang.org/x/time/rate"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,6 +31,7 @@ import (
 type ImageSetMirrorBaseReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+	Config *config.Config
 }
 
 func (r *ImageSetMirrorBaseReconciler) getPullSecret(ctx context.Context, namespace, name string, secret *corev1.Secret) error {
@@ -107,7 +110,8 @@ func (r *ImageSetMirrorBaseReconciler) mirrorImage(ctx context.Context, namespac
 		return err
 	}
 
-	if err := client.WithTimeout(0).WithPullSecrets(destSecrets).CopyImage(srcDesc, to.Image, []string{"amd64"}); err != nil {
+	// FIXME: if a platform is added or removed, already mirrored images are not updated consequently
+	if err := client.WithTimeout(0).WithPullSecrets(destSecrets).CopyImage(srcDesc, to.Image, r.Platforms()); err != nil {
 		return err
 	}
 
@@ -135,6 +139,19 @@ func (r *ImageSetMirrorBaseReconciler) cleanupMirror(ctx context.Context, image,
 	}
 
 	return true
+}
+
+func (r *ImageSetMirrorBaseReconciler) Platforms() []v1.Platform {
+	platforms := make([]v1.Platform, len(r.Config.Mirroring.Platforms))
+	for i := range r.Config.Mirroring.Platforms {
+		platform := &r.Config.Mirroring.Platforms[i]
+		platforms[i] = v1.Platform{
+			OS:           platform.OS,
+			Architecture: platform.Architecture,
+			Variant:      platform.Variant,
+		}
+	}
+	return platforms
 }
 
 func mergePreviousAndCurrentMatchingImages(ctx context.Context, pods []corev1.Pod, ismSpec *kuikv1alpha1.ImageSetMirrorSpec, ismStatus *kuikv1alpha1.ImageSetMirrorStatus, mirrorPrefixes map[string][]string) (map[string]*corev1.Pod, map[string]kuikv1alpha1.MatchingImage, error) {

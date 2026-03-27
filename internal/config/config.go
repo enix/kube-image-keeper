@@ -14,6 +14,7 @@ import (
 
 type Config struct {
 	Routing    Routing    `koanf:"routing"`
+	Mirroring  Mirroring  `koanf:"mirroring"`
 	Monitoring Monitoring `koanf:"monitoring"`
 	Metrics    Metrics    `koanf:"metrics"`
 }
@@ -25,6 +26,16 @@ type Routing struct {
 
 type ActiveCheck struct {
 	Timeout time.Duration `koanf:"timeout"`
+}
+
+type Mirroring struct {
+	Platforms []Platform `koanf:"platforms"`
+}
+
+type Platform struct {
+	OS           string `koanf:"os"`
+	Architecture string `koanf:"architecture"`
+	Variant      string `koanf:"variant"`
 }
 
 type Monitoring struct {
@@ -54,6 +65,11 @@ var defaultConfig = Config{
 			Timeout: time.Second,
 		},
 		RewriteOnNeverImagePullPolicy: false,
+	},
+	Mirroring: Mirroring{
+		Platforms: []Platform{
+			{Architecture: "amd64"},
+		},
 	},
 	Monitoring: Monitoring{
 		Registries: Registries{

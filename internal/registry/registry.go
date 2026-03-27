@@ -131,16 +131,7 @@ func (c *Client) GetDescriptor(imageName string) (*remote.Descriptor, error) {
 	})
 }
 
-func (c *Client) CopyImage(src *remote.Descriptor, dest string, architectures []string) error {
-	platforms := []v1.Platform{}
-	for _, architecture := range architectures {
-		platform, err := v1.ParsePlatform("/" + architecture) // OS is required, but an empty value is fine
-		if err != nil {
-			return err
-		}
-		platforms = append(platforms, *platform)
-	}
-
+func (c *Client) CopyImage(src *remote.Descriptor, dest string, platforms []v1.Platform) error {
 	return c.Execute(dest, func(destRef name.Reference, opts ...remote.Option) (err error) {
 		switch src.MediaType {
 		case types.OCIImageIndex, types.DockerManifestList:
@@ -253,6 +244,10 @@ func ErrIsImageNotFound(err error) bool {
 }
 
 func missingPlatformError(platform v1.Platform) error {
-	platform.OS = "_" // String() returns an empty string if OS is empty
-	return fmt.Errorf("missing platform: %s", platform.String()[2:])
+	platformStr := platform.String()
+	if platform.OS == "" {
+		platform.OS = "_" // String() returns an empty string if OS is empty
+		platformStr = platform.String()[2:]
+	}
+	return fmt.Errorf("missing platform: %s", platformStr)
 }
