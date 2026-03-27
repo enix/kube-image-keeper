@@ -219,6 +219,7 @@ func (r *ImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ImageSetMirrorReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	r.setupPlatforms()
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kuikv1alpha1.ImageSetMirror{}).
 		Named("kuik-imagesetmirror").

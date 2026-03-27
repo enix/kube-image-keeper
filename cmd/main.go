@@ -108,6 +108,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := configuration.Validate(); err != nil {
+		setupLog.Error(err, "Invalid configuration")
+		os.Exit(1)
+	}
+
 	if err := configuration.Metrics.ImageLastMonitorAgeMinutes.Legacy.Validate(); err != nil {
 		setupLog.Error(err, "Invalid legacy histogram configuration")
 		os.Exit(1)
@@ -247,6 +252,7 @@ func main() {
 		ImageSetMirrorBaseReconciler: kuikcontroller.ImageSetMirrorBaseReconciler{
 			Client: mgr.GetClient(),
 			Scheme: mgr.GetScheme(),
+			Config: configuration,
 		},
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ClusterImageSetMirror")
@@ -256,6 +262,7 @@ func main() {
 		ImageSetMirrorBaseReconciler: kuikcontroller.ImageSetMirrorBaseReconciler{
 			Client: mgr.GetClient(),
 			Scheme: mgr.GetScheme(),
+			Config: configuration,
 		},
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ImageSetMirror")

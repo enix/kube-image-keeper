@@ -7,6 +7,7 @@ import (
 	"time"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
+	"github.com/go-playground/validator/v10"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/file"
@@ -16,6 +17,7 @@ import (
 
 type Config struct {
 	Routing    Routing    `koanf:"routing"`
+	Mirroring  Mirroring  `koanf:"mirroring"`
 	Monitoring Monitoring `koanf:"monitoring"`
 	Metrics    Metrics    `koanf:"metrics"`
 }
@@ -34,6 +36,16 @@ type ActiveCheck struct {
 type StaleMirrorCleanup struct {
 	MaxConcurrent int           `koanf:"maxConcurrent"`
 	Timeout       time.Duration `koanf:"timeout"`
+}
+
+type Mirroring struct {
+	Platforms []Platform `koanf:"platforms" validate:"min=1,dive"`
+}
+
+type Platform struct {
+	OS           string `koanf:"os"`
+	Architecture string `koanf:"architecture" validate:"required"`
+	Variant      string `koanf:"variant"`
 }
 
 type Monitoring struct {
@@ -69,6 +81,11 @@ var defaultConfig = Config{
 		RewriteOnNeverImagePullPolicy:          false,
 		HonorPrioritiesOnAlwaysImagePullPolicy: false,
 	},
+	Mirroring: Mirroring{
+		Platforms: []Platform{
+			{Architecture: "amd64"},
+		},
+	},
 	Monitoring: Monitoring{
 		Registries: Registries{
 			Default: RegistryMonitoring{
@@ -99,6 +116,10 @@ var defaultConfig = Config{
 			},
 		},
 	},
+}
+
+func (c *Config) Validate() error {
+	return validator.New().Struct(c)
 }
 
 func LoadDefault() (*Config, error) {

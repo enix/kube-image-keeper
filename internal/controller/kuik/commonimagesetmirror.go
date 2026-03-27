@@ -13,8 +13,10 @@ import (
 	"github.com/distribution/reference"
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal"
+	"github.com/enix/kube-image-keeper/internal/config"
 	"github.com/enix/kube-image-keeper/internal/filter"
 	"github.com/enix/kube-image-keeper/internal/registry"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"golang.org/x/time/rate"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,6 +31,20 @@ import (
 type ImageSetMirrorBaseReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+	Config *config.Config
+
+	platforms []v1.Platform
+}
+
+func (r *ImageSetMirrorBaseReconciler) setupPlatforms() {
+	r.platforms = make([]v1.Platform, len(r.Config.Mirroring.Platforms))
+	for i, p := range r.Config.Mirroring.Platforms {
+		r.platforms[i] = v1.Platform{
+			OS:           p.OS,
+			Architecture: p.Architecture,
+			Variant:      p.Variant,
+		}
+	}
 }
 
 func (r *ImageSetMirrorBaseReconciler) getPullSecret(ctx context.Context, namespace, name string, secret *corev1.Secret) error {
@@ -107,7 +123,8 @@ func (r *ImageSetMirrorBaseReconciler) mirrorImage(ctx context.Context, namespac
 		return err
 	}
 
-	if err := client.WithTimeout(0).WithPullSecrets(destSecrets).CopyImage(srcDesc, to.Image, []string{"amd64"}); err != nil {
+	// FIXME: if a platform is added or removed, already mirrored images are not updated consequently
+	if err := client.WithTimeout(0).WithPullSecrets(destSecrets).CopyImage(srcDesc, to.Image, r.platforms); err != nil {
 		return err
 	}
 
