@@ -132,6 +132,15 @@ func (c *Client) GetDescriptor(imageName string) (*remote.Descriptor, error) {
 }
 
 func (c *Client) CopyImage(src *remote.Descriptor, dest string, architectures []string) error {
+	platforms := []v1.Platform{}
+	for _, architecture := range architectures {
+		platform, err := v1.ParsePlatform("/" + architecture) // OS is required, but an empty value is fine
+		if err != nil {
+			return err
+		}
+		platforms = append(platforms, *platform)
+	}
+
 	return c.Execute(dest, func(destRef name.Reference, opts ...remote.Option) (err error) {
 		switch src.MediaType {
 		case types.OCIImageIndex, types.DockerManifestList:
@@ -141,12 +150,23 @@ func (c *Client) CopyImage(src *remote.Descriptor, dest string, architectures []
 			}
 
 			filteredIndex := mutate.RemoveManifests(index, func(src v1.Descriptor) bool {
-				return !slices.ContainsFunc(architectures, func(arch string) bool {
-					return src.Platform.Satisfies(v1.Platform{
-						Architecture: arch,
-					})
+				return !slices.ContainsFunc(platforms, func(platform v1.Platform) bool {
+					return src.Platform.Satisfies(platform)
 				})
 			})
+
+			indexManifest, err := filteredIndex.IndexManifest()
+			if err != nil {
+				return err
+			}
+
+			for _, platform := range platforms {
+				if !slices.ContainsFunc(indexManifest.Manifests, func(descriptor v1.Descriptor) bool {
+					return descriptor.Platform.Satisfies(platform)
+				}) {
+					return missingPlatformError(platform)
+				}
+			}
 
 			if err := remote.WriteIndex(destRef, filteredIndex, opts...); err != nil {
 				return err
@@ -156,6 +176,19 @@ func (c *Client) CopyImage(src *remote.Descriptor, dest string, architectures []
 			if err != nil {
 				return err
 			}
+
+			config, err := image.ConfigFile()
+			if err != nil {
+				return err
+			}
+
+			src.Platform = config.Platform()
+			for _, platform := range platforms {
+				if !src.Platform.Satisfies(platform) {
+					return missingPlatformError(platform)
+				}
+			}
+
 			if err := remote.Write(destRef, image, opts...); err != nil {
 				return err
 			}
@@ -217,4 +250,9 @@ func TransportStatusCode(err error) int {
 // is a registry transport error with HTTP 404 status code.
 func ErrIsImageNotFound(err error) bool {
 	return TransportStatusCode(err) == http.StatusNotFound
+}
+
+func missingPlatformError(platform v1.Platform) error {
+	platform.OS = "_" // String() returns an empty string if OS is empty
+	return fmt.Errorf("missing platform: %s", platform.String()[2:])
 }
