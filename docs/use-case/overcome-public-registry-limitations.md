@@ -10,8 +10,8 @@ Your Kubernetes cluster will **seamlessly** pull images from another registry an
 
 ## Implementation
 ### Kuik custom resource to use
-- [ReplicatedImageSet](https://github.com/enix/kube-image-keeper/blob/docs/use-cases/docs/crds.md#clusterreplicatedimageset) to reroute to another registry
-- [ImageSetMonitor](https://github.com/enix/kube-image-keeper/blob/docs/use-cases/docs/crds.md#clusterreplicatedimageset) to detect difficulties
+- [ReplicatedImageSet](/docs/crds.md#clusterreplicatedimageset) to reroute to another registry
+- [ImageSetMonitor](/docs/crds.md#clusterreplicatedimageset) to detect difficulties
 
 ### Configuration example
 ```yaml
