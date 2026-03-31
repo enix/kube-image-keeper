@@ -31,28 +31,28 @@ Mostly a redesigned architecture
 - You face an image pull rate limit
 - Your upstream registry is no longer available
 
-See: [Overcome public registry limitations](./docs/use-case/overcome-public-registry-limitations.md)
+See: [Overcome public registry limitations](/docs/use-case/overcome-public-registry-limitations.md)
 
 ### ✅ Detect missing images before outage
 - You plan a maintenance which will reschedule a lot of pods on new workers
 - You plan a Kubernetes upgrade
 - You have a lot of legacy images deployed on your cluster
 
-See: [Detect missing images before outage](./docs/use-case/detect-missing-images-before-outage.md)
+See: [Detect missing images before outage](/docs/use-case/detect-missing-images-before-outage.md)
 
 ### ✅ Protect images from garbage collect
 - You have an aggressive garbage collect
 - You have plenty of images (outdated, prior versions, development version) but only a small fraction is being used in reality
 - You would like to push only a subset of useful images to your production registry
 
-See: [Protect images from garbage collect](./docs/use-case/protect-images-from-garbage-collect.md)
+See: [Protect images from garbage collect](/docs/use-case/protect-images-from-garbage-collect.md)
 
 ### ✅ Better performance with local registry
 - You use a development registry (ex: gitlab, maven, ...) for production Kubernetes clusters.
 - Your registry is overloaded.
 - Image pull from Kubernetes are too slow / long.
 
-See: [Better performance with local registry](./docs/use-case/better-performance-with-local-registry.md)
+See: [Better performance with local registry](/docs/use-case/better-performance-with-local-registry.md)
 
 ## 📅 Releases & Roadmap
 
