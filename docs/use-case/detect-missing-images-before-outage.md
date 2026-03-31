@@ -12,7 +12,7 @@ You will be able to rebuild your registry in advance, and avoid `ImagePullBackof
 
 ## Implementation
 ### Kuik custom resource to use
-- [ImageSetAvailability](https://github.com/enix/kube-image-keeper/blob/docs/use-cases/docs/crds.md#clusterimagesetavailability)
+- [ImageSetAvailability](/docs/crds.md#clusterimagesetavailability)
 
 ### Configuration example
 ```yaml
