@@ -1,0 +1,1 @@
+registry avec un GC aggressif car beaucoup de build mais peut d'image réellement utilisé dans la longueur => ISM pour garder les images qui sont réellement utilisé même si l'upstream se fait purger régulièrement (c'est le use case de IKA)
