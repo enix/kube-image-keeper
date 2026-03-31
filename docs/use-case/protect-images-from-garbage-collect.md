@@ -11,7 +11,7 @@ This documentation will help you configure Kuik in order to "backup" useful imag
 
 ## Implementation
 ### Kuik custom resource to use
-- [ImageSetMonitor](https://github.com/enix/kube-image-keeper/blob/docs/use-cases/docs/crds.md#clusterimagesetmirror)
+- [ImageSetMonitor](/docs/crds.md#clusterimagesetmirror)
 
 ### Configuration example
 ```yaml
