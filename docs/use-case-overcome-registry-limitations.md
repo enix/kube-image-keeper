@@ -1,0 +1,1 @@
+registry upstream plus dispo (ou rate-limit) lors d'un re-deploy (upgrade, drain de node, cronjob, ...) => RIS ou ISM pour éviter les pods qui ne schedule pas (typiquement post-upgrade des nodes avec du rate-limit dockerhub ou outage d'une registry publique)
