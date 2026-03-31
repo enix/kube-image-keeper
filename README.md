@@ -27,29 +27,32 @@ Mostly a redesigned architecture
 
 ## When to use Kube Image Keeper
 
-### ✅ Container Image Redundancy
+### ✅ Overcome public registry limitations
+- You face an image pull rate limit
+- Your upstream registry is no longer available
 
-Replicate your container images from you development registry to a production ready (i.e., more resilient) one.
+See: [Overcome public registry limitations](./docs/use-cases/docs/use-case/overcome-public-registry-limitations.md)
 
-Kuik automatically clones your images to as many registries as you want, with automatic failover in case of unavailability. This process is based on running Pods, no complex configuration required!
+### ✅ Detect missing images before outage
+- You plan a maintenance which will reschedule a lot of pods on new workers
+- You plan a Kubernetes upgrade
+- You have a lot of legacy images deployed on your cluster
 
-See: [`ImageSetMirror` and `ClusterImageSetMirror`](./docs/crds.md#clusterimagesetmirror)
+See: [Detect missing images before outage](./docs/use-cases/docs/use-case/detect-missing-images-before-outage.md)
 
-### ✅ Registry Migration
+### ✅ Protect images from garbage collect
+- You have an aggressive garbage collect
+- You have plenty of images (outdated, prior versions, development version) but only a small fraction is being used in reality
+- You would like to push only a subset of useful images to your production registry
 
-You want to switch from registry `Foo` to registry `Bar` without disruption?
+See: [Protect images from garbage collect](./docs/use-cases/docs/use-case/protect-images-from-garbage-collect.md)
 
-Kuik lets you define multiple sources for the same image, allowing you to gradually migrate from one registry to another.
+### ✅ Better performance with local registry
+- You use a development registry (ex: gitlab, maven, ...) for production Kubernetes clusters.
+- Your registry is overloaded.
+- Image pull from Kubernetes are too slow / long.
 
-See: [`ReplicatedImageSet` and `ClusterReplicatedImageSet`](./docs/crds.md#clusterreplicatedimageset)
-
-### ✅ Container Image Availability Monitoring
-
-Detect images that are no longer available on any registry prior to Pod scheduling failures.
-
-Anticipate potential `ImagePullBackoff` scenarios caused by maintenance or worker node failures.
-
-See: [`ClusterImageSetAvailability`](./docs/crds.md#clusterimagesetavailability)
+See: [Better performance with local registry](./docs/use-cases/docs/use-case/better-performance-with-local-registry.md)
 
 ## 📅 Releases & Roadmap
 
