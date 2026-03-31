@@ -1,0 +1,1 @@
+utilisation d'une registry local en préférence pour diminuer la latence (en plus de résister aux outage des upstreams) => ISM + priority négative pour forcer le rewrite (c'est notre use chez nous, avec le Harbor qui sert de cache pour tous nos kube)
