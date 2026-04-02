@@ -3,8 +3,9 @@ This documentation will help you configure Kuik in order to reroute kubernetes i
 
 ## Best suited for
 - You use a development registry (ex: gitlab, maven, ...) for production Kubernetes clusters.
-- Your registry is overloaded.
+- Your source registry is overloaded.
 - Image pull from Kubernetes are too slow / long.
+- Your source registry is too far away (from a network / geographic / latency standpoint) from the Kubernetes cluster
 
 ## Benefits
 Kubernetes image pull will be quicker and more stable.
