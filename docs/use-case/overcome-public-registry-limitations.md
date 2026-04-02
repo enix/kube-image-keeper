@@ -5,7 +5,7 @@ This documentation wil help you configure Kuik in order to overcome public regis
 - You face an image pull rate limit
 - Your upstream registry is no longer available
 - Your images are already pushed to multiple registries
-  - Alternatively, you can replicate thanks to Kuik using a [ImageSetMirror](https://github.com/enix/kube-image-keeper/blob/docs/use-cases/docs/crds.md#clusterimagesetmirror)
+  - Optionnaly, you can replicate thanks to Kuik using a [ImageSetMirror](https://github.com/enix/kube-image-keeper/blob/docs/use-cases/docs/crds.md#clusterimagesetmirror)
 
 ## Benefits
 Your Kubernetes cluster will **seamlessly** pull images from another registry and avoid listed difficulties.
@@ -18,21 +18,21 @@ Your Kubernetes cluster will **seamlessly** pull images from another registry an
 ### Configuration example
 ```yaml
 apiVersion: kuik.enix.io/v1alpha1
-kind: ClusterReplicatedImageSet
-metadata:
-  name: thanos
+kind: ReplicatedImageSet
+  name: x509-certificate-exporter
+  namespace: monitoring
 spec:
   upstreams:
-  - registry: docker.io
-    imageFilter:
+  - imageFilter:
       include:
-      - /thanosio/thanos:.+
-    path: /thanosio/thanos
-  - registry: quay.io
-    imageFilter:
+      - /enix/x509-certificate-exporter:.+
+    path: /enix/
+    registry: quay.io
+  - imageFilter:
       include:
-      - /thanos/thanos:.+
-    path: /thanos/thanos/
+      - /enix/x509-certificate-exporter:.+
+    path: /enix/
+    registry: docker.io
 ---
 apiVersion: kuik.enix.io/v1alpha1
 kind: ClusterImageSetMirror
