@@ -4,7 +4,7 @@ This documentation will help you configure Kuik in order to "backup" useful imag
 ## Best suited for
 - You have an aggressive garbage collect
 - You have plenty of images (outdated, prior versions, development version) but only a small fraction is being used in reality
-- You would like to push only a subset of useful images to your production registry
+- You would like to keep only the subset of useful images in your production registry
 
 ## Benefits
 - Kuik will detect useful images and will not replicate others
