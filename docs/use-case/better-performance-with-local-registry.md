@@ -1,5 +1,6 @@
 # Better performance with local registry
 This documentation will help you configure Kuik in order to reroute kubernetes image pull from a distant registry to a better placed (local to your kubernetes cluster) one.
+In brief, Kuik will (1) mirror images and (2) rewrite image paths to point to your local registry.
 
 ## Best suited for
 - You use a development registry (ex: gitlab, maven, ...) for production Kubernetes clusters.
@@ -19,17 +20,15 @@ Kubernetes image pull will be quicker and more stable.
 apiVersion: kuik.enix.io/v1alpha1
 kind: ClusterImageSetMirror
 metadata:
-  name: global-mirror
+  name: mirror-and-reroute-local
 spec:
   imageFilter:
     include:
     - .*
-    exclude:
-    - localhost[^/]*/.+
   mirrors:
-  - registry: registry.example.com
+  - registry: local.custom.domain
     path: /mirгог
     credentialSecret:
-      name: harbor-secret
-      namespace: kuik-system
+      name: local-registry-secret
+      namespace: default
 ```
