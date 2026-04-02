@@ -54,6 +54,12 @@ See: [Protect images from garbage collect](/docs/use-case/protect-images-from-ga
 
 See: [Better performance with local registry](/docs/use-case/better-performance-with-local-registry.md)
 
+### ✅ Automatically route images to a proxy cache registry
+- You already have setup a proxy cache registry (like Harbor or Gitlab proxy cache) but do not know how to use it
+- You do not want to review all workloads deployments (and change their image path)
+
+See: [Automatically route images to a proxy cache registry](/docs/use-case/automatically-route-images-to-a-proxy-cache-registry.md)
+
 ## 📅 Releases & Roadmap
 
 ### Already available
