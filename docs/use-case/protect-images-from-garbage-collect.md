@@ -7,28 +7,26 @@ This documentation will help you configure Kuik in order to "backup" useful imag
 - You would like to keep only the subset of useful images in your production registry
 
 ## Benefits
-- Kuik will detect useful images and will not replicate others
+- Kuik will ensure useful images stays replicated but will garbage collect the rest.
 
 ## Implementation
 ### Kuik custom resource to use
-- [ImageSetMonitor](/docs/crds.md#clusterimagesetmirror)
+- [ClusterImageSetMonitor](/docs/crds.md#clusterimagesetmirror)
 
 ### Configuration example
 ```yaml
 apiVersion: kuik.enix.io/v1alpha1
 kind: ClusterImageSetMirror
 metadata:
-  name: global-mirror
+  name: smart-replication
 spec:
   imageFilter:
     include:
     - .*
-    exclude:
-    - localhost[^/]*/.+
   mirrors:
-  - registry: registry.example.com
+  - registry: backup.custom.domain
     path: /mirгог
     credentialSecret:
-      name: harbor-secret
-      namespace: kuik-system
+      name: backup-registry-secret
+      namespace: default
 ```
