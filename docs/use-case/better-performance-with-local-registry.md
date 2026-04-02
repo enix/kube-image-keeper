@@ -13,7 +13,7 @@ Kubernetes image pull will be quicker and more stable.
 
 ## Implementation
 ### Kuik custom resource to use
-- [ImageSetMirror](/docs/crds.md#clusterimagesetmirror)
+- [ClusterImageSetMirror](/docs/crds.md#clusterimagesetmirror)
 
 ### Configuration example
 ```yaml
