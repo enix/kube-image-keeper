@@ -51,6 +51,7 @@ See: [Protect images from garbage collect](/docs/use-case/protect-images-from-ga
 - You use a development registry (ex: gitlab, maven, ...) for production Kubernetes clusters.
 - Your registry is overloaded.
 - Image pull from Kubernetes are too slow / long.
+- Your source registry is too far away (from a network / geographic / latency standpoint) from the Kubernetes cluster
 
 See: [Better performance with local registry](/docs/use-case/better-performance-with-local-registry.md)
 
