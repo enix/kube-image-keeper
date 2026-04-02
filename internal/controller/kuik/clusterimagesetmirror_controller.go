@@ -240,7 +240,7 @@ func (r *ClusterImageSetMirrorReconciler) SetupWithManager(mgr ctrl.Manager) err
 					return nil
 				}
 
-				imageNames := normalizedImageNamesFromPod(logf.IntoContext(ctx, log), pod)
+				imageNames := normalizedImageNamesFromPod(pod)
 
 				reqs := []reconcile.Request{}
 				for _, cism := range cisms.Items {

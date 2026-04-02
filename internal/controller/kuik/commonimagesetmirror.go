@@ -173,7 +173,7 @@ func podsByNormalizedMatchingImages(ctx context.Context, filter filter.Filter, m
 	matchingImagesMap := map[string]*corev1.Pod{}
 	for i := range pods {
 		pod := &pods[i]
-		for image := range normalizedImageNamesFromPod(ctx, pod) {
+		for image := range normalizedImageNamesFromPod(pod) {
 			relevantMirrorPrefixes := append(mirrorPrefixes[""], mirrorPrefixes[pod.Namespace]...)
 			if slices.ContainsFunc(relevantMirrorPrefixes, func(mirrorPrefix string) bool {
 				return strings.HasPrefix(image, mirrorPrefix)
@@ -196,7 +196,7 @@ func podsByNormalizedMatchingImages(ctx context.Context, filter filter.Filter, m
 	return matchingImagesMap, nil
 }
 
-func normalizedImageNamesFromPod(ctx context.Context, pod *corev1.Pod) iter.Seq[string] {
+func normalizedImageNamesFromAnnotatedPod(ctx context.Context, pod *corev1.Pod) iter.Seq[string] {
 	log := logf.FromContext(ctx)
 
 	originalImages := map[string]string{}
@@ -220,6 +220,20 @@ func normalizedImageNamesFromPod(ctx context.Context, pod *corev1.Pod) iter.Seq[
 			continue // ignore digest-based images
 		}
 		if named, err := reference.ParseNormalizedNamed(image); err == nil {
+			imageNames[named.String()] = struct{}{}
+		}
+	}
+
+	return maps.Keys(imageNames)
+}
+
+func normalizedImageNamesFromPod(pod *corev1.Pod) iter.Seq[string] {
+	imageNames := map[string]struct{}{}
+	for _, container := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
+		if strings.Contains(container.Image, "@") {
+			continue // ignore digest-based images
+		}
+		if named, err := reference.ParseNormalizedNamed(container.Image); err == nil {
 			imageNames[named.String()] = struct{}{}
 		}
 	}

@@ -58,7 +58,7 @@ func (r *ClusterImageSetAvailabilityReconciler) SetupWithManager(mgr ctrl.Manage
 					return nil
 				}
 
-				imageNames := normalizedImageNamesFromPod(logf.IntoContext(ctx, log), pod)
+				imageNames := normalizedImageNamesFromAnnotatedPod(logf.IntoContext(ctx, log), pod)
 
 				var reqs []reconcile.Request
 				for _, cisa := range cisaList.Items {
@@ -225,7 +225,7 @@ func (r *ClusterImageSetAvailabilityReconciler) syncImageList(ctx context.Contex
 	// List in-use images from pods
 	currentImages := map[string]struct{}{}
 	for i := range pods {
-		for imageName := range normalizedImageNamesFromPod(ctx, &pods[i]) {
+		for imageName := range normalizedImageNamesFromAnnotatedPod(ctx, &pods[i]) {
 			if imageFilter.Match(imageName) {
 				currentImages[imageName] = struct{}{}
 			}
@@ -326,7 +326,7 @@ func (r *ClusterImageSetAvailabilityReconciler) resolveCredentials(ctx context.C
 			continue
 		}
 
-		for imageName := range normalizedImageNamesFromPod(ctx, pod) {
+		for imageName := range normalizedImageNamesFromAnnotatedPod(ctx, pod) {
 			if imageName != fullRef {
 				continue
 			}
