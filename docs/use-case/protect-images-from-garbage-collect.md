@@ -2,12 +2,13 @@
 This documentation will help you configure Kuik in order to "backup" useful image on another registry prior to a garbace collect on your origin registry.
 
 ## Best suited for
-- You have an aggressive garbage collect
-- You have plenty of images (outdated, prior versions, development version) but only a small fraction is being used in reality
-- You would like to keep only the subset of useful images in your production registry
+- You configured a garbage collect on your origin registry, and you feel that it is too aggressive in terms of image deletion.
+- You have plenty of images (outdated, prior versions, development version).
+- You would like to keep only the subset of useful images in your production registry.
 
 ## Benefits
-- Kuik will ensure useful images stays replicated but will garbage collect the rest.
+- Kuik will ensure that useful images stays replicated on a new registry.
+- and will garbage collect images that are no longer used in your Kubernetes cluster.
 
 ## Implementation
 ### Kuik custom resource to use
@@ -18,7 +19,7 @@ This documentation will help you configure Kuik in order to "backup" useful imag
 apiVersion: kuik.enix.io/v1alpha1
 kind: ClusterImageSetMirror
 metadata:
-  name: smart-replication
+  name: smart-replication-gc
 spec:
   imageFilter:
     include:
