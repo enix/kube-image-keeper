@@ -196,7 +196,7 @@ func podsByNormalizedMatchingImages(ctx context.Context, filter filter.Filter, m
 	return matchingImagesMap, nil
 }
 
-func normalizedImageNamesFromAnnotatedPod(ctx context.Context, pod *corev1.Pod) iter.Seq[string] {
+func normalizedImageNamesMapFromAnnotatedPod(ctx context.Context, pod *corev1.Pod) map[string]bool {
 	log := logf.FromContext(ctx)
 
 	originalImages := map[string]string{}
@@ -206,13 +206,13 @@ func normalizedImageNamesFromAnnotatedPod(ctx context.Context, pod *corev1.Pod) 
 		}
 	}
 
-	imageNames := map[string]struct{}{}
+	imageNames := map[string]bool{}
 	for _, container := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
 		if strings.Contains(container.Image, "@") {
 			continue // ignore digest-based images
 		}
 		if named, err := reference.ParseNormalizedNamed(container.Image); err == nil {
-			imageNames[named.String()] = struct{}{}
+			imageNames[named.String()] = false
 		}
 	}
 	for _, image := range originalImages {
@@ -220,11 +220,15 @@ func normalizedImageNamesFromAnnotatedPod(ctx context.Context, pod *corev1.Pod) 
 			continue // ignore digest-based images
 		}
 		if named, err := reference.ParseNormalizedNamed(image); err == nil {
-			imageNames[named.String()] = struct{}{}
+			imageNames[named.String()] = true
 		}
 	}
 
-	return maps.Keys(imageNames)
+	return imageNames
+}
+
+func normalizedImageNamesFromAnnotatedPod(ctx context.Context, pod *corev1.Pod) iter.Seq[string] {
+	return maps.Keys(normalizedImageNamesMapFromAnnotatedPod(ctx, pod))
 }
 
 func normalizedImageNamesFromPod(pod *corev1.Pod) iter.Seq[string] {

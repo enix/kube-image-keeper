@@ -88,10 +88,15 @@ spec:
                       type: string
                     lastMonitor:
                       description: |-
-                        LastMonitor is the timestamp of the last availability check.
-                        Nil means the image has not been checked yet.
+                        Lastmonitor is the timestamp of the last availability check.
+                        nil means the image has not been checked yet.
                       format: date-time
                       type: string
+                    original:
+                      description: |-
+                        Original is a flag that indicate whether if this MonitoredImage has been
+                        created from an original or a re-routed image.
+                      type: boolean
                     status:
                       default: Scheduled
                       description: Status is the result of the last availability check.

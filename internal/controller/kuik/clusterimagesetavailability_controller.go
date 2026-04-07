@@ -223,11 +223,11 @@ func (r *ClusterImageSetAvailabilityReconciler) syncImageList(ctx context.Contex
 	imageFilter := cisa.Spec.ImageFilter.MustBuild()
 
 	// List in-use images from pods
-	currentImages := map[string]struct{}{}
+	currentImages := map[string]bool{}
 	for i := range pods {
-		for imageName := range normalizedImageNamesFromAnnotatedPod(ctx, &pods[i]) {
+		for imageName, original := range normalizedImageNamesMapFromAnnotatedPod(ctx, &pods[i]) {
 			if imageFilter.Match(imageName) {
-				currentImages[imageName] = struct{}{}
+				currentImages[imageName] = original
 			}
 		}
 	}
@@ -277,11 +277,12 @@ func (r *ClusterImageSetAvailabilityReconciler) syncImageList(ctx context.Contex
 	}
 
 	// Add newly discovered images
-	for imageName := range currentImages {
+	for imageName, original := range currentImages {
 		if _, exists := existingPaths[imageName]; !exists {
 			cisa.Status.Images = append(cisa.Status.Images, kuikv1alpha1.MonitoredImage{
-				Image:  imageName,
-				Status: kuikv1alpha1.ImageAvailabilityScheduled,
+				Image:    imageName,
+				Status:   kuikv1alpha1.ImageAvailabilityScheduled,
+				Original: original,
 			})
 			log.Info("discovered new image to monitor", "image", imageName)
 			changed = true

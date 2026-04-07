@@ -51,10 +51,15 @@ type MonitoredImage struct {
 	// +optional
 	LastError string `json:"lastError,omitempty"`
 
-	// LastMonitor is the timestamp of the last availability check.
-	// Nil means the image has not been checked yet.
+	// Lastmonitor is the timestamp of the last availability check.
+	// nil means the image has not been checked yet.
 	// +optional
 	LastMonitor *metav1.Time `json:"lastMonitor,omitempty"`
+
+	// Original is a flag that indicate whether if this MonitoredImage has been
+	// created from an original or a re-routed image.
+	// +optional
+	Original bool `json:"original,omitempty"`
 }
 
 // ClusterImageSetAvailabilityStatus defines the observed state.

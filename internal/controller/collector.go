@@ -66,7 +66,7 @@ func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client, cf
 			Help:      "Number of monitored image",
 		},
 		prometheus.GaugeValue,
-		[]string{"name", "registry", "status", "used"},
+		[]string{"name", "registry", "status", "used", "original"},
 		func(collect func(value float64, labels ...string)) {
 			cisaList := &kuikv1alpha1.ClusterImageSetAvailabilityList{}
 			if err := client.List(context.Background(), cisaList); err != nil {
@@ -78,6 +78,7 @@ func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client, cf
 				name, registry string
 				status         kuikv1alpha1.ImageAvailabilityStatus
 				used           bool
+				original       bool
 			}
 			counts := map[counterKey]float64{}
 
@@ -93,12 +94,13 @@ func (m *kuikMetrics) Register(elected <-chan struct{}, client client.Client, cf
 						registry: registry,
 						status:   image.Status,
 						used:     used,
+						original: image.Original,
 					}]++
 				}
 			}
 
 			for key, count := range counts {
-				collect(count, key.name, key.registry, string(key.status), strconv.FormatBool(key.used))
+				collect(count, key.name, key.registry, string(key.status), strconv.FormatBool(key.used), strconv.FormatBool(key.original))
 			}
 		}))
 
