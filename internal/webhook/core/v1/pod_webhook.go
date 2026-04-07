@@ -399,39 +399,6 @@ func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSet
 		},
 	}
 
-	// Collect from ImageSetMirrors
-	for ismIdx := range imageSetMirrors {
-		ism := &imageSetMirrors[ismIdx]
-		imageFilter := ism.Spec.ImageFilter.MustBuild()
-
-		if !imageFilter.Match(normalizedImage) {
-			// FIXME: if it doesn't match the filter, also check if it matches one of the mirrored images
-			continue
-		}
-
-		_, imgPath, err := internal.RegistryAndPathFromReference(container.Image)
-		if err != nil {
-			return err
-		}
-
-		typeOrder := crTypeOrderISM
-		if ism.Namespace == "" {
-			typeOrder = crTypeOrderCISM
-		}
-
-		for declarationIdx, mirror := range ism.Spec.Mirrors {
-			alternatives = append(alternatives, prioritizedAlternative{
-				reference:        path.Join(mirror.Registry, mirror.Path, imgPath),
-				credentialSecret: mirror.CredentialSecret,
-				secretOwner:      ism,
-				crPriority:       ism.Spec.Priority,
-				intraPriority:    mirror.Priority,
-				typeOrder:        typeOrder,
-				declarationOrder: declarationIdx,
-			})
-		}
-	}
-
 	// Collect from ReplicatedImageSets
 	for risIdx := range replicatedImageSets {
 		ris := &replicatedImageSets[risIdx]
@@ -462,6 +429,41 @@ func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSet
 				typeOrder:        typeOrder,
 				declarationOrder: declarationIdx,
 			})
+		}
+	}
+
+	// Collect from ImageSetMirrors
+	for ismIdx := range imageSetMirrors {
+		ism := &imageSetMirrors[ismIdx]
+		imageFilter := ism.Spec.ImageFilter.MustBuild()
+
+		for _, alternative := range alternatives {
+			imgRegistry, imgPath, err := internal.RegistryAndPathFromReference(alternative.reference)
+			if err != nil {
+				return err
+			}
+
+			if !imageFilter.Match(path.Join(imgRegistry, imgPath)) {
+				// FIXME: if it doesn't match the filter, also check if it matches one of the mirrored images
+				continue
+			}
+
+			typeOrder := crTypeOrderISM
+			if ism.Namespace == "" {
+				typeOrder = crTypeOrderCISM
+			}
+
+			for declarationIdx, mirror := range ism.Spec.Mirrors {
+				alternatives = append(alternatives, prioritizedAlternative{
+					reference:        path.Join(mirror.Registry, mirror.Path, imgPath),
+					credentialSecret: mirror.CredentialSecret,
+					secretOwner:      ism,
+					crPriority:       ism.Spec.Priority,
+					intraPriority:    mirror.Priority,
+					typeOrder:        typeOrder,
+					declarationOrder: declarationIdx,
+				})
+			}
 		}
 	}
 
