@@ -15,7 +15,7 @@
 > [!CAUTION]
 > Not recommended for production use yet. Kuik v2 is currently being battle tested on several clusters.
 
-## ✨ What's New in v2
+## What's new in v2 !
 
 Mostly a redesigned architecture
 
@@ -25,14 +25,53 @@ Mostly a redesigned architecture
 - **Image monitoring**: kuik can monitor image availability across various registries (planned for v2.2)
 - **Redesigned CRDs** for better clarity and extensibility
 
-## 🧪 Roadmap
+## When to use Kube Image Keeper
 
-Planned features for future minor versions (subject to change):
+### ✅ Overcome public registry limitations
+- You face an image pull rate limit
+- Your upstream registry is no longer available
+
+&emsp;[Implementation guide](/docs/use-case/overcome-public-registry-limitations.md)
+
+### ✅ Detect missing images before outage
+- You plan a maintenance which will reschedule a lot of pods on new workers
+- You plan a Kubernetes upgrade
+- You have a lot of legacy images deployed on your cluster
+
+&emsp;[Implementation guide](/docs/use-case/detect-missing-images-before-outage.md)
+
+### ✅ Protect images from garbage collect
+- You have an aggressive garbage collect
+- You have plenty of images (outdated, prior versions, development version) but only a small fraction is being used in reality
+- You would like to push only a subset of useful images to your production registry
+
+&emsp;[Implementation guide](/docs/use-case/protect-images-from-garbage-collect.md)
+
+### ✅ Automatically route images to a proxy cache registry
+- You already have setup a proxy cache registry (like Harbor or Gitlab proxy cache) but do not know how to use it
+- You do not want to review all workloads deployments (and change their image path)
+
+&emsp;[Implementation guide](/docs/use-case/automatically-route-images-to-a-proxy-cache-registry.md)
+
+### ✅ Better performance with local registry
+- You use a development registry (ex: gitlab, maven, ...) for production Kubernetes clusters.
+- Your registry is overloaded.
+- Image pull from Kubernetes are too slow / long.
+- Your source registry is too far away (from a network / geographic / latency standpoint) from the Kubernetes cluster
+
+&emsp;[Implementation guide](/docs/use-case/better-performance-with-local-registry.md)
+
+## 📅 Releases & Roadmap
+
+### Already available
 
 - [**v2.0**](https://github.com/enix/kube-image-keeper/releases/tag/v2.1.0) We announced the launch of version 2.0 (General Availability) at the [Cloud Native Days France 2026 convention](https://www.cloudnativedays.fr/)
 - [**v2.1**](https://github.com/enix/kube-image-keeper/releases/tag/v2.1.0) Priorities for routing and replication are now a thing
   - [**v2.1.1**](https://github.com/enix/kube-image-keeper/releases/tag/v2.1.1) Fix concurrent access to a single registry (in particular regarding the garbage collect mechanism) by multiple Kuik instances on multiple clusters
 - [**v2.2**](https://github.com/enix/kube-image-keeper/releases/tag/v2.2.0) Complete implementation of the **Image monitoring** feature with associated metrics
+
+### Planned features
+
 - **v2.3** Various quality of life improvements
   - Better filtering for cluster wide resources (`includeNamespace` & `excludeNamespace`)
   - Optional monitoring of mirrored images with re-mirroring when needed
@@ -40,11 +79,12 @@ Planned features for future minor versions (subject to change):
 
 ## 🚧 Known limitations to date
 
-- Digest tags are not supported, ex: `@sha256:cb4e4ffc5789fd5ff6a534e3b1460623df61cba00f5ea1c7b40153b5efb81805`
-- Mirrored images are considered replicated even if the image was later deleted (to be fixed in `v2.1.1`)
+- ~~Mirrored images are considered replicated even if the image was later deleted~~ fixed in `v2.1.1`
+- Competition between Kuik's cluster wide custom resources and namespaced resources might lead to weird scenarios (to be partially fixed in `v2.1.1`)
 - The mutating webhook do not support the Pod `Update` call
 - With replication enabled from registry A to registry B, launching a Pod with image on B will be rerouted (rewritten) to image on A
-- Competition between Kuik's cluster wide custom ressources and namespaced ressources might lead to weird scenarios (to be partially fixed in `v2.1.1`)
+- Digest tags are not supported, ex: `@sha256:cb4e4ffc5789fd5ff6a534e3b1460623df61cba00f5ea1c7b40153b5efb81805`
+
 
 ## 📦 Installation
 
@@ -58,7 +98,7 @@ helm upgrade --install --namespace kuik-system kube-image-keeper oci://quay.io/e
 
 Custom Resource Definitions (CRDs) are used to configure the behavior of kuik such as its routing and mirroring features. Those are described in the [docs/crds.md](./docs/crds.md) document.
 
-## 🤷 Why Version 2?
+## Why Version 2?
 
 Even if we are _proud_ of what we achieved with the v1 of **kube-image-keeper**, it was too often painful to work with: it was hard to deploy, overly complex, and the image caching feature — while ambitious — introduced often too much issues. We missed our original goal: to make kube-image-keeper an **easy, no-brainer install for any cluster** which would help ops in their day to day work and **provide confidence**.
 
