@@ -12,8 +12,8 @@ Your Kubernetes cluster will **seamlessly** pull images from another registry an
 
 ## Implementation
 ### Kuik custom resource to use
-- [ReplicatedImageSet](/docs/crds.md#clusterreplicatedimageset) to reroute to another registry
-- [ImageSetMonitor](/docs/crds.md#clusterreplicatedimageset) to detect difficulties
+- [ClusterReplicatedImageSet or ReplicatedImageSet](/docs/crds.md#clusterreplicatedimageset) to reroute to another upstream registry
+- [ClusterImageSetMirror or ImageSetMirror](/docs/crds.md#clusterimagesetmirror) to mirror and use your own registry
 
 ### Configuration example
 ```yaml
@@ -22,16 +22,41 @@ kind: ReplicatedImageSet
   name: x509-certificate-exporter
   namespace: monitoring
 spec:
-  upstreams:
-  - imageFilter:
+  upstreams: # 
+  - registry: quay.io
+    path: /enix/
+    imageFilter:
       include:
       - /enix/x509-certificate-exporter:.+
+  - registry: docker.io
     path: /enix/
-    registry: quay.io
-  - imageFilter:
+    imageFilter:
       include:
       - /enix/x509-certificate-exporter:.+
-    path: /enix/
+---
+apiVersion: kuik.enix.io/v1alpha1
+kind: ClusterReplicatedImageSet
+metadata:
+  name: docker-library
+spec:
+  upstreams: # Mention upstreams where docker official images could be found
+  - registry: public.ecr.aws
+    path: /docker/library/
+    priority: 1 # Prefer using first as alternative if origin image isn't available
+    imageFilter:
+      include:
+      - /docker/library/.+
+  - registry: mirror.gcr.io
+    path: /library/
+    priority: 2
+    imageFilter:
+      include:
+      - /library/[^/]+
+  - imageFilter:
+      include:
+      - /library/[^/]+
+    path: /library/
+    priority: 3
     registry: docker.io
 ---
 apiVersion: kuik.enix.io/v1alpha1
@@ -41,13 +66,14 @@ metadata:
 spec:
   imageFilter:
     include:
-    - .*
-    exclude:
-    - localhost[^/]*/.+
+    - .* # Mirror every images used in kube cluster to our registry
   mirrors:
   - registry: registry.example.com
     path: /mirгог
-    credentialSecret:
+    credentialSecret: # KuiK will sync the secret (used as imagePullSecrets) to any namespace where our mirror is used as alternative image
       name: harbor-secret
       namespace: kuik-system
+  cleanup: # Delete image reference on mirror registry once a image is no longer used un cluster for longer than `retention` time.
+    enabled: true
+    retention: 168h
 ```
