@@ -13,7 +13,7 @@ This documentation will help you configure Kuik in order to "backup" useful (use
 ## Implementation
 ### Kuik custom resource to use
 - [ClusterImageSetMirror](/docs/crds.md#clusterimagesetmirror)
-- or [ImageSetMirror](/docs/crds.md#imagesetmirror)
+- or [ImageSetMirror](/docs/crds.md#clusterimagesetmirror)
 
 ### Configuration example
 ```yaml
@@ -31,4 +31,7 @@ spec:
     path: /mirгог
     credentialSecret:
       name: backup-registry-secret # the secret must be located in the same namespace
+  cleanup:
+    enabled: true
+    retention: 24h # Delete image on mirror 24h after an image is no longer used on kube
 ```
