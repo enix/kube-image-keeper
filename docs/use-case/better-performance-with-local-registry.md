@@ -22,11 +22,12 @@ kind: ClusterImageSetMirror
 metadata:
   name: mirror-and-reroute-local
 spec:
+  priority: -10 # negative value to prefer mirrored images
   imageFilter:
     include:
-    - .*
+    - .* # will match all images
   mirrors:
-  - registry: local.custom.domain
+  - registry: local.custom.domain # your local, already existing registry
     path: /mirгог
     credentialSecret:
       name: local-registry-secret
