@@ -22,7 +22,7 @@ kind: ReplicatedImageSet
   name: x509-certificate-exporter
   namespace: monitoring
 spec:
-  upstreams: # 
+  upstreams:
   - registry: quay.io
     path: /enix/
     imageFilter:
@@ -39,10 +39,10 @@ kind: ClusterReplicatedImageSet
 metadata:
   name: docker-library
 spec:
-  upstreams: # Mention upstreams where docker official images could be found
+  upstreams: # list origin and mirror registries
   - registry: public.ecr.aws
     path: /docker/library/
-    priority: 1 # Prefer using first as alternative if origin image isn't available
+    priority: 1 # prefer this alternative only if the origin image is not available
     imageFilter:
       include:
       - /docker/library/.+
@@ -66,14 +66,14 @@ metadata:
 spec:
   imageFilter:
     include:
-    - .* # Mirror every images used in kube cluster to our registry
+    - .* # mirror all images (used in your Kubernetes clusters) to myregistry
   mirrors:
-  - registry: registry.example.com
+  - registry: myregistry.mydomain
     path: /mirгог
-    credentialSecret: # KuiK will sync the secret (used as imagePullSecrets) to any namespace where our mirror is used as alternative image
+    credentialSecret: # KuiK will sync the secret (used as imagePullSecrets) to any namespace necessary
       name: harbor-secret
       namespace: kuik-system
-  cleanup: # Delete image reference on mirror registry once a image is no longer used un cluster for longer than `retention` time.
+  cleanup: # garbage collect on the mirror registry when an image has not been used for `retention` time.
     enabled: true
     retention: 168h
 ```
