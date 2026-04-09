@@ -19,13 +19,21 @@ You will be able to rebuild your registry in advance, and avoid `ImagePullBackof
 apiVersion: kuik.enix.io/v1alpha1
 kind: ClusterImageSetAvailability
 metadata:
-  name: monitor-critical-images
+  name: monitor-public-critical-images
 spec:
-  unusedImageExpiry: 720h
+  unusedImageExpiry: 24h # continue monitoring previously used images (useful for Cronjobs)
   imageFilter:
     include:
-      - ".*nginx:.+"
-      - ".*redis:.+"
-    exclude:
-      - "localhost[^/]*/.+"
+      - ".*/bitnami/.+" # any (used) bitnami image, on any registry, will be detected if missing
+      - "docker.io/library/.+" # monitor any (used) docker.io official image
+---
+apiVersion: kuik.enix.io/v1alpha1
+kind: ClusterImageSetAvailability
+metadata:
+  name: monitor-private-critical-images
+spec:
+  unusedImageExpiry: 24h # continue monitoring previously used images (useful for Cronjobs)
+  imageFilter:
+    include:
+      - "myregistry.mydomain/myproject/myimage:.+" # monitor your (used) critical project images
 ```
