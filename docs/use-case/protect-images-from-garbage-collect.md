@@ -33,5 +33,5 @@ spec:
       name: backup-registry-secret # the secret must be located in the same namespace
   cleanup:
     enabled: true
-    retention: 24h # Delete image on mirror 24h after an image is no longer used on kube
+    retention: 24h # delete image on mirror 24h after an image is no longer used on kube
 ```
