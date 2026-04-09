@@ -1,5 +1,5 @@
 # Protect images from garbage collect
-This documentation will help you configure Kuik in order to "backup" useful image on another registry prior to a garbace collect on your origin registry.
+This documentation will help you configure Kuik in order to "backup" useful (used by a running Pod) images on another registry, prior to a garbace collect on your origin registry.
 
 ## Best suited for
 - You configured a garbage collect on your origin registry, and you feel that it is too aggressive in terms of image deletion.
@@ -13,21 +13,22 @@ This documentation will help you configure Kuik in order to "backup" useful imag
 ## Implementation
 ### Kuik custom resource to use
 - [ClusterImageSetMonitor](/docs/crds.md#clusterimagesetmirror)
+- or [ImageSetMonitor](/docs/crds.md#clusterimagesetmirror)
 
 ### Configuration example
 ```yaml
 apiVersion: kuik.enix.io/v1alpha1
-kind: ClusterImageSetMirror
+kind: ImageSetMirror
 metadata:
   name: smart-replication-gc
+  namespace: myproject
 spec:
   imageFilter:
     include:
-    - .*
+    - "myregistry.mydomain/myproject/myimage:.+" # protect these images from agressive garbage collect on origin registry
   mirrors:
-  - registry: backup.custom.domain
+  - registry: backup.custom.domain # an already existing (destination) registry
     path: /mirгог
     credentialSecret:
-      name: backup-registry-secret
-      namespace: default
+      name: backup-registry-secret # the secret must be located in the same namespace
 ```
