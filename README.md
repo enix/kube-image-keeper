@@ -47,6 +47,12 @@ Mostly a redesigned architecture
 
 &emsp;[Implementation guide](/docs/use-case/protect-images-from-garbage-collect.md)
 
+### ✅ Automatically route images to a proxy cache registry
+- You already have setup a proxy cache registry (like Harbor or Gitlab proxy cache) but do not know how to use it
+- You do not want to review all workloads deployments (and change their image path)
+
+&emsp;[Implementation guide](/docs/use-case/automatically-route-images-to-a-proxy-cache-registry.md)
+
 ### ✅ Better performance with local registry
 - You use a development registry (ex: gitlab, maven, ...) for production Kubernetes clusters.
 - Your registry is overloaded.
@@ -54,12 +60,6 @@ Mostly a redesigned architecture
 - Your source registry is too far away (from a network / geographic / latency standpoint) from the Kubernetes cluster
 
 &emsp;[Implementation guide](/docs/use-case/better-performance-with-local-registry.md)
-
-### ✅ Automatically route images to a proxy cache registry
-- You already have setup a proxy cache registry (like Harbor or Gitlab proxy cache) but do not know how to use it
-- You do not want to review all workloads deployments (and change their image path)
-
-&emsp;[Implementation guide](/docs/use-case/automatically-route-images-to-a-proxy-cache-registry.md)
 
 ## 📅 Releases & Roadmap
 
