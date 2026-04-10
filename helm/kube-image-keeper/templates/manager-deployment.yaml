@@ -17,10 +17,11 @@ spec:
       {{- include "kube-image-keeper.manager-selectorLabels" . | nindent 6 }}
   template:
     metadata:
-      {{- with .Values.manager.podAnnotations }}
       annotations:
+      {{- with .Values.manager.podAnnotations }}
         {{- toYaml . | nindent 8 }}
       {{- end }}
+        checksum/config: {{ include (print $.Template.BasePath "/manager-configmap.yaml") . | sha256sum }}
       labels:
         {{- include "kube-image-keeper.manager-selectorLabels" . | nindent 8 }}
     spec:
