@@ -280,6 +280,7 @@ func (r *ClusterImageSetAvailabilityReconciler) syncImageList(ctx context.Contex
 			if image.UnusedSince != nil && time.Since(image.UnusedSince.Time) >= expiry {
 				if image.UnusedSince.Compare(instantExpiryMarker.Time) != 0 {
 					log.Info("image is unused for more than the retention duration, removing from monitoring", "image", image.Image)
+					changed = true
 				}
 				return true
 			}

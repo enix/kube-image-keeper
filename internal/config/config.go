@@ -87,6 +87,10 @@ var defaultConfig = Config{
 	},
 }
 
+func LoadDefault() (*Config, error) {
+	return load(nil, nil)
+}
+
 func Load(path string) (*Config, error) {
 	return load(file.Provider(path), yaml.Parser())
 }
@@ -98,8 +102,10 @@ func load(provider koanf.Provider, parser koanf.Parser) (*Config, error) {
 		return nil, err
 	}
 
-	if err := k.Load(provider, parser); err != nil {
-		return nil, err
+	if provider != nil {
+		if err := k.Load(provider, parser); err != nil {
+			return nil, err
+		}
 	}
 
 	config := &Config{}
