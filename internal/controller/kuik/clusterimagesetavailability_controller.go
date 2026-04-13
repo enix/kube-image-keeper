@@ -38,9 +38,10 @@ type ClusterImageSetAvailabilityReconciler struct {
 }
 
 type monitoringCandidate struct {
-	image               *kuikv1alpha1.MonitoredImage
+	imageName           string
 	cisa                *kuikv1alpha1.ClusterImageSetAvailability
 	registryLastMonitor time.Time
+	lastMonitor         *metav1.Time
 }
 
 func (r *ClusterImageSetAvailabilityReconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -154,9 +155,10 @@ func (r *ClusterImageSetAvailabilityReconciler) getRegistriesCandidates(ctx cont
 				candidates[registry] = candidate
 			}
 
-			if image.LastMonitor == nil || !hasCandidate || image.LastMonitor.Before(candidate.image.LastMonitor) {
-				candidate.image = image
+			if image.LastMonitor == nil || !hasCandidate || image.LastMonitor.Before(candidate.lastMonitor) {
+				candidate.imageName = image.Image
 				candidate.cisa = cisa
+				candidate.lastMonitor = image.LastMonitor
 			}
 
 			if image.LastMonitor != nil && image.LastMonitor.After(candidate.registryLastMonitor) {
@@ -203,17 +205,32 @@ func (r *ClusterImageSetAvailabilityReconciler) checkNextForRegistry(ctx context
 		return timeUntilDue, nil
 	}
 
+	image := findMonitoredImage(candidate.cisa.Status.Images, candidate.imageName)
+	if image == nil {
+		// Image was removed between candidate selection and now, no need to wait before the next image check
+		return 0, nil
+	}
+
 	original := candidate.cisa.DeepCopy()
 
-	log.V(1).Info("checking image availability", "registry", registry, "image", candidate.image.Image)
-	r.performCheck(ctx, candidate.image, registryConfig, pods)
-	log.V(1).Info("image monitoring done", "status", candidate.image.Status)
+	log.V(1).Info("checking image availability", "registry", registry, "image", image.Image)
+	r.performCheck(ctx, image, registryConfig, pods)
+	log.V(1).Info("image monitoring done", "status", image.Status)
 
 	if err := r.Status().Patch(ctx, candidate.cisa, client.MergeFrom(original)); err != nil {
 		return 0, err
 	}
 
 	return tickDuration, nil
+}
+
+func findMonitoredImage(images []kuikv1alpha1.MonitoredImage, name string) *kuikv1alpha1.MonitoredImage {
+	for i := range images {
+		if images[i].Image == name {
+			return &images[i]
+		}
+	}
+	return nil
 }
 
 func (r *ClusterImageSetAvailabilityReconciler) syncImageList(ctx context.Context, cisa *kuikv1alpha1.ClusterImageSetAvailability, pods []corev1.Pod) (changed bool) {
