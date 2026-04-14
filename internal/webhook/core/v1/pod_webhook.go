@@ -392,11 +392,16 @@ func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSet
 	named, _ := reference.ParseNormalizedNamed(container.Image)
 	normalizedImage := named.String()
 
-	alternatives := []prioritizedAlternative{
-		{
+	alternatives := []prioritizedAlternative{}
+
+	// Collect original image (and skip sorting when imagePullPolicy == "Always")
+	if container.ImagePullPolicy == "Always" {
+		container.addAlternative(normalizedImage, nil, nil)
+	} else {
+		alternatives = append(alternatives, prioritizedAlternative{
 			reference: normalizedImage,
 			typeOrder: crTypeOrderOriginal,
-		},
+		})
 	}
 
 	// Collect from ReplicatedImageSets
