@@ -21,6 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -276,12 +277,17 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "ClusterReplicatedImageSetSecretOwner")
 		os.Exit(1)
 	}
-	if err = (&kuikcontroller.ClusterImageSetAvailabilityReconciler{
+	cisaReconciler := &kuikcontroller.ClusterImageSetAvailabilityReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 		Config: configuration,
-	}).SetupWithManager(mgr); err != nil {
+	}
+	if err = cisaReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ClusterImageSetAvailability")
+		os.Exit(1)
+	}
+	if err = mgr.Add(manager.RunnableFunc(cisaReconciler.BackfillOriginalField)); err != nil {
+		setupLog.Error(err, "unable to register CISA original field backfill")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
