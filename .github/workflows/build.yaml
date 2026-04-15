@@ -32,13 +32,13 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to the Container registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: quay.io
           username: ${{ secrets.REPO_LOGIN }}
@@ -46,14 +46,14 @@ jobs:
 
       - name: Generate image metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           labels: |
             org.opencontainers.image.version=${{ inputs.VERSION }}
             org.opencontainers.image.ref.name=${{ inputs.REPO_IMAGE }}:${{ inputs.VERSION }}
 
       - name: Build & push container images (Alpine)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           platforms: linux/amd64,linux/arm64
           build-args: |
@@ -66,7 +66,7 @@ jobs:
             ${{ inputs.REPO_IMAGE }}:${{ inputs.VERSION }}-alpine
 
       - name: Build & push container images
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           platforms: linux/amd64,linux/arm64
           build-args: |
@@ -85,7 +85,7 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Generate README.md
         env:
@@ -99,7 +99,7 @@ jobs:
           yq e '.annotations["artifacthub.io/prerelease"] = "${{ inputs.PRERELEASE }}"' -i ./helm/kube-image-keeper/Chart.yaml
 
       - name: Build helm chart
-        uses: appany/helm-oci-chart-releaser@v0.4.2
+        uses: appany/helm-oci-chart-releaser@v0.5.0
         with:
           path: helm/kube-image-keeper
           name: kube-image-keeper
@@ -112,7 +112,7 @@ jobs:
           update_dependencies: "true"
 
       - name: Setup Oras
-        uses: oras-project/setup-oras@v1
+        uses: oras-project/setup-oras@v2
 
       - name: Generate Helm index and push it
         env:
