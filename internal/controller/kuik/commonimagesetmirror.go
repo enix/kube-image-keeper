@@ -137,11 +137,11 @@ func (r *ImageSetMirrorBaseReconciler) cleanupMirror(ctx context.Context, image,
 	return true
 }
 
-func mergePreviousAndCurrentMatchingImages(ctx context.Context, pods []corev1.Pod, ismSpec *kuikv1alpha1.ImageSetMirrorSpec, ismStatus *kuikv1alpha1.ImageSetMirrorStatus, mirrorPrefixes map[string][]string) (map[string]*corev1.Pod, map[string]kuikv1alpha1.MatchingImage, error) {
+func mergePreviousAndCurrentMatchingImages(ctx context.Context, pods []corev1.Pod, ismSpec *kuikv1alpha1.ImageSetMirrorSpec, ismStatus *kuikv1alpha1.ImageSetMirrorStatus, mirrorPrefixes map[string][]string) (map[string]*corev1.Pod, error) {
 	imageFilter := ismSpec.ImageFilter.MustBuild()
 	podsByMatchingImages, err := podsByNormalizedMatchingImages(ctx, imageFilter, mirrorPrefixes, pods)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	matchingImagesMap := map[string]kuikv1alpha1.MatchingImage{}
@@ -160,10 +160,15 @@ func mergePreviousAndCurrentMatchingImages(ctx context.Context, pods []corev1.Po
 	}
 
 	if err := updateUnusedSince(ctx, matchingImagesMap, ismStatus, imageFilter); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	return podsByMatchingImages, matchingImagesMap, nil
+	ismStatus.MatchingImages = make([]kuikv1alpha1.MatchingImage, 0, len(matchingImagesMap))
+	for _, img := range matchingImagesMap {
+		ismStatus.MatchingImages = append(ismStatus.MatchingImages, img)
+	}
+
+	return podsByMatchingImages, nil
 }
 
 func podsByNormalizedMatchingImages(ctx context.Context, filter filter.Filter, mirrorPrefixes map[string][]string, pods []corev1.Pod) (map[string]*corev1.Pod, error) {

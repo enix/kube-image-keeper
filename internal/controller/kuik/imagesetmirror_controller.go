@@ -90,16 +90,11 @@ func (r *ImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, err
 	}
 
+	originalCism := cism.DeepCopy()
 	spec, status := &cism.Spec, &cism.Status
-	podsByMatchingImages, matchingImagesMap, err := mergePreviousAndCurrentMatchingImages(logf.IntoContext(ctx, log), pods.Items, spec, status, mirrorPrefixes)
+	podsByMatchingImages, err := mergePreviousAndCurrentMatchingImages(logf.IntoContext(ctx, log), pods.Items, spec, status, mirrorPrefixes)
 	if err != nil {
 		return ctrl.Result{}, err
-	}
-
-	originalCism := cism.DeepCopy()
-	cism.Status.MatchingImages = []kuikv1alpha1.MatchingImage{}
-	for _, matchingImage := range matchingImagesMap {
-		cism.Status.MatchingImages = append(cism.Status.MatchingImages, matchingImage)
 	}
 
 	if err := r.Status().Patch(ctx, &cism, client.MergeFrom(originalCism)); err != nil {
