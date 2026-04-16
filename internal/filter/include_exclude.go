@@ -17,7 +17,7 @@ func CompileIncludeExcludeFilter(include, exclude []string) (*IncludeExcludeFilt
 	}
 
 	for i := range include {
-		r, err := regexp.Compile(include[i])
+		r, err := regexp.Compile("^(" + include[i] + ")$")
 		if err != nil {
 			return nil, err
 		}
@@ -25,7 +25,7 @@ func CompileIncludeExcludeFilter(include, exclude []string) (*IncludeExcludeFilt
 	}
 
 	for i := range exclude {
-		r, err := regexp.Compile(exclude[i])
+		r, err := regexp.Compile("^(" + exclude[i] + ")$")
 		if err != nil {
 			return nil, err
 		}
@@ -41,12 +41,12 @@ func CompileIncludeExcludeFilter(include, exclude []string) (*IncludeExcludeFilt
 
 func (i *IncludeExcludeFilter) Match(s string) bool {
 	included := slices.ContainsFunc(i.include, func(include regexp.Regexp) bool {
-		return include.FindString(s) == s // Must be a full match
+		return include.MatchString(s)
 	})
 
 	if included {
 		return !slices.ContainsFunc(i.exclude, func(exclude regexp.Regexp) bool {
-			return exclude.FindString(s) == s // Must be a full match
+			return exclude.MatchString(s)
 		})
 	}
 
