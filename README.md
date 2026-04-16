@@ -8,7 +8,16 @@
 **kuik** (pronounced /kwɪk/, like "quick") is the shortname of **kube-image-keeper**, a container image routing, mirroring and replication system for Kubernetes developed by Enix. It helps make applications more highly available by ensuring reliable access to container images.
 
 ## 🚀 Status: General Availability + Production ready
+ 
+## Table of content
+- [Introduction](#introduction)
+- [When to use Kube Image Keeper](#when-to-use-kube-image-keeper)
+- [Releases & Roadmap](#-releases--roadmap)
+- [Known limitations to date](#-known-limitations-to-date)
+- [Installation](#-installation)
+- [Why Version 2?](#why-version-2)
 
+## Introduction
 kuik v2 is a **complete rewrite** of the project with a focus on **simplicity** and **ease of use** :
 
 - **Minimal default features**: core functionality enabled by default, others opt-in
