@@ -35,9 +35,6 @@ spec:
 
 The `ImageSetMirror` and `ClusterImageSetMirror` resources define the actual mirroring implementation for your cluster. They determine which images are selected for synchronization, specify the target destination, and manage the authentication via push secrets.
 
-> [!NOTE]
-> Retention policies is a planned feature.
-
 **Example**
 
 In this example, the `ClusterImageSetMirror` ensures that all images (excluding those that match `localhost[^/]*/.+` ) are mirrored to a private registry. It uses a specific `credentialSecret` to authenticate against the destination.
@@ -55,7 +52,7 @@ spec:
     - localhost[^/]*/.+
   mirrors:
   - registry: registry.example.com
-    path: /mirгог
+    path: /mirror
     credentialSecret:
       name: harbor-secret
       namespace: kuik-system
@@ -115,7 +112,7 @@ monitoring:
 | Field | Default | Description |
 |---|---|---|
 | `method` | `HEAD` | HTTP method used for the availability check (`HEAD` or `GET`). |
-| `interval` | `1h` | Time window over which `maxPerInterval` checks are spread. |
-| `maxPerInterval` | `1` | Maximum number of image checks per `interval` for a given registry. |
+| `interval` | `3h` | Time window over which `maxPerInterval` checks are spread. |
+| `maxPerInterval` | `25` | Maximum number of image checks per `interval` for a given registry. |
 | `timeout` | `0` (none) | Timeout for each individual check. |
 | `fallbackCredentialSecret` | none | Secret to use when Pod pull secrets are unavailable. |
