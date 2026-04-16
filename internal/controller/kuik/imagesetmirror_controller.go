@@ -8,6 +8,7 @@ import (
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -68,8 +69,14 @@ func (r *ImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			}
 
 			log.Info("removing finalizer")
-			controllerutil.RemoveFinalizer(&cism, imageSetMirrorFinalizer)
-			if err := r.Update(ctx, &cism); err != nil {
+			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				if err := r.Get(ctx, client.ObjectKeyFromObject(&cism), &cism); err != nil {
+					return client.IgnoreNotFound(err)
+				}
+				controllerutil.RemoveFinalizer(&cism, imageSetMirrorFinalizer)
+				return r.Update(ctx, &cism)
+			})
+			if err != nil {
 				return ctrl.Result{}, err
 			}
 		}
@@ -79,8 +86,14 @@ func (r *ImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	if !controllerutil.ContainsFinalizer(&cism, imageSetMirrorFinalizer) {
 		log.Info("adding finalizer")
-		controllerutil.AddFinalizer(&cism, imageSetMirrorFinalizer)
-		if err := r.Update(ctx, &cism); err != nil {
+		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			if err := r.Get(ctx, client.ObjectKeyFromObject(&cism), &cism); err != nil {
+				return err
+			}
+			controllerutil.AddFinalizer(&cism, imageSetMirrorFinalizer)
+			return r.Update(ctx, &cism)
+		})
+		if err != nil {
 			return ctrl.Result{}, err
 		}
 	}
