@@ -106,6 +106,9 @@ configuration:
   routing:
     activeCheck:
       timeout: 1s
+      staleMirrorCleanup:
+        maxConcurrent: 10
+        timeout: 5s
     rewriteOnNeverImagePullPolicy: false
   monitoring:
     registries:

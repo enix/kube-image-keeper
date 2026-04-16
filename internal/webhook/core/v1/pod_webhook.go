@@ -60,6 +60,7 @@ func SetupPodWebhookWithManager(mgr ctrl.Manager, d *PodCustomDefaulter) error {
 	d.checkCache = checkCache
 	d.alternativeCache = alternativeCache
 	d.requestGroup = &singleflight.Group{}
+	d.cleanupSemaphore = make(chan struct{}, d.Config.Routing.ActiveCheck.StaleMirrorCleanup.MaxConcurrent)
 
 	return ctrl.NewWebhookManagedBy(mgr, &corev1.Pod{}).
 		WithDefaulter(d).
@@ -80,6 +81,7 @@ type PodCustomDefaulter struct {
 	checkCache       otter.Cache[string, bool]
 	alternativeCache otter.Cache[string, *cachedAlternativeImage]
 	requestGroup     *singleflight.Group
+	cleanupSemaphore chan struct{}
 }
 
 type AlternativeImage struct {
@@ -530,7 +532,7 @@ func (d *PodCustomDefaulter) checkImageAvailabilityCached(ctx context.Context, i
 		d.checkCache.Set(image.Reference, err == nil)
 
 		if result == kuikv1alpha1.ImageAvailabilityNotFound && image.SecretOwner != nil {
-			go d.clearStaleMirrorStatus(image)
+			d.tryCleanupStaleMirrorStatus(ctx, image)
 		}
 
 		return err, nil
@@ -543,10 +545,34 @@ func (d *PodCustomDefaulter) checkImageAvailabilityCached(ctx context.Context, i
 	return nil
 }
 
+// tryCleanupStaleMirrorStatus attempts to launch clearStaleMirrorStatus in a
+// bounded goroutine. Returns a channel that is closed when the goroutine
+// finishes, or nil if the semaphore was full and the cleanup was dropped.
+//
+// Dropped cleanups are not retried here; the next availability check on the
+// same reference will hit this path again (no positive cache entry is stored
+// for NotFound results), so the status will eventually reconcile.
+func (d *PodCustomDefaulter) tryCleanupStaleMirrorStatus(parentCtx context.Context, image *AlternativeImage) <-chan struct{} {
+	select {
+	case d.cleanupSemaphore <- struct{}{}:
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			defer func() { <-d.cleanupSemaphore }()
+			ctx, cancel := context.WithTimeout(context.WithoutCancel(parentCtx), d.Config.Routing.ActiveCheck.StaleMirrorCleanup.Timeout)
+			defer cancel()
+			d.clearStaleMirrorStatus(ctx, image)
+		}()
+		return done
+	default:
+		podlog.V(1).Info("cleanup semaphore full, skipping stale mirror status clear", "reference", image.Reference)
+		return nil
+	}
+}
+
 // clearStaleMirrorStatus clears the mirroredAt field on the ISM/CISM status entry
 // matching the given mirror reference. This signals the controller to re-mirror the image.
-func (d *PodCustomDefaulter) clearStaleMirrorStatus(image *AlternativeImage) {
-	ctx := context.Background()
+func (d *PodCustomDefaulter) clearStaleMirrorStatus(ctx context.Context, image *AlternativeImage) {
 	log := podlog.WithValues("reference", image.Reference)
 
 	ism, ok := image.SecretOwner.(*kuikv1alpha1.ImageSetMirror)

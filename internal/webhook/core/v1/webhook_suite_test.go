@@ -13,6 +13,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/enix/kube-image-keeper/internal/config"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -92,7 +93,10 @@ var _ = BeforeSuite(func() {
 	})
 	Expect(err).NotTo(HaveOccurred())
 
-	err = SetupPodWebhookWithManager(mgr, &PodCustomDefaulter{Client: mgr.GetClient()})
+	testConfig, err := config.LoadDefault()
+	Expect(err).NotTo(HaveOccurred())
+
+	err = SetupPodWebhookWithManager(mgr, &PodCustomDefaulter{Client: mgr.GetClient(), Config: testConfig})
 	Expect(err).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:webhook
