@@ -1,13 +1,16 @@
 package v1
 
 import (
+	"context"
 	"slices"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
-	// TODO (user): Add any additional imports if needed
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var _ = Describe("Pod Webhook", func() {
@@ -169,5 +172,60 @@ var _ = Describe("compareAlternatives", func() {
 				"first", "second", "third",
 			}))
 		})
+	})
+})
+
+var _ = Describe("clearStaleMirrorStatus", func() {
+	It("should respect context cancellation", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel() // cancel immediately
+
+		d := &PodCustomDefaulter{Client: k8sClient}
+		image := &AlternativeImage{
+			Reference: "mirror.example.com/cache/library/nginx:latest",
+			SecretOwner: &kuikv1alpha1.ImageSetMirror{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-ism", Namespace: "default"},
+				Status: kuikv1alpha1.ImageSetMirrorStatus{
+					MatchingImages: []kuikv1alpha1.MatchingImage{
+						{
+							Image: "docker.io/library/nginx:latest",
+							Mirrors: []kuikv1alpha1.MirrorStatus{
+								{Image: "mirror.example.com/cache/library/nginx:latest", MirroredAt: &metav1.Time{Time: time.Now()}},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		d.clearStaleMirrorStatus(ctx, image)
+		// Should return quickly without hanging (context is already cancelled)
+	})
+
+	It("should drop cleanup when semaphore is full", func() {
+		sem := make(chan struct{}, 1)
+		// Fill the semaphore
+		sem <- struct{}{}
+
+		image := &AlternativeImage{
+			Reference:   "mirror.example.com/cache/library/nginx:latest",
+			SecretOwner: &kuikv1alpha1.ImageSetMirror{},
+		}
+
+		d := &PodCustomDefaulter{
+			Client:           k8sClient,
+			cleanupSemaphore: sem,
+		}
+
+		By("Returning nil when the semaphore is full")
+		Expect(d.tryCleanupStaleMirrorStatus(context.Background(), image)).To(BeNil())
+
+		By("Freeing the semaphore")
+		<-sem
+
+		By("Launching and completing the cleanup")
+		done := d.tryCleanupStaleMirrorStatus(context.Background(), image)
+		Expect(done).NotTo(BeNil())
+		Eventually(done, 2*time.Second).Should(BeClosed())
 	})
 })
