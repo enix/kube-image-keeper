@@ -69,7 +69,7 @@ kuik v2 is a **complete rewrite** of the project with a focus on **simplicity** 
 - Kuik manipulates multiple variants of an image, and elect the best suited. You might want to dig in the [Priority mechanism](docs/image-routing.md)
 - A preliminary migration path from [Kuik v1 to Kuik v2](docs/v1-to-v2-migration-path.md)
 - Multiple [use cases](#when-to-use-kube-image-keeper)
-- A [development guide](#docs/development.md)
+- A [development guide](docs/development.md)
 
 ## 📅 Releases & Roadmap
 
