@@ -294,16 +294,18 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 		})
 	}
 
-	podImagePullSecrets := make([]corev1.Secret, len(podCredentialSecrets))
-	for i, podCredentialSecret := range podCredentialSecrets {
+	var podImagePullSecrets []corev1.Secret
+	for _, podCredentialSecret := range podCredentialSecrets {
 		objectKey := client.ObjectKey{Namespace: podCredentialSecret.Namespace, Name: podCredentialSecret.Name}
-		if err := d.Get(ctx, objectKey, &podImagePullSecrets[i]); err != nil {
+		var secret corev1.Secret
+		if err := d.Get(ctx, objectKey, &secret); err != nil {
 			if apiErrors.IsNotFound(err) {
 				log.Error(err, "pod has invalid image pull secret", "secret", objectKey)
-			} else {
-				return err
+				continue
 			}
+			return err
 		}
+		podImagePullSecrets = append(podImagePullSecrets, secret)
 	}
 
 	log.V(1).Info("reviewing alternatives",
