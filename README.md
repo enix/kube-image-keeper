@@ -9,12 +9,7 @@
 
 ## 🚀 Status: General Availability + Production ready
 
-> [!NOTE]
-> kuik v2 is a **complete rewrite** of the project with a focus on **simplicity** and **ease of use**.
-
-## What's new in v2 !
-
-Mostly a redesigned architecture
+kuik v2 is a **complete rewrite** of the project with a focus on **simplicity** and **ease of use** :
 
 - **Minimal default features**: core functionality enabled by default, others opt-in
 - **Image routing**: kuik can rewrite Pod images on-the-fly to point to an operational registry
