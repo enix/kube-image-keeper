@@ -103,9 +103,10 @@ type cachedAlternativeImageWithReason struct {
 
 type Container struct {
 	*corev1.Container
-	IsInit       bool
-	Images       []AlternativeImage
-	Alternatives map[string]struct{}
+	IsInit          bool
+	NormalizedImage string
+	Images          []AlternativeImage
+	Alternatives    map[string]struct{}
 }
 
 // crTypeOrder represents the default ordering of CR types when priorities are equal.
@@ -214,10 +215,15 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 
 	log.V(1).Info("defaulting for Pod")
 
-	// filter containers using invalid / digest-based images or ImagePullPolicy: Never when routing.rewriteOnNeverImagePullPolicy is enabled
+	// normalize and filter out containers with invalid, digest-based, or non-rewritable images
+	for i := range containers {
+		named, err := reference.ParseNormalizedNamed(containers[i].Image)
+		if err == nil {
+			containers[i].NormalizedImage = named.String()
+		}
+	}
 	containers = slices.DeleteFunc(containers, func(container Container) bool {
-		_, err := reference.Parse(container.Image)
-		return err != nil || strings.Contains(container.Image, "@") || (!d.Config.Routing.RewriteOnNeverImagePullPolicy && container.ImagePullPolicy == corev1.PullNever)
+		return container.NormalizedImage == "" || strings.Contains(container.Image, "@") || (!d.Config.Routing.RewriteOnNeverImagePullPolicy && container.ImagePullPolicy == corev1.PullNever)
 	})
 	if len(containers) == 0 {
 		log.V(1).Info("pod has no containers eligible for image rewriting, ignoring (digest-based images are not supported)")
@@ -326,8 +332,7 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 			continue
 		}
 
-		originalNamed, _ := reference.ParseNormalizedNamed(container.Image)
-		if originalNamed.String() == alternativeImage.Reference {
+		if container.NormalizedImage == alternativeImage.Reference {
 			log.V(1).Info("original image is available, using it")
 			continue
 		}
@@ -358,11 +363,11 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 }
 
 func (d *PodCustomDefaulter) findBestAlternativeCached(ctx context.Context, imageSetMirrors []kuikv1alpha1.ImageSetMirror, replicatedImageSets []kuikv1alpha1.ReplicatedImageSet, container *Container, pullSecrets []corev1.Secret) (*AlternativeImage, int, string, error) {
-	if cached, ok := d.alternativeCache.Get(container.Image); ok {
+	if cached, ok := d.alternativeCache.Get(container.NormalizedImage); ok {
 		return cached.AlternativeImage, cached.alternativesCount, "cached", nil
 	}
 
-	result, err := d.requestGroup.Do("alternative:"+container.Image, func() (any, error) {
+	result, err := d.requestGroup.Do("alternative:"+container.NormalizedImage, func() (any, error) {
 		if err := d.buildAlternativesList(ctx, imageSetMirrors, replicatedImageSets, container); err != nil {
 			return nil, err
 		}
@@ -372,7 +377,7 @@ func (d *PodCustomDefaulter) findBestAlternativeCached(ctx context.Context, imag
 			AlternativeImage:  alternativeImage,
 			alternativesCount: len(container.Alternatives),
 		}
-		d.alternativeCache.Set(container.Image, cachedAlternativeImage)
+		d.alternativeCache.Set(container.NormalizedImage, cachedAlternativeImage)
 		return &cachedAlternativeImageWithReason{
 			cachedAlternativeImage: cachedAlternativeImage,
 			reason:                 fmt.Sprintf("alternatives: %+v, errors:\n%v", slices.Collect(maps.Keys(container.Alternatives)), errors.Join(errs...)),
@@ -388,10 +393,7 @@ func (d *PodCustomDefaulter) findBestAlternativeCached(ctx context.Context, imag
 
 func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSetMirrors []kuikv1alpha1.ImageSetMirror, replicatedImageSets []kuikv1alpha1.ReplicatedImageSet, container *Container) error {
 	log := logf.FromContext(ctx)
-
-	named, _ := reference.ParseNormalizedNamed(container.Image)
-	normalizedImage := named.String()
-
+	normalizedImage := container.NormalizedImage
 	alternatives := []prioritizedAlternative{}
 
 	// Collect original image (and skip sorting when imagePullPolicy == "Always")
