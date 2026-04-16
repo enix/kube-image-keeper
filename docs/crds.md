@@ -8,6 +8,22 @@ The `ReplicatedImageSet` and `ClusterReplicatedImageSet` resources declare equiv
 
 This is particularly useful for multi-homed projects (e.g., Thanos, Prometheus, Kubernetes components) where the same binary is published to multiple registries.
 
+**Fields**
+
+| Field | Required | Description |
+|---|---|---|
+| `spec.priority` | | Controls ordering of alternatives relative to the original image and other CRs. Negative values place alternatives before the original image; positive values place them after. Default is `0` (original image first). |
+| `spec.upstreams[]` | | List of upstream image sources that should be considered equivalent. |
+| `spec.upstreams[].registry` | ✅ | Registry where the upstream image is hosted (e.g. `docker.io`, `quay.io`). |
+| `spec.upstreams[].path` | ✅ | Path identifying the image in the registry (e.g. `/thanosio/thanos`). |
+| `spec.upstreams[].priority` | | Controls ordering of this upstream relative to other upstreams with the same parent priority. `0` means no specific ordering (YAML declaration order is preserved). Positive values are sorted ascending: lower value = higher priority. |
+| `spec.upstreams[].imageFilter` | | Rules used to select which images from this upstream are considered replicated. |
+| `spec.upstreams[].imageFilter.include` | | List of regex patterns. Images matching at least one pattern are included. |
+| `spec.upstreams[].imageFilter.exclude` | | List of regex patterns. Images matching any pattern are excluded (takes precedence over include). |
+| `spec.upstreams[].credentialSecret` | | Reference to a Secret used to pull matching images from this upstream. |
+| `spec.upstreams[].credentialSecret.name` | | Name of the Secret. |
+| `spec.upstreams[].credentialSecret.namespace` | | Namespace of the Secret. Ignored for namespaced `ReplicatedImageSet` (uses the parent namespace instead). |
+
 **Example**
 
 In the following example, the `ClusterReplicatedImageSet` declares that the images hosted on Quay and Docker Hub are identical. This allows the system to resolve them as the same ImageSet regardless of the source registry used in a Pod spec and fallback to one or another depending on their availability.
@@ -34,6 +50,26 @@ spec:
 ## (Cluster)ImageSetMirror
 
 The `ImageSetMirror` and `ClusterImageSetMirror` resources define the actual mirroring implementation for your cluster. They determine which images are selected for synchronization, specify the target destination, and manage the authentication via push secrets.
+
+**Fields**
+
+| Field | Required | Description |
+|---|---|---|
+| `spec.priority` | | Controls ordering of alternatives relative to the original image and other CRs. Negative values place alternatives before the original image; positive values place them after. Default is `0` (original image first). |
+| `spec.imageFilter` | | Rules used to select which images are eligible for mirroring. |
+| `spec.imageFilter.include` | | List of regex patterns. Images matching at least one pattern are included. |
+| `spec.imageFilter.exclude` | | List of regex patterns. Images matching any pattern are excluded (takes precedence over include). |
+| `spec.cleanup` | | Cleanup strategy for mirrored images. |
+| `spec.cleanup.enabled` | | Whether automatic cleanup of unused mirrored images is enabled. Default is `false`. |
+| `spec.cleanup.retention` | | Duration to retain unused mirrored images before cleanup (e.g. `720h`). |
+| `spec.mirrors[]` | | List of mirror destinations. |
+| `spec.mirrors[].registry` | | Target registry where images will be mirrored (e.g. `registry.example.com`). |
+| `spec.mirrors[].path` | | Path prefix on the target registry (e.g. `/mirror`). |
+| `spec.mirrors[].priority` | | Controls ordering of this mirror relative to other mirrors with the same parent priority. `0` means no specific ordering (YAML declaration order is preserved). Positive values are sorted ascending: lower value = higher priority. |
+| `spec.mirrors[].credentialSecret` | | Reference to a Secret used to push images to this mirror. |
+| `spec.mirrors[].credentialSecret.name` | | Name of the Secret. |
+| `spec.mirrors[].credentialSecret.namespace` | | Namespace of the Secret. Ignored for namespaced `ImageSetMirror` (uses the parent namespace instead). |
+| `spec.mirrors[].cleanup` | | Per-mirror cleanup strategy override. Same fields as `spec.cleanup`. |
 
 **Example**
 
