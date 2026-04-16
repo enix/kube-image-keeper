@@ -24,7 +24,13 @@ type Routing struct {
 }
 
 type ActiveCheck struct {
-	Timeout time.Duration `koanf:"timeout"`
+	Timeout            time.Duration      `koanf:"timeout"`
+	StaleMirrorCleanup StaleMirrorCleanup `koanf:"staleMirrorCleanup"`
+}
+
+type StaleMirrorCleanup struct {
+	MaxConcurrent int           `koanf:"maxConcurrent"`
+	Timeout       time.Duration `koanf:"timeout"`
 }
 
 type Monitoring struct {
@@ -52,6 +58,10 @@ var defaultConfig = Config{
 	Routing: Routing{
 		ActiveCheck: ActiveCheck{
 			Timeout: time.Second,
+			StaleMirrorCleanup: StaleMirrorCleanup{
+				MaxConcurrent: 10,
+				Timeout:       5 * time.Second,
+			},
 		},
 		RewriteOnNeverImagePullPolicy: false,
 	},
