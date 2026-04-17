@@ -8,9 +8,10 @@
 **kuik** (pronounced /kwɪk/, like "quick") is the shortname of **kube-image-keeper**, a container image routing, mirroring and replication system for Kubernetes developed by Enix. It helps make applications more highly available by ensuring reliable access to container images.
 
 > [!NOTE]
-> Kuik v2 has reached **General Availability** and is **Production ready** as of the v2.2.2 🚀
+> Kuik v2 has reached **General Availability** and is **Production Ready** as of v2.2.2 🚀
  
-## Table of content
+## Table of contents
+
 - [Introduction](#introduction)
 - [When to use Kube Image Keeper](#when-to-use-kube-image-keeper)
 - [Documentation](#-documentation)
@@ -20,6 +21,7 @@
 - [Why Version 2?](#why-version-2)
 
 ## Introduction
+
 kuik v2 is a **complete rewrite** of the project with a focus on **simplicity** and **ease of use** :
 
 - **Minimal default features**: core functionality enabled by default, others opt-in
@@ -31,12 +33,14 @@ kuik v2 is a **complete rewrite** of the project with a focus on **simplicity** 
 ## When to use Kube Image Keeper
 
 ### ✅ Overcome public registry limitations
+
 - You face an image pull rate limit
 - Your upstream registry is no longer available
 
 &emsp;[Implementation guide](/docs/use-case/overcome-public-registry-limitations.md)
 
 ### ✅ Detect missing images before outage
+
 - You plan a maintenance which will reschedule a lot of pods on new workers
 - You plan a Kubernetes upgrade
 - You have a lot of legacy images deployed on your cluster
@@ -44,6 +48,7 @@ kuik v2 is a **complete rewrite** of the project with a focus on **simplicity** 
 &emsp;[Implementation guide](/docs/use-case/detect-missing-images-before-outage.md)
 
 ### ✅ Protect images from garbage collect
+
 - You have an aggressive garbage collect
 - You have plenty of images (outdated, prior versions, development version) but only a small fraction is being used in reality
 - You would like to push only a subset of useful images to your production registry
@@ -51,12 +56,14 @@ kuik v2 is a **complete rewrite** of the project with a focus on **simplicity** 
 &emsp;[Implementation guide](/docs/use-case/protect-images-from-garbage-collect.md)
 
 ### ✅ Automatically route images to a proxy cache registry
+
 - You already have setup a proxy cache registry (like Harbor or Gitlab proxy cache) but do not know how to use it
 - You do not want to review all workloads deployments (and change their image path)
 
 &emsp;[Implementation guide](/docs/use-case/automatically-route-images-to-a-proxy-cache-registry.md)
 
 ### ✅ Better performance with local registry
+
 - You use a development registry (ex: gitlab, maven, ...) for production Kubernetes clusters.
 - Your registry is overloaded.
 - Image pull from Kubernetes are too slow / long.
@@ -65,10 +72,11 @@ kuik v2 is a **complete rewrite** of the project with a focus on **simplicity** 
 &emsp;[Implementation guide](/docs/use-case/better-performance-with-local-registry.md)
 
 ## 📘 Documentation
-- A detailed explanation of all [Kuik Custom Resources](docs/readme/docs/crds.md)
-- Kuik manipulates multiple variants of an image, and elect the best suited. You might want to dig in the [Priority mechanism](docs/image-routing.md)
+
+- A detailed explanation of all [Kuik Custom Resources](docs/crds.md)
+- Kuik manages multiple variants of an image and selects the best-suited one. You might want to learn more about the [Priority mechanism](docs/image-routing.md)
 - A preliminary migration path from [Kuik v1 to Kuik v2](docs/v1-to-v2-migration-path.md)
-- Multiple [use cases](#when-to-use-kube-image-keeper)
+- A collection of documented [use cases](#when-to-use-kube-image-keeper)
 - A [development guide](docs/development.md)
 
 ## 📅 Releases & Roadmap
