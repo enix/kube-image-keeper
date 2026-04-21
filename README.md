@@ -84,7 +84,7 @@ While configuring Custom Resources, you specify these alternative paths regardle
 ## 📘 Documentation
 
 - A detailed explanation of all [Kuik Custom Resources](docs/crds.md)
-- Kuik manages multiple variants of an image and selects the best-suited one. You might want to learn more about the [Priority mechanism](docs/image-routing.md)
+- Kuik manages multiple alternatives of an image and selects the best-suited one. You might want to learn more about the [Priority mechanism](docs/image-routing.md)
 - A preliminary migration path from [Kuik v1 to Kuik v2](docs/v1-to-v2-migration-path.md)
 - A collection of documented [use cases](#when-to-use-kube-image-keeper)
 - A [development guide](docs/development.md)
