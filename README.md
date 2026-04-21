@@ -30,6 +30,16 @@ kuik v2 is a **complete rewrite** of the project with a focus on **simplicity** 
 - **Image monitoring**: kuik can monitor image availability across various registries (planned for v2.2)
 - **Redesigned CRDs** for better clarity and extensibility
 
+### Concept : Container image alternatives
+
+The most basic functionnality of Kuik is **rewriting container image paths**.
+Conceptually, you can differentiate the **original image (path)** and the **rewritten image (path)**.
+Since there can be many **rewritten images**, both they and the **original image** are considered **image (path) alternatives**.
+
+In other words, the **original image** is an alternative, just as a **rewritten image** is.
+
+While configuring Custom Resources, you specify these alternative paths regardless of whether they are original or rewritten.
+
 ## When to use Kube Image Keeper
 
 ### ✅ Overcome public registry limitations
