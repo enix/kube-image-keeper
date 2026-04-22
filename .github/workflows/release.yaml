@@ -58,11 +58,16 @@ jobs:
     name: Lint
     uses: ./.github/workflows/lint.yaml
 
+  test:
+    name: Test
+    uses: ./.github/workflows/test.yaml
+
   build:
     name: Build
     uses: ./.github/workflows/build.yaml
     needs:
       - lint
+      - test
       - semver
     with:
       REPO_IMAGE: ${{ vars.REPO_IMAGE }}
