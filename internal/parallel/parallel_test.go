@@ -8,6 +8,8 @@ import (
 	. "github.com/onsi/gomega"
 )
 
+const successValue = "SUCCESS"
+
 // ptr is an helper to get pointer of literal strings in tests
 func ptr(s string) *string {
 	return &s
@@ -31,40 +33,40 @@ func TestFirstSuccessful(t *testing.T) {
 		},
 		{
 			name:   "First fails, second succeeds",
-			params: []string{"FAIL", "SUCCESS"},
+			params: []string{"FAIL", successValue},
 			f: func(p *string) (*string, error) {
 				if *p == "FAIL" {
 					return nil, errors.New(*p)
 				}
 				return p, nil
 			},
-			expected:     ptr("SUCCESS"),
+			expected:     ptr(successValue),
 			expectedErrs: []error{errors.New("FAIL")},
 		},
 		{
 			name:   "First fails after, second succeeds first",
-			params: []string{"FAIL", "SUCCESS"},
+			params: []string{"FAIL", successValue},
 			f: func(p *string) (*string, error) {
-				if *p == "SUCCESS" {
+				if *p == successValue {
 					return p, nil
 				}
 				time.Sleep(50 * time.Millisecond)
 				return nil, errors.New(*p)
 			},
-			expected:     ptr("SUCCESS"),
+			expected:     ptr(successValue),
 			expectedErrs: []error{errors.New("FAIL")},
 		},
 		{
 			name:   "Firsts fails after, last succeeds first",
-			params: []string{"FAIL1", "FAIL2", "SUCCESS"},
+			params: []string{"FAIL1", "FAIL2", successValue},
 			f: func(p *string) (*string, error) {
-				if *p == "SUCCESS" {
+				if *p == successValue {
 					return p, nil
 				}
 				time.Sleep(50 * time.Millisecond)
 				return nil, errors.New(*p)
 			},
-			expected:     ptr("SUCCESS"),
+			expected:     ptr(successValue),
 			expectedErrs: []error{errors.New("FAIL1"), errors.New("FAIL2")},
 		},
 		{
@@ -92,14 +94,14 @@ func TestFirstSuccessful(t *testing.T) {
 		},
 		{
 			name:   "Only fails before first success are returned",
-			params: []string{"FAIL1", "FAIL2", "SUCCESS", "FAIL3"},
+			params: []string{"FAIL1", "FAIL2", successValue, "FAIL3"},
 			f: func(p *string) (*string, error) {
-				if *p == "SUCCESS" {
+				if *p == successValue {
 					return p, nil
 				}
 				return nil, errors.New(*p)
 			},
-			expected:     ptr("SUCCESS"),
+			expected:     ptr(successValue),
 			expectedErrs: []error{errors.New("FAIL1"), errors.New("FAIL2")},
 		},
 		{
