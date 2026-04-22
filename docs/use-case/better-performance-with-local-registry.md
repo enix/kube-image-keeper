@@ -1,6 +1,6 @@
 # Better performance with local registry
 
-This documentation will help you configure Kuik in order to reroute kubernetes image pull from a distant registry to a better placed (local to your kubernetes cluster) one.
+This documentation will help you configure Kuik in order to reroute kubernetes image pull from a distant registry to a better placed (local to your kubernetes cluster) one (basically a registry caching).
 In brief, Kuik will (1) mirror images and (2) rewrite image paths to point to your local registry.
 
 ## Best suited for
