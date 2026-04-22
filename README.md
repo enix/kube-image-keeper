@@ -26,7 +26,7 @@ kuik v2 is a **complete rewrite** of the project with a focus on **simplicity** 
 
 - **Minimal default features**: core functionality enabled by default, others opt-in
 - **Image routing**: kuik can rewrite Pod images on-the-fly to point to an operational registry
-- **Image replication**: kuik can manage copy between registries to create a virtual highly available registry
+- **Image copy**: kuik can manage copy between registries to create a virtual highly available registry
 - **Image monitoring**: kuik can monitor image availability across various registries
 - **Redesigned CRDs** for better clarity and extensibility
 
