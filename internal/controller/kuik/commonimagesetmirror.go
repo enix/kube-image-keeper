@@ -156,7 +156,8 @@ func mergePreviousAndCurrentMatchingImages(ctx context.Context, pods []corev1.Po
 		}
 	}
 
-	if err := updateUnusedSince(ctx, matchingImagesMap, ismStatus, imageFilter); err != nil {
+	inUseImages := podsInUseImages(ctx, pods)
+	if err := updateUnusedSince(ctx, matchingImagesMap, inUseImages, ismStatus, imageFilter); err != nil {
 		return nil, err
 	}
 
@@ -247,7 +248,23 @@ func normalizedImageNamesFromPod(pod *corev1.Pod) iter.Seq[string] {
 	return maps.Keys(imageNames)
 }
 
-func updateUnusedSince(ctx context.Context, matchingImagesMap map[string]kuikv1alpha1.MatchingImage, ismStatus *kuikv1alpha1.ImageSetMirrorStatus, imageFilter filter.Filter) error {
+// podsInUseImages returns the set of normalized image names that are still
+// referenced by the cluster, considering BOTH the current container image and
+// the original image stashed in the kuik.enix.io/original-images annotation.
+// This is the signal used to decide whether a previously-mirrored image is
+// still in use: a pod that the webhook has rewritten to pull from the mirror
+// still logically requires its original reference.
+func podsInUseImages(ctx context.Context, pods []corev1.Pod) map[string]struct{} {
+	inUse := map[string]struct{}{}
+	for i := range pods {
+		for image := range normalizedImageNamesFromAnnotatedPod(ctx, &pods[i]) {
+			inUse[image] = struct{}{}
+		}
+	}
+	return inUse
+}
+
+func updateUnusedSince(ctx context.Context, matchingImagesMap map[string]kuikv1alpha1.MatchingImage, inUseImages map[string]struct{}, ismStatus *kuikv1alpha1.ImageSetMirrorStatus, imageFilter filter.Filter) error {
 	log := logf.FromContext(ctx)
 	unusedSinceNotMatching := metav1.Time{Time: (time.Time{}).Add(time.Hour)}
 
@@ -265,7 +282,7 @@ func updateUnusedSince(ctx context.Context, matchingImagesMap map[string]kuikv1a
 				img.UnusedSince = &unusedSinceNotMatching
 				log.Info("image is not matching anymore, queuing it for deletion", "image", img.Image)
 			}
-		} else if _, ok := matchingImagesMap[named.String()]; !ok {
+		} else if _, ok := inUseImages[named.String()]; !ok {
 			if img.UnusedSince.IsZero() {
 				img.UnusedSince = &metav1.Time{Time: time.Now()}
 				log.Info("image is not used anymore, marking it as unused", "image", img.Image)

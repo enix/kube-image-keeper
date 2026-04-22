@@ -286,4 +286,116 @@ var _ = Describe("ClusterImageSetMirror Controller", func() {
 			Expect(resource.Status.MatchingImages).To(BeEmpty())
 		})
 	})
+
+	// Regression coverage for https://github.com/enix/kube-image-keeper/issues/567.
+	// Scenario: the upstream A registry is unreachable, so the webhook has
+	// rewritten pod-2 to pull from mirror B. pod-1 (which pinned the original
+	// A reference) is gone. The CISM status was populated earlier with the
+	// original A image and its B mirror; that entry must not be marked unused
+	// while pod-2 still depends on the mirror copy.
+	Context("Issue #567: CISM must keep the original image in use when pods reference only the mirror", func() {
+		const (
+			resourceName   = "test-issue-567-cism"
+			podName        = "issue-567-rewritten-pod"
+			namespace      = "default"
+			originalImage  = "a.example.com/test/foo:v1"
+			mirrorRegistry = "b.example.com"
+			rewrittenImage = "b.example.com/test/foo:v1"
+		)
+
+		ctx := context.Background()
+		typeNamespacedName := types.NamespacedName{Name: resourceName}
+		podNamespacedName := types.NamespacedName{Name: podName, Namespace: namespace}
+
+		newClusterReconciler := func() *ClusterImageSetMirrorReconciler {
+			return &ClusterImageSetMirrorReconciler{
+				ImageSetMirrorBaseReconciler: ImageSetMirrorBaseReconciler{
+					Client: k8sClient,
+					Scheme: k8sClient.Scheme(),
+				},
+			}
+		}
+
+		It("keeps unusedSince nil on the original image while a rewritten pod uses the mirror copy", func() {
+			By("Creating pod-2 rewritten by the webhook (container image = mirror URL, annotation = original URL)")
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      podName,
+					Namespace: namespace,
+					Annotations: map[string]string{
+						OriginalImagesAnnotation: `{"app":"` + originalImage + `"}`,
+					},
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{Name: "app", Image: rewrittenImage},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, pod)).To(Succeed())
+			DeferCleanup(func() {
+				p := &corev1.Pod{}
+				if err := k8sClient.Get(ctx, podNamespacedName, p); err == nil {
+					_ = k8sClient.Delete(ctx, p)
+				}
+			})
+
+			By("Creating a CISM whose filter targets the ORIGINAL registry A and whose mirror is B")
+			cism := &kuikv1alpha1.ClusterImageSetMirror{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       resourceName,
+					Finalizers: []string{imageSetMirrorFinalizer},
+				},
+				Spec: kuikv1alpha1.ClusterImageSetMirrorSpec{
+					ImageFilter: kuikv1alpha1.ImageFilterDefinition{
+						Include: []string{`a\.example\.com/.*`},
+					},
+					Mirrors: kuikv1alpha1.Mirrors{
+						{Registry: mirrorRegistry},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, cism)).To(Succeed())
+			DeferCleanup(func() {
+				res := &kuikv1alpha1.ClusterImageSetMirror{}
+				if err := k8sClient.Get(ctx, typeNamespacedName, res); err == nil {
+					res.Finalizers = nil
+					_ = k8sClient.Update(ctx, res)
+					_ = k8sClient.Delete(ctx, res)
+				}
+			})
+
+			By("Pre-seeding status as it would be after pod-1 mirrored the image — original image + already-mirrored B copy")
+			Expect(k8sClient.Get(ctx, typeNamespacedName, cism)).To(Succeed())
+			mirroredAt := metav1.NewTime(time.Now())
+			cism.Status.MatchingImages = []kuikv1alpha1.MatchingImage{
+				{
+					Image: originalImage,
+					Mirrors: []kuikv1alpha1.MirrorStatus{
+						{Image: rewrittenImage, MirroredAt: &mirroredAt},
+					},
+				},
+			}
+			Expect(k8sClient.Status().Update(ctx, cism)).To(Succeed())
+
+			By("Reconciling after pod-1 has been deleted and only the rewritten pod-2 remains")
+			_, err := newClusterReconciler().Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying the original image is still tracked and has not been marked unused")
+			got := &kuikv1alpha1.ClusterImageSetMirror{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, got)).To(Succeed())
+
+			var matching *kuikv1alpha1.MatchingImage
+			for i := range got.Status.MatchingImages {
+				if got.Status.MatchingImages[i].Image == originalImage {
+					matching = &got.Status.MatchingImages[i]
+					break
+				}
+			}
+			Expect(matching).NotTo(BeNil(), "original image must remain in status.matchingImages")
+			Expect(matching.UnusedSince).To(BeNil(),
+				"unusedSince must stay nil while pod-2 still pulls from the mirror (issue #567)")
+		})
+	})
 })
