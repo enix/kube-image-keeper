@@ -32,13 +32,10 @@ kuik v2 is a **complete rewrite** of the project with a focus on **simplicity** 
 
 ### Concept : Container image alternatives
 
-The most basic functionnality of Kuik is **rewriting container image paths**.
-Conceptually, you can differentiate the **original image (path)** and the **rewritten image (path)**.
-Since there can be many **rewritten images**, both they and the **original image** are considered **image (path) alternatives**.
+KuiK use a mutating webhook to rewrite pod containers images when their are not available.
+It use [Custom Resources *ImageSetMirror* and *ReplicatedImageSet*](docs/crds.md) to generate a list of **alternatives** image values (including **original** one) for a given container image and check their availability to know if we keep using **original** image or **rewrite** it to an available **alternative**.
 
-In other words, the **original image** is an alternative, just as a **rewritten image** is.
-
-While configuring Custom Resources, you specify these alternative paths regardless of whether they are original or rewritten.
+*ReplicatedImageSet* and *ImageSetMirror* both generate **alternatives** images when checking image availability in mutating webhook, but *ImageSetMirror* also handle the copy of **original** image to the given mirror registry.
 
 ## When to use Kube Image Keeper
 
