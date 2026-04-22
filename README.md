@@ -115,10 +115,11 @@ While configuring Custom Resources, you specify these alternative paths regardle
 
 ## 📦 Installation
 
+We rely on [cert-manager Custom Resources](./helm/kube-image-keeper/templates/webhook-certificate.yaml) to manage the kuik mutating webhook certificate, so you need to [install it first](https://cert-manager.io/docs/installation/).
+
 ```bash
-kubectl create namespace kuik-system
 VERSION=2.2.2
-helm upgrade --install --namespace kuik-system kube-image-keeper oci://quay.io/enix/charts/kube-image-keeper:$VERSION
+helm upgrade --install --create-namespace --namespace kuik-system kube-image-keeper oci://quay.io/enix/charts/kube-image-keeper:$VERSION
 ```
 
 <!-- HELM_DOCS_END -->
