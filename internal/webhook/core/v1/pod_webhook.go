@@ -165,6 +165,9 @@ func (d *PodCustomDefaulter) Default(ctx context.Context, obj runtime.Object) er
 	return nil
 }
 
+// FIXME: split this defaultPod into smaller steps to drop the gocyclo exemption.
+//
+//nolint:gocyclo
 func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dryRun bool) error {
 	log := logf.FromContext(ctx)
 

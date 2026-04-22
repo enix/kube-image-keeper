@@ -35,6 +35,10 @@ type ImageSetMirrorReconciler struct {
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.4/pkg/reconcile
+//
+// FIXME: split this Reconcile into smaller steps to drop the gocyclo exemption.
+//
+//nolint:gocyclo
 func (r *ImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
