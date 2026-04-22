@@ -98,7 +98,7 @@ It use [Custom Resources *ImageSetMirror* and *ReplicatedImageSet*](docs/crds.md
 ### Planned features
 
 - **v2.3** Various quality of life improvements
-  - Better filtering for cluster wide resources (`includeNamespace` & `excludeNamespace`)
+  - Better filtering for resources (`includeNamespace` & `excludeNamespace`, `includeLabels` & `excludeLabels`, …)
   - Optional monitoring of mirrored images with re-mirroring when needed
 - **v2.4** Improve stability of critical components (such as the mutating webhook) by deploying them individually
 
