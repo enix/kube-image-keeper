@@ -1,6 +1,13 @@
-# CRDs
-
 This document describes the available Custom Resource Definitions (CRDs). Examples provided are non-exhaustive; for a full list of fields, please refer to the `kubectl describe <resource-name>` command.
+
+# kuik.enix.io/v1alpha1
+
+Resource Types:
+* [ReplicatedImageSet](#clusterreplicatedimageset)
+* [ClusterReplicatedImageSet](#clusterreplicatedimageset)
+* [ImageSetMirror](#clusterimagesetmirror)
+* [ClusterReplicatedImageSet](#clusterimagesetmirror)
+* [ClusterImageSetAvailability](#clusterimagesetavailability)
 
 ## (Cluster)ReplicatedImageSet
 
