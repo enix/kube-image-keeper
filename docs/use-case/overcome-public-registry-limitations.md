@@ -18,7 +18,7 @@ Your Kubernetes cluster will **seamlessly** pull images from another registry an
 ### Kuik custom resource to use
 
 - [ClusterReplicatedImageSet or ReplicatedImageSet](/docs/crds.md#clusterreplicatedimageset) to reroute to another upstream registry
-- [ClusterImageSetMirror or ImageSetMirror](/docs/crds.md#clusterimagesetmirror) to mirror and use your own registry
+- [ClusterImageSetMirror or ImageSetMirror](/docs/crds.md#clusterimagesetmirror) to mirror/cache images in your own registry
 
 ### Configuration example
 
