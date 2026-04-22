@@ -54,6 +54,36 @@ spec:
     path: /thanos/thanos/
 ```
 
+`ReplicatedImageSet` are the same, but scoped to a namespace. In the following example, we have three different upstreams for the same image and we use priority to order alternatives. So if our original image is using Quay and the registry is unreachable, kuik will consider both GHCR and DockerHub as alternative, but try using the one from GHCR first and only fallback to DockerHub if it's unreachable too:
+
+```yaml
+apiVersion: kuik.enix.io/v1alpha1
+kind: ReplicatedImageSet
+metadata:
+  name: x509-certificate-exporter
+  namespace: monitoring
+spec:
+  upstreams:
+  - registry: quay.io
+    imageFilter:
+      include:
+      - /enix/x509-certificate-exporter:.+
+    path: /enix/
+    priority: 1
+  - registry: ghcr.io
+    imageFilter:
+      include:
+      - /enix/x509-certificate-exporter:.+
+    path: /enix/
+    priority: 2
+  - registry: docker.io
+    imageFilter:
+      include:
+      - /enix/x509-certificate-exporter:.+
+    path: /enix/
+    priority: 3
+```
+
 ## (Cluster)ImageSetMirror
 
 The `ImageSetMirror` and `ClusterImageSetMirror` resources define the actual mirroring implementation for your cluster. They determine which images are selected for synchronization, specify the target destination, and manage the authentication via push secrets.
@@ -95,9 +125,21 @@ spec:
   - registry: registry.example.com
     path: /mirror
     credentialSecret:
-      name: harbor-secret
+      name: registry-secret
       namespace: kuik-system
+  cleanup:
+    enabled: true
+    retention: 24h
 ```
+
+The registry secret must be a `docker-registry` type secret. You could create it with:
+```
+kubectl -n kuik-system create secret docker-registry registry-secret --docker-server=registry.example.com --docker-username=username --docker-password=password
+```
+
+When cleanup is enabled, kuik only delete mirror image reference once an image is no longer running in the cluster since more than `retention` time (useful to deal with image used by CronJobs). You still have to configure garbage collection on your registry to actually reclaim space.
+
+If an image is rewritten to use our mirror, kuik will copy the secret to the pod's namespace and add it to pod `imagePullSecrets`.
 
 ## ClusterImageSetAvailability
 
