@@ -107,10 +107,7 @@ While configuring Custom Resources, you specify these alternative paths regardle
 
 ## 🚧 Known limitations to date
 
-- ~~Mirrored images are considered replicated even if the image was later deleted~~ fixed in `v2.1.1`
-- Competition between Kuik's cluster wide custom resources and namespaced resources might lead to weird scenarios (to be partially fixed in `v2.1.1`)
 - The mutating webhook do not support the Pod `Update` call
-- With replication enabled from registry A to registry B, launching a Pod with image on B will be rerouted (rewritten) to image on A
 - Digest tags are not supported, ex: `@sha256:cb4e4ffc5789fd5ff6a534e3b1460623df61cba00f5ea1c7b40153b5efb81805`
 
 ## 📦 Installation
