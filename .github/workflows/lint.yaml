@@ -17,6 +17,11 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Check generated files
+        run: |
+          make manifests generate
+          git diff --exit-code
+
       - name: Check formatting
         run: |
           make fmt
