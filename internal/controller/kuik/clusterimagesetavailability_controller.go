@@ -308,7 +308,7 @@ func (r *ClusterImageSetAvailabilityReconciler) syncImageList(ctx context.Contex
 	}
 
 	cisa.Status.ImageCount = len(cisa.Status.Images)
-	return
+	return changed
 }
 
 func (r *ClusterImageSetAvailabilityReconciler) performCheck(ctx context.Context, image *kuikv1alpha1.MonitoredImage, registryConfig *config.RegistryMonitoring, pods []corev1.Pod) {

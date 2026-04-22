@@ -8,6 +8,7 @@ import (
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 type StatusHandler struct {
@@ -28,14 +29,30 @@ type errorResponse struct {
 	Error string `json:"error"`
 }
 
+var internalErrorBody = []byte(`{"error":"internal server error"}`)
+
 func (h *StatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	log := logf.FromContext(r.Context())
+	writeJSON := func(status int, body any) {
+		data, err := json.Marshal(body)
+		if err != nil {
+			log.Error(err, "failed to marshal status response")
+			w.WriteHeader(http.StatusInternalServerError)
+			data = internalErrorBody
+		} else {
+			w.WriteHeader(status)
+		}
+		if _, err := w.Write(data); err != nil {
+			log.Error(err, "failed to write status response")
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 
 	groupBy := r.URL.Query().Get("groupBy")
 	if groupBy != "" {
 		if groupBy != "cisa" && groupBy != "registry" {
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(errorResponse{
+			writeJSON(http.StatusBadRequest, errorResponse{
 				Error: "groupBy must be \"cisa\" or \"registry\"",
 			})
 			return
@@ -44,8 +61,7 @@ func (h *StatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	cisaList := &kuikv1alpha1.ClusterImageSetAvailabilityList{}
 	if err := h.Client.List(r.Context(), cisaList); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(errorResponse{
+		writeJSON(http.StatusInternalServerError, errorResponse{
 			Error: "failed to list ClusterImageSetAvailability resources: " + err.Error(),
 		})
 		return
@@ -101,13 +117,13 @@ func (h *StatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if groupBy != "" {
-		json.NewEncoder(w).Encode(map[string]any{
+		writeJSON(http.StatusOK, map[string]any{
 			"groupBy": groupBy,
 			"groups":  groups,
 			"total":   total,
 		})
 	} else {
-		json.NewEncoder(w).Encode(map[string]any{
+		writeJSON(http.StatusOK, map[string]any{
 			"items": items,
 			"total": total,
 		})

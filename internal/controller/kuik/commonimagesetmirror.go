@@ -139,10 +139,7 @@ func (r *ImageSetMirrorBaseReconciler) cleanupMirror(ctx context.Context, image,
 
 func mergePreviousAndCurrentMatchingImages(ctx context.Context, pods []corev1.Pod, ismSpec *kuikv1alpha1.ImageSetMirrorSpec, ismStatus *kuikv1alpha1.ImageSetMirrorStatus, mirrorPrefixes map[string][]string) (map[string]*corev1.Pod, error) {
 	imageFilter := ismSpec.ImageFilter.MustBuild()
-	podsByMatchingImages, err := podsByNormalizedMatchingImages(ctx, imageFilter, mirrorPrefixes, pods)
-	if err != nil {
-		return nil, err
-	}
+	podsByMatchingImages := podsByNormalizedMatchingImages(ctx, imageFilter, mirrorPrefixes, pods)
 
 	matchingImagesMap := map[string]kuikv1alpha1.MatchingImage{}
 	for matchingImage := range podsByMatchingImages {
@@ -171,7 +168,7 @@ func mergePreviousAndCurrentMatchingImages(ctx context.Context, pods []corev1.Po
 	return podsByMatchingImages, nil
 }
 
-func podsByNormalizedMatchingImages(ctx context.Context, filter filter.Filter, mirrorPrefixes map[string][]string, pods []corev1.Pod) (map[string]*corev1.Pod, error) {
+func podsByNormalizedMatchingImages(ctx context.Context, filter filter.Filter, mirrorPrefixes map[string][]string, pods []corev1.Pod) map[string]*corev1.Pod {
 	log := logf.FromContext(ctx)
 
 	filteredOutImagesMap := map[string]struct{}{}
@@ -198,7 +195,7 @@ func podsByNormalizedMatchingImages(ctx context.Context, filter filter.Filter, m
 		log.V(1).Info("filtering out images to prevent mirror loop", "images", filteredOutImages, "count", len(filteredOutImagesMap))
 	}
 
-	return matchingImagesMap, nil
+	return matchingImagesMap
 }
 
 func normalizedImageNamesMapFromAnnotatedPod(ctx context.Context, pod *corev1.Pod) map[string]bool {

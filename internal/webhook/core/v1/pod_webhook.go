@@ -294,7 +294,7 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 		})
 	}
 
-	var podImagePullSecrets []corev1.Secret
+	podImagePullSecrets := make([]corev1.Secret, 0, len(podCredentialSecrets))
 	for _, podCredentialSecret := range podCredentialSecrets {
 		objectKey := client.ObjectKey{Namespace: podCredentialSecret.Namespace, Name: podCredentialSecret.Name}
 		var secret corev1.Secret
