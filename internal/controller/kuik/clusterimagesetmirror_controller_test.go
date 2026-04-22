@@ -7,6 +7,7 @@ import (
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -164,6 +165,125 @@ var _ = Describe("ClusterImageSetMirror Controller", func() {
 			Expect(resource.Status.MatchingImages).To(HaveLen(1))
 			Expect(resource.Status.MatchingImages[0].UnusedSince).NotTo(BeNil())
 			Expect(resource.Status.MatchingImages[0].UnusedSince.Time).To(BeTemporally("==", firstUnusedSince))
+		})
+	})
+
+	// Regression coverage for commit d26a099: the reconciler must match its
+	// ImageFilter against the pod's current (rewritten) image, not the
+	// original image stashed in the kuik.enix.io/original-images annotation.
+	Context("When a pod's image has been rewritten by the webhook", func() {
+		const (
+			resourceName   = "test-rewritten-cluster"
+			podName        = "rewritten-pod-cluster"
+			namespace      = "default"
+			originalImage  = "docker.io/library/nginx:1.25"
+			rewrittenImage = "rewritten.example.com/library/nginx:1.25"
+			mirrorRegistry = "mirror.example.com"
+			mirrorPath     = "cache"
+			expectedMirror = "mirror.example.com/cache/library/nginx:1.25"
+		)
+
+		ctx := context.Background()
+		typeNamespacedName := types.NamespacedName{Name: resourceName}
+		podNamespacedName := types.NamespacedName{Name: podName, Namespace: namespace}
+
+		newClusterReconciler := func() *ClusterImageSetMirrorReconciler {
+			return &ClusterImageSetMirrorReconciler{
+				ImageSetMirrorBaseReconciler: ImageSetMirrorBaseReconciler{
+					Client: k8sClient,
+					Scheme: k8sClient.Scheme(),
+				},
+			}
+		}
+
+		createRewrittenPod := func() {
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      podName,
+					Namespace: namespace,
+					Annotations: map[string]string{
+						OriginalImagesAnnotation: `{"app":"` + originalImage + `"}`,
+					},
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{Name: "app", Image: rewrittenImage},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, pod)).To(Succeed())
+			DeferCleanup(func() {
+				p := &corev1.Pod{}
+				if err := k8sClient.Get(ctx, podNamespacedName, p); err == nil {
+					_ = k8sClient.Delete(ctx, p)
+				}
+			})
+		}
+
+		createCISM := func(filterInclude []string) {
+			resource := &kuikv1alpha1.ClusterImageSetMirror{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       resourceName,
+					Finalizers: []string{imageSetMirrorFinalizer},
+				},
+				Spec: kuikv1alpha1.ClusterImageSetMirrorSpec{
+					ImageFilter: kuikv1alpha1.ImageFilterDefinition{Include: filterInclude},
+					Mirrors:     kuikv1alpha1.Mirrors{{Registry: mirrorRegistry, Path: mirrorPath}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+			DeferCleanup(func() {
+				res := &kuikv1alpha1.ClusterImageSetMirror{}
+				if err := k8sClient.Get(ctx, typeNamespacedName, res); err == nil {
+					res.Finalizers = nil
+					_ = k8sClient.Update(ctx, res)
+					_ = k8sClient.Delete(ctx, res)
+				}
+			})
+		}
+
+		It("matches the pod's rewritten image when the filter includes the rewritten registry", func() {
+			createRewrittenPod()
+			createCISM([]string{`rewritten\.example\.com/.*`})
+
+			By("Pre-seeding status so the mirror loop skips actual image copies")
+			resource := &kuikv1alpha1.ClusterImageSetMirror{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, resource)).To(Succeed())
+			mirroredAt := metav1.NewTime(time.Now())
+			resource.Status.MatchingImages = []kuikv1alpha1.MatchingImage{{
+				Image: rewrittenImage,
+				Mirrors: []kuikv1alpha1.MirrorStatus{
+					{Image: expectedMirror, MirroredAt: &mirroredAt},
+				},
+			}}
+			Expect(k8sClient.Status().Update(ctx, resource)).To(Succeed())
+
+			By("Reconciling")
+			_, err := newClusterReconciler().Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying the rewritten image stays in matchingImages and is not marked unused")
+			Expect(k8sClient.Get(ctx, typeNamespacedName, resource)).To(Succeed())
+			Expect(resource.Status.MatchingImages).To(HaveLen(1))
+			Expect(resource.Status.MatchingImages[0].Image).To(Equal(rewrittenImage))
+			Expect(resource.Status.MatchingImages[0].UnusedSince).To(BeNil())
+		})
+
+		It("does not match the pod when only the original (pre-rewrite) image matches the filter", func() {
+			createRewrittenPod()
+			createCISM([]string{`docker\.io/library/nginx:.*`})
+
+			By("Reconciling with an empty status (nothing seeded)")
+			_, err := newClusterReconciler().Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying the original image was not picked up as a matching image")
+			resource := &kuikv1alpha1.ClusterImageSetMirror{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, resource)).To(Succeed())
+			for _, mi := range resource.Status.MatchingImages {
+				Expect(mi.Image).NotTo(Equal(originalImage))
+			}
+			Expect(resource.Status.MatchingImages).To(BeEmpty())
 		})
 	})
 })
