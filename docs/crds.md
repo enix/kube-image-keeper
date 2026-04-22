@@ -73,7 +73,7 @@ The `ImageSetMirror` and `ClusterImageSetMirror` resources define the actual mir
 
 ### Example
 
-In this example, the `ClusterImageSetMirror` ensures that all images (excluding those that match `localhost[^/]*/.+` ) are mirrored to a private registry. It uses a specific `credentialSecret` to authenticate against the destination.
+In this example, the `ClusterImageSetMirror` ensures that all images are mirrored to a private registry. It uses a specific `credentialSecret` to authenticate against the destination.
 
 ```yaml
 apiVersion: kuik.enix.io/v1alpha1
@@ -84,8 +84,6 @@ spec:
   imageFilter:
     include:
     - .*
-    exclude:
-    - localhost[^/]*/.+
   mirrors:
   - registry: registry.example.com
     path: /mirror
@@ -118,10 +116,8 @@ spec:
   unusedImageExpiry: 720h
   imageFilter:
     include:
-      - ".*nginx:.+"
-      - ".*redis:.+"
-    exclude:
-      - "localhost[^/]*/.+"
+      - ".+/nginx:.+"
+      - ".+/redis:.+"
 ```
 
 ### Operator configuration
