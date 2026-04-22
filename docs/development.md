@@ -113,3 +113,71 @@ metadata:
 spec:
   selfSigned: {}
 ```
+
+## Simulate unreachable registry with a CiliumNetworkPolicy
+
+If you have kube-image-keeper runnning in a cluster with Cilium as CNI, you can easilly simulate an unreachable registry with a CiliumNetworkPolicy targeting the kuik manager (which perform the active check to know if an image is available).
+
+For example:
+```yaml
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: test-kuik-v2
+  namespace: kuik-system
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/instance: kube-image-keeper
+  ingress:
+    - fromEntities:
+      - kube-apiserver
+    - fromEndpoints:
+        - {}
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: monitoring
+      toPorts:
+        - ports:
+            - port: "8080"
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+          rules:
+            dns:
+              - matchPattern: "*"
+    - toEntities:
+      - kube-apiserver
+    - toEndpoints:
+        - {}
+    - toFQDNs:
+      # DockerHub
+      - matchName: docker.io
+      - matchPattern: '*.docker.io'
+      # Quay
+      - matchName: quay.io
+      - matchPattern: '*.quay.io'
+      # AWS Public ECR
+      - matchName: public.ecr.aws
+      - matchPattern: '*.cloudfront.net'
+      # Github Container Registry
+      - matchName: ghcr.io
+      # Custom registry
+      - matchName: my-registry.company.com
+```
+
+⚠️ When you configure a Network Policy, ingress and egress traffic for the `endpointSelector` will be denied by default and only those defined will be allowed.
+In this example we allow:
+* ingress from apiserver
+* ingress from namespace monitoring to metrics port
+* egress to DNS service
+* egress to apiserver
+* egress from some FQDN to allow specific registries
+
+Any registry (including it's redirections) not present in the `toFQDNs` list will not be rechable by kuik and will result in a `registry unreachable`. So you can play with this to quickly simulate unreachable registry without impacting you whole cluster.
