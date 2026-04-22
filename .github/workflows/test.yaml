@@ -1,11 +1,11 @@
-name: Lint
+name: Test
 
 on:
   pull_request:
   workflow_call:
 
 jobs:
-  lint:
+  test:
     name: Run on Ubuntu
     runs-on: ubuntu-latest
     steps:
@@ -17,10 +17,5 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Check formatting
-        run: |
-          make fmt
-          git diff --exit-code
-
-      - name: Run lint
-        run: make lint
+      - name: Run tests
+        run: make test
