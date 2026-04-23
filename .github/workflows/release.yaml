@@ -31,6 +31,8 @@ jobs:
         uses: cycjimmy/semantic-release-action@v6
         with:
           dry_run: true
+          extra_plugins: |
+            conventional-changelog-conventionalcommits@^9.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
 
@@ -104,6 +106,9 @@ jobs:
       - name: Run semantic-release
         id: release
         uses: cycjimmy/semantic-release-action@v6
+        with:
+          extra_plugins: |
+            conventional-changelog-conventionalcommits@^9.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
           GIT_COMMITTER_NAME: ${{ env.COMMIT_NAME }}
