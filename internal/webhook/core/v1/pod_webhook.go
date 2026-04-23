@@ -165,23 +165,72 @@ func (d *PodCustomDefaulter) Default(ctx context.Context, obj runtime.Object) er
 	return nil
 }
 
-// FIXME: split this defaultPod into smaller steps to drop the gocyclo exemption.
-//
-//nolint:gocyclo
 func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dryRun bool) error {
 	log := logf.FromContext(ctx)
 
+	originalImages := d.resolveOriginalImages(ctx, pod)
+	containers := collectContainers(pod, originalImages)
+	d.storeOriginalImagesAnnotation(ctx, pod, originalImages)
+
+	if len(containers) == 0 {
+		return nil // all containers have been processed already
+	}
+
+	log.V(1).Info("defaulting for Pod")
+
+	containers = d.normalizeAndFilterContainers(containers)
+	if len(containers) == 0 {
+		log.V(1).Info("pod has no containers eligible for image rewriting, ignoring (digest-based images are not supported)")
+		return nil
+	}
+
+	imageSetMirrors, replicatedImageSets, stats, err := d.loadMirroringResources(ctx, pod.Namespace)
+	if err != nil {
+		return err
+	}
+
+	podImagePullSecrets, err := d.loadPodImagePullSecrets(ctx, pod)
+	if err != nil {
+		return err
+	}
+
+	log.V(1).Info("reviewing alternatives",
+		"clusterImageSetMirrors", stats.clusterImageSetMirrors,
+		"imageSetMirrors", len(imageSetMirrors)-stats.clusterImageSetMirrors,
+		"clusterReplicatedImageSet", stats.clusterReplicatedImageSets,
+		"replicatedImageSet", len(replicatedImageSets)-stats.clusterReplicatedImageSets,
+		"podImagePullSecrets", len(pod.Spec.ImagePullSecrets),
+	)
+
+	for i := range containers {
+		if err := d.rewriteContainer(ctx, &containers[i], pod, imageSetMirrors, replicatedImageSets, podImagePullSecrets, dryRun); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// resolveOriginalImages ensures pod.Annotations is non-nil and returns the
+// OriginalImagesAnnotation payload (empty map if absent or malformed).
+func (d *PodCustomDefaulter) resolveOriginalImages(ctx context.Context, pod *corev1.Pod) map[string]string {
+	log := logf.FromContext(ctx)
 	if pod.Annotations == nil {
 		pod.Annotations = map[string]string{}
 	}
-
 	originalImages := map[string]string{}
 	if originalImagesStr, ok := pod.Annotations[kuikcontroller.OriginalImagesAnnotation]; ok {
 		if err := json.Unmarshal([]byte(originalImagesStr), &originalImages); err != nil {
 			log.Error(err, "could not unmarshal "+kuikcontroller.OriginalImagesAnnotation+" annotation")
 		}
 	}
+	return originalImages
+}
 
+// collectContainers builds the unified list of regular + init containers that
+// have not already been processed (as tracked via the OriginalImagesAnnotation).
+// originalImages is updated in place with newly-seen regular containers.
+func collectContainers(pod *corev1.Pod, originalImages map[string]string) []Container {
 	containers := make([]Container, 0, len(pod.Spec.Containers)+len(pod.Spec.InitContainers))
 	for i := range pod.Spec.Containers {
 		container := &pod.Spec.Containers[i]
@@ -205,56 +254,72 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 			Alternatives: map[string]struct{}{},
 		})
 	}
+	return containers
+}
 
+func (d *PodCustomDefaulter) storeOriginalImagesAnnotation(ctx context.Context, pod *corev1.Pod, originalImages map[string]string) {
+	log := logf.FromContext(ctx)
 	if originalImagesStr, err := json.Marshal(originalImages); err != nil {
 		log.Error(err, "could not marshal "+kuikcontroller.OriginalImagesAnnotation+" annotation")
 	} else {
 		pod.Annotations[kuikcontroller.OriginalImagesAnnotation] = string(originalImagesStr)
 	}
+}
 
-	if len(containers) == 0 {
-		return nil // all containers have been processed already
-	}
-
-	log.V(1).Info("defaulting for Pod")
-
-	// normalize and filter out containers with invalid, digest-based, or non-rewritable images
+// normalizeAndFilterContainers parses each container's image into a normalized
+// reference and drops containers that cannot be rewritten (invalid references,
+// digest-based images, and PullNever policies unless routing allows it).
+func (d *PodCustomDefaulter) normalizeAndFilterContainers(containers []Container) []Container {
 	for i := range containers {
-		named, err := reference.ParseNormalizedNamed(containers[i].Image)
-		if err == nil {
+		if named, err := reference.ParseNormalizedNamed(containers[i].Image); err == nil {
 			containers[i].NormalizedImage = named.String()
 		}
 	}
-	containers = slices.DeleteFunc(containers, func(container Container) bool {
-		return container.NormalizedImage == "" || strings.Contains(container.Image, "@") || (!d.Config.Routing.RewriteOnNeverImagePullPolicy && container.ImagePullPolicy == corev1.PullNever)
-	})
-	if len(containers) == 0 {
-		log.V(1).Info("pod has no containers eligible for image rewriting, ignoring (digest-based images are not supported)")
-		return nil
+	return slices.DeleteFunc(containers, d.isIneligibleForRewrite)
+}
+
+func (d *PodCustomDefaulter) isIneligibleForRewrite(container Container) bool {
+	if container.NormalizedImage == "" {
+		return true
 	}
+	if strings.Contains(container.Image, "@") {
+		return true
+	}
+	if !d.Config.Routing.RewriteOnNeverImagePullPolicy && container.ImagePullPolicy == corev1.PullNever {
+		return true
+	}
+	return false
+}
+
+type mirroringResourceStats struct {
+	clusterImageSetMirrors     int
+	clusterReplicatedImageSets int
+}
+
+// loadMirroringResources lists ISM/CISM/RIS/CRIS objects relevant to the given
+// pod namespace and returns them as two unified slices (cluster-scoped objects
+// promoted to their namespaced equivalents via the shared type alias).
+func (d *PodCustomDefaulter) loadMirroringResources(ctx context.Context, namespace string) ([]kuikv1alpha1.ImageSetMirror, []kuikv1alpha1.ReplicatedImageSet, mirroringResourceStats, error) {
+	var stats mirroringResourceStats
 
 	var cismList kuikv1alpha1.ClusterImageSetMirrorList
 	if err := d.List(ctx, &cismList); err != nil {
-		return err
+		return nil, nil, stats, err
 	}
 	var ismList kuikv1alpha1.ImageSetMirrorList
-	if err := d.List(ctx, &ismList, &client.ListOptions{
-		Namespace: pod.Namespace,
-	}); err != nil {
-		return err
+	if err := d.List(ctx, &ismList, &client.ListOptions{Namespace: namespace}); err != nil {
+		return nil, nil, stats, err
 	}
 	var crisList kuikv1alpha1.ClusterReplicatedImageSetList
 	if err := d.List(ctx, &crisList); err != nil {
-		return err
+		return nil, nil, stats, err
 	}
 	var risList kuikv1alpha1.ReplicatedImageSetList
-	if err := d.List(ctx, &risList, &client.ListOptions{
-		Namespace: pod.Namespace,
-	}); err != nil {
-		return err
+	if err := d.List(ctx, &risList, &client.ListOptions{Namespace: namespace}); err != nil {
+		return nil, nil, stats, err
 	}
 
-	imageSetMirrors := make([]kuikv1alpha1.ImageSetMirror, 0, len(cismList.Items))
+	imageSetMirrors := make([]kuikv1alpha1.ImageSetMirror, 0, len(cismList.Items)+len(ismList.Items))
 	for _, cism := range cismList.Items {
 		imageSetMirrors = append(imageSetMirrors, kuikv1alpha1.ImageSetMirror{
 			ObjectMeta: cism.ObjectMeta,
@@ -272,7 +337,7 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 		imageSetMirrors = append(imageSetMirrors, ism)
 	}
 
-	replicatedImageSets := make([]kuikv1alpha1.ReplicatedImageSet, 0, len(crisList.Items))
+	replicatedImageSets := make([]kuikv1alpha1.ReplicatedImageSet, 0, len(crisList.Items)+len(risList.Items))
 	for _, cris := range crisList.Items {
 		replicatedImageSets = append(replicatedImageSets, kuikv1alpha1.ReplicatedImageSet{
 			ObjectMeta: cris.ObjectMeta,
@@ -289,81 +354,85 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 		replicatedImageSets = append(replicatedImageSets, ris)
 	}
 
-	podCredentialSecrets := make([]*kuikv1alpha1.CredentialSecret, 0, len(pod.Spec.ImagePullSecrets))
-	for _, imagePullSecret := range pod.Spec.ImagePullSecrets {
-		podCredentialSecrets = append(podCredentialSecrets, &kuikv1alpha1.CredentialSecret{
-			Namespace: pod.Namespace,
-			Name:      imagePullSecret.Name,
-		})
-	}
+	stats.clusterImageSetMirrors = len(cismList.Items)
+	stats.clusterReplicatedImageSets = len(crisList.Items)
+	return imageSetMirrors, replicatedImageSets, stats, nil
+}
 
-	podImagePullSecrets := make([]corev1.Secret, 0, len(podCredentialSecrets))
-	for _, podCredentialSecret := range podCredentialSecrets {
-		objectKey := client.ObjectKey{Namespace: podCredentialSecret.Namespace, Name: podCredentialSecret.Name}
+func (d *PodCustomDefaulter) loadPodImagePullSecrets(ctx context.Context, pod *corev1.Pod) ([]corev1.Secret, error) {
+	log := logf.FromContext(ctx)
+	podImagePullSecrets := make([]corev1.Secret, 0, len(pod.Spec.ImagePullSecrets))
+	for _, imagePullSecret := range pod.Spec.ImagePullSecrets {
+		objectKey := client.ObjectKey{Namespace: pod.Namespace, Name: imagePullSecret.Name}
 		var secret corev1.Secret
 		if err := d.Get(ctx, objectKey, &secret); err != nil {
 			if apiErrors.IsNotFound(err) {
 				log.Error(err, "pod has invalid image pull secret", "secret", objectKey)
 				continue
 			}
-			return err
+			return nil, err
 		}
 		podImagePullSecrets = append(podImagePullSecrets, secret)
 	}
+	return podImagePullSecrets, nil
+}
 
-	log.V(1).Info("reviewing alternatives",
-		"clusterImageSetMirrors", len(cismList.Items),
-		"imageSetMirrors", len(imageSetMirrors)-len(cismList.Items),
-		"clusterReplicatedImageSet", len(crisList.Items),
-		"replicatedImageSet", len(replicatedImageSets)-len(crisList.Items),
-		"podImagePullSecrets", len(podCredentialSecrets),
-	)
+// rewriteContainer picks the best alternative image for a single container,
+// patches the container spec if a different reference wins, and — when not
+// running in dryRun — ensures the associated pull secret and injects it into
+// pod.Spec.ImagePullSecrets.
+func (d *PodCustomDefaulter) rewriteContainer(
+	ctx context.Context,
+	container *Container,
+	pod *corev1.Pod,
+	imageSetMirrors []kuikv1alpha1.ImageSetMirror,
+	replicatedImageSets []kuikv1alpha1.ReplicatedImageSet,
+	podImagePullSecrets []corev1.Secret,
+	dryRun bool,
+) error {
+	log := logf.FromContext(ctx).WithValues("container", container.Name, "isInit", container.IsInit)
 
-	for i := range containers {
-		container := &containers[i]
-		log := log.WithValues("container", container.Name, "isInit", container.IsInit)
+	alternativeImage, alternativesCount, reason, err := d.findBestAlternativeCached(logf.IntoContext(ctx, log), imageSetMirrors, replicatedImageSets, container, podImagePullSecrets)
+	if err != nil {
+		return err
+	}
 
-		alternativeImage, alternativesCount, reason, err := d.findBestAlternativeCached(logf.IntoContext(ctx, log), imageSetMirrors, replicatedImageSets, container, podImagePullSecrets)
-		if err != nil {
+	log = log.WithValues("originalImage", container.Image)
+
+	if alternativeImage == nil {
+		if alternativesCount > 1 {
+			log.V(1).Info("no alternative image is available, keep using the original one")
+		}
+		return nil
+	}
+
+	if container.NormalizedImage == alternativeImage.Reference {
+		log.V(1).Info("original image is available, using it")
+		return nil
+	}
+
+	log.Info("rerouting image", "reroutedImage", alternativeImage.Reference, "reason", reason)
+	container.Image = alternativeImage.Reference
+
+	if alternativeImage.ImagePullSecret == nil {
+		return nil
+	}
+
+	if !dryRun {
+		if err := d.ensureSecret(ctx, pod.Namespace, alternativeImage); err != nil {
 			return err
-		}
-
-		log = log.WithValues("originalImage", container.Image)
-
-		if alternativeImage == nil {
-			if alternativesCount > 1 {
-				log.V(1).Info("no alternative image is available, keep using the original one")
-			}
-			continue
-		}
-
-		if container.NormalizedImage == alternativeImage.Reference {
-			log.V(1).Info("original image is available, using it")
-			continue
-		}
-
-		log.Info("rerouting image", "reroutedImage", alternativeImage.Reference, "reason", reason)
-		container.Image = alternativeImage.Reference
-
-		if alternativeImage.ImagePullSecret != nil {
-			if !dryRun {
-				if err := d.ensureSecret(ctx, pod.Namespace, alternativeImage); err != nil {
-					return err
-				}
-			}
-
-			// Inject rerouted image pull secret if not already present in the pod
-			containsAlternativeSecret := slices.ContainsFunc(pod.Spec.ImagePullSecrets, func(localObjectReference corev1.LocalObjectReference) bool {
-				return localObjectReference.Name == alternativeImage.ImagePullSecret.Name
-			})
-			if !containsAlternativeSecret {
-				pod.Spec.ImagePullSecrets = append(pod.Spec.ImagePullSecrets, corev1.LocalObjectReference{
-					Name: alternativeImage.ImagePullSecret.Name,
-				})
-			}
 		}
 	}
 
+	// Inject rerouted image pull secret if not already present in the pod
+	containsAlternativeSecret := slices.ContainsFunc(pod.Spec.ImagePullSecrets, func(localObjectReference corev1.LocalObjectReference) bool {
+		return localObjectReference.Name == alternativeImage.ImagePullSecret.Name
+	})
+	if !containsAlternativeSecret {
+		pod.Spec.ImagePullSecrets = append(pod.Spec.ImagePullSecrets, corev1.LocalObjectReference{
+			Name: alternativeImage.ImagePullSecret.Name,
+		})
+	}
 	return nil
 }
 
