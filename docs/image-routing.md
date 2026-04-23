@@ -23,7 +23,7 @@ A two-level priority system allows fine-grained control over this ordering. It w
 Every `(Cluster)ImageSetMirror` and `(Cluster)ReplicatedImageSet` accepts a signed integer `spec.priority` field (default `0`).
 
 | Value | Behavior |
-|---|---|
+| --- | --- |
 | Negative | Alternatives from this CR are placed **before** the original image, effectively overriding it when available. |
 | `0` (default) | The original image is tried first; alternatives from this CR serve as fallback. |
 | Positive | Alternatives from this CR are tried after the original, but with lower priority than CRs with `priority: 0`. |
@@ -57,7 +57,7 @@ With `priority: -1`, the mirrored image is checked **before** the original. If i
 Each mirror or upstream entry accepts an unsigned integer `priority` field (default `0`) that controls ordering **within the same CR**.
 
 | Value | Behavior |
-|---|---|
+| --- | --- |
 | `0` (default) | Default position; YAML declaration order is preserved among items at priority `0`. |
 | Positive | Sorted ascending: lower value = higher priority. |
 

@@ -29,3 +29,6 @@ jobs:
 
       - name: Run lint
         run: make lint
+
+      - name: Run markdownlint
+        run: npx --yes markdownlint-cli2 "**/*.md"

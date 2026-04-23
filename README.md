@@ -9,7 +9,7 @@
 
 > [!NOTE]
 > Kuik v2 has reached **General Availability** and is **Production Ready** as of v2.2.2 🚀
- 
+
 ## Table of contents
 
 - [Introduction](#introduction)
@@ -112,7 +112,6 @@ While configuring Custom Resources, you specify these alternative paths regardle
 - The mutating webhook do not support the Pod `Update` call
 - With replication enabled from registry A to registry B, launching a Pod with image on B will be rerouted (rewritten) to image on A
 - Digest tags are not supported, ex: `@sha256:cb4e4ffc5789fd5ff6a534e3b1460623df61cba00f5ea1c7b40153b5efb81805`
-
 
 ## 📦 Installation
 
