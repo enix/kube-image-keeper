@@ -1,0 +1,25 @@
+policies:
+  - type: commit
+    spec:
+      conventional:
+        types:
+          - build
+          - chore
+          - ci
+          - docs
+          - feat
+          - fix
+          - perf
+          - refactor
+          - revert
+          - style
+          - test
+        scopes:
+          - deps
+          - helm
+          - metrics
+          - mirroring
+          - monitoring
+          - registry
+          - routing
+        descriptionLength: 800
