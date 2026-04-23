@@ -567,6 +567,21 @@ func buildReconcileResult(requeueAfter time.Duration, someDeletionFailed, someMi
 	return ctrl.Result{}, nil
 }
 
+// podImagesMatchFilter reports whether any of the pod's (non digest-based)
+// normalized images is matched by the supplied filter. Used by pod-mapper
+// watchers in ISM/CISM SetupWithManager.
+func podImagesMatchFilter(imageNames iter.Seq[string], imageFilter filter.Filter) bool {
+	for imageName := range imageNames {
+		if strings.Contains(imageName, "@") {
+			continue // ignore digest-based images
+		}
+		if imageFilter.Match(imageName) {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *ImageSetMirrorBaseReconciler) getAllMirrorPrefixes(ctx context.Context, ignoreNamespaces bool) (map[string][]string, error) {
 	var cismList kuikv1alpha1.ClusterImageSetMirrorList
 	if err := r.List(ctx, &cismList); err != nil {

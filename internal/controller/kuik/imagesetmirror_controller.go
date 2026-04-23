@@ -2,7 +2,6 @@ package kuik
 
 import (
 	"context"
-	"strings"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
@@ -56,8 +55,8 @@ func (r *ImageSetMirrorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					WithName("pod-mapper").
 					WithValues("pod", klog.KObj(pod))
 
-				var cisms kuikv1alpha1.ImageSetMirrorList
-				if err := r.List(ctx, &cisms, &client.ListOptions{Namespace: pod.Namespace}); err != nil {
+				var isms kuikv1alpha1.ImageSetMirrorList
+				if err := r.List(ctx, &isms, &client.ListOptions{Namespace: pod.Namespace}); err != nil {
 					log.Error(err, "failed to list ImageSetMirror")
 					return nil
 				}
@@ -65,19 +64,12 @@ func (r *ImageSetMirrorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				imageNames := normalizedImageNamesFromPod(pod)
 
 				reqs := []reconcile.Request{}
-				for _, cism := range cisms.Items {
-					imageFilter := cism.Spec.ImageFilter.MustBuild()
-					for imageName := range imageNames {
-						if strings.Contains(imageName, "@") {
-							continue // ignore digest-based images
-						}
-
-						if imageFilter.Match(imageName) {
-							reqs = append(reqs, reconcile.Request{
-								NamespacedName: client.ObjectKeyFromObject(&cism),
-							})
-							break
-						}
+				for i := range isms.Items {
+					ism := &isms.Items[i]
+					if podImagesMatchFilter(imageNames, ism.Spec.ImageFilter.MustBuild()) {
+						reqs = append(reqs, reconcile.Request{
+							NamespacedName: client.ObjectKeyFromObject(ism),
+						})
 					}
 				}
 
