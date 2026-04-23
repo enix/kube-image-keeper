@@ -16,3 +16,8 @@ pre-push:
   jobs:
     - name: run go vet
       run: make vet
+
+commit-msg:
+  jobs:
+    - name: lint commit message
+      run: COMMIT_MSG_FILE={1} make conform

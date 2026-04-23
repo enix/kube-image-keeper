@@ -1,0 +1,26 @@
+name: Conform
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  conform:
+    name: Run on Ubuntu
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Lint commits
+        run: make conform BASE_BRANCH=origin/${{ github.event.pull_request.base.ref }}

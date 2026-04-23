@@ -201,6 +201,7 @@ CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
 HELM_DOCS = $(LOCALBIN)/helm-docs
+CONFORM = $(LOCALBIN)/conform
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.6.0
@@ -211,6 +212,7 @@ ENVTEST_VERSION ?= $(shell go list -m -f "{{ .Version }}" sigs.k8s.io/controller
 ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
 GOLANGCI_LINT_VERSION ?= v1.64.8
 HELM_DOCS_VERSION ?= v1.14.2
+CONFORM_VERSION ?= v0.1.0-alpha.31
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
@@ -244,6 +246,18 @@ $(GOLANGCI_LINT): $(LOCALBIN)
 helm-docs: $(HELM_DOCS) ## Download helm-docs locally if necessary.
 $(HELM_DOCS): $(LOCALBIN)
 	$(call go-install-tool,$(HELM_DOCS),github.com/norwoodj/helm-docs/cmd/helm-docs,$(HELM_DOCS_VERSION))
+
+BASE_BRANCH ?= origin/main
+
+.PHONY: conform
+conform: $(CONFORM) ## Run conform (checks COMMIT_MSG_FILE if set, commits on current branch vs BASE_BRANCH otherwise).
+ifneq ($(strip $(COMMIT_MSG_FILE)),)
+	$(CONFORM) enforce --commit-msg-file=$(COMMIT_MSG_FILE)
+else
+	$(CONFORM) enforce --base-branch=$(BASE_BRANCH)
+endif
+$(CONFORM): $(LOCALBIN)
+	$(call go-install-tool,$(CONFORM),github.com/siderolabs/conform/cmd/conform,$(CONFORM_VERSION))
 
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
 # $1 - target path with name of binary
