@@ -8,10 +8,10 @@ The `ReplicatedImageSet` and `ClusterReplicatedImageSet` resources declare equiv
 
 This is particularly useful for multi-homed projects (e.g., Thanos, Prometheus, Kubernetes components) where the same binary is published to multiple registries.
 
-**Fields**
+### Fields
 
 | Field | Required | Description |
-|---|---|---|
+| --- | --- | --- |
 | `spec.priority` | | Controls ordering of alternatives relative to the original image and other CRs. Negative values place alternatives before the original image; positive values place them after. Default is `0` (original image first). |
 | `spec.upstreams[]` | | List of upstream image sources that should be considered equivalent. |
 | `spec.upstreams[].registry` | ✅ | Registry where the upstream image is hosted (e.g. `docker.io`, `quay.io`). |
@@ -24,7 +24,7 @@ This is particularly useful for multi-homed projects (e.g., Thanos, Prometheus, 
 | `spec.upstreams[].credentialSecret.name` | | Name of the Secret. |
 | `spec.upstreams[].credentialSecret.namespace` | | Namespace of the Secret. Ignored for namespaced `ReplicatedImageSet` (uses the parent namespace instead). |
 
-**Example**
+### Example
 
 In the following example, the `ClusterReplicatedImageSet` declares that the images hosted on Quay and Docker Hub are identical. This allows the system to resolve them as the same ImageSet regardless of the source registry used in a Pod spec and fallback to one or another depending on their availability.
 
@@ -51,10 +51,10 @@ spec:
 
 The `ImageSetMirror` and `ClusterImageSetMirror` resources define the actual mirroring implementation for your cluster. They determine which images are selected for synchronization, specify the target destination, and manage the authentication via push secrets.
 
-**Fields**
+### Fields
 
 | Field | Required | Description |
-|---|---|---|
+| --- | --- | --- |
 | `spec.priority` | | Controls ordering of alternatives relative to the original image and other CRs. Negative values place alternatives before the original image; positive values place them after. Default is `0` (original image first). |
 | `spec.imageFilter` | | Rules used to select which images are eligible for mirroring. |
 | `spec.imageFilter.include` | | List of regex patterns. Images matching at least one pattern are included. |
@@ -71,7 +71,7 @@ The `ImageSetMirror` and `ClusterImageSetMirror` resources define the actual mir
 | `spec.mirrors[].credentialSecret.namespace` | | Namespace of the Secret. Ignored for namespaced `ImageSetMirror` (uses the parent namespace instead). |
 | `spec.mirrors[].cleanup` | | Per-mirror cleanup strategy override. Same fields as `spec.cleanup`. |
 
-**Example**
+### Example
 
 In this example, the `ClusterImageSetMirror` ensures that all images (excluding those that match `localhost[^/]*/.+` ) are mirrored to a private registry. It uses a specific `credentialSecret` to authenticate against the destination.
 
@@ -100,14 +100,14 @@ The `ClusterImageSetAvailability` resource continuously monitors the upstream av
 
 This is useful for detecting images that have been deleted, made private, or are hosted on unreachable registries before they cause issues during a Pod reschedule.
 
-**How it works**
+### How it works
 
 1. The controller watches all Pods in the cluster and collects their container image references.
 2. Images matching the `imageFilter` are added to `.status.images` with status `Scheduled`.
 3. A rate-limited checker performs availability checks against each image's source registry (one image per registry per tick, configurable via `monitoring.registries` in the operator configuration file).
 4. When a Pod is deleted and no other Pod uses the same image, `unusedSince` is set. After `unusedImageExpiry`, the image is removed from tracking.
 
-**Example**
+### Example
 
 ```yaml
 apiVersion: kuik.enix.io/v1alpha1
@@ -124,7 +124,7 @@ spec:
       - "localhost[^/]*/.+"
 ```
 
-**Operator configuration**
+### Operator configuration
 
 The check rate and method are controlled per-registry in the operator's `config.yaml`, not in the CRD:
 
@@ -146,7 +146,7 @@ monitoring:
 ```
 
 | Field | Default | Description |
-|---|---|---|
+| --- | --- | --- |
 | `method` | `HEAD` | HTTP method used for the availability check (`HEAD` or `GET`). |
 | `interval` | `3h` | Time window over which `maxPerInterval` checks are spread. |
 | `maxPerInterval` | `25` | Maximum number of image checks per `interval` for a given registry. |
