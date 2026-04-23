@@ -3,6 +3,7 @@ package kuik
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"iter"
 	"maps"
 	"path"
@@ -19,8 +20,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/client-go/util/workqueue"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -303,6 +307,264 @@ func newMirroringRateLimiter() workqueue.TypedRateLimiter[reconcile.Request] {
 		workqueue.NewTypedItemExponentialFailureRateLimiter[reconcile.Request](1*time.Second, 1000*time.Second),
 		&workqueue.TypedBucketRateLimiter[reconcile.Request]{Limiter: rate.NewLimiter(rate.Limit(10), 100)},
 	)
+}
+
+// reconcileImageSetMirror runs the shared reconcile flow for ImageSetMirror and
+// ClusterImageSetMirror. It operates on the untyped object for metadata/patch
+// operations and on the (aliased) Spec/Status pointers for domain logic.
+func (r *ImageSetMirrorBaseReconciler) reconcileImageSetMirror(
+	ctx context.Context,
+	obj client.Object,
+	spec *kuikv1alpha1.ImageSetMirrorSpec,
+	status *kuikv1alpha1.ImageSetMirrorStatus,
+	ignoreNamespacesForPrefixes bool,
+	pods []corev1.Pod,
+) (ctrl.Result, error) {
+	log := logf.FromContext(ctx)
+	log.V(1).Info("reconciliation started")
+
+	if !obj.GetDeletionTimestamp().IsZero() {
+		return ctrl.Result{}, r.handleDeletion(ctx, obj, spec, status)
+	}
+
+	if err := r.ensureFinalizer(ctx, obj); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	podsByMatchingImages, err := r.mergeMatchingImages(ctx, obj, spec, status, pods, ignoreNamespacesForPrefixes)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	requeueAfter, someDeletionFailed, err := r.cleanupExpiredMirrors(ctx, obj, spec, status)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	someMirrorFailed, err := r.mirrorPendingImages(ctx, obj, spec, status, podsByMatchingImages)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	return buildReconcileResult(requeueAfter, someDeletionFailed, someMirrorFailed)
+}
+
+func (r *ImageSetMirrorBaseReconciler) handleDeletion(
+	ctx context.Context,
+	obj client.Object,
+	spec *kuikv1alpha1.ImageSetMirrorSpec,
+	status *kuikv1alpha1.ImageSetMirrorStatus,
+) error {
+	if !controllerutil.ContainsFinalizer(obj, imageSetMirrorFinalizer) {
+		return nil
+	}
+
+	log := logf.FromContext(ctx)
+	log.Info("deleting images from cache")
+
+	for _, matchingImages := range status.MatchingImages {
+		for _, mirror := range matchingImages.Mirrors {
+			cleanupLog := log.WithValues("image", mirror.Image)
+			if mirror.MirroredAt.IsZero() {
+				cleanupLog.V(1).Info("image not mirrored yet, skipping deletion")
+				continue
+			}
+			cleanupLog.V(1).Info("deleting image")
+			if !r.cleanupMirror(logf.IntoContext(ctx, cleanupLog), mirror.Image, obj.GetNamespace(), spec.Mirrors) {
+				return errors.New("could not cleanup mirrors")
+			}
+		}
+	}
+
+	log.Info("removing finalizer")
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		if err := r.Get(ctx, client.ObjectKeyFromObject(obj), obj); err != nil {
+			return client.IgnoreNotFound(err)
+		}
+		controllerutil.RemoveFinalizer(obj, imageSetMirrorFinalizer)
+		return r.Update(ctx, obj)
+	})
+}
+
+func (r *ImageSetMirrorBaseReconciler) ensureFinalizer(ctx context.Context, obj client.Object) error {
+	if controllerutil.ContainsFinalizer(obj, imageSetMirrorFinalizer) {
+		return nil
+	}
+	logf.FromContext(ctx).Info("adding finalizer")
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		if err := r.Get(ctx, client.ObjectKeyFromObject(obj), obj); err != nil {
+			return err
+		}
+		controllerutil.AddFinalizer(obj, imageSetMirrorFinalizer)
+		return r.Update(ctx, obj)
+	})
+}
+
+func (r *ImageSetMirrorBaseReconciler) mergeMatchingImages(
+	ctx context.Context,
+	obj client.Object,
+	spec *kuikv1alpha1.ImageSetMirrorSpec,
+	status *kuikv1alpha1.ImageSetMirrorStatus,
+	pods []corev1.Pod,
+	ignoreNamespaces bool,
+) (map[string]*corev1.Pod, error) {
+	mirrorPrefixes, err := r.getAllMirrorPrefixes(ctx, ignoreNamespaces)
+	if err != nil {
+		return nil, err
+	}
+
+	original := obj.DeepCopyObject().(client.Object)
+	podsByMatchingImages, err := mergePreviousAndCurrentMatchingImages(ctx, pods, spec, status, mirrorPrefixes)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := r.Status().Patch(ctx, obj, client.MergeFrom(original)); err != nil {
+		return nil, err
+	}
+
+	return podsByMatchingImages, nil
+}
+
+func (r *ImageSetMirrorBaseReconciler) cleanupExpiredMirrors(
+	ctx context.Context,
+	obj client.Object,
+	spec *kuikv1alpha1.ImageSetMirrorSpec,
+	status *kuikv1alpha1.ImageSetMirrorStatus,
+) (time.Duration, bool, error) {
+	someDeletionFailed := false
+	requeueAfter := time.Duration(0)
+	matchingImagesAfterCleanup := []kuikv1alpha1.MatchingImage{}
+
+	for i := range status.MatchingImages {
+		matchingImage := &status.MatchingImages[i]
+
+		if matchingImage.UnusedSince == nil {
+			matchingImagesAfterCleanup = append(matchingImagesAfterCleanup, *matchingImage)
+			continue
+		}
+
+		mirrorsAfterCleanup, deletionFailed, nextRequeue := r.cleanupUnusedMatchingImage(ctx, obj, spec, matchingImage)
+		if deletionFailed {
+			someDeletionFailed = true
+		}
+		if nextRequeue > 0 && (requeueAfter == 0 || nextRequeue < requeueAfter) {
+			requeueAfter = nextRequeue
+		}
+
+		if len(mirrorsAfterCleanup) > 0 {
+			matchingImage.Mirrors = mirrorsAfterCleanup
+			matchingImagesAfterCleanup = append(matchingImagesAfterCleanup, *matchingImage)
+		}
+	}
+
+	original := obj.DeepCopyObject().(client.Object)
+	status.MatchingImages = matchingImagesAfterCleanup
+	if err := r.Status().Patch(ctx, obj, client.MergeFrom(original)); err != nil {
+		return 0, false, err
+	}
+
+	return requeueAfter, someDeletionFailed, nil
+}
+
+func (r *ImageSetMirrorBaseReconciler) cleanupUnusedMatchingImage(
+	ctx context.Context,
+	obj client.Object,
+	spec *kuikv1alpha1.ImageSetMirrorSpec,
+	matchingImage *kuikv1alpha1.MatchingImage,
+) ([]kuikv1alpha1.MirrorStatus, bool, time.Duration) {
+	log := logf.FromContext(ctx)
+	mirrorsAfterCleanup := []kuikv1alpha1.MirrorStatus{}
+	deletionFailed := false
+	requeueAfter := time.Duration(0)
+
+	for j := range matchingImage.Mirrors {
+		mirror := &matchingImage.Mirrors[j]
+
+		cleanupEnabled := spec.Cleanup.Enabled
+		retentionDuration := spec.Cleanup.Retention.Duration // TODO: merge retention options
+		deleteAfter := retentionDuration - time.Since(matchingImage.UnusedSince.Time)
+		if !cleanupEnabled {
+			mirrorsAfterCleanup = append(mirrorsAfterCleanup, *mirror)
+			continue
+		} else if deleteAfter > 0 {
+			if requeueAfter == 0 || deleteAfter < requeueAfter {
+				requeueAfter = deleteAfter
+			}
+			mirrorsAfterCleanup = append(mirrorsAfterCleanup, *mirror)
+			continue
+		}
+
+		cleanupLog := log.WithValues("image", mirror.Image)
+		cleanupLog.Info("image is unused for more than the retention duration, deleting it", "retentionDuration", retentionDuration)
+		if mirror.MirroredAt != nil {
+			if !r.cleanupMirror(logf.IntoContext(ctx, cleanupLog), mirror.Image, obj.GetNamespace(), spec.Mirrors) {
+				mirrorsAfterCleanup = append(mirrorsAfterCleanup, *mirror)
+				deletionFailed = true
+			}
+		}
+	}
+
+	return mirrorsAfterCleanup, deletionFailed, requeueAfter
+}
+
+func (r *ImageSetMirrorBaseReconciler) mirrorPendingImages(
+	ctx context.Context,
+	obj client.Object,
+	spec *kuikv1alpha1.ImageSetMirrorSpec,
+	status *kuikv1alpha1.ImageSetMirrorStatus,
+	podsByMatchingImages map[string]*corev1.Pod,
+) (bool, error) {
+	log := logf.FromContext(ctx)
+	someMirrorFailed := false
+
+	for i := range status.MatchingImages {
+		matchingImage := &status.MatchingImages[i]
+		original := obj.DeepCopyObject().(client.Object)
+
+		if matchingImage.UnusedSince != nil {
+			continue
+		}
+
+		for j := range matchingImage.Mirrors {
+			mirror := &matchingImage.Mirrors[j]
+
+			if mirror.MirroredAt != nil {
+				continue
+			}
+
+			mirrorLog := log.WithValues("from", matchingImage.Image, "to", mirror.Image)
+			mirrorLog.Info("mirroring image")
+
+			if err := r.mirrorImage(ctx, obj.GetNamespace(), spec.Mirrors, podsByMatchingImages, matchingImage.Image, mirror); err != nil {
+				mirrorLog.Error(err, "could not mirror image")
+				someMirrorFailed = true
+				mirror.LastError = err.Error()
+			} else {
+				mirrorLog.Info("successfully mirrored image")
+				mirror.LastError = ""
+			}
+		}
+
+		if err := r.Status().Patch(ctx, obj, client.MergeFrom(original)); err != nil {
+			return false, err
+		}
+	}
+
+	return someMirrorFailed, nil
+}
+
+func buildReconcileResult(requeueAfter time.Duration, someDeletionFailed, someMirrorFailed bool) (ctrl.Result, error) {
+	if someDeletionFailed {
+		return ctrl.Result{}, errors.New("one or more image(s) could not be deleted")
+	}
+	if someMirrorFailed {
+		return ctrl.Result{}, errors.New("one or more image(s) could not be mirrored")
+	}
+	if requeueAfter > 0 {
+		return ctrl.Result{RequeueAfter: requeueAfter}, nil
+	}
+	return ctrl.Result{}, nil
 }
 
 func (r *ImageSetMirrorBaseReconciler) getAllMirrorPrefixes(ctx context.Context, ignoreNamespaces bool) (map[string][]string, error) {
