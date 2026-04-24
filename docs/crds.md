@@ -15,6 +15,8 @@ The `ReplicatedImageSet` and `ClusterReplicatedImageSet` resources declare equiv
 
 This is particularly useful for multi-homed projects (e.g., Thanos, Prometheus, Kubernetes components) where the same binary is published to multiple registries.
 
+Image path is always [normalized](https://github.com/distribution/reference/blob/main/normalize.go) by kuik, so use full path in `imageFilter`. For instance `busybox:stable` will be seen as `docker.io/library/busybox:stable`.
+
 ### Fields
 
 | Field | Required | Description |
@@ -87,6 +89,8 @@ spec:
 ## (Cluster)ImageSetMirror
 
 The `ImageSetMirror` and `ClusterImageSetMirror` resources define the actual mirroring implementation for your cluster. They determine which images are selected for synchronization, specify the target destination, and manage the authentication via push secrets.
+
+Image path is always [normalized](https://github.com/distribution/reference/blob/main/normalize.go) by kuik, so use full path in `imageFilter`. For instance `busybox:stable` will be seen as `docker.io/library/busybox:stable`.
 
 ### Fields
 
