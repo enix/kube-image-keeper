@@ -31,12 +31,15 @@ In v2, the model shifts to **ImageSets**. Each CR defines a group of images buil
 
 - Setup a registry to replace the one deployed by kuik v1 and configure periodic garbage collect on it
 - Create a token to pull, push and delete on the registry and configure as secret with:
-```
+
+```bash
 kubectl -n kuik-system create secret docker-registry my-registry-secret --docker-server=my-registry.company.com --docker-username=my-username --docker-password=my-token
 ```
+
 - Either you will let kuik progressively populate your new registry as you re-deploy images or if you have image that no longer exist upstream, you can use a tool like [regsync](https://regclient.org/usage/regsync/) to copy images from kuik v1 registry to your new one
 - Uninstall KuiK v1 and install KuiK v2
 - Create a [*ClusterImageSetMirror*](/docs/crds.md#clusterimagesetmirror) which mirror all images and force rewrite in any case as in kuik v1:
+
 ```yaml
 apiVersion: kuik.enix.io/v1alpha1
 kind: ClusterImageSetMirror

@@ -121,14 +121,15 @@ helm upgrade --install --create-namespace --namespace kuik-system kube-image-kee
 Custom Resource Definitions (CRDs) are used to configure the behavior of kuik such as its routing and mirroring features. Those are described in the [docs/crds.md](./docs/crds.md) document.
 
 To setup an [*ImageSetMirror* (or a *ClusterImageSetMirror*)](./docs/crds.md#clusterimagesetmirror), you will first need to configure a registry where kuik will copy matched images. Then generate a token with permission to pull, push and delete (if cleanup enabled) in this registry and create the secret to use in your *ImageSetMirror* with:
-```
+
+```bash
 kubectl create secret docker-registry my-registry-secret --docker-server=my-registry.company.com --docker-username=my-username --docker-password=my-token
 ```
-If you let kuik cleanup expired images in your registry, you still have to configure garbage collection on your own as kuik only delete images reference.
 
+If you let kuik cleanup expired images in your registry, you still have to configure garbage collection on your own as kuik only delete images reference.
 
 ## Why Version 2?
 
-Even if we are _proud_ of what we achieved with the v1 of **kube-image-keeper**, it was too often painful to work with: it was hard to deploy, overly complex, and the image caching feature — while ambitious — introduced often too much issues. We missed our original goal: to make kube-image-keeper an **easy, no-brainer install for any cluster** which would help ops in their day to day work and **provide confidence**.
+Even if we are *proud* of what we achieved with the v1 of **kube-image-keeper**, it was too often painful to work with: it was hard to deploy, overly complex, and the image caching feature — while ambitious — introduced often too much issues. We missed our original goal: to make kube-image-keeper an **easy, no-brainer install for any cluster** which would help ops in their day to day work and **provide confidence**.
 
-We learned _a lot_ from this experience and with v2, **_we're starting fresh!_** Our focus is on **simplicity** and **ease of use** with the same set of features and even more! kuik should be effortless to install and to use — you shouldn't have to think twice before adding it to your cluster. Our goal: you will **forget it's even there** and don't even notice when a registry goes down or an image becomes unavailable.
+We learned *a lot* from this experience and with v2, ***we're starting fresh!*** Our focus is on **simplicity** and **ease of use** with the same set of features and even more! kuik should be effortless to install and to use — you shouldn't have to think twice before adding it to your cluster. Our goal: you will **forget it's even there** and don't even notice when a registry goes down or an image becomes unavailable.
