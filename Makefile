@@ -79,6 +79,10 @@ generate-helm-docs: helm-docs
 	$(HELM_DOCS)
 	rm -rf ./helm/kube-image-keeper/repo
 
+.PHONY: generate-crd-docs
+generate-crd-docs: crd-ref-docs ## Generate CRD API reference documentation.
+	$(CRD_REF_DOCS) --source-path=./api/kuik/v1alpha1 --renderer=markdown --output-path=docs/api-reference.md --config=docs/crd-ref-docs-config.yaml
+
 .PHONY: fmt
 fmt: ## Run go fmt against code.
 	go fmt ./...
@@ -202,6 +206,7 @@ ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
 HELM_DOCS = $(LOCALBIN)/helm-docs
 CONFORM = $(LOCALBIN)/conform
+CRD_REF_DOCS = $(LOCALBIN)/crd-ref-docs
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.6.0
@@ -213,6 +218,7 @@ ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -
 GOLANGCI_LINT_VERSION ?= v1.64.8
 HELM_DOCS_VERSION ?= v1.14.2
 CONFORM_VERSION ?= v0.1.0-alpha.31
+CRD_REF_DOCS_VERSION ?= v0.3.0
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
@@ -258,6 +264,11 @@ else
 endif
 $(CONFORM): $(LOCALBIN)
 	$(call go-install-tool,$(CONFORM),github.com/siderolabs/conform/cmd/conform,$(CONFORM_VERSION))
+
+.PHONY: crd-ref-docs
+crd-ref-docs: $(CRD_REF_DOCS) ## Download crd-ref-docs locally if necessary.
+$(CRD_REF_DOCS): $(LOCALBIN)
+	$(call go-install-tool,$(CRD_REF_DOCS),github.com/elastic/crd-ref-docs,$(CRD_REF_DOCS_VERSION))
 
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
 # $1 - target path with name of binary

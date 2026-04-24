@@ -1,6 +1,6 @@
 # kuik.enix.io/v1alpha1
 
-This document describes the available Custom Resource Definitions (CRDs). Examples provided are non-exhaustive; for a full list of fields, please refer to the `kubectl describe <resource-name>` command.
+This document describes the available Custom Resource Definitions (CRDs). For a complete field-by-field reference of all types, see the generated [API Reference](api-reference.md).
 
 Resource Types:
 
