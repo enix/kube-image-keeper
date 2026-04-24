@@ -10,14 +10,11 @@ Before contributing to kube-image-keeper, ensure you have all prerequisites inst
 
 ### Git hooks (lefthook)
 
-We use [lefthook](https://github.com/evilmartians/lefthook) to run checks locally (code generation, formatting, linting, commit message linting). After cloning the repository, install lefthook and [conform](https://github.com/siderolabs/conform) (used to check commit messages against the conventional commits specification), then register the hooks:
+We use [lefthook](https://github.com/evilmartians/lefthook) to run checks locally (code generation, formatting, linting, commit message linting). After cloning the repository, install lefthook, then register the hooks:
 
 ```sh
-# Install lefthook (see https://lefthook.dev/installation/ for other methods)
+# Install lefthook (see https://lefthook.dev/install/ for other methods)
 go install github.com/evilmartians/lefthook@latest
-
-# Install conform (pinned to the version used in CI)
-go install github.com/siderolabs/conform/cmd/conform@v0.1.0-alpha.31
 
 # Register the git hooks
 lefthook install
