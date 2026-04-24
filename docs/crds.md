@@ -1,8 +1,9 @@
-This document describes the available Custom Resource Definitions (CRDs). Examples provided are non-exhaustive; for a full list of fields, please refer to the `kubectl describe <resource-name>` command.
-
 # kuik.enix.io/v1alpha1
 
+This document describes the available Custom Resource Definitions (CRDs). Examples provided are non-exhaustive; for a full list of fields, please refer to the `kubectl describe <resource-name>` command.
+
 Resource Types:
+
 * [ReplicatedImageSet](#clusterreplicatedimageset)
 * [ClusterReplicatedImageSet](#clusterreplicatedimageset)
 * [ImageSetMirror](#clusterimagesetmirror)
@@ -137,7 +138,8 @@ spec:
 ```
 
 The registry secret must be a `docker-registry` type secret. You could create it with:
-```
+
+```bash
 kubectl -n kuik-system create secret docker-registry registry-secret --docker-server=registry.example.com --docker-username=username --docker-password=password
 ```
 
