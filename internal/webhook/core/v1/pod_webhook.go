@@ -26,7 +26,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	apimachinerytypes "k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -34,7 +33,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
@@ -63,7 +61,7 @@ func SetupPodWebhookWithManager(mgr ctrl.Manager, d *PodCustomDefaulter) error {
 	d.alternativeCache = alternativeCache
 	d.requestGroup = &singleflight.Group{}
 
-	return ctrl.NewWebhookManagedBy(mgr).For(&corev1.Pod{}).
+	return ctrl.NewWebhookManagedBy(mgr, &corev1.Pod{}).
 		WithDefaulter(d).
 		Complete()
 }
@@ -143,17 +141,12 @@ func compareAlternatives(a, b prioritizedAlternative) int {
 	)
 }
 
-var _ webhook.CustomDefaulter = &PodCustomDefaulter{}
+var _ admission.Defaulter[*corev1.Pod] = &PodCustomDefaulter{}
 
-// Default implements webhook.CustomDefaulter so a webhook will be registered for the Kind Pod.
-func (d *PodCustomDefaulter) Default(ctx context.Context, obj runtime.Object) error {
+// Default implements admission.Defaulter so a webhook will be registered for the Kind Pod.
+func (d *PodCustomDefaulter) Default(ctx context.Context, pod *corev1.Pod) error {
 	request, _ := admission.RequestFromContext(ctx)
 	log := podlog.WithValues("requestID", request.UID, "namespace", request.Namespace, "name", request.Name)
-
-	pod, ok := obj.(*corev1.Pod)
-	if !ok {
-		return fmt.Errorf("expected a Pod object but got %T", obj)
-	}
 
 	log = log.WithValues("generateName", pod.GenerateName)
 
