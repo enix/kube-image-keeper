@@ -158,3 +158,11 @@ For a pod in namespace `my-app` requesting `docker-registry.example.com/my-app/a
 2. `harbor.example.com/my-app-mirror/my-app/api:v2` (CR priority `-10`, intra-priority `5`)
 3. `harbor.example.com/global-mirror/my-app/api:v2` (CR priority `-1`)
 4. `docker-registry.example.com/my-app/api:v2` (original image, priority `0`)
+
+## Interaction with `imagePullPolicy`
+
+By default, containers with `imagePullPolicy: Always` always pull the original image first; `spec.priority` on `(Cluster)ImageSetMirror` / `(Cluster)ReplicatedImageSet` is not honored for those containers. This preserves the semantic that `Always` should reach the upstream registry even when a higher-priority mirror is declared.
+
+To honor priorities for `Always` containers as well (for example, in clusters where `Always` is enforced cluster-wide and you want to route through a private mirror to avoid upstream rate limits), set `routing.honorPrioritiesOnAlwaysImagePullPolicy: true` in the operator configuration (or in the Helm values). With this flag set, a negative `spec.priority` will route through the mirror before the original image regardless of pull policy.
+
+Containers with `imagePullPolicy: Never` are skipped entirely by default; this can be flipped with `routing.rewriteOnNeverImagePullPolicy: true`.

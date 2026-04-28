@@ -176,6 +176,133 @@ var _ = Describe("compareAlternatives", func() {
 	})
 })
 
+var _ = Describe("buildAlternativesList", func() {
+	var d *PodCustomDefaulter
+
+	BeforeEach(func() {
+		testConfig, err := config.LoadDefault()
+		Expect(err).NotTo(HaveOccurred())
+		d = &PodCustomDefaulter{Client: k8sClient, Config: testConfig}
+	})
+
+	references := func(c *Container) []string {
+		refs := make([]string, len(c.Images))
+		for i, img := range c.Images {
+			refs[i] = img.Reference
+		}
+		return refs
+	}
+
+	makeContainer := func(image string, policy corev1.PullPolicy) *Container {
+		return &Container{
+			Container: &corev1.Container{
+				Name:            "app",
+				Image:           image,
+				ImagePullPolicy: policy,
+			},
+			NormalizedImage: image,
+			Alternatives:    map[string]struct{}{},
+		}
+	}
+
+	cismWithMirror := func(priority int, registry, mirrorPath string) kuikv1alpha1.ImageSetMirror {
+		return kuikv1alpha1.ImageSetMirror{
+			ObjectMeta: metav1.ObjectMeta{Name: "global"},
+			Spec: kuikv1alpha1.ImageSetMirrorSpec{
+				Priority: priority,
+				ImageFilter: kuikv1alpha1.ImageFilterDefinition{
+					Include: []string{".*"},
+				},
+				Mirrors: kuikv1alpha1.Mirrors{
+					{Registry: registry, Path: mirrorPath},
+				},
+			},
+		}
+	}
+
+	Context("with imagePullPolicy: Always", func() {
+		It("pins the original first by default, ignoring negative spec.priority", func() {
+			c := makeContainer("docker.io/library/nginx:1.29", corev1.PullAlways)
+			err := d.buildAlternativesList(
+				ctx,
+				[]kuikv1alpha1.ImageSetMirror{cismWithMirror(-1, "harbor.example.com", "/mirror")},
+				nil,
+				c,
+			)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(references(c)).To(Equal([]string{
+				"docker.io/library/nginx:1.29",
+				"harbor.example.com/mirror/library/nginx:1.29",
+			}))
+		})
+
+		It("honors a CISM with negative spec.priority when HonorPrioritiesOnAlwaysImagePullPolicy is true (issue #561)", func() {
+			d.Config.Routing.HonorPrioritiesOnAlwaysImagePullPolicy = true
+			c := makeContainer("docker.io/library/nginx:1.29", corev1.PullAlways)
+			err := d.buildAlternativesList(
+				ctx,
+				[]kuikv1alpha1.ImageSetMirror{cismWithMirror(-1, "harbor.example.com", "/mirror")},
+				nil,
+				c,
+			)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(references(c)).To(Equal([]string{
+				"harbor.example.com/mirror/library/nginx:1.29",
+				"docker.io/library/nginx:1.29",
+			}))
+		})
+
+		It("places original first when HonorPrioritiesOnAlwaysImagePullPolicy is true and CISM priority is 0", func() {
+			d.Config.Routing.HonorPrioritiesOnAlwaysImagePullPolicy = true
+			c := makeContainer("docker.io/library/nginx:1.29", corev1.PullAlways)
+			err := d.buildAlternativesList(
+				ctx,
+				[]kuikv1alpha1.ImageSetMirror{cismWithMirror(0, "harbor.example.com", "/mirror")},
+				nil,
+				c,
+			)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(references(c)).To(Equal([]string{
+				"docker.io/library/nginx:1.29",
+				"harbor.example.com/mirror/library/nginx:1.29",
+			}))
+		})
+	})
+
+	Context("with imagePullPolicy: IfNotPresent", func() {
+		It("honors a CISM with negative spec.priority", func() {
+			c := makeContainer("docker.io/library/nginx:1.29", corev1.PullIfNotPresent)
+			err := d.buildAlternativesList(
+				ctx,
+				[]kuikv1alpha1.ImageSetMirror{cismWithMirror(-1, "harbor.example.com", "/mirror")},
+				nil,
+				c,
+			)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(references(c)).To(Equal([]string{
+				"harbor.example.com/mirror/library/nginx:1.29",
+				"docker.io/library/nginx:1.29",
+			}))
+		})
+
+		It("is unaffected by HonorPrioritiesOnAlwaysImagePullPolicy", func() {
+			d.Config.Routing.HonorPrioritiesOnAlwaysImagePullPolicy = true
+			c := makeContainer("docker.io/library/nginx:1.29", corev1.PullIfNotPresent)
+			err := d.buildAlternativesList(
+				ctx,
+				[]kuikv1alpha1.ImageSetMirror{cismWithMirror(-1, "harbor.example.com", "/mirror")},
+				nil,
+				c,
+			)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(references(c)).To(Equal([]string{
+				"harbor.example.com/mirror/library/nginx:1.29",
+				"docker.io/library/nginx:1.29",
+			}))
+		})
+	})
+})
+
 var _ = Describe("clearStaleMirrorStatus", func() {
 	It("should respect context cancellation", func() {
 		ctx, cancel := context.WithCancel(context.Background())

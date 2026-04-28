@@ -19,8 +19,9 @@ type Config struct {
 }
 
 type Routing struct {
-	ActiveCheck                   ActiveCheck `koanf:"activeCheck"`
-	RewriteOnNeverImagePullPolicy bool        `koanf:"rewriteOnNeverImagePullPolicy"`
+	ActiveCheck                            ActiveCheck `koanf:"activeCheck"`
+	RewriteOnNeverImagePullPolicy          bool        `koanf:"rewriteOnNeverImagePullPolicy"`
+	HonorPrioritiesOnAlwaysImagePullPolicy bool        `koanf:"honorPrioritiesOnAlwaysImagePullPolicy"`
 }
 
 type ActiveCheck struct {
@@ -63,7 +64,8 @@ var defaultConfig = Config{
 				Timeout:       5 * time.Second,
 			},
 		},
-		RewriteOnNeverImagePullPolicy: false,
+		RewriteOnNeverImagePullPolicy:          false,
+		HonorPrioritiesOnAlwaysImagePullPolicy: false,
 	},
 	Monitoring: Monitoring{
 		Registries: Registries{
