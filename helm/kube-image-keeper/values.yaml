@@ -110,6 +110,7 @@ configuration:
         maxConcurrent: 10
         timeout: 5s
     rewriteOnNeverImagePullPolicy: false
+    honorPrioritiesOnAlwaysImagePullPolicy: false
   monitoring:
     registries:
       default:

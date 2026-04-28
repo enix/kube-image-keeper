@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"net/http"
 	"path"
 	"slices"
@@ -399,17 +400,20 @@ func (d *PodCustomDefaulter) findBestAlternativeCached(ctx context.Context, imag
 func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSetMirrors []kuikv1alpha1.ImageSetMirror, replicatedImageSets []kuikv1alpha1.ReplicatedImageSet, container *Container) error {
 	log := logf.FromContext(ctx)
 	normalizedImage := container.NormalizedImage
-	alternatives := []prioritizedAlternative{}
+	alternatives := make([]prioritizedAlternative, 0, 1)
 
-	// Collect original image (and skip sorting when imagePullPolicy == "Always")
-	if container.ImagePullPolicy == "Always" {
-		container.addAlternative(normalizedImage, nil, nil)
-	} else {
-		alternatives = append(alternatives, prioritizedAlternative{
-			reference: normalizedImage,
-			typeOrder: crTypeOrderOriginal,
-		})
+	// Collect original image. By default, containers with imagePullPolicy: Always
+	// pin the original first regardless of CR priorities; mirrors/upstreams are
+	// still appended as fallback. Set HonorPrioritiesOnAlwaysImagePullPolicy to
+	// opt into priority sorting for those containers.
+	original := prioritizedAlternative{
+		reference: normalizedImage,
+		typeOrder: crTypeOrderOriginal,
 	}
+	if container.ImagePullPolicy == corev1.PullAlways && !d.Config.Routing.HonorPrioritiesOnAlwaysImagePullPolicy {
+		original.crPriority = math.MinInt
+	}
+	alternatives = append(alternatives, original)
 
 	// Collect from ReplicatedImageSets
 	for risIdx := range replicatedImageSets {
