@@ -14,4 +14,5 @@ const (
 
 	// Annotation names
 	OriginalImagesAnnotation = "kuik.enix.io/original-images"
+	MirrorPodAnnotation      = "kubernetes.io/config.mirror"
 )
