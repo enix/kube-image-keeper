@@ -115,6 +115,7 @@ jobs:
         uses: oras-project/setup-oras@v2
 
       - name: Generate Helm index and push it
+        working-directory: ${{ runner.temp }}
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN_PUBLISH_HELM_CHART }}
           REPO_LOGIN: ${{ secrets.REPO_LOGIN }}
