@@ -10,7 +10,8 @@ type ReplicatedImageSetSpec struct {
 	// Negative values place alternatives before the original image; positive values place them after.
 	// Default is 0 (original image first, then alternatives in default type order).
 	// +optional
-	Priority  int                  `json:"priority,omitempty"`
+	Priority int `json:"priority,omitempty"`
+	// +kubebuilder:validation:MaxItems=32
 	Upstreams []ReplicatedUpstream `json:"upstreams,omitempty"`
 }
 
