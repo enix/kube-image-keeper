@@ -102,32 +102,7 @@ serviceAccount:
 # -- Delay in hours before deleting an Image that is not used by any pod
 unusedImageTTL: 24
 
-configuration:
-  routing:
-    activeCheck:
-      timeout: 1s
-      staleMirrorCleanup:
-        maxConcurrent: 10
-        timeout: 5s
-    rewriteOnNeverImagePullPolicy: false
-    honorPrioritiesOnAlwaysImagePullPolicy: false
-  monitoring:
-    registries:
-      default:
-        method: HEAD
-        interval: 3h
-        maxPerInterval: 25
-      items:
-        docker.io:
-          interval: 1h
-          maxPerInterval: 6
-  metrics:
-    imageLastMonitorAgeMinutes:
-      bucketFactor: 1.1
-      zeroThreshold: 1.0
-      maxBucketNumber: 20
-      legacy:
-        bucketType: "exponential"
-        count: 12
-        start: 1
-        factor: 1.94
+# -- Operator configuration overrides. Leave empty to rely on the operator's
+# built-in defaults (see internal/config/config.go and docs/configuration.md).
+# Any key set here is merged on top of those defaults.
+configuration: {}

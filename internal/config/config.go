@@ -1,7 +1,9 @@
 package config
 
 import (
+	"errors"
 	"net/http"
+	"os"
 	"time"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
@@ -104,6 +106,12 @@ func LoadDefault() (*Config, error) {
 }
 
 func Load(path string) (*Config, error) {
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return LoadDefault()
+		}
+		return nil, err
+	}
 	return load(file.Provider(path), yaml.Parser())
 }
 
