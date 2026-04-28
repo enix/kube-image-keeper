@@ -50,10 +50,19 @@ type ImageSetMirrorList struct {
 	Items           []ImageSetMirror `json:"items"`
 }
 
-// ImageFilterDefinition is the definition of an image filter
-// TODO: add a validating webhook
+// ImageFilterDefinition is the definition of an image filter.
+// The XValidation rules below reject patterns that fail to compile as RE2
+// regexes. The ternary form (matches(p) ? true : true) forces CEL to evaluate
+// matches(), so an invalid pattern surfaces as a validation error instead of
+// being swallowed by short-circuit operators.
 type ImageFilterDefinition struct {
+	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:items:MaxLength=128
+	// +kubebuilder:validation:XValidation:rule="self.all(p, ''.matches(p) ? true : true)",message="include contains an invalid regular expression"
 	Include []string `json:"include,omitempty"`
+	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:items:MaxLength=128
+	// +kubebuilder:validation:XValidation:rule="self.all(p, ''.matches(p) ? true : true)",message="exclude contains an invalid regular expression"
 	Exclude []string `json:"exclude,omitempty"`
 }
 

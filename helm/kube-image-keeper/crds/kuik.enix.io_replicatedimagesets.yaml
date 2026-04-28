@@ -69,12 +69,22 @@ spec:
                       properties:
                         exclude:
                           items:
+                            maxLength: 128
                             type: string
+                          maxItems: 16
                           type: array
+                          x-kubernetes-validations:
+                          - message: exclude contains an invalid regular expression
+                            rule: 'self.all(p, ''''.matches(p) ? true : true)'
                         include:
                           items:
+                            maxLength: 128
                             type: string
+                          maxItems: 16
                           type: array
+                          x-kubernetes-validations:
+                          - message: include contains an invalid regular expression
+                            rule: 'self.all(p, ''''.matches(p) ? true : true)'
                       type: object
                     path:
                       description: Path is a string identifying the image in a registry
@@ -92,6 +102,7 @@ spec:
                   - path
                   - registry
                   type: object
+                maxItems: 32
                 type: array
             type: object
           status:
