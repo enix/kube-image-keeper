@@ -166,6 +166,11 @@ func (d *PodCustomDefaulter) Default(ctx context.Context, pod *corev1.Pod) error
 func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dryRun bool) error {
 	log := logf.FromContext(ctx)
 
+	if _, isMirrorPod := pod.Annotations[kuikcontroller.MirrorPodAnnotation]; isMirrorPod {
+		log.V(1).Info("skipping mirror pod (static pod representation), kubelet would reject mutations")
+		return nil
+	}
+
 	if pod.Annotations == nil {
 		pod.Annotations = map[string]string{}
 	}

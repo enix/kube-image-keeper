@@ -47,6 +47,63 @@ var _ = Describe("Pod Webhook", func() {
 		//     Expect(obj.SomeFieldWithDefault).To(Equal("default_value"))
 		// })
 	})
+
+	Context("When the pod is a kubelet mirror pod (static pod)", func() {
+		It("should skip mutation entirely (no image rewrite, no imagePullSecrets injection, no annotation written)", func() {
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "kube-system",
+					Name:      "kube-apiserver-node1",
+					Annotations: map[string]string{
+						"kubernetes.io/config.mirror": "abc123",
+					},
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{Name: "kube-apiserver", Image: "registry.k8s.io/kube-apiserver:v1.30.0"},
+					},
+				},
+			}
+
+			d := &PodCustomDefaulter{}
+			Expect(d.defaultPod(context.Background(), pod, true)).To(Succeed())
+
+			By("leaving the container image untouched")
+			Expect(pod.Spec.Containers[0].Image).To(Equal("registry.k8s.io/kube-apiserver:v1.30.0"))
+
+			By("not injecting any imagePullSecrets")
+			Expect(pod.Spec.ImagePullSecrets).To(BeEmpty())
+
+			By("not writing the original-images annotation")
+			Expect(pod.Annotations).NotTo(HaveKey("kuik.enix.io/original-images"))
+		})
+
+		It("should not short-circuit a regular pod that lacks the mirror annotation", func() {
+			// Seed OriginalImagesAnnotation so defaultPod exits at the
+			// "all containers already processed" branch without needing
+			// a real client to list mirror/replicated CRs.
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "default",
+					Name:      "regular-pod",
+					Annotations: map[string]string{
+						"kuik.enix.io/original-images": `{"app":"docker.io/library/nginx:1.27"}`,
+					},
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{Name: "app", Image: "docker.io/library/nginx:1.27"},
+					},
+				},
+			}
+
+			d := &PodCustomDefaulter{}
+			Expect(d.defaultPod(context.Background(), pod, true)).To(Succeed())
+
+			By("preserving the original-images annotation (proves the mirror guard did not fire)")
+			Expect(pod.Annotations).To(HaveKeyWithValue("kuik.enix.io/original-images", `{"app":"docker.io/library/nginx:1.27"}`))
+		})
+	})
 })
 
 var _ = Describe("compareAlternatives", func() {
