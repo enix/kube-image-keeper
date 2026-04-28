@@ -81,6 +81,7 @@ It use [Custom Resources *ImageSetMirror* and *ReplicatedImageSet*](docs/crds.md
 ## 📘 Documentation
 
 - A detailed explanation of all [Kuik Custom Resources](docs/crds.md)
+- A reference for the [operator configuration file](docs/configuration.md) (routing, monitoring, metrics)
 - Kuik manages multiple alternatives of an image and selects the best-suited one. You might want to learn more about the [Priority mechanism](docs/image-routing.md)
 - A preliminary migration path from [Kuik v1 to Kuik v2](docs/v1-to-v2-migration-path.md)
 - A collection of documented [use cases](#when-to-use-kube-image-keeper)

@@ -166,3 +166,5 @@ By default, containers with `imagePullPolicy: Always` always pull the original i
 To honor priorities for `Always` containers as well (for example, in clusters where `Always` is enforced cluster-wide and you want to route through a private mirror to avoid upstream rate limits), set `routing.honorPrioritiesOnAlwaysImagePullPolicy: true` in the operator configuration (or in the Helm values). With this flag set, a negative `spec.priority` will route through the mirror before the original image regardless of pull policy.
 
 Containers with `imagePullPolicy: Never` are skipped entirely by default; this can be flipped with `routing.rewriteOnNeverImagePullPolicy: true`.
+
+See the full [operator configuration reference](./configuration.md) for the list of all supported fields, their defaults, and the precedence rules.
