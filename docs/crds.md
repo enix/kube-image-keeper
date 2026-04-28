@@ -177,7 +177,7 @@ spec:
 
 ### Operator configuration
 
-The check rate and method are controlled per-registry in the operator's `config.yaml`, not in the CRD:
+The check rate and method are controlled per-registry in the operator's `config.yaml`, not in the CRD. See the full [operator configuration reference](./configuration.md) for the list of all supported fields, their defaults, and the precedence rules.
 
 ```yaml
 monitoring:
