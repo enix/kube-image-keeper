@@ -24,18 +24,20 @@
 
 kuik v2 is a **complete rewrite** of the project with a focus on **simplicity** and **ease of use** :
 
-- **Minimal default features**: core functionality enabled by default, others opt-in
-- **Image routing**: kuik can rewrite Pod images on-the-fly to point to an operational registry
-- **Image copy**: kuik can manage copy between registries to create a virtual highly available registry
-- **Image monitoring**: kuik can monitor image availability across various registries
-- **Redesigned CRDs** for better clarity and extensibility
+- **Minimal default features**: only core functionality enabled by default, others opt-in.
+- **Image routing**: Kuik can rewrite Pod images on-the-fly to redirect them to an operational registry.
+- **Image copy**: Kuik manages image transfers between registries to create a virtual, highly-available, registry.
+- **Image monitoring**: Kuik tracks image availability across various registries.
+- **Redesigned CRDs**: offer better clarity and improved extensibility.
 
-### Concept : Container image alternatives
+### Concept : Container image alternative
 
-KuiK use a mutating webhook to rewrite pod containers images when their are not available.
-It use [Custom Resources *ImageSetMirror* and *ReplicatedImageSet*](docs/crds.md) to generate a list of **alternatives** image values (including **original** one) for a given container image and check their availability to know if we keep using **original** image or **rewrite** it to an available **alternative**.
+KuiK utilizes a **mutating webhook** to rewrite Pod container images when the primary source is not available.
+By leveraging [*ImageSetMirror* or *ReplicatedImageSet*](docs/crds.md) Custom Resources, Kuik generates a list of **alternative** image locations (including the **original** one). It then validates their availability to determine whether to stick with the **original** image or rewrite the manifest to a healthy alternative.
 
-*ReplicatedImageSet* and *ImageSetMirror* both generate **alternatives** images when checking image availability in mutating webhook, but *ImageSetMirror* also handle the copy of **original** image to the given mirror registry.
+While both Custom Resources generate alternatives, their behavior differs slightly:
+- *ReplicatedImageSet*: Focuses on checking availability across existing mirrors.
+- *ImageSetMirror*: Also handles the **automated copy** of the original image to the specified mirror registry.
 
 ## When to use Kube Image Keeper
 
