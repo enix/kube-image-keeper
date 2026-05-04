@@ -26,13 +26,13 @@ kuik v2 is a **complete rewrite** of the project with a focus on **simplicity** 
 
 - **Minimal default features**: only core functionality enabled by default, others opt-in.
 - **Image routing**: Kuik can rewrite Pod images on-the-fly to redirect them to an operational registry.
-- **Image copy**: Kuik manages image transfers between registries to create a virtual, highly-available, registry.
+- **Image copy**: Kuik manages image transfers between registries in order to create a virtual, highly-available registry.
 - **Image monitoring**: Kuik tracks image availability across various registries.
-- **Redesigned CRDs**: offer better clarity and improved extensibility.
+- **Redesigned CRDs**: for better clarity and improved extensibility.
 
 ### Concept : Container image alternative
 
-KuiK utilizes a **mutating webhook** to rewrite Pod container images when the primary source is not available.
+KuiK utilizes a **mutating webhook** to rewrite Pod container images when the primary ("original") source is not available.
 By leveraging [*ImageSetMirror* or *ReplicatedImageSet*](docs/crds.md) Custom Resources, Kuik generates a list of **alternative** image locations (including the **original** one). It then validates their availability to determine whether to stick with the **original** image or rewrite the manifest to a healthy alternative.
 
 While both Custom Resources generate alternatives, their behavior differs slightly:
