@@ -36,6 +36,7 @@ KuiK utilizes a **mutating webhook** to rewrite Pod container images when the pr
 By leveraging [*ImageSetMirror* or *ReplicatedImageSet*](docs/crds.md) Custom Resources, Kuik generates a list of **alternative** image locations (including the **original** one). It then validates their availability to determine whether to stick with the **original** image or rewrite the manifest to a healthy alternative.
 
 While both Custom Resources generate alternatives, their behavior differs slightly:
+
 - *ReplicatedImageSet*: Focuses on checking availability across existing mirrors.
 - *ImageSetMirror*: Also handles the **automated copy** of the original image to the specified mirror registry.
 
