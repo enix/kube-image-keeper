@@ -5,7 +5,14 @@ import (
 )
 
 // ClusterReplicatedImageSetSpec defines the desired state of ClusterReplicatedImageSet.
-type ClusterReplicatedImageSetSpec ReplicatedImageSetSpec
+type ClusterReplicatedImageSetSpec struct {
+	ReplicatedImageSetSpec `json:",inline"`
+
+	// NamespaceFilter restricts which namespaces this cluster-scoped resource applies to.
+	// When omitted or empty, the resource applies to every namespace.
+	// +optional
+	NamespaceFilter NamespaceFilterDefinition `json:"namespaceFilter,omitempty"`
+}
 
 // ClusterReplicatedImageSetStatus defines the observed state of ClusterReplicatedImageSet.
 type ClusterReplicatedImageSetStatus ReplicatedImageSetStatus

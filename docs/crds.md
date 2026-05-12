@@ -33,6 +33,9 @@ Image path is always [normalized](https://github.com/distribution/reference/blob
 | `spec.upstreams[].credentialSecret` | | Reference to a Secret used to pull matching images from this upstream. |
 | `spec.upstreams[].credentialSecret.name` | | Name of the Secret. |
 | `spec.upstreams[].credentialSecret.namespace` | | Namespace of the Secret. Ignored for namespaced `ReplicatedImageSet` (uses the parent namespace instead). |
+| `spec.namespaceFilter` | | (Cluster-scoped only.) Restricts which namespaces this resource applies to. Omitted or empty means the resource applies to every namespace. |
+| `spec.namespaceFilter.include` | | List of RE2 regex patterns. When non-empty, the resource only applies to pods whose namespace matches at least one entry. Takes precedence over `exclude` for the same namespace (enables a deny-all-then-allowlist idiom). |
+| `spec.namespaceFilter.exclude` | | List of RE2 regex patterns. Pods whose namespace matches any entry are out of scope (unless their namespace also matches `include`). |
 
 ### Example
 
@@ -112,6 +115,9 @@ Image path is always [normalized](https://github.com/distribution/reference/blob
 | `spec.mirrors[].credentialSecret.name` | | Name of the Secret. |
 | `spec.mirrors[].credentialSecret.namespace` | | Namespace of the Secret. Ignored for namespaced `ImageSetMirror` (uses the parent namespace instead). |
 | `spec.mirrors[].cleanup` | | Per-mirror cleanup strategy override. Same fields as `spec.cleanup`. |
+| `spec.namespaceFilter` | | (Cluster-scoped only.) Restricts which namespaces this resource applies to. Omitted or empty means the resource applies to every namespace. |
+| `spec.namespaceFilter.include` | | List of RE2 regex patterns. When non-empty, the resource only applies to pods whose namespace matches at least one entry. Takes precedence over `exclude` for the same namespace (enables a deny-all-then-allowlist idiom). |
+| `spec.namespaceFilter.exclude` | | List of RE2 regex patterns. Pods whose namespace matches any entry are out of scope (unless their namespace also matches `include`). |
 
 ### Example
 
@@ -146,6 +152,31 @@ kubectl -n kuik-system create secret docker-registry registry-secret --docker-se
 When cleanup is enabled, kuik only delete mirror image reference once an image is no longer running in the cluster since more than `retention` time (useful to deal with image used by CronJobs). You still have to configure garbage collection on your registry to actually reclaim space.
 
 If an image is rewritten to use our mirror, kuik will copy the secret to the pod's namespace and add it to pod `imagePullSecrets`.
+
+#### Scoping a `ClusterImageSetMirror` to specific namespaces
+
+The cluster-scoped variant accepts a `namespaceFilter` with `include` and `exclude` lists. When both are empty (the default) the resource applies to every namespace. `include` wins over `exclude` for any namespace that matches both, which enables a deny-all-then-allowlist idiom:
+
+```yaml
+apiVersion: kuik.enix.io/v1alpha1
+kind: ClusterImageSetMirror
+metadata:
+  name: prod-only
+spec:
+  namespaceFilter:
+    include:
+    - prod-.*
+    exclude:
+    - .*
+  imageFilter:
+    include:
+    - .*
+  mirrors:
+  - registry: registry.example.com
+    path: /mirror
+```
+
+The same `namespaceFilter` field is available on `ClusterReplicatedImageSet`.
 
 ## ClusterImageSetAvailability
 

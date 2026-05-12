@@ -257,9 +257,17 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 
 	imageSetMirrors := make([]kuikv1alpha1.ImageSetMirror, 0, len(cismList.Items))
 	for _, cism := range cismList.Items {
+		nsFilter, err := cism.Spec.NamespaceFilter.Build()
+		if err != nil {
+			log.Error(err, "skipping ClusterImageSetMirror with invalid namespace filter", "name", cism.Name)
+			continue
+		}
+		if !nsFilter.Match(pod.Namespace) {
+			continue
+		}
 		imageSetMirrors = append(imageSetMirrors, kuikv1alpha1.ImageSetMirror{
 			ObjectMeta: cism.ObjectMeta,
-			Spec:       kuikv1alpha1.ImageSetMirrorSpec(cism.Spec),
+			Spec:       cism.Spec.ImageSetMirrorSpec,
 			Status:     kuikv1alpha1.ImageSetMirrorStatus(cism.Status),
 		})
 	}
@@ -275,9 +283,17 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 
 	replicatedImageSets := make([]kuikv1alpha1.ReplicatedImageSet, 0, len(crisList.Items))
 	for _, cris := range crisList.Items {
+		nsFilter, err := cris.Spec.NamespaceFilter.Build()
+		if err != nil {
+			log.Error(err, "skipping ClusterReplicatedImageSet with invalid namespace filter", "name", cris.Name)
+			continue
+		}
+		if !nsFilter.Match(pod.Namespace) {
+			continue
+		}
 		replicatedImageSets = append(replicatedImageSets, kuikv1alpha1.ReplicatedImageSet{
 			ObjectMeta: cris.ObjectMeta,
-			Spec:       kuikv1alpha1.ReplicatedImageSetSpec(cris.Spec),
+			Spec:       cris.Spec.ReplicatedImageSetSpec,
 		})
 	}
 	for _, ris := range risList.Items {
