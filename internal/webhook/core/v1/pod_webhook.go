@@ -98,6 +98,7 @@ type AlternativeImage struct {
 	CredentialSecret *kuikv1alpha1.CredentialSecret
 	ImagePullSecret  *corev1.Secret
 	SecretOwner      client.Object
+	SkipActiveCheck  bool
 }
 
 type cachedAlternativeImage struct {
@@ -139,6 +140,7 @@ type prioritizedAlternative struct {
 	intraPriority    uint        // from mirror/upstream priority (unsigned, default 0)
 	typeOrder        crTypeOrder // default type ordering
 	declarationOrder int         // YAML declaration index within CR
+	skipActiveCheck  bool
 }
 
 // compareAlternatives defines the sort order for prioritized alternatives.
@@ -150,6 +152,18 @@ func compareAlternatives(a, b prioritizedAlternative) int {
 		cmp.Compare(a.intraPriority, b.intraPriority),
 		cmp.Compare(a.declarationOrder, b.declarationOrder),
 	)
+}
+
+// effectiveSkipCheck returns the effective skipActiveCheck value.
+// Takes per-mirror/upstream setting (first priority) and CR-level setting (fallback).
+func effectiveSkipCheck(perItem, crLevel *bool) bool {
+	if perItem != nil {
+		return *perItem
+	}
+	if crLevel != nil {
+		return *crLevel
+	}
+	return false
 }
 
 var _ admission.Defaulter[*corev1.Pod] = &PodCustomDefaulter{}
@@ -502,6 +516,7 @@ func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSet
 				intraPriority:    upstream.Priority,
 				typeOrder:        typeOrder,
 				declarationOrder: declarationIdx,
+				skipActiveCheck:  effectiveSkipCheck(upstream.SkipActiveCheck, ris.Spec.SkipActiveCheck),
 			})
 		}
 	}
@@ -551,6 +566,7 @@ func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSet
 					intraPriority:    mirror.Priority,
 					typeOrder:        typeOrder,
 					declarationOrder: declarationIdx,
+					skipActiveCheck:  effectiveSkipCheck(mirror.SkipActiveCheck, ism.Spec.SkipActiveCheck),
 				})
 			}
 		}
@@ -560,7 +576,7 @@ func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSet
 	slices.SortStableFunc(alternatives, compareAlternatives)
 
 	for _, alt := range alternatives {
-		container.addAlternative(alt.reference, alt.credentialSecret, alt.secretOwner)
+		container.addAlternative(alt.reference, alt.credentialSecret, alt.secretOwner, alt.skipActiveCheck)
 	}
 
 	if err := container.loadAlternativesSecrets(ctx, d.Client); err != nil {
@@ -594,6 +610,21 @@ func (d *PodCustomDefaulter) findBestAlternative(ctx context.Context, container 
 }
 
 func (d *PodCustomDefaulter) checkImageAvailabilityCached(ctx context.Context, image *AlternativeImage, pullSecrets []corev1.Secret) error {
+	// Skip probe for trusted alternatives - these are known to be available or are only reachable from nodes.
+	//
+	// The skip is unconditional and intentionally bypasses both the checkCache lookup and the
+	// requestGroup probe: a stale negative cache entry must never veto a trusted alternative, and
+	// we have no signal to write back (cache writes happen inside the probe path). The downside —
+	// no positive cache reuse — is acceptable because the early return is O(1) and incurs no I/O.
+	// As a side effect, tryCleanupStaleMirrorStatus is also never reached for trusted alternatives;
+	// see docs/trusted-mirrors.md ("Stale mirror cleanup is disabled") for the operational impact.
+	if image.SkipActiveCheck {
+		log := logf.FromContext(ctx, "reference", image.Reference)
+		log.V(1).Info("skipping availability check for trusted alternative (kubelet will verify during pull)",
+			"pullSecrets", len(pullSecrets) > 0)
+		return nil
+	}
+
 	if result, ok := d.checkCache.Get(image.Reference); ok {
 		if result {
 			return nil
@@ -784,7 +815,7 @@ func (d *PodCustomDefaulter) ensureSecret(ctx context.Context, namespace string,
 	return err
 }
 
-func (c *Container) addAlternative(reference string, credentialSecret *kuikv1alpha1.CredentialSecret, secretOwner client.Object) {
+func (c *Container) addAlternative(reference string, credentialSecret *kuikv1alpha1.CredentialSecret, secretOwner client.Object, skipActiveCheck bool) {
 	if _, ok := c.Alternatives[reference]; ok {
 		return
 	}
@@ -794,6 +825,7 @@ func (c *Container) addAlternative(reference string, credentialSecret *kuikv1alp
 		Reference:        reference,
 		CredentialSecret: credentialSecret,
 		SecretOwner:      secretOwner,
+		SkipActiveCheck:  skipActiveCheck,
 	})
 }
 

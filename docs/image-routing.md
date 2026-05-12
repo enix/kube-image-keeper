@@ -14,6 +14,8 @@ Without any explicit priority, alternatives are ordered as follows:
 
 Within each resource, mirrors or upstreams are listed in their YAML declaration order. The webhook performs a `HEAD` on each alternative image manifest (in order) and uses the first one that is available.
 
+> **Note**: For mirrors that are only reachable from nodes (like `localhost:<port>` proxies), you can use the `skipActiveCheck` flag to bypass the manager-side probe. See [Trusted Mirrors](./trusted-mirrors.md) for details.
+
 ## Priority system
 
 A two-level priority system allows fine-grained control over this ordering. It works like the Linux `nice` value: lower values mean higher priority.
