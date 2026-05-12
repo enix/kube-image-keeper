@@ -19,6 +19,11 @@ type ImageSetMirrorSpec struct {
 	ImageFilter ImageFilterDefinition `json:"imageFilter,omitempty"`
 	Cleanup     Cleanup               `json:"cleanup,omitempty"`
 	Mirrors     Mirrors               `json:"mirrors,omitempty"`
+	// SkipActiveCheck bypasses the manager-side availability probe for all mirrors in this CR.
+	// When true, images are considered available without an HTTP HEAD/GET check; useful for mirrors
+	// only reachable from nodes (e.g. localhost DaemonSet proxies). Per-mirror overrides take precedence.
+	// +optional
+	SkipActiveCheck *bool `json:"skipActiveCheck,omitempty"`
 }
 
 // ImageSetMirrorStatus defines the observed state of ImageSetMirror.
@@ -82,6 +87,11 @@ type Mirror struct {
 	Path             string            `json:"path,omitempty"`
 	CredentialSecret *CredentialSecret `json:"credentialSecret,omitempty"`
 	Cleanup          *Cleanup          `json:"cleanup,omitempty"`
+	// SkipActiveCheck bypasses the manager-side availability probe for this mirror.
+	// When set, this value overrides the CR-level skipActiveCheck. When unset, the
+	// CR-level value is used (default false).
+	// +optional
+	SkipActiveCheck *bool `json:"skipActiveCheck,omitempty"`
 }
 
 type Mirrors []Mirror

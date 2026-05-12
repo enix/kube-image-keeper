@@ -108,6 +108,12 @@ spec:
                       type: integer
                     registry:
                       type: string
+                    skipActiveCheck:
+                      description: |-
+                        SkipActiveCheck bypasses the manager-side availability probe for this mirror.
+                        When set, this value overrides the CR-level skipActiveCheck. When unset, the
+                        CR-level value is used (default false).
+                      type: boolean
                   type: object
                 type: array
               priority:
@@ -116,6 +122,12 @@ spec:
                   Negative values place alternatives before the original image; positive values place them after.
                   Default is 0 (original image first, then alternatives in default type order).
                 type: integer
+              skipActiveCheck:
+                description: |-
+                  SkipActiveCheck bypasses the manager-side availability probe for all mirrors in this CR.
+                  When true, images are considered available without an HTTP HEAD/GET check; useful for mirrors
+                  only reachable from nodes (e.g. localhost DaemonSet proxies). Per-mirror overrides take precedence.
+                type: boolean
             type: object
           status:
             description: ClusterImageSetMirrorStatus defines the observed state of

@@ -13,6 +13,11 @@ type ReplicatedImageSetSpec struct {
 	Priority int `json:"priority,omitempty"`
 	// +kubebuilder:validation:MaxItems=32
 	Upstreams []ReplicatedUpstream `json:"upstreams,omitempty"`
+	// SkipActiveCheck bypasses the manager-side availability probe for all upstreams in this CR.
+	// When true, images are considered available without an HTTP HEAD/GET check; useful for upstreams
+	// only reachable from nodes. Per-upstream overrides take precedence.
+	// +optional
+	SkipActiveCheck *bool `json:"skipActiveCheck,omitempty"`
 }
 
 // ReplicatedImageSetStatus defines the observed state of ReplicatedImageSet.
@@ -52,6 +57,11 @@ type ReplicatedUpstream struct {
 	ImageFilter ImageFilterDefinition `json:"imageFilter"`
 	// CredentialSecret is a reference to the secret used to pull matching images.
 	CredentialSecret *CredentialSecret `json:"credentialSecret,omitempty"`
+	// SkipActiveCheck bypasses the manager-side availability probe for this upstream.
+	// When set, this value overrides the CR-level skipActiveCheck. When unset, the
+	// CR-level value is used (default false).
+	// +optional
+	SkipActiveCheck *bool `json:"skipActiveCheck,omitempty"`
 }
 
 func init() {
