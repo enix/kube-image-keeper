@@ -56,7 +56,6 @@ func main() {
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
-	var unusedImageTTL int
 	var tlsOpts []func(*tls.Config)
 	var configPath string
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
@@ -76,7 +75,6 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
-	flag.IntVar(&unusedImageTTL, "unused-image-ttl", 24, "Unused image TTL in hours.")
 	flag.StringVar(&configPath, "config", "/etc/kube-image-keeper/config.yaml", "Path to the configuration file")
 
 	opts := zap.Options{
