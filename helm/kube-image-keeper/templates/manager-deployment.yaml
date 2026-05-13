@@ -51,7 +51,6 @@ spec:
             - -metrics-bind-address=:8080
             - -metrics-secure=false
             - -zap-log-level={{ .Values.manager.verbosity }}
-            - -unused-image-ttl={{ .Values.unusedImageTTL }}
           env:
             # custom environment variables
             {{- with .Values.manager.env }}
