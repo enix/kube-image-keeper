@@ -33,7 +33,8 @@ type ImageSetMirrorBaseReconciler struct {
 	Scheme *runtime.Scheme
 	Config *config.Config
 
-	platforms []v1.Platform
+	platforms       []v1.Platform
+	globalPodFilter *filter.PodFilter
 }
 
 func (r *ImageSetMirrorBaseReconciler) setupPlatforms() {
@@ -45,6 +46,15 @@ func (r *ImageSetMirrorBaseReconciler) setupPlatforms() {
 			Variant:      p.Variant,
 		}
 	}
+}
+
+func (r *ImageSetMirrorBaseReconciler) setupGlobalPodFilter() error {
+	f, err := filter.CompilePodFilter(nil, r.Config.ExcludeLabels, nil, r.Config.ExcludeAnnotations)
+	if err != nil {
+		return err
+	}
+	r.globalPodFilter = f
+	return nil
 }
 
 func (r *ImageSetMirrorBaseReconciler) getPullSecret(ctx context.Context, namespace, name string, secret *corev1.Secret) error {

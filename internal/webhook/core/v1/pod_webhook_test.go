@@ -10,6 +10,7 @@ import (
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/config"
+	"github.com/enix/kube-image-keeper/internal/filter"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -103,6 +104,94 @@ var _ = Describe("Pod Webhook", func() {
 			By("preserving the original-images annotation (proves the mirror guard did not fire)")
 			Expect(pod.Annotations).To(HaveKeyWithValue("kuik.enix.io/original-images", `{"app":"docker.io/library/nginx:1.27"}`))
 		})
+	})
+})
+
+var _ = Describe("global excludeLabels / excludeAnnotations", func() {
+	const skipLabel = "kube-image-keeper.enix.io/image-caching-policy"
+
+	buildDefaulter := func(excludeLabels, excludeAnnotations []string) *PodCustomDefaulter {
+		f, err := filter.CompilePodFilter(nil, excludeLabels, nil, excludeAnnotations)
+		Expect(err).NotTo(HaveOccurred())
+		return &PodCustomDefaulter{globalPodFilter: f}
+	}
+
+	It("leaves a pod untouched when it matches the global skip label", func() {
+		pod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "default",
+				Name:      "skip-me",
+				Labels:    map[string]string{skipLabel: "ignore"},
+			},
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{Name: "app", Image: "docker.io/library/nginx:1.29"},
+				},
+			},
+		}
+
+		d := buildDefaulter([]string{skipLabel + "=ignore"}, nil)
+		Expect(d.defaultPod(context.Background(), pod, true)).To(Succeed())
+
+		By("leaving the container image untouched")
+		Expect(pod.Spec.Containers[0].Image).To(Equal("docker.io/library/nginx:1.29"))
+
+		By("not writing the original-images annotation")
+		Expect(pod.Annotations).NotTo(HaveKey("kuik.enix.io/original-images"))
+
+		By("not injecting any imagePullSecrets")
+		Expect(pod.Spec.ImagePullSecrets).To(BeEmpty())
+	})
+
+	It("leaves a pod untouched when it matches a global skip annotation", func() {
+		pod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:   "default",
+				Name:        "skip-by-annotation",
+				Annotations: map[string]string{"meta.helm.sh/release-namespace": "my-namespace"},
+			},
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{Name: "app", Image: "docker.io/library/nginx:1.29"},
+				},
+			},
+		}
+
+		d := buildDefaulter(nil, []string{"meta.helm.sh/release-namespace=my-namespace"})
+		Expect(d.defaultPod(context.Background(), pod, true)).To(Succeed())
+
+		Expect(pod.Spec.Containers[0].Image).To(Equal("docker.io/library/nginx:1.29"))
+		Expect(pod.Annotations).NotTo(HaveKey("kuik.enix.io/original-images"))
+		Expect(pod.Spec.ImagePullSecrets).To(BeEmpty())
+	})
+
+	It("does not short-circuit a pod that lacks the skip label", func() {
+		// Seed OriginalImagesAnnotation so defaultPod exits at the
+		// "all containers already processed" branch without needing a
+		// real client to list mirror/replicated CRs. This proves the
+		// global filter did not fire (otherwise the annotation would
+		// still be present untouched — but the rewrite path would be
+		// reached past the early skip return).
+		pod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "default",
+				Name:      "regular-pod",
+				Annotations: map[string]string{
+					"kuik.enix.io/original-images": `{"app":"docker.io/library/nginx:1.27"}`,
+				},
+			},
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{Name: "app", Image: "docker.io/library/nginx:1.27"},
+				},
+			},
+		}
+
+		d := buildDefaulter([]string{skipLabel + "=ignore"}, nil)
+		Expect(d.defaultPod(context.Background(), pod, true)).To(Succeed())
+
+		By("preserving the original-images annotation (proves the rewrite path was reached past the early skip)")
+		Expect(pod.Annotations).To(HaveKeyWithValue("kuik.enix.io/original-images", `{"app":"docker.io/library/nginx:1.27"}`))
 	})
 })
 
