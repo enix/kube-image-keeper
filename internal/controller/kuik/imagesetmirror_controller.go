@@ -3,6 +3,7 @@ package kuik
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -53,6 +54,14 @@ func (r *ImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if err := r.List(ctx, &pods, &client.ListOptions{Namespace: cism.Namespace}); err != nil {
 		return ctrl.Result{}, err
 	}
+
+	podFilter, err := cism.Spec.PodFilter.Build()
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	pods.Items = slices.DeleteFunc(pods.Items, func(p corev1.Pod) bool {
+		return !podFilter.Match(&p)
+	})
 
 	if !cism.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(&cism, imageSetMirrorFinalizer) {
@@ -243,6 +252,14 @@ func (r *ImageSetMirrorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 				reqs := []reconcile.Request{}
 				for _, cism := range cisms.Items {
+					podFilter, err := cism.Spec.PodFilter.Build()
+					if err != nil {
+						log.Error(err, "skipping ImageSetMirror with invalid pod filter", "namespace", cism.Namespace, "name", cism.Name)
+						continue
+					}
+					if !podFilter.Match(pod) {
+						continue
+					}
 					imageFilter := cism.Spec.ImageFilter.MustBuild()
 					for imageName := range imageNames {
 						if strings.Contains(imageName, "@") {

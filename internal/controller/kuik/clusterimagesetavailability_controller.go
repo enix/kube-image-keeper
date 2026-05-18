@@ -71,6 +71,14 @@ func (r *ClusterImageSetAvailabilityReconciler) SetupWithManager(mgr ctrl.Manage
 					if !nsFilter.Match(pod.Namespace) {
 						continue
 					}
+					podFilter, err := cisa.Spec.PodFilter.Build()
+					if err != nil {
+						log.Error(err, "skipping ClusterImageSetAvailability with invalid pod filter", "name", cisa.Name)
+						continue
+					}
+					if !podFilter.Match(pod) {
+						continue
+					}
 					imageFilter := cisa.Spec.ImageFilter.MustBuild()
 					for imageName := range imageNames {
 						if imageFilter.Match(imageName) {
@@ -105,8 +113,12 @@ func (r *ClusterImageSetAvailabilityReconciler) Reconcile(ctx context.Context, r
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	podFilter, err := cisa.Spec.PodFilter.Build()
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 	pods.Items = slices.DeleteFunc(pods.Items, func(p corev1.Pod) bool {
-		return !nsFilter.Match(p.Namespace)
+		return !nsFilter.Match(p.Namespace) || !podFilter.Match(&p)
 	})
 
 	original := cisa.DeepCopy()

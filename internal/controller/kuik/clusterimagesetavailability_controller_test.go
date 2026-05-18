@@ -240,4 +240,144 @@ var _ = Describe("ClusterImageSetAvailability Controller", func() {
 				"excluded-namespace pod must not keep the image in-use")
 		})
 	})
+
+	Context("When the CISA has pod filters", func() {
+		const (
+			resourceName = "test-pod-filter-cisa"
+			image        = "docker.io/library/nginx:latest"
+			namespace    = "cisa-ns-pod-filter"
+		)
+
+		ctx := context.Background()
+		typeNamespacedName := types.NamespacedName{Name: resourceName}
+
+		ensureNamespace := func(name string) {
+			err := k8sClient.Create(ctx, &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{Name: name},
+			})
+			if err != nil && !errors.IsAlreadyExists(err) {
+				Expect(err).NotTo(HaveOccurred())
+			}
+		}
+
+		createPod := func(name string, labels, annotations map[string]string) {
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        name,
+					Namespace:   namespace,
+					Labels:      labels,
+					Annotations: annotations,
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{Name: "app", Image: image},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, pod)).To(Succeed())
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, pod)
+			})
+		}
+
+		createCISAAndSeed := func(podFilter kuikv1alpha1.PodFilterDefinition) {
+			resource := &kuikv1alpha1.ClusterImageSetAvailability{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: resourceName,
+				},
+				Spec: kuikv1alpha1.ClusterImageSetAvailabilitySpec{
+					ImageFilter: kuikv1alpha1.ImageFilterDefinition{
+						Include: []string{`docker\.io/library/nginx:.*`},
+					},
+					PodFilter: podFilter,
+				},
+			}
+			Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+			DeferCleanup(func() {
+				res := &kuikv1alpha1.ClusterImageSetAvailability{}
+				if err := k8sClient.Get(ctx, typeNamespacedName, res); err == nil {
+					_ = k8sClient.Delete(ctx, res)
+				}
+			})
+
+			By("Pre-seeding status with a monitored image so performCheck is bypassed")
+			Expect(k8sClient.Get(ctx, typeNamespacedName, resource)).To(Succeed())
+			lastMonitor := metav1.NewTime(time.Now())
+			resource.Status.Images = []kuikv1alpha1.MonitoredImage{{
+				Image:       image,
+				Status:      kuikv1alpha1.ImageAvailabilityAvailable,
+				LastMonitor: &lastMonitor,
+			}}
+			resource.Status.ImageCount = 1
+			Expect(k8sClient.Status().Update(ctx, resource)).To(Succeed())
+		}
+
+		BeforeEach(func() {
+			ensureNamespace(namespace)
+		})
+
+		It("drops pods whose labels match an exclude selector", func() {
+			createCISAAndSeed(kuikv1alpha1.PodFilterDefinition{
+				Labels: kuikv1alpha1.SelectorFilter{Exclude: []string{"cnpg.io/podRole=instance"}},
+			})
+			createPod("cisa-pod-excluded", map[string]string{"cnpg.io/podRole": "instance"}, nil)
+
+			_, err := newTestReconciler().Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			resource := &kuikv1alpha1.ClusterImageSetAvailability{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, resource)).To(Succeed())
+			Expect(resource.Status.Images).To(HaveLen(1))
+			Expect(resource.Status.Images[0].UnusedSince).NotTo(BeNil(),
+				"excluded-label pod must not keep the image in-use")
+		})
+
+		It("keeps pods whose labels don't match an exclude selector", func() {
+			createCISAAndSeed(kuikv1alpha1.PodFilterDefinition{
+				Labels: kuikv1alpha1.SelectorFilter{Exclude: []string{"cnpg.io/podRole=instance"}},
+			})
+			createPod("cisa-pod-kept", map[string]string{"app": "foo"}, nil)
+
+			_, err := newTestReconciler().Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			resource := &kuikv1alpha1.ClusterImageSetAvailability{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, resource)).To(Succeed())
+			Expect(resource.Status.Images).To(HaveLen(1))
+			Expect(resource.Status.Images[0].UnusedSince).To(BeNil(),
+				"non-matching pod must keep the image in-use")
+		})
+
+		It("narrows to pods that match an include label selector", func() {
+			createCISAAndSeed(kuikv1alpha1.PodFilterDefinition{
+				Labels: kuikv1alpha1.SelectorFilter{Include: []string{"app=monitor-me"}},
+			})
+			createPod("cisa-pod-out", map[string]string{"app": "skip-me"}, nil)
+
+			_, err := newTestReconciler().Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			resource := &kuikv1alpha1.ClusterImageSetAvailability{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, resource)).To(Succeed())
+			Expect(resource.Status.Images).To(HaveLen(1))
+			Expect(resource.Status.Images[0].UnusedSince).NotTo(BeNil(),
+				"non-included pod must not keep the image in-use")
+		})
+
+		It("supports annotation presence-only includes", func() {
+			createCISAAndSeed(kuikv1alpha1.PodFilterDefinition{
+				Annotations: kuikv1alpha1.SelectorFilter{Include: []string{"my.company.com/custom-annotation"}},
+			})
+			createPod("cisa-pod-no-anno", map[string]string{"app": "foo"}, nil)
+
+			_, err := newTestReconciler().Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			resource := &kuikv1alpha1.ClusterImageSetAvailability{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, resource)).To(Succeed())
+			Expect(resource.Status.Images).To(HaveLen(1))
+			Expect(resource.Status.Images[0].UnusedSince).NotTo(BeNil(),
+				"pod missing the required annotation must not keep the image in-use")
+		})
+	})
 })

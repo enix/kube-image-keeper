@@ -265,6 +265,14 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 		if !nsFilter.Match(pod.Namespace) {
 			continue
 		}
+		podFilter, err := cism.Spec.PodFilter.Build()
+		if err != nil {
+			log.Error(err, "skipping ClusterImageSetMirror with invalid pod filter", "name", cism.Name)
+			continue
+		}
+		if !podFilter.Match(pod) {
+			continue
+		}
 		imageSetMirrors = append(imageSetMirrors, kuikv1alpha1.ImageSetMirror{
 			ObjectMeta: cism.ObjectMeta,
 			Spec:       cism.Spec.ImageSetMirrorSpec,
@@ -272,6 +280,14 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 		})
 	}
 	for _, ism := range ismList.Items {
+		podFilter, err := ism.Spec.PodFilter.Build()
+		if err != nil {
+			log.Error(err, "skipping ImageSetMirror with invalid pod filter", "namespace", ism.Namespace, "name", ism.Name)
+			continue
+		}
+		if !podFilter.Match(pod) {
+			continue
+		}
 		for i := range ism.Spec.Mirrors {
 			mirror := &ism.Spec.Mirrors[i]
 			if mirror.CredentialSecret != nil {
@@ -291,12 +307,28 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 		if !nsFilter.Match(pod.Namespace) {
 			continue
 		}
+		podFilter, err := cris.Spec.PodFilter.Build()
+		if err != nil {
+			log.Error(err, "skipping ClusterReplicatedImageSet with invalid pod filter", "name", cris.Name)
+			continue
+		}
+		if !podFilter.Match(pod) {
+			continue
+		}
 		replicatedImageSets = append(replicatedImageSets, kuikv1alpha1.ReplicatedImageSet{
 			ObjectMeta: cris.ObjectMeta,
 			Spec:       cris.Spec.ReplicatedImageSetSpec,
 		})
 	}
 	for _, ris := range risList.Items {
+		podFilter, err := ris.Spec.PodFilter.Build()
+		if err != nil {
+			log.Error(err, "skipping ReplicatedImageSet with invalid pod filter", "namespace", ris.Namespace, "name", ris.Name)
+			continue
+		}
+		if !podFilter.Match(pod) {
+			continue
+		}
 		for i := range ris.Spec.Upstreams {
 			upstream := &ris.Spec.Upstreams[i]
 			if upstream.CredentialSecret != nil {
