@@ -109,6 +109,54 @@ spec:
                       type: string
                   type: object
                 type: array
+              podFilter:
+                description: |-
+                  PodFilter narrows which pods this resource applies to, by pod labels
+                  and annotations. When omitted or empty, the resource applies to every pod.
+                properties:
+                  annotations:
+                    description: |-
+                      SelectorFilter holds include / exclude lists for one pod-metadata
+                      dimension (labels or annotations). Entries follow Kubernetes label-selector
+                      syntax (k8s.io/apimachinery/pkg/labels.Parse): equality ("key=value"),
+                      inequality ("key!=value"), presence ("key"), absence ("!key"), and
+                      set-based operators ("key in (a,b)", "key notin (a,b)").
+                    properties:
+                      exclude:
+                        items:
+                          maxLength: 512
+                          type: string
+                        maxItems: 16
+                        type: array
+                      include:
+                        items:
+                          maxLength: 512
+                          type: string
+                        maxItems: 16
+                        type: array
+                    type: object
+                  labels:
+                    description: |-
+                      SelectorFilter holds include / exclude lists for one pod-metadata
+                      dimension (labels or annotations). Entries follow Kubernetes label-selector
+                      syntax (k8s.io/apimachinery/pkg/labels.Parse): equality ("key=value"),
+                      inequality ("key!=value"), presence ("key"), absence ("!key"), and
+                      set-based operators ("key in (a,b)", "key notin (a,b)").
+                    properties:
+                      exclude:
+                        items:
+                          maxLength: 512
+                          type: string
+                        maxItems: 16
+                        type: array
+                      include:
+                        items:
+                          maxLength: 512
+                          type: string
+                        maxItems: 16
+                        type: array
+                    type: object
+                type: object
               priority:
                 description: |-
                   Priority controls the ordering of alternatives from this CR relative to the original image and other CRs.

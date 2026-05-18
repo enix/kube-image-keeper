@@ -17,8 +17,12 @@ type ImageSetMirrorSpec struct {
 	Priority int `json:"priority,omitempty"`
 	// +optional
 	ImageFilter ImageFilterDefinition `json:"imageFilter,omitempty"`
-	Cleanup     Cleanup               `json:"cleanup,omitempty"`
-	Mirrors     Mirrors               `json:"mirrors,omitempty"`
+	// PodFilter narrows which pods this resource applies to, by pod labels
+	// and annotations. When omitted or empty, the resource applies to every pod.
+	// +optional
+	PodFilter PodFilterDefinition `json:"podFilter,omitempty"`
+	Cleanup   Cleanup             `json:"cleanup,omitempty"`
+	Mirrors   Mirrors             `json:"mirrors,omitempty"`
 }
 
 // ImageSetMirrorStatus defines the observed state of ImageSetMirror.
