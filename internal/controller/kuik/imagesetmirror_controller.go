@@ -3,6 +3,7 @@ package kuik
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -53,6 +54,14 @@ func (r *ImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if err := r.List(ctx, &pods, &client.ListOptions{Namespace: cism.Namespace}); err != nil {
 		return ctrl.Result{}, err
 	}
+
+	podFilter, err := cism.Spec.PodFilter.Build()
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	pods.Items = slices.DeleteFunc(pods.Items, func(p corev1.Pod) bool {
+		return !podFilter.Match(&p) || !r.globalPodFilter.Match(&p)
+	})
 
 	if !cism.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(&cism, imageSetMirrorFinalizer) {
@@ -220,6 +229,9 @@ func (r *ImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 // SetupWithManager sets up the controller with the Manager.
 func (r *ImageSetMirrorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.setupPlatforms()
+	if err := r.setupGlobalPodFilter(); err != nil {
+		return err
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kuikv1alpha1.ImageSetMirror{}).
 		Named("kuik-imagesetmirror").
@@ -233,6 +245,10 @@ func (r *ImageSetMirrorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					WithName("pod-mapper").
 					WithValues("pod", klog.KObj(pod))
 
+				if !r.globalPodFilter.Match(pod) {
+					return nil
+				}
+
 				var cisms kuikv1alpha1.ImageSetMirrorList
 				if err := r.List(ctx, &cisms, &client.ListOptions{Namespace: pod.Namespace}); err != nil {
 					log.Error(err, "failed to list ImageSetMirror")
@@ -243,6 +259,14 @@ func (r *ImageSetMirrorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 				reqs := []reconcile.Request{}
 				for _, cism := range cisms.Items {
+					podFilter, err := cism.Spec.PodFilter.Build()
+					if err != nil {
+						log.Error(err, "skipping ImageSetMirror with invalid pod filter", "namespace", cism.Namespace, "name", cism.Name)
+						continue
+					}
+					if !podFilter.Match(pod) {
+						continue
+					}
 					imageFilter := cism.Spec.ImageFilter.MustBuild()
 					for imageName := range imageNames {
 						if strings.Contains(imageName, "@") {

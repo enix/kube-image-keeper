@@ -11,6 +11,10 @@ type ReplicatedImageSetSpec struct {
 	// Default is 0 (original image first, then alternatives in default type order).
 	// +optional
 	Priority int `json:"priority,omitempty"`
+	// PodFilter narrows which pods this resource applies to, by pod labels
+	// and annotations. When omitted or empty, the resource applies to every pod.
+	// +optional
+	PodFilter PodFilterDefinition `json:"podFilter,omitempty"`
 	// +kubebuilder:validation:MaxItems=32
 	Upstreams []ReplicatedUpstream `json:"upstreams,omitempty"`
 }

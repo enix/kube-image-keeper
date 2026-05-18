@@ -5,7 +5,14 @@ import (
 )
 
 // ClusterImageSetMirrorSpec defines the desired state of ClusterImageSetMirror.
-type ClusterImageSetMirrorSpec ImageSetMirrorSpec
+type ClusterImageSetMirrorSpec struct {
+	ImageSetMirrorSpec `json:",inline"`
+
+	// NamespaceFilter restricts which namespaces this cluster-scoped resource applies to.
+	// When omitted or empty, the resource applies to every namespace.
+	// +optional
+	NamespaceFilter NamespaceFilterDefinition `json:"namespaceFilter,omitempty"`
+}
 
 // ClusterImageSetMirrorStatus defines the observed state of ClusterImageSetMirror.
 type ClusterImageSetMirrorStatus ImageSetMirrorStatus

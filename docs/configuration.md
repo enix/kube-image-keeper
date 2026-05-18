@@ -23,6 +23,9 @@ The Helm chart does not ship a default `configuration:` block. Any field set und
 The following file shows every supported key with its default value. You only need to set the keys you want to override; everything else falls back to the defaults below.
 
 ```yaml
+excludeLabels: []
+excludeAnnotations: []
+
 routing:
   activeCheck:
     timeout: 1s
@@ -63,6 +66,26 @@ metrics:
       factor: 1.94
       # min, max, custom: see "legacy" section below
 ```
+
+## `excludeLabels` / `excludeAnnotations`
+
+Cluster-wide pod skip lists. Pods matching any entry are ignored by the mutating webhook (no image rewrite) AND by the `ImageSetMirror` / `ClusterImageSetMirror` reconcilers (no upload to mirror destinations, no `Status.MatchingImages` tracking). The general availability monitoring (`ClusterImageSetAvailability`) is unaffected.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `excludeLabels` | []string | `[]` | Kubernetes label selectors (`key=value`, bare `key` for presence, `!key` for absence, set-based ops). Pods whose labels match any entry are skipped cluster-wide. A typo causes the operator to fail at startup (fail-fast); validate selectors before rolling out. |
+| `excludeAnnotations` | []string | `[]` | Same syntax as `excludeLabels`, matched against pod annotations. Annotation values that don't conform to DNS-1123 label-value syntax (long strings, URLs, JSON blobs) can only be matched by presence (`key`) or absence (`!key`); equality (`key=value`) requires a conforming value. |
+
+### Migrating from KuiK v1
+
+v1 honored `kube-image-keeper.enix.io/image-caching-policy: ignore` to opt a pod out of mirroring entirely. To get the same behavior on v2:
+
+```yaml
+excludeLabels:
+  - kube-image-keeper.enix.io/image-caching-policy=ignore
+```
+
+The check runs before any CR is consulted, so this takes precedence over per-CR `podFilter` rules and over CR `priority` values. For per-resource scoping with `include` semantics, use `spec.podFilter` on individual mirroring CRs (see [`crds.md`](./crds.md)).
 
 ## `routing`
 

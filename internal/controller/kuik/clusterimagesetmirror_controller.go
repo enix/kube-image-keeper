@@ -3,6 +3,7 @@ package kuik
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -53,6 +54,18 @@ func (r *ClusterImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctr
 	if err := r.List(ctx, &pods, &client.ListOptions{Namespace: cism.Namespace}); err != nil {
 		return ctrl.Result{}, err
 	}
+
+	nsFilter, err := cism.Spec.NamespaceFilter.Build()
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	podFilter, err := cism.Spec.PodFilter.Build()
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	pods.Items = slices.DeleteFunc(pods.Items, func(p corev1.Pod) bool {
+		return !nsFilter.Match(p.Namespace) || !podFilter.Match(&p) || !r.globalPodFilter.Match(&p)
+	})
 
 	if !cism.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(&cism, imageSetMirrorFinalizer) {
@@ -109,7 +122,7 @@ func (r *ClusterImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctr
 	}
 
 	originalCism := cism.DeepCopy()
-	spec, status := (*kuikv1alpha1.ImageSetMirrorSpec)(&cism.Spec), (*kuikv1alpha1.ImageSetMirrorStatus)(&cism.Status)
+	spec, status := &cism.Spec.ImageSetMirrorSpec, (*kuikv1alpha1.ImageSetMirrorStatus)(&cism.Status)
 	podsByMatchingImages, err := mergePreviousAndCurrentMatchingImages(logf.IntoContext(ctx, log), pods.Items, spec, status, mirrorPrefixes)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -221,6 +234,9 @@ func (r *ClusterImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctr
 // SetupWithManager sets up the controller with the Manager.
 func (r *ClusterImageSetMirrorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.setupPlatforms()
+	if err := r.setupGlobalPodFilter(); err != nil {
+		return err
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kuikv1alpha1.ClusterImageSetMirror{}).
 		Named("kuik-clusterimagesetmirror").
@@ -234,6 +250,10 @@ func (r *ClusterImageSetMirrorReconciler) SetupWithManager(mgr ctrl.Manager) err
 					WithName("pod-mapper").
 					WithValues("pod", klog.KObj(pod))
 
+				if !r.globalPodFilter.Match(pod) {
+					return nil
+				}
+
 				var cisms kuikv1alpha1.ClusterImageSetMirrorList
 				if err := r.List(ctx, &cisms); err != nil {
 					log.Error(err, "failed to list ClusterImageSetMirror")
@@ -244,6 +264,22 @@ func (r *ClusterImageSetMirrorReconciler) SetupWithManager(mgr ctrl.Manager) err
 
 				reqs := []reconcile.Request{}
 				for _, cism := range cisms.Items {
+					nsFilter, err := cism.Spec.NamespaceFilter.Build()
+					if err != nil {
+						log.Error(err, "skipping ClusterImageSetMirror with invalid namespace filter", "name", cism.Name)
+						continue
+					}
+					if !nsFilter.Match(pod.Namespace) {
+						continue
+					}
+					podFilter, err := cism.Spec.PodFilter.Build()
+					if err != nil {
+						log.Error(err, "skipping ClusterImageSetMirror with invalid pod filter", "name", cism.Name)
+						continue
+					}
+					if !podFilter.Match(pod) {
+						continue
+					}
 					imageFilter := cism.Spec.ImageFilter.MustBuild()
 					for imageName := range imageNames {
 						if strings.Contains(imageName, "@") {
