@@ -31,6 +31,7 @@ import (
 	"github.com/enix/kube-image-keeper/internal/controller"
 	kuikcontroller "github.com/enix/kube-image-keeper/internal/controller/kuik"
 	"github.com/enix/kube-image-keeper/internal/info"
+	"github.com/enix/kube-image-keeper/internal/registry"
 	webhookcorev1 "github.com/enix/kube-image-keeper/internal/webhook/core/v1"
 	// +kubebuilder:scaffold:imports
 )
@@ -117,6 +118,13 @@ func main() {
 		setupLog.Error(err, "Invalid legacy histogram configuration")
 		os.Exit(1)
 	}
+
+	rootCAs, err := registry.LoadRootCAPoolFromFiles(configuration.TLS.RootCertificateAuthorities)
+	if err != nil {
+		setupLog.Error(err, "Failed to load root certificate authorities")
+		os.Exit(1)
+	}
+	registryClientFactory := registry.NewClientFactory(configuration.TLS.InsecureRegistries, rootCAs)
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -240,8 +248,9 @@ func main() {
 	// nolint:goconst
 	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
 		podDefaulter := webhookcorev1.PodCustomDefaulter{
-			Client: mgr.GetClient(),
-			Config: configuration,
+			Client:        mgr.GetClient(),
+			Config:        configuration,
+			ClientFactory: registryClientFactory,
 		}
 		if err = webhookcorev1.SetupPodWebhookWithManager(mgr, &podDefaulter); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "Pod")
@@ -250,9 +259,10 @@ func main() {
 	}
 	if err = (&kuikcontroller.ClusterImageSetMirrorReconciler{
 		ImageSetMirrorBaseReconciler: kuikcontroller.ImageSetMirrorBaseReconciler{
-			Client: mgr.GetClient(),
-			Scheme: mgr.GetScheme(),
-			Config: configuration,
+			Client:        mgr.GetClient(),
+			Scheme:        mgr.GetScheme(),
+			Config:        configuration,
+			ClientFactory: registryClientFactory,
 		},
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ClusterImageSetMirror")
@@ -260,9 +270,10 @@ func main() {
 	}
 	if err = (&kuikcontroller.ImageSetMirrorReconciler{
 		ImageSetMirrorBaseReconciler: kuikcontroller.ImageSetMirrorBaseReconciler{
-			Client: mgr.GetClient(),
-			Scheme: mgr.GetScheme(),
-			Config: configuration,
+			Client:        mgr.GetClient(),
+			Scheme:        mgr.GetScheme(),
+			Config:        configuration,
+			ClientFactory: registryClientFactory,
 		},
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ImageSetMirror")
@@ -285,9 +296,10 @@ func main() {
 		os.Exit(1)
 	}
 	cisaReconciler := &kuikcontroller.ClusterImageSetAvailabilityReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-		Config: configuration,
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		Config:        configuration,
+		ClientFactory: registryClientFactory,
 	}
 	if err = cisaReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ClusterImageSetAvailability")

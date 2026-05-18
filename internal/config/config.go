@@ -20,6 +20,17 @@ type Config struct {
 	Mirroring  Mirroring  `koanf:"mirroring"`
 	Monitoring Monitoring `koanf:"monitoring"`
 	Metrics    Metrics    `koanf:"metrics"`
+	TLS        TLS        `koanf:"tls"`
+}
+
+type TLS struct {
+	// InsecureRegistries lists registry hostnames (e.g. "my-registry.example.com",
+	// "localhost:5000") whose TLS certificate validation is disabled when the
+	// manager contacts them (probe, mirror, cleanup).
+	InsecureRegistries []string `koanf:"insecureRegistries"`
+	// RootCertificateAuthorities lists filesystem paths to PEM-encoded CA bundles
+	// that are added to the manager's trust store on top of the system roots.
+	RootCertificateAuthorities []string `koanf:"rootCertificateAuthorities"`
 }
 
 type Routing struct {

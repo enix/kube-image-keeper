@@ -12,6 +12,7 @@ import (
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/config"
+	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/maypok86/otter"
 	"go4.org/syncutil/singleflight"
 	corev1 "k8s.io/api/core/v1"
@@ -29,9 +30,10 @@ func newSkipCheckTestDefaulter() *PodCustomDefaulter {
 	testConfig, err := config.LoadDefault()
 	Expect(err).NotTo(HaveOccurred())
 	return &PodCustomDefaulter{
-		Config:       testConfig,
-		checkCache:   checkCache,
-		requestGroup: &singleflight.Group{},
+		Config:        testConfig,
+		ClientFactory: registry.NewClientFactory(nil, nil),
+		checkCache:    checkCache,
+		requestGroup:  &singleflight.Group{},
 	}
 }
 
@@ -458,39 +460,39 @@ var _ = Describe("clearStaleMirrorStatus", func() {
 	})
 })
 
-var _ = Describe("effectiveSkipCheck", func() {
+var _ = Describe("effectiveSkipActiveCheck", func() {
 	It("should default to false when both values are nil", func() {
-		Expect(effectiveSkipCheck(nil, nil)).To(BeFalse())
+		Expect(effectiveSkipActiveCheck(nil, nil)).To(BeFalse())
 	})
 
 	It("should use CR-level value when per-item is nil", func() {
 		trueVal := true
 		falseVal := false
-		Expect(effectiveSkipCheck(nil, &trueVal)).To(BeTrue())
-		Expect(effectiveSkipCheck(nil, &falseVal)).To(BeFalse())
+		Expect(effectiveSkipActiveCheck(nil, &trueVal)).To(BeTrue())
+		Expect(effectiveSkipActiveCheck(nil, &falseVal)).To(BeFalse())
 	})
 
 	It("should use per-item value when CR-level is nil", func() {
 		trueVal := true
 		falseVal := false
-		Expect(effectiveSkipCheck(&trueVal, nil)).To(BeTrue())
-		Expect(effectiveSkipCheck(&falseVal, nil)).To(BeFalse())
+		Expect(effectiveSkipActiveCheck(&trueVal, nil)).To(BeTrue())
+		Expect(effectiveSkipActiveCheck(&falseVal, nil)).To(BeFalse())
 	})
 
 	It("should prefer per-item value over CR-level value", func() {
 		truePerItem := true
 		falseCR := false
-		Expect(effectiveSkipCheck(&truePerItem, &falseCR)).To(BeTrue())
+		Expect(effectiveSkipActiveCheck(&truePerItem, &falseCR)).To(BeTrue())
 
 		falsePerItem := false
 		trueCR := true
-		Expect(effectiveSkipCheck(&falsePerItem, &trueCR)).To(BeFalse())
+		Expect(effectiveSkipActiveCheck(&falsePerItem, &trueCR)).To(BeFalse())
 	})
 
 	It("should handle all true values", func() {
 		truePerItem := true
 		trueCR := true
-		Expect(effectiveSkipCheck(&truePerItem, &trueCR)).To(BeTrue())
+		Expect(effectiveSkipActiveCheck(&truePerItem, &trueCR)).To(BeTrue())
 	})
 })
 
@@ -536,17 +538,10 @@ var _ = Describe("checkImageAvailabilityCached with skipActiveCheck", func() {
 		Expect(d.checkImageAvailabilityCached(context.Background(), image, nil)).NotTo(HaveOccurred())
 	})
 
-	// Closes the loop: this exercises a probe that would actually fail (the
-	// reference points to a closed port), proving SkipActiveCheck bypasses the
-	// real network call — not just the cache.
 	It("should bypass a real failing probe when SkipActiveCheck is true", func() {
-		// Reserve and release an ephemeral loopback port: any subsequent TCP
-		// connect to it gets RST = "connection refused", without depending on
-		// assumptions about reserved low ports (e.g. tcpmux on port 1).
 		unreachable := reserveUnboundLoopbackAddr() + "/library/nginx:latest"
 
 		d := newSkipCheckTestDefaulter()
-		// Tighten the timeout so the failing-probe case fails fast.
 		d.Config.Routing.ActiveCheck.Timeout = 200 * time.Millisecond
 
 		By("returning an error when SkipActiveCheck is false")
@@ -554,9 +549,7 @@ var _ = Describe("checkImageAvailabilityCached with skipActiveCheck", func() {
 		Expect(d.checkImageAvailabilityCached(context.Background(), probed, nil)).To(HaveOccurred())
 
 		By("returning nil when SkipActiveCheck is true on the same unreachable reference")
-		// Use a fresh PodCustomDefaulter so the prior negative cache entry
-		// doesn't influence the result — we want to prove the network call
-		// itself is skipped.
+		// Fresh defaulter avoids the prior negative cache entry.
 		d2 := newSkipCheckTestDefaulter()
 		d2.Config.Routing.ActiveCheck.Timeout = 200 * time.Millisecond
 		trusted := &AlternativeImage{Reference: unreachable, SkipActiveCheck: true}
@@ -584,12 +577,9 @@ var _ = Describe("buildAlternativesList with skipActiveCheck", func() {
 		}
 	}
 
-	// findByPrefix returns the alternative whose Reference matches the given
-	// registry+path prefix. c.Images always contains the original image as
-	// well, so we cannot key tests on positional index. The prefix match is
-	// boundary-aware: the next character after the prefix must be a path or
-	// tag separator (`/`, `:`, `@`) — otherwise `harbor.example.com/mirror`
-	// would silently match a future `harbor.example.com/mirror-v2` entry.
+	// The prefix match is boundary-aware: the next character after the prefix
+	// must be a path or tag separator (`/`, `:`, `@`) so that an entry like
+	// `harbor.example.com/mirror` does not silently match `harbor.example.com/mirror-v2`.
 	findByPrefix := func(c *Container, prefix string) AlternativeImage {
 		GinkgoHelper()
 		for _, img := range c.Images {
@@ -605,186 +595,148 @@ var _ = Describe("buildAlternativesList with skipActiveCheck", func() {
 		return AlternativeImage{}
 	}
 
-	It("should set SkipActiveCheck to false when neither CR nor mirror has skipActiveCheck", func() {
+	makeCRIS := func(spec kuikv1alpha1.ReplicatedImageSetSpec) kuikv1alpha1.ReplicatedImageSet {
+		return kuikv1alpha1.ReplicatedImageSet{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-cris"},
+			Spec:       spec,
+		}
+	}
+	matchAll := kuikv1alpha1.ImageFilterDefinition{Include: []string{".*"}}
+	sourceUpstream := kuikv1alpha1.ReplicatedUpstream{
+		ImageReference: kuikv1alpha1.ImageReference{Registry: "docker.io", Path: ""},
+		ImageFilter:    matchAll,
+	}
+
+	It("should set SkipActiveCheck to false when neither CR nor upstream has skipActiveCheck", func() {
 		c := makeContainer("docker.io/library/nginx:latest")
-		ism := kuikv1alpha1.ImageSetMirror{
-			ObjectMeta: metav1.ObjectMeta{Name: "test-ism"},
-			Spec: kuikv1alpha1.ImageSetMirrorSpec{
-				ImageFilter: kuikv1alpha1.ImageFilterDefinition{
-					Include: []string{".*"},
-				},
-				Mirrors: kuikv1alpha1.Mirrors{
-					{Registry: "harbor.example.com", Path: "/mirror"},
+		cris := makeCRIS(kuikv1alpha1.ReplicatedImageSetSpec{
+			Upstreams: []kuikv1alpha1.ReplicatedUpstream{
+				sourceUpstream,
+				{
+					ImageReference: kuikv1alpha1.ImageReference{Registry: "harbor.example.com", Path: "/mirror"},
+					ImageFilter:    matchAll,
+					Priority:       1,
 				},
 			},
-		}
+		})
 
-		err := d.buildAlternativesList(context.Background(), []kuikv1alpha1.ImageSetMirror{ism}, nil, c)
+		err := d.buildAlternativesList(context.Background(), nil, []kuikv1alpha1.ReplicatedImageSet{cris}, c)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(findByPrefix(c, "harbor.example.com/mirror").SkipActiveCheck).To(BeFalse())
 	})
 
-	// Guard: skipActiveCheck must only apply to mirrors/upstreams, never to
-	// the original image. buildAlternativesList constructs the original entry
-	// without going through effectiveSkipCheck (see pod_webhook.go where the
-	// `original` prioritizedAlternative is built); this test pins that
-	// invariant so a future refactor cannot silently propagate the flag to
-	// the original image.
+	// Invariant: skipActiveCheck must only apply to upstreams, never to the
+	// original image. The original prioritizedAlternative is built directly
+	// (not through effectiveSkipActiveCheck), and this test pins that so a
+	// future refactor cannot silently propagate the flag.
 	It("should never set SkipActiveCheck on the original image even when CR has skipActiveCheck=true", func() {
 		c := makeContainer("docker.io/library/nginx:latest")
 		trueVal := true
-		ism := kuikv1alpha1.ImageSetMirror{
-			ObjectMeta: metav1.ObjectMeta{Name: "test-ism"},
-			Spec: kuikv1alpha1.ImageSetMirrorSpec{
-				SkipActiveCheck: &trueVal,
-				ImageFilter: kuikv1alpha1.ImageFilterDefinition{
-					Include: []string{".*"},
-				},
-				Mirrors: kuikv1alpha1.Mirrors{
-					{Registry: "harbor.example.com", Path: "/mirror"},
+		cris := makeCRIS(kuikv1alpha1.ReplicatedImageSetSpec{
+			SkipActiveCheck: &trueVal,
+			Upstreams: []kuikv1alpha1.ReplicatedUpstream{
+				sourceUpstream,
+				{
+					ImageReference: kuikv1alpha1.ImageReference{Registry: "harbor.example.com", Path: "/mirror"},
+					ImageFilter:    matchAll,
+					Priority:       1,
 				},
 			},
-		}
+		})
 
-		err := d.buildAlternativesList(context.Background(), []kuikv1alpha1.ImageSetMirror{ism}, nil, c)
+		err := d.buildAlternativesList(context.Background(), nil, []kuikv1alpha1.ReplicatedImageSet{cris}, c)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(findByPrefix(c, "docker.io/library/nginx").SkipActiveCheck).To(BeFalse())
-		// Sanity check: the mirror is still flagged as skipped.
 		Expect(findByPrefix(c, "harbor.example.com/mirror").SkipActiveCheck).To(BeTrue())
 	})
 
-	It("should use CR-level skipActiveCheck when mirror doesn't override", func() {
+	It("should use CR-level skipActiveCheck when upstream doesn't override", func() {
 		c := makeContainer("docker.io/library/nginx:latest")
 		trueVal := true
-		ism := kuikv1alpha1.ImageSetMirror{
-			ObjectMeta: metav1.ObjectMeta{Name: "test-ism"},
-			Spec: kuikv1alpha1.ImageSetMirrorSpec{
-				SkipActiveCheck: &trueVal,
-				ImageFilter: kuikv1alpha1.ImageFilterDefinition{
-					Include: []string{".*"},
-				},
-				Mirrors: kuikv1alpha1.Mirrors{
-					{Registry: "harbor.example.com", Path: "/mirror"},
+		cris := makeCRIS(kuikv1alpha1.ReplicatedImageSetSpec{
+			SkipActiveCheck: &trueVal,
+			Upstreams: []kuikv1alpha1.ReplicatedUpstream{
+				sourceUpstream,
+				{
+					ImageReference: kuikv1alpha1.ImageReference{Registry: "harbor.example.com", Path: "/mirror"},
+					ImageFilter:    matchAll,
+					Priority:       1,
 				},
 			},
-		}
+		})
 
-		err := d.buildAlternativesList(context.Background(), []kuikv1alpha1.ImageSetMirror{ism}, nil, c)
+		err := d.buildAlternativesList(context.Background(), nil, []kuikv1alpha1.ReplicatedImageSet{cris}, c)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(findByPrefix(c, "harbor.example.com/mirror").SkipActiveCheck).To(BeTrue())
 	})
 
-	It("should use mirror-level skipActiveCheck when it overrides CR-level", func() {
+	It("should use upstream-level skipActiveCheck when it overrides CR-level", func() {
 		c := makeContainer("docker.io/library/nginx:latest")
 		trueCR := true
-		falseMirror := false
-		ism := kuikv1alpha1.ImageSetMirror{
-			ObjectMeta: metav1.ObjectMeta{Name: "test-ism"},
-			Spec: kuikv1alpha1.ImageSetMirrorSpec{
-				SkipActiveCheck: &trueCR,
-				ImageFilter: kuikv1alpha1.ImageFilterDefinition{
-					Include: []string{".*"},
-				},
-				Mirrors: kuikv1alpha1.Mirrors{
-					{
-						Registry:        "harbor.example.com",
-						Path:            "/mirror",
-						SkipActiveCheck: &falseMirror,
-					},
+		falseUpstream := false
+		cris := makeCRIS(kuikv1alpha1.ReplicatedImageSetSpec{
+			SkipActiveCheck: &trueCR,
+			Upstreams: []kuikv1alpha1.ReplicatedUpstream{
+				sourceUpstream,
+				{
+					ImageReference:  kuikv1alpha1.ImageReference{Registry: "harbor.example.com", Path: "/mirror"},
+					ImageFilter:     matchAll,
+					Priority:        1,
+					SkipActiveCheck: &falseUpstream,
 				},
 			},
-		}
+		})
 
-		err := d.buildAlternativesList(context.Background(), []kuikv1alpha1.ImageSetMirror{ism}, nil, c)
+		err := d.buildAlternativesList(context.Background(), nil, []kuikv1alpha1.ReplicatedImageSet{cris}, c)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(findByPrefix(c, "harbor.example.com/mirror").SkipActiveCheck).To(BeFalse())
 	})
 
-	It("should handle mixed mirrors with different skipActiveCheck values", func() {
+	It("should handle mixed upstreams with different skipActiveCheck values", func() {
 		c := makeContainer("docker.io/library/nginx:latest")
-		trueMirror1 := true
-		falseMirror2 := false
-		ism := kuikv1alpha1.ImageSetMirror{
-			ObjectMeta: metav1.ObjectMeta{Name: "test-ism"},
-			Spec: kuikv1alpha1.ImageSetMirrorSpec{
-				ImageFilter: kuikv1alpha1.ImageFilterDefinition{
-					Include: []string{".*"},
+		trueUpstream1 := true
+		falseUpstream2 := false
+		cris := makeCRIS(kuikv1alpha1.ReplicatedImageSetSpec{
+			Upstreams: []kuikv1alpha1.ReplicatedUpstream{
+				sourceUpstream,
+				{
+					ImageReference:  kuikv1alpha1.ImageReference{Registry: "localhost", Path: "/fast-cache"},
+					ImageFilter:     matchAll,
+					Priority:        1,
+					SkipActiveCheck: &trueUpstream1,
 				},
-				Mirrors: kuikv1alpha1.Mirrors{
-					{
-						Registry:        "localhost",
-						Path:            "/fast-cache",
-						SkipActiveCheck: &trueMirror1,
-						Priority:        1,
-					},
-					{
-						Registry:        "fallback.example.com",
-						Path:            "/backup",
-						SkipActiveCheck: &falseMirror2,
-						Priority:        10,
-					},
+				{
+					ImageReference:  kuikv1alpha1.ImageReference{Registry: "fallback.example.com", Path: "/backup"},
+					ImageFilter:     matchAll,
+					Priority:        10,
+					SkipActiveCheck: &falseUpstream2,
 				},
 			},
-		}
+		})
 
-		err := d.buildAlternativesList(context.Background(), []kuikv1alpha1.ImageSetMirror{ism}, nil, c)
+		err := d.buildAlternativesList(context.Background(), nil, []kuikv1alpha1.ReplicatedImageSet{cris}, c)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(findByPrefix(c, "localhost/fast-cache").SkipActiveCheck).To(BeTrue())
 		Expect(findByPrefix(c, "fallback.example.com/backup").SkipActiveCheck).To(BeFalse())
 	})
 
-	// ClusterImageSetMirror is normalized to ImageSetMirror by the caller of
-	// buildAlternativesList (see pod_webhook.go where cismList items are copied
-	// into the ImageSetMirror slice). This test exercises the normalized form
-	// produced from a cluster-scoped CR.
-	It("should handle skipActiveCheck on a CR originating from ClusterImageSetMirror", func() {
-		c := makeContainer("docker.io/library/nginx:latest")
-		trueVal := true
-		cism := kuikv1alpha1.ImageSetMirror{
-			ObjectMeta: metav1.ObjectMeta{Name: "test-cism"},
-			Spec: kuikv1alpha1.ImageSetMirrorSpec{
-				SkipActiveCheck: &trueVal,
-				ImageFilter: kuikv1alpha1.ImageFilterDefinition{
-					Include: []string{".*"},
-				},
-				Mirrors: kuikv1alpha1.Mirrors{
-					{Registry: "localhost", Path: "/kuik-cache", Priority: 1},
-				},
-			},
-		}
-
-		err := d.buildAlternativesList(context.Background(), []kuikv1alpha1.ImageSetMirror{cism}, nil, c)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(findByPrefix(c, "localhost/kuik-cache").SkipActiveCheck).To(BeTrue())
-	})
-
-	// Same normalization story for ClusterReplicatedImageSet. We need a first
-	// upstream that matches the source image (docker.io) so the mirror upstream
-	// is added to the alternatives list.
 	It("should handle skipActiveCheck on a CR originating from ClusterReplicatedImageSet", func() {
 		c := makeContainer("docker.io/library/nginx:latest")
 		trueVal := true
-		cris := kuikv1alpha1.ReplicatedImageSet{
-			ObjectMeta: metav1.ObjectMeta{Name: "test-cris"},
-			Spec: kuikv1alpha1.ReplicatedImageSetSpec{
-				SkipActiveCheck: &trueVal,
-				Upstreams: []kuikv1alpha1.ReplicatedUpstream{
-					{
-						ImageReference: kuikv1alpha1.ImageReference{Registry: "docker.io", Path: ""},
-						ImageFilter:    kuikv1alpha1.ImageFilterDefinition{Include: []string{".*"}},
-					},
-					{
-						ImageReference: kuikv1alpha1.ImageReference{Registry: "localhost", Path: "/kuik-cache"},
-						ImageFilter:    kuikv1alpha1.ImageFilterDefinition{Include: []string{".*"}},
-						Priority:       1,
-					},
+		cris := makeCRIS(kuikv1alpha1.ReplicatedImageSetSpec{
+			SkipActiveCheck: &trueVal,
+			Upstreams: []kuikv1alpha1.ReplicatedUpstream{
+				sourceUpstream,
+				{
+					ImageReference: kuikv1alpha1.ImageReference{Registry: "localhost", Path: "/kuik-cache"},
+					ImageFilter:    matchAll,
+					Priority:       1,
 				},
 			},
-		}
+		})
 
 		err := d.buildAlternativesList(context.Background(), nil, []kuikv1alpha1.ReplicatedImageSet{cris}, c)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(findByPrefix(c, "localhost/kuik-cache").SkipActiveCheck).To(BeTrue())
 	})
-
 })

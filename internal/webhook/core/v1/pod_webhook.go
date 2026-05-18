@@ -77,7 +77,8 @@ func SetupPodWebhookWithManager(mgr ctrl.Manager, d *PodCustomDefaulter) error {
 // as it is used only for temporary operations and does not need to be deeply copied.
 type PodCustomDefaulter struct {
 	client.Client
-	Config *config.Config
+	Config        *config.Config
+	ClientFactory *registry.ClientFactory
 
 	checkCache       otter.Cache[string, bool]
 	alternativeCache otter.Cache[string, *cachedAlternativeImage]
@@ -146,9 +147,10 @@ func compareAlternatives(a, b prioritizedAlternative) int {
 	)
 }
 
-// effectiveSkipCheck returns the effective skipActiveCheck value.
-// Takes per-mirror/upstream setting (first priority) and CR-level setting (fallback).
-func effectiveSkipCheck(perItem, crLevel *bool) bool {
+// effectiveSkipActiveCheck returns the effective skipActiveCheck value for a
+// ReplicatedImageSet entry. The per-upstream setting takes precedence over the
+// CR-level setting; both nil means false.
+func effectiveSkipActiveCheck(perItem, crLevel *bool) bool {
 	if perItem != nil {
 		return *perItem
 	}
@@ -458,7 +460,7 @@ func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSet
 				intraPriority:    upstream.Priority,
 				typeOrder:        typeOrder,
 				declarationOrder: declarationIdx,
-				skipActiveCheck:  effectiveSkipCheck(upstream.SkipActiveCheck, ris.Spec.SkipActiveCheck),
+				skipActiveCheck:  effectiveSkipActiveCheck(upstream.SkipActiveCheck, ris.Spec.SkipActiveCheck),
 			})
 		}
 	}
@@ -493,7 +495,6 @@ func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSet
 					intraPriority:    mirror.Priority,
 					typeOrder:        typeOrder,
 					declarationOrder: declarationIdx,
-					skipActiveCheck:  effectiveSkipCheck(mirror.SkipActiveCheck, ism.Spec.SkipActiveCheck),
 				})
 			}
 		}
@@ -537,14 +538,7 @@ func (d *PodCustomDefaulter) findBestAlternative(ctx context.Context, container 
 }
 
 func (d *PodCustomDefaulter) checkImageAvailabilityCached(ctx context.Context, image *AlternativeImage, pullSecrets []corev1.Secret) error {
-	// Skip probe for trusted alternatives - these are known to be available or are only reachable from nodes.
-	//
-	// The skip is unconditional and intentionally bypasses both the checkCache lookup and the
-	// requestGroup probe: a stale negative cache entry must never veto a trusted alternative, and
-	// we have no signal to write back (cache writes happen inside the probe path). The downside —
-	// no positive cache reuse — is acceptable because the early return is O(1) and incurs no I/O.
-	// As a side effect, tryCleanupStaleMirrorStatus is also never reached for trusted alternatives;
-	// see docs/trusted-mirrors.md ("Stale mirror cleanup is disabled") for the operational impact.
+	// Bypass the cache lookup too, otherwise a stale negative entry could veto a trusted alternative.
 	if image.SkipActiveCheck {
 		log := logf.FromContext(ctx, "reference", image.Reference)
 		log.V(1).Info("skipping availability check for trusted alternative (kubelet will verify during pull)",
@@ -562,7 +556,7 @@ func (d *PodCustomDefaulter) checkImageAvailabilityCached(ctx context.Context, i
 	err, _ := d.requestGroup.Do("availability:"+image.Reference, func() (any, error) {
 		log := logf.FromContext(ctx, "reference", image.Reference)
 
-		result, err := registry.CheckImageAvailability(ctx, image.Reference, http.MethodHead, d.Config.Routing.ActiveCheck.Timeout, pullSecrets)
+		result, err := registry.CheckImageAvailability(ctx, d.ClientFactory, image.Reference, http.MethodHead, d.Config.Routing.ActiveCheck.Timeout, pullSecrets)
 		if err != nil {
 			log.V(1).Info("image is not available", "error", err)
 		} else {

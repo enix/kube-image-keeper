@@ -1,3 +1,5 @@
+{{- $hasConfig := include "kube-image-keeper.hasManagerConfig" . -}}
+{{- $rootCASecret := .Values.rootCertificateAuthorities.secretName -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -21,7 +23,7 @@ spec:
       {{- with .Values.manager.podAnnotations }}
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if .Values.configuration }}
+      {{- if $hasConfig }}
         checksum/config: {{ include (print $.Template.BasePath "/manager-configmap.yaml") . | sha256sum }}
       {{- end }}
       labels:
@@ -68,9 +70,14 @@ spec:
             - mountPath: /tmp/k8s-webhook-server/serving-certs
               name: webhook-cert
               readOnly: true
-            {{- if .Values.configuration }}
+            {{- if $hasConfig }}
             - mountPath: /etc/kube-image-keeper
               name: config
+              readOnly: true
+            {{- end }}
+            {{- if and $rootCASecret .Values.rootCertificateAuthorities.keys }}
+            - mountPath: {{ include "kube-image-keeper.rootCAMountPath" . }}
+              name: root-certificate-authorities
               readOnly: true
             {{- end }}
           {{- with .Values.manager.readinessProbe }}
@@ -106,8 +113,19 @@ spec:
         secret:
           defaultMode: 420
           secretName: {{ include "kube-image-keeper.fullname" . }}-webhook-server-cert
-      {{- if .Values.configuration }}
+      {{- if $hasConfig }}
       - name: config
         configMap:
           name: {{ include "kube-image-keeper.fullname" . }}-manager-config
+      {{- end }}
+      {{- if and $rootCASecret .Values.rootCertificateAuthorities.keys }}
+      - name: root-certificate-authorities
+        secret:
+          defaultMode: 420
+          secretName: {{ $rootCASecret }}
+          items:
+            {{- range .Values.rootCertificateAuthorities.keys }}
+            - key: {{ . }}
+              path: {{ . }}
+            {{- end }}
       {{- end }}

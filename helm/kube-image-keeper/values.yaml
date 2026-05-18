@@ -106,3 +106,19 @@ unusedImageTTL: 24
 # built-in defaults (see internal/config/config.go and docs/configuration.md).
 # Any key set here is merged on top of those defaults.
 configuration: {}
+
+# -- Registry hostnames whose TLS certificate validation is disabled when the
+# manager contacts them (probe, mirror, cleanup). Example: ["my-registry.example.com:5000"].
+# Rendered into configuration.tls.insecureRegistries.
+insecureRegistries: []
+
+rootCertificateAuthorities:
+  # -- Name of a Kubernetes Secret holding PEM-encoded CA bundles. When set,
+  # the listed keys are mounted into the manager pod and added to its trust
+  # store on top of the system roots. Leave empty to keep the system trust
+  # store unchanged.
+  secretName: ""
+  # -- File names inside the secret to mount (each entry becomes a path under
+  # /etc/ssl/certs/registry-certificate-authorities/<key>). Rendered into
+  # configuration.tls.rootCertificateAuthorities.
+  keys: []
