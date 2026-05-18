@@ -36,6 +36,11 @@ Image path is always [normalized](https://github.com/distribution/reference/blob
 | `spec.namespaceFilter` | | (Cluster-scoped only.) Restricts which namespaces this resource applies to. Omitted or empty means the resource applies to every namespace. |
 | `spec.namespaceFilter.include` | | List of RE2 regex patterns. When non-empty, the resource only applies to pods whose namespace matches at least one entry. Takes precedence over `exclude` for the same namespace (enables a deny-all-then-allowlist idiom). |
 | `spec.namespaceFilter.exclude` | | List of RE2 regex patterns. Pods whose namespace matches any entry are out of scope (unless their namespace also matches `include`). |
+| `spec.podFilter` | | Restricts which pods this resource applies to, by pod labels and annotations. Omitted or empty means the resource applies to every pod. |
+| `spec.podFilter.labels.include` | | List of Kubernetes label selectors. Pods matching at least one entry are in scope. When omitted, all pods are in scope as far as labels are concerned. |
+| `spec.podFilter.labels.exclude` | | List of Kubernetes label selectors. Pods matching any entry are removed from scope (takes precedence over `include` on tie). |
+| `spec.podFilter.annotations.include` | | List of selector strings matched against pod annotations. Same syntax as label selectors. |
+| `spec.podFilter.annotations.exclude` | | List of selector strings matched against pod annotations. Same syntax as label selectors. |
 
 ### Example
 
@@ -118,6 +123,11 @@ Image path is always [normalized](https://github.com/distribution/reference/blob
 | `spec.namespaceFilter` | | (Cluster-scoped only.) Restricts which namespaces this resource applies to. Omitted or empty means the resource applies to every namespace. |
 | `spec.namespaceFilter.include` | | List of RE2 regex patterns. When non-empty, the resource only applies to pods whose namespace matches at least one entry. Takes precedence over `exclude` for the same namespace (enables a deny-all-then-allowlist idiom). |
 | `spec.namespaceFilter.exclude` | | List of RE2 regex patterns. Pods whose namespace matches any entry are out of scope (unless their namespace also matches `include`). |
+| `spec.podFilter` | | Restricts which pods this resource applies to, by pod labels and annotations. Omitted or empty means the resource applies to every pod. |
+| `spec.podFilter.labels.include` | | List of Kubernetes label selectors. Pods matching at least one entry are in scope. When omitted, all pods are in scope as far as labels are concerned. |
+| `spec.podFilter.labels.exclude` | | List of Kubernetes label selectors. Pods matching any entry are removed from scope (takes precedence over `include` on tie). |
+| `spec.podFilter.annotations.include` | | List of selector strings matched against pod annotations. Same syntax as label selectors. |
+| `spec.podFilter.annotations.exclude` | | List of selector strings matched against pod annotations. Same syntax as label selectors. |
 
 ### Example
 
@@ -177,6 +187,54 @@ spec:
 ```
 
 The same `namespaceFilter` field is available on `ClusterReplicatedImageSet`.
+
+#### Scoping by pod labels or annotations
+
+`podFilter` accepts Kubernetes label-selector syntax (equality `key=value`, inequality `key!=value`, presence `key`, absence `!key`, set-based `key in (a,b)`). It applies independently to `labels` and `annotations`. Exclude wins over include on tie.
+
+Common use case: an operator like CloudNativePG (CNPG) breaks when its database pod images are rewritten. Opt those pods out of mirroring with an exclude on the CNPG role label:
+
+```yaml
+apiVersion: kuik.enix.io/v1alpha1
+kind: ClusterImageSetMirror
+metadata:
+  name: mirror-except-cnpg
+spec:
+  podFilter:
+    labels:
+      exclude:
+      - cnpg.io/podRole=instance
+  imageFilter:
+    include:
+    - .*
+  mirrors:
+  - registry: registry.example.com
+    path: /mirror
+```
+
+To restrict mirroring to pods that explicitly opt in via an annotation:
+
+```yaml
+apiVersion: kuik.enix.io/v1alpha1
+kind: ClusterImageSetMirror
+metadata:
+  name: opt-in-only
+spec:
+  podFilter:
+    annotations:
+      include:
+      - my.company.com/kuik-mirror
+  imageFilter:
+    include:
+    - .*
+  mirrors:
+  - registry: registry.example.com
+    path: /mirror
+```
+
+Note: annotation values must satisfy DNS-1123 label-value syntax (≤63 chars, alphanumeric + `-_.`) for an equality match like `my.company.com/foo=bar`; longer or free-form annotation values (URLs, JSON blobs) can only be matched by presence (`key`) or absence (`!key`).
+
+`podFilter` is also available on `ImageSetMirror`, `ReplicatedImageSet`, and `ClusterReplicatedImageSet` with the same shape.
 
 ## ClusterImageSetAvailability
 
