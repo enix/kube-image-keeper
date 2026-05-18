@@ -15,15 +15,17 @@ import (
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/config"
+	"github.com/enix/kube-image-keeper/internal/registry"
 )
 
 func newTestReconciler() *ClusterImageSetAvailabilityReconciler {
 	cfg, err := config.LoadDefault()
 	Expect(err).NotTo(HaveOccurred())
 	return &ClusterImageSetAvailabilityReconciler{
-		Client: k8sClient,
-		Scheme: k8sClient.Scheme(),
-		Config: cfg,
+		Client:        k8sClient,
+		Scheme:        k8sClient.Scheme(),
+		Config:        cfg,
+		ClientFactory: registry.NewClientFactory(nil, nil),
 	}
 }
 

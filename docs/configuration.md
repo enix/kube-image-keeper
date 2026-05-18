@@ -202,6 +202,30 @@ monitoring:
           namespace: kuik-system
 ```
 
+## `tls`
+
+Controls the TLS configuration the manager uses when contacting upstream registries (availability probes from the webhook, push/pull from the mirroring controllers, monitoring from `ClusterImageSetAvailability`).
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `tls.insecureRegistries` | []string | `[]` | Registry hostnames whose TLS certificate validation is disabled (e.g. `my-registry.example.com:5000`, `localhost:5000`). The match is on the registry host as parsed by `go-containerregistry`. |
+| `tls.rootCertificateAuthorities` | []string | `[]` | Filesystem paths to PEM-encoded CA bundles that are appended to the manager's trust store on top of the system roots. |
+
+### Example
+
+```yaml
+tls:
+  insecureRegistries:
+    - my-internal-registry.example.com:5000
+  rootCertificateAuthorities:
+    - /etc/ssl/certs/registry-certificate-authorities/corp-root.pem
+```
+
+The Helm chart exposes two convenience values that render into this section:
+
+- `insecureRegistries` (top-level) → `tls.insecureRegistries`
+- `rootCertificateAuthorities.secretName` + `rootCertificateAuthorities.keys` → mount the listed keys from the secret at `/etc/ssl/certs/registry-certificate-authorities/<key>` and render those absolute paths into `tls.rootCertificateAuthorities`.
+
 ## `metrics`
 
 Tunes the histograms exposed by the manager's metrics endpoint (`/metrics` on `:8080`). Currently only the `kuik_monitoring_image_last_monitor_age_minutes` histogram is configurable.

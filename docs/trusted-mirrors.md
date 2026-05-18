@@ -2,47 +2,63 @@
 
 By default, kube-image-keeper's webhook performs an availability probe (HTTP HEAD/GET request) on each alternative image before using it. This ensures only reachable images are selected, but it has a limitation: the probe runs from the **manager pod**, not from the node runtime.
 
-This limitation matters when using mirrors that are only reachable from nodes, such as:
+This limitation matters when using upstreams that are only reachable from nodes, such as:
 
-- `localhost:<port>` mirrors served by a DaemonSet on each node
+- `localhost:<port>` proxies served by a DaemonSet on each node
 - Mirrors with self-signed TLS certificates that kubelet trusts but the manager pod doesn't
 - Mirrors that require node-local credentials or certificates
 
+For self-signed certs or plain-HTTP registries that the manager *could* reach if its TLS config allowed it, prefer extending the manager trust store via the [`insecureRegistries` / `rootCertificateAuthorities`](configuration.md) Helm values instead of bypassing the probe.
+
+## Scope
+
+The `skipActiveCheck` flag is exposed on `ClusterReplicatedImageSet` (CRIS) and `ReplicatedImageSet` (RIS) — i.e. the pull-through-proxy CRs where each node pulls directly from the upstream.
+
+It is **not** available on `(Cluster)ImageSetMirror` (ISM/CISM): those CRs have a manager-side mirroring controller that pushes images via `client.CopyImage()`. If the manager cannot reach a destination, the mirror would never be populated and pods would hit `ImagePullBackOff` — a broken configuration. Use CRIS/RIS for the node-only-reachable case.
+
 ## `skipActiveCheck` flag
 
-The `skipActiveCheck` flag allows you to bypass the manager-side availability probe for specific mirrors or upstreams. When set to `true`, the pod-mutation webhook stops checking that mirror at admission time and treats it as available.
+When set to `true`, the pod-mutation webhook stops checking that upstream at admission time and treats it as available.
 
-**Scope**: this flag only affects the webhook's routing decision — i.e. which alternative image gets pinned into the pod spec. The mirroring/replication controllers keep doing their normal work (pulling upstream images into the cache, populating `mirroredAt`, running cleanup); none of that is short-circuited.
+**Scope**: this flag only affects the webhook's routing decision — i.e. which alternative image gets pinned into the pod spec. The replication controllers keep doing their normal work; none of that is short-circuited.
 
 ### Placement
 
 The flag can be set at two levels:
 
-1. **CR-level**: `spec.skipActiveCheck` on `(Cluster)ImageSetMirror` or `(Cluster)ReplicatedImageSet`
-2. **Per-mirror/upstream**: `mirrors[].skipActiveCheck` or `upstreams[].skipActiveCheck`
+1. **CR-level**: `spec.skipActiveCheck` on `(Cluster)ReplicatedImageSet`
+2. **Per-upstream**: `upstreams[].skipActiveCheck`
 
-When both are set, the per-mirror/upstream value takes precedence. If neither is set, the default behavior (probe all images) applies.
+When both are set, the per-upstream value takes precedence. If neither is set, the default behavior (probe all images) applies.
 
 ### Using the flag
 
 ```yaml
 apiVersion: kuik.enix.io/v1alpha1
-kind: ClusterImageSetMirror
+kind: ClusterReplicatedImageSet
 metadata:
   name: localhost-proxy
 spec:
-  # Skip probe for all mirrors in this CR
+  # Skip probe for all upstreams in this CR
   skipActiveCheck: true
-  imageFilter:
-    include:
-      - registry.example.com/.+
-  mirrors:
+  upstreams:
+  - registry: registry.example.com
+    path: ""
+    imageFilter:
+      include:
+        - .+
   - registry: localhost
     path: /kuik-cache
-    # Override: probe this specific mirror even though CR-level skips
+    imageFilter:
+      include:
+        - .+
+    # Override: probe this specific upstream even though CR-level skips
     skipActiveCheck: false
   - registry: localhost
     path: /kuik-backup
+    imageFilter:
+      include:
+        - .+
     # Inherits skipActiveCheck: true from CR level
 ```
 
@@ -76,8 +92,6 @@ spec:
     spec:
       containers:
       - name: proxy
-        # Pull the proxy image from upstream (docker.io), NOT from localhost:5000
-        # — otherwise the DaemonSet cannot bootstrap on a fresh node.
         image: registry:2.8
         ports:
         - containerPort: 5000
@@ -86,70 +100,88 @@ spec:
           hostPort: 5000
 ```
 
-### Configure ImageSetMirror to use it
-
-```yaml
-apiVersion: kuik.enix.io/v1alpha1
-kind: ClusterImageSetMirror
-metadata:
-  name: localhost-mirror
-spec:
-  # Trust localhost proxy - manager can't reach it but kubelet can
-  skipActiveCheck: true
-  imageFilter:
-    include:
-      - .*
-  mirrors:
-  - registry: localhost
-    path: /kuik-cache
-```
-
-When a pod is scheduled on a node, kubelet pulls from `localhost:5000` on that same node (where the DaemonSet proxy is running), bypassing the manager-side probe that would have failed.
-
-### Using with ClusterReplicatedImageSet
-
-The same `skipActiveCheck` flag works with `ClusterReplicatedImageSet` for upstreams:
+### Configure ClusterReplicatedImageSet to use it
 
 ```yaml
 apiVersion: kuik.enix.io/v1alpha1
 kind: ClusterReplicatedImageSet
 metadata:
-  name: localhost-upstream
+  name: localhost-mirror
 spec:
-  # Skip probe for all upstreams in this CR
+  # Trust localhost proxy - manager can't reach it but kubelet can
   skipActiveCheck: true
-  imageFilter:
-    include:
-      - registry.example.com/.+
   upstreams:
+  # Match the images that should be rewritten to the local proxy. Keep this
+  # narrow enough to exclude the proxy's own image, otherwise the webhook
+  # rewrites `docker.io/library/registry:2.8` and the DaemonSet cannot
+  # bootstrap on a fresh node.
+  - registry: registry.example.com
+    path: ""
+    imageFilter:
+      include:
+        - .+
   - registry: localhost
     path: /kuik-cache
-    # Override: probe this specific upstream even though CR-level skips
-    skipActiveCheck: false
-  - registry: localhost
-    path: /kuik-backup
-    # Inherits skipActiveCheck: true from CR level
+    imageFilter:
+      include:
+        - .+
+    priority: 1
+```
+
+When a pod is scheduled on a node, kubelet pulls from `localhost:5000` on that same node (where the DaemonSet proxy is running), bypassing the manager-side probe that would have failed.
+
+If you really need a broad include (`.+`), pair it with an `exclude` rule that protects the proxy image and any other image the cluster must be able to pull without going through `localhost`:
+
+```yaml
+    imageFilter:
+      include:
+        - .+
+      exclude:
+        - docker\.io/library/registry.*
 ```
 
 ## Considerations
 
-> ⚠️ **Use `skipActiveCheck: true` only for mirrors whose availability is guaranteed by construction** — typically node-local proxies (`localhost:<port>` DaemonSets) or registries reachable only from kubelet. **Avoid it on remote registries where images can disappear**: with the probe bypassed, the webhook will keep routing pods to a broken mirror and the failure only surfaces as `ImagePullBackOff` on the node, with no signal back to kuik.
+> ⚠️ **Use `skipActiveCheck: true` only for upstreams whose availability is guaranteed by construction** — typically node-local proxies (`localhost:<port>` DaemonSets) or registries reachable only from kubelet. **Avoid it on remote registries where images can disappear**: with the probe bypassed, the webhook will keep routing pods to a broken upstream and the failure only surfaces as `ImagePullBackOff` on the node, with no signal back to kuik.
 
-> ⚠️ **Stale `mirroredAt` is never cleared on a skipped mirror.** The webhook's failure-driven cleanup runs only when the probe returns `NotFound` — which never happens here. A CR can therefore report `mirroredAt: <timestamp>` indefinitely for an image that has actually vanished from the mirror, and kuik will keep routing new pods to it. Always keep at least one non-skipped alternative in the same CR so cleanup is still triggered for the underlying image, or drive re-mirroring out of band when a trusted mirror has been refreshed.
+### Interaction with `ClusterImageSetAvailability`
 
-- **Availability**: When `skipActiveCheck: true`, kube-image-keeper no longer verifies that the mirror actually has the image. You must ensure your mirror infrastructure reliably populates images before they're requested.
-- **Failure detection**: Pods may fail to start if a trusted mirror is down or missing images. The webhook will still try alternative images in priority order, but it won't filter out unavailable trusted mirrors.
-- **Use with priority**: Combine `skipActiveCheck` with the priority system to use trusted mirrors as primary and fall back to probed mirrors if needed:
+`ClusterImageSetAvailability` (CISA) iterates over images found in pod annotations and HEAD-checks each one independently of `skipActiveCheck`. The webhook records the rewritten reference in the `kuik.enix.io/original-images` annotation, so a `localhost:5000/...` ref will be probed by CISA from the manager pod and reported as `Unreachable` permanently — even when kubelet is happily pulling from it.
+
+To avoid the false-negative noise in CISA status and dashboards, filter those references out at the CISA level via `spec.imageFilter.exclude`, e.g.:
+
+```yaml
+apiVersion: kuik.enix.io/v1alpha1
+kind: ClusterImageSetAvailability
+metadata:
+  name: cisa
+spec:
+  imageFilter:
+    exclude:
+      - ^localhost(:\d+)?/
+```
+
+### Other considerations
+
+- **Availability**: When `skipActiveCheck: true`, kube-image-keeper no longer verifies that the upstream actually has the image. You must ensure your mirror infrastructure reliably populates images before they're requested.
+- **Failure detection**: Pods may fail to start if a trusted upstream is down or missing images. The webhook will still try alternative images in priority order, but it won't filter out unavailable trusted upstreams.
+- **Use with priority**: Combine `skipActiveCheck` with the priority system to use trusted upstreams as primary and fall back to probed upstreams if needed:
 
   ```yaml
   spec:
-    skipActiveCheck: true  # All mirrors in this CR are trusted
-    mirrors:
+    skipActiveCheck: true  # All upstreams in this CR are trusted
+    upstreams:
     - registry: localhost
       path: /fast-cache
-      priority: 1  # Try this first (trusted, no probe)
+      imageFilter:
+        include:
+          - .+
+      priority: 1   # Try this first (trusted, no probe)
     - registry: fallback-registry.example.com
       path: /backup
+      imageFilter:
+        include:
+          - .+
       priority: 10  # Fall back to this (probed)
   ```
 
@@ -158,11 +190,11 @@ spec:
 
 ## When to use
 
-| Situation | Recommended approach |
-| --- | --- |
-| Standard public or private registry reachable from cluster | Default behavior (no `skipActiveCheck`) |
-| Self-hosted Harbor with proper certificates | Default behavior (no `skipActiveCheck`) |
-| Self-signed registry + node-level containerd config | Default behavior (no `skipActiveCheck`) |
-| Self-signed registry, no node config access | `skipActiveCheck: true` on mirror |
-| `localhost:<port>` proxy via DaemonSet | `skipActiveCheck: true` on mirror |
-| Mirror requires client certificate not available to manager | `skipActiveCheck: true` on mirror |
+| Situation                                                  | Recommended approach                                                                          |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Standard public or private registry reachable from cluster | Default behavior (no `skipActiveCheck`)                                                       |
+| Self-hosted Harbor with proper certificates                | Default behavior (no `skipActiveCheck`)                                                       |
+| Self-signed registry, manager can reach it                 | Default behavior + [`rootCertificateAuthorities`](configuration.md) Helm value                |
+| Plain-HTTP registry, manager can reach it                  | Default behavior + [`insecureRegistries`](configuration.md) Helm value                        |
+| `localhost:<port>` proxy via DaemonSet                     | `skipActiveCheck: true` on a `ClusterReplicatedImageSet` upstream                             |
+| Upstream requires client certificate not available to manager | `skipActiveCheck: true` on a `ClusterReplicatedImageSet` upstream                          |
