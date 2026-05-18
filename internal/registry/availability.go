@@ -14,8 +14,8 @@ import (
 // and returns the availability status of the image along with any error encountered.
 // The error is non-nil for all non-Available statuses and contains the underlying
 // cause (e.g. HTTP status text, transport error).
-func CheckImageAvailability(ctx context.Context, reference string, method string, timeout time.Duration, pullSecrets []corev1.Secret) (kuikv1alpha1.ImageAvailabilityStatus, error) {
-	_, headers, err := NewClient(nil, nil).
+func CheckImageAvailability(ctx context.Context, factory *ClientFactory, reference string, method string, timeout time.Duration, pullSecrets []corev1.Secret) (kuikv1alpha1.ImageAvailabilityStatus, error) {
+	_, headers, err := factory.New().
 		WithTimeout(timeout).
 		WithPullSecrets(pullSecrets).
 		ReadDescriptor(method, reference)

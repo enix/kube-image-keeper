@@ -77,7 +77,8 @@ func SetupPodWebhookWithManager(mgr ctrl.Manager, d *PodCustomDefaulter) error {
 // as it is used only for temporary operations and does not need to be deeply copied.
 type PodCustomDefaulter struct {
 	client.Client
-	Config *config.Config
+	Config        *config.Config
+	ClientFactory *registry.ClientFactory
 
 	checkCache       otter.Cache[string, bool]
 	alternativeCache otter.Cache[string, *cachedAlternativeImage]
@@ -90,6 +91,7 @@ type AlternativeImage struct {
 	CredentialSecret *kuikv1alpha1.CredentialSecret
 	ImagePullSecret  *corev1.Secret
 	SecretOwner      client.Object
+	SkipActiveCheck  bool
 }
 
 type cachedAlternativeImage struct {
@@ -131,6 +133,7 @@ type prioritizedAlternative struct {
 	intraPriority    uint        // from mirror/upstream priority (unsigned, default 0)
 	typeOrder        crTypeOrder // default type ordering
 	declarationOrder int         // YAML declaration index within CR
+	skipActiveCheck  bool
 }
 
 // compareAlternatives defines the sort order for prioritized alternatives.
@@ -142,6 +145,19 @@ func compareAlternatives(a, b prioritizedAlternative) int {
 		cmp.Compare(a.intraPriority, b.intraPriority),
 		cmp.Compare(a.declarationOrder, b.declarationOrder),
 	)
+}
+
+// effectiveSkipActiveCheck returns the effective skipActiveCheck value for a
+// ReplicatedImageSet entry. The per-upstream setting takes precedence over the
+// CR-level setting; both nil means false.
+func effectiveSkipActiveCheck(perItem, crLevel *bool) bool {
+	if perItem != nil {
+		return *perItem
+	}
+	if crLevel != nil {
+		return *crLevel
+	}
+	return false
 }
 
 var _ admission.Defaulter[*corev1.Pod] = &PodCustomDefaulter{}
@@ -444,6 +460,7 @@ func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSet
 				intraPriority:    upstream.Priority,
 				typeOrder:        typeOrder,
 				declarationOrder: declarationIdx,
+				skipActiveCheck:  effectiveSkipActiveCheck(upstream.SkipActiveCheck, ris.Spec.SkipActiveCheck),
 			})
 		}
 	}
@@ -487,7 +504,7 @@ func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSet
 	slices.SortStableFunc(alternatives, compareAlternatives)
 
 	for _, alt := range alternatives {
-		container.addAlternative(alt.reference, alt.credentialSecret, alt.secretOwner)
+		container.addAlternative(alt.reference, alt.credentialSecret, alt.secretOwner, alt.skipActiveCheck)
 	}
 
 	if err := container.loadAlternativesSecrets(ctx, d.Client); err != nil {
@@ -521,6 +538,14 @@ func (d *PodCustomDefaulter) findBestAlternative(ctx context.Context, container 
 }
 
 func (d *PodCustomDefaulter) checkImageAvailabilityCached(ctx context.Context, image *AlternativeImage, pullSecrets []corev1.Secret) error {
+	// Bypass the cache lookup too, otherwise a stale negative entry could veto a trusted alternative.
+	if image.SkipActiveCheck {
+		log := logf.FromContext(ctx, "reference", image.Reference)
+		log.V(1).Info("skipping availability check for trusted alternative (kubelet will verify during pull)",
+			"pullSecrets", len(pullSecrets) > 0)
+		return nil
+	}
+
 	if result, ok := d.checkCache.Get(image.Reference); ok {
 		if result {
 			return nil
@@ -531,7 +556,7 @@ func (d *PodCustomDefaulter) checkImageAvailabilityCached(ctx context.Context, i
 	err, _ := d.requestGroup.Do("availability:"+image.Reference, func() (any, error) {
 		log := logf.FromContext(ctx, "reference", image.Reference)
 
-		result, err := registry.CheckImageAvailability(ctx, image.Reference, http.MethodHead, d.Config.Routing.ActiveCheck.Timeout, pullSecrets)
+		result, err := registry.CheckImageAvailability(ctx, d.ClientFactory, image.Reference, http.MethodHead, d.Config.Routing.ActiveCheck.Timeout, pullSecrets)
 		if err != nil {
 			log.V(1).Info("image is not available", "error", err)
 		} else {
@@ -711,7 +736,7 @@ func (d *PodCustomDefaulter) ensureSecret(ctx context.Context, namespace string,
 	return err
 }
 
-func (c *Container) addAlternative(reference string, credentialSecret *kuikv1alpha1.CredentialSecret, secretOwner client.Object) {
+func (c *Container) addAlternative(reference string, credentialSecret *kuikv1alpha1.CredentialSecret, secretOwner client.Object, skipActiveCheck bool) {
 	if _, ok := c.Alternatives[reference]; ok {
 		return
 	}
@@ -721,6 +746,7 @@ func (c *Container) addAlternative(reference string, credentialSecret *kuikv1alp
 		Reference:        reference,
 		CredentialSecret: credentialSecret,
 		SecretOwner:      secretOwner,
+		SkipActiveCheck:  skipActiveCheck,
 	})
 }
 

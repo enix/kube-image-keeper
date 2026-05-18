@@ -79,4 +79,18 @@ Create the name of the service account to use
 {{- end -}}
 {{- end }}
 
+{{/*
+Filesystem path where extra registry CA certificates are mounted in the manager pod.
+*/}}
+{{- define "kube-image-keeper.rootCAMountPath" -}}
+/etc/ssl/certs/registry-certificate-authorities
+{{- end }}
+
+{{/*
+Whether the operator config ConfigMap should be rendered.
+*/}}
+{{- define "kube-image-keeper.hasManagerConfig" -}}
+{{- if or .Values.configuration .Values.insecureRegistries .Values.rootCertificateAuthorities.keys -}}true{{- end -}}
+{{- end }}
+
 

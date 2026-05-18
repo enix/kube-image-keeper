@@ -33,8 +33,9 @@ import (
 // ClusterImageSetAvailabilityReconciler reconciles a ClusterImageSetAvailability object.
 type ClusterImageSetAvailabilityReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
-	Config *config.Config
+	Scheme        *runtime.Scheme
+	Config        *config.Config
+	ClientFactory *registry.ClientFactory
 }
 
 type monitoringCandidate struct {
@@ -320,7 +321,7 @@ func (r *ClusterImageSetAvailabilityReconciler) performCheck(ctx context.Context
 		image.LastError = err.Error()
 	}
 
-	result, checkErr := registry.CheckImageAvailability(ctx, image.Image, registryConfig.Method, registryConfig.Timeout, pullSecrets)
+	result, checkErr := registry.CheckImageAvailability(ctx, r.ClientFactory, image.Image, registryConfig.Method, registryConfig.Timeout, pullSecrets)
 	image.LastMonitor = &now
 
 	if image.Status == kuikv1alpha1.ImageAvailabilityUnavailableSecret && result == kuikv1alpha1.ImageAvailabilityInvalidAuth {

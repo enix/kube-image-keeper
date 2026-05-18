@@ -38,6 +38,25 @@ func NewClient(insecureRegistries []string, rootCAs *x509.CertPool) *Client {
 	}
 }
 
+// ClientFactory builds fresh Client instances sharing the same TLS configuration.
+// Client is stateful (timeout, pull secrets, captured headers), so each call
+// needs its own instance.
+type ClientFactory struct {
+	insecureRegistries []string
+	rootCAs            *x509.CertPool
+}
+
+func NewClientFactory(insecureRegistries []string, rootCAs *x509.CertPool) *ClientFactory {
+	return &ClientFactory{
+		insecureRegistries: insecureRegistries,
+		rootCAs:            rootCAs,
+	}
+}
+
+func (f *ClientFactory) New() *Client {
+	return NewClient(f.insecureRegistries, f.rootCAs)
+}
+
 func (c *Client) newTransportOption(ref name.Reference) remote.Option {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = &tls.Config{RootCAs: c.rootCAs}
