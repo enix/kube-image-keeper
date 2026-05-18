@@ -59,8 +59,12 @@ func (r *ClusterImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctr
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	podFilter, err := cism.Spec.PodFilter.Build()
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 	pods.Items = slices.DeleteFunc(pods.Items, func(p corev1.Pod) bool {
-		return !nsFilter.Match(p.Namespace)
+		return !nsFilter.Match(p.Namespace) || !podFilter.Match(&p)
 	})
 
 	if !cism.DeletionTimestamp.IsZero() {
@@ -259,6 +263,14 @@ func (r *ClusterImageSetMirrorReconciler) SetupWithManager(mgr ctrl.Manager) err
 						continue
 					}
 					if !nsFilter.Match(pod.Namespace) {
+						continue
+					}
+					podFilter, err := cism.Spec.PodFilter.Build()
+					if err != nil {
+						log.Error(err, "skipping ClusterImageSetMirror with invalid pod filter", "name", cism.Name)
+						continue
+					}
+					if !podFilter.Match(pod) {
 						continue
 					}
 					imageFilter := cism.Spec.ImageFilter.MustBuild()

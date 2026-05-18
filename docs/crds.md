@@ -2,6 +2,8 @@
 
 This document describes the available Custom Resource Definitions (CRDs). Examples provided are non-exhaustive; for a full list of fields, please refer to the `kubectl describe <resource-name>` command.
 
+For namespace and pod filtering recipes (scoping resources to specific namespaces, opting pods in or out by label/annotation) see [Advanced resource filtering](./advanced-resource-filtering.md).
+
 Resource Types:
 
 * [ReplicatedImageSet](#clusterreplicatedimageset)
@@ -33,9 +35,6 @@ Image path is always [normalized](https://github.com/distribution/reference/blob
 | `spec.upstreams[].credentialSecret` | | Reference to a Secret used to pull matching images from this upstream. |
 | `spec.upstreams[].credentialSecret.name` | | Name of the Secret. |
 | `spec.upstreams[].credentialSecret.namespace` | | Namespace of the Secret. Ignored for namespaced `ReplicatedImageSet` (uses the parent namespace instead). |
-| `spec.namespaceFilter` | | (Cluster-scoped only.) Restricts which namespaces this resource applies to. Omitted or empty means the resource applies to every namespace. |
-| `spec.namespaceFilter.include` | | List of RE2 regex patterns. When non-empty, the resource only applies to pods whose namespace matches at least one entry. |
-| `spec.namespaceFilter.exclude` | | List of RE2 regex patterns. Pods whose namespace matches any entry are out of scope. |
 
 ### Example
 
@@ -115,9 +114,6 @@ Image path is always [normalized](https://github.com/distribution/reference/blob
 | `spec.mirrors[].credentialSecret.name` | | Name of the Secret. |
 | `spec.mirrors[].credentialSecret.namespace` | | Namespace of the Secret. Ignored for namespaced `ImageSetMirror` (uses the parent namespace instead). |
 | `spec.mirrors[].cleanup` | | Per-mirror cleanup strategy override. Same fields as `spec.cleanup`. |
-| `spec.namespaceFilter` | | (Cluster-scoped only.) Restricts which namespaces this resource applies to. Omitted or empty means the resource applies to every namespace. |
-| `spec.namespaceFilter.include` | | List of RE2 regex patterns. When non-empty, the resource only applies to pods whose namespace matches at least one entry. |
-| `spec.namespaceFilter.exclude` | | List of RE2 regex patterns. Pods whose namespace matches any entry are out of scope. |
 
 ### Example
 
