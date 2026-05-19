@@ -3,6 +3,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: {{ include "kube-image-keeper.fullname" . }}-manager
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "kube-image-keeper.manager-labels" . | nindent 4 }}
     {{- with .Values.manager.serviceMonitor.extraLabels }}
