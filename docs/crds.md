@@ -33,6 +33,9 @@ Image path is always [normalized](https://github.com/distribution/reference/blob
 | `spec.upstreams[].credentialSecret` | | Reference to a Secret used to pull matching images from this upstream. |
 | `spec.upstreams[].credentialSecret.name` | | Name of the Secret. |
 | `spec.upstreams[].credentialSecret.namespace` | | Namespace of the Secret. Ignored for namespaced `ReplicatedImageSet` (uses the parent namespace instead). |
+| `spec.namespaceFilter` | | (Cluster-scoped only.) Restricts which namespaces this resource applies to. Omitted or empty means the resource applies to every namespace. |
+| `spec.namespaceFilter.include` | | List of RE2 regex patterns. When non-empty, the resource only applies to pods whose namespace matches at least one entry. |
+| `spec.namespaceFilter.exclude` | | List of RE2 regex patterns. Pods whose namespace matches any entry are out of scope. |
 
 ### Example
 
@@ -112,6 +115,9 @@ Image path is always [normalized](https://github.com/distribution/reference/blob
 | `spec.mirrors[].credentialSecret.name` | | Name of the Secret. |
 | `spec.mirrors[].credentialSecret.namespace` | | Namespace of the Secret. Ignored for namespaced `ImageSetMirror` (uses the parent namespace instead). |
 | `spec.mirrors[].cleanup` | | Per-mirror cleanup strategy override. Same fields as `spec.cleanup`. |
+| `spec.namespaceFilter` | | (Cluster-scoped only.) Restricts which namespaces this resource applies to. Omitted or empty means the resource applies to every namespace. |
+| `spec.namespaceFilter.include` | | List of RE2 regex patterns. When non-empty, the resource only applies to pods whose namespace matches at least one entry. |
+| `spec.namespaceFilter.exclude` | | List of RE2 regex patterns. Pods whose namespace matches any entry are out of scope. |
 
 ### Example
 
@@ -152,6 +158,18 @@ If an image is rewritten to use our mirror, kuik will copy the secret to the pod
 The `ClusterImageSetAvailability` resource continuously monitors the upstream availability of container images used in the cluster. It automatically discovers images from running Pods, checks whether they are still reachable on their source registry, and reports their status.
 
 This is useful for detecting images that have been deleted, made private, or are hosted on unreachable registries before they cause issues during a Pod reschedule.
+
+### Fields
+
+| Field | Required | Description |
+| --- | --- | --- |
+| `spec.unusedImageExpiry` | | How long to keep tracking an image after no Pod uses it. Once elapsed the image is removed from status (e.g. `720h`). Zero means unused images are never removed. |
+| `spec.imageFilter` | | Rules used to select which images to monitor. |
+| `spec.imageFilter.include` | | List of regex patterns. Images matching at least one pattern are included. |
+| `spec.imageFilter.exclude` | | List of regex patterns. Images matching any pattern are excluded (takes precedence over include). |
+| `spec.namespaceFilter` | | (Cluster-scoped only.) Restricts which namespaces this resource applies to. Omitted or empty means the resource applies to every namespace. |
+| `spec.namespaceFilter.include` | | List of RE2 regex patterns. When non-empty, the resource only applies to pods whose namespace matches at least one entry. |
+| `spec.namespaceFilter.exclude` | | List of RE2 regex patterns. Pods whose namespace matches any entry are out of scope. |
 
 ### How it works
 

@@ -5,7 +5,12 @@ import (
 )
 
 // ClusterImageSetMirrorSpec defines the desired state of ClusterImageSetMirror.
-type ClusterImageSetMirrorSpec ImageSetMirrorSpec
+type ClusterImageSetMirrorSpec struct {
+	ImageSetMirrorSpec `json:",inline"`
+
+	// +optional
+	NamespaceFilter NamespaceFilterDefinition `json:"namespaceFilter,omitempty"`
+}
 
 // ClusterImageSetMirrorStatus defines the observed state of ClusterImageSetMirror.
 type ClusterImageSetMirrorStatus ImageSetMirrorStatus

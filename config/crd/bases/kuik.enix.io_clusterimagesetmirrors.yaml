@@ -51,12 +51,7 @@ spec:
                     type: string
                 type: object
               imageFilter:
-                description: |-
-                  ImageFilterDefinition is the definition of an image filter.
-                  The XValidation rules below reject patterns that fail to compile as RE2
-                  regexes. The ternary form (matches(p) ? true : true) forces CEL to evaluate
-                  matches(), so an invalid pattern surfaces as a validation error instead of
-                  being swallowed by short-circuit operators.
+                description: ImageFilterDefinition is the definition of an image filter.
                 properties:
                   exclude:
                     items:
@@ -111,6 +106,30 @@ spec:
                       type: string
                   type: object
                 type: array
+              namespaceFilter:
+                description: |-
+                  NamespaceFilter restricts which namespaces this cluster-scoped resource applies to.
+                  When omitted or empty, the resource applies to every namespace.
+                properties:
+                  exclude:
+                    items:
+                      maxLength: 128
+                      type: string
+                    maxItems: 16
+                    type: array
+                    x-kubernetes-validations:
+                    - message: exclude contains an invalid regular expression
+                      rule: 'self.all(p, ''''.matches(p) ? true : true)'
+                  include:
+                    items:
+                      maxLength: 128
+                      type: string
+                    maxItems: 16
+                    type: array
+                    x-kubernetes-validations:
+                    - message: include contains an invalid regular expression
+                      rule: 'self.all(p, ''''.matches(p) ? true : true)'
+                type: object
               priority:
                 description: |-
                   Priority controls the ordering of alternatives from this CR relative to the original image and other CRs.
