@@ -51,20 +51,7 @@ type ImageSetMirrorList struct {
 }
 
 // ImageFilterDefinition is the definition of an image filter.
-// The XValidation rules below reject patterns that fail to compile as RE2
-// regexes. The ternary form (matches(p) ? true : true) forces CEL to evaluate
-// matches(), so an invalid pattern surfaces as a validation error instead of
-// being swallowed by short-circuit operators.
-type ImageFilterDefinition struct {
-	// +kubebuilder:validation:MaxItems=16
-	// +kubebuilder:validation:items:MaxLength=128
-	// +kubebuilder:validation:XValidation:rule="self.all(p, ''.matches(p) ? true : true)",message="include contains an invalid regular expression"
-	Include []string `json:"include,omitempty"`
-	// +kubebuilder:validation:MaxItems=16
-	// +kubebuilder:validation:items:MaxLength=128
-	// +kubebuilder:validation:XValidation:rule="self.all(p, ''.matches(p) ? true : true)",message="exclude contains an invalid regular expression"
-	Exclude []string `json:"exclude,omitempty"`
-}
+type ImageFilterDefinition IncludeExcludeFilterDefinition
 
 // Cleanup defines a cleanup strategy
 type Cleanup struct {
@@ -125,7 +112,11 @@ func (m Mirrors) GetCredentialSecretForImage(image string) (cred *CredentialSecr
 }
 
 func (i ImageFilterDefinition) Build() (filter.Filter, error) {
-	return filter.CompileIncludeExcludeFilter(i.Include, i.Exclude)
+	include := i.Include
+	if len(i.Include) == 0 && len(i.Exclude) > 0 {
+		include = []string{".*"}
+	}
+	return filter.CompileIncludeExcludeFilter(include, i.Exclude)
 }
 
 func (i ImageFilterDefinition) MustBuild() filter.Filter {
@@ -137,7 +128,7 @@ func (i ImageFilterDefinition) MustBuild() filter.Filter {
 }
 
 func (i ImageFilterDefinition) BuildWithRegistry(registry string) (filter.Filter, error) {
-	return filter.CompilePrefixIncludeExcludeFilter(registry, i.Include, i.Exclude)
+	return filter.AddPrefixToFilter(registry, i.Build)
 }
 
 func (i ImageFilterDefinition) MustBuildWithRegistry(registry string) filter.Filter {

@@ -69,6 +69,30 @@ spec:
                     - message: include contains an invalid regular expression
                       rule: 'self.all(p, ''''.matches(p) ? true : true)'
                 type: object
+              namespaceFilter:
+                description: |-
+                  NamespaceFilter restricts which namespaces this cluster-scoped resource applies to.
+                  When omitted or empty, the resource applies to every namespace.
+                properties:
+                  exclude:
+                    items:
+                      maxLength: 128
+                      type: string
+                    maxItems: 16
+                    type: array
+                    x-kubernetes-validations:
+                    - message: exclude contains an invalid regular expression
+                      rule: 'self.all(p, ''''.matches(p) ? true : true)'
+                  include:
+                    items:
+                      maxLength: 128
+                      type: string
+                    maxItems: 16
+                    type: array
+                    x-kubernetes-validations:
+                    - message: include contains an invalid regular expression
+                      rule: 'self.all(p, ''''.matches(p) ? true : true)'
+                type: object
               unusedImageExpiry:
                 description: |-
                   UnusedImageExpiry is how long to keep tracking an image after no Pod uses it.

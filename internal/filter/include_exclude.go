@@ -10,6 +10,9 @@ type IncludeExcludeFilter struct {
 	exclude []regexp.Regexp
 }
 
+// CompileIncludeExcludeFilter builds a filter that returns true when the input
+// matches at least one include entry AND no exclude entry. Empty include means
+// nothing matches.
 func CompileIncludeExcludeFilter(include, exclude []string) (*IncludeExcludeFilter, error) {
 	filter := &IncludeExcludeFilter{
 		include: make([]regexp.Regexp, len(include)),
@@ -30,10 +33,6 @@ func CompileIncludeExcludeFilter(include, exclude []string) (*IncludeExcludeFilt
 			return nil, err
 		}
 		filter.exclude[i] = *r
-	}
-
-	if len(filter.include) == 0 && len(filter.exclude) > 0 {
-		filter.include = []regexp.Regexp{*regexp.MustCompile(".*")}
 	}
 
 	return filter, nil

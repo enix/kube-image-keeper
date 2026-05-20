@@ -49,12 +49,7 @@ spec:
                     type: string
                 type: object
               imageFilter:
-                description: |-
-                  ImageFilterDefinition is the definition of an image filter.
-                  The XValidation rules below reject patterns that fail to compile as RE2
-                  regexes. The ternary form (matches(p) ? true : true) forces CEL to evaluate
-                  matches(), so an invalid pattern surfaces as a validation error instead of
-                  being swallowed by short-circuit operators.
+                description: ImageFilterDefinition is the definition of an image filter.
                 properties:
                   exclude:
                     items:

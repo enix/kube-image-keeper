@@ -31,6 +31,9 @@ type ClusterImageSetAvailabilitySpec struct {
 	// ImageFilter selects which images to monitor.
 	// +optional
 	ImageFilter ImageFilterDefinition `json:"imageFilter,omitempty"`
+
+	// +optional
+	NamespaceFilter NamespaceFilterDefinition `json:"namespaceFilter,omitempty"`
 }
 
 // MonitoredImage holds the current availability state for a single image.

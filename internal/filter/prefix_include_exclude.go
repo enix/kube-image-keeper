@@ -4,26 +4,26 @@ import (
 	"strings"
 )
 
-type PrefixIncludeExcludeFilter struct {
-	IncludeExcludeFilter
+type PrefixFilter struct {
+	Filter
 	prefix string
 }
 
-func CompilePrefixIncludeExcludeFilter(prefix string, include, exclude []string) (*PrefixIncludeExcludeFilter, error) {
-	filter, err := CompileIncludeExcludeFilter(include, exclude)
+func AddPrefixToFilter(prefix string, builder func() (Filter, error)) (*PrefixFilter, error) {
+	filter, err := builder()
 	if err != nil {
 		return nil, err
 	}
-	return &PrefixIncludeExcludeFilter{
-		IncludeExcludeFilter: *filter,
-		prefix:               prefix,
+	return &PrefixFilter{
+		Filter: filter,
+		prefix: prefix,
 	}, nil
 }
 
-func (p *PrefixIncludeExcludeFilter) Match(s string) bool {
+func (p *PrefixFilter) Match(s string) bool {
 	if after, found := strings.CutPrefix(s, p.prefix); !found {
 		return false
 	} else {
-		return p.IncludeExcludeFilter.Match(after)
+		return p.Filter.Match(after)
 	}
 }
