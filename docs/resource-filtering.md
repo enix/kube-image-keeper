@@ -1,6 +1,75 @@
-# Advanced resource filtering
+# Resource filtering
 
-kuik cluster-scoped resources can limit which namespaces and which pods they act on via two independent filter fields: `namespaceFilter` and `podFilter`. Both fields are optional; omitting either means no restriction is applied on that axis.
+Kuik resources expose three independent filter fields:
+
+| Filter | Available on | Default when omitted |
+| --- | --- | --- |
+| `imageFilter` | all five CRDs | nothing matches (must be set explicitly) |
+| `namespaceFilter` | cluster-scoped CRDs only | every namespace is in scope |
+| `podFilter` | all five CRDs | every pod is in scope |
+
+All three filters are optional and compose independently: a resource applies to an image when the image passes `imageFilter`, the pod's namespace passes `namespaceFilter`, and the pod itself passes `podFilter`.
+
+## Image filtering (`imageFilter`)
+
+`imageFilter` is available on all five CRDs: `ClusterImageSetMirror`, `ImageSetMirror`, `ClusterReplicatedImageSet`, `ReplicatedImageSet`, and `ClusterImageSetAvailability`. It selects images by their full normalised reference using RE2 regular expressions.
+
+> [!IMPORTANT]
+> Kuik [normalises](https://github.com/distribution/reference/blob/main/normalize.go) image references before matching, so short forms are expanded: `busybox:stable` becomes `docker.io/library/busybox:stable`. Always write patterns against the full normalised form.
+
+### Fields
+
+| Field | Required | Description |
+| --- | --- | --- |
+| `spec.imageFilter` | | Rules used to select which images this resource applies to. When both `include` and `exclude` are empty (or the field is omitted), no images match. |
+| `spec.imageFilter.include` | | List of RE2 regex patterns. When non-empty, only images matching at least one pattern are in scope. |
+| `spec.imageFilter.exclude` | | List of RE2 regex patterns. Images matching any pattern are removed from scope (takes precedence over `include`). When `include` is omitted, a `.*` is injected so that `exclude`-only filters match everything except the excluded patterns. |
+
+> [!NOTE]
+> For `(Cluster)ReplicatedImageSet`, the filter lives at `spec.upstreams[].imageFilter` and applies per upstream entry.
+
+### Semantics
+
+- **Both empty** (`imageFilter` omitted or both fields left empty) — nothing matches; no images are selected.
+- **`exclude` only** (`include` empty, `exclude` non-empty) — `.*` is injected as the include pattern, so every image is in scope except those matching `exclude`.
+- **`include` only** — only images matching at least one `include` pattern are in scope.
+- **Both set** — only images matching `include` are in scope, minus those matching `exclude`.
+
+> [!IMPORTANT]
+> Patterns are implicitly anchored (full-string match).
+
+### Examples
+
+**Monitor only nginx and redis images:**
+
+```yaml
+spec:
+  imageFilter:
+    include:
+    - docker\.io/library/nginx:.+
+    - docker\.io/library/redis:.+
+```
+
+**Mirror everything except images from a specific registry:**
+
+```yaml
+spec:
+  imageFilter:
+    exclude:
+    - untrusted\.registry\.example\.com/.*
+```
+
+**Scope an upstream to a specific image path:**
+
+```yaml
+spec:
+  upstreams:
+  - registry: ghcr.io
+    path: /myorg/myapp
+    imageFilter:
+      include:
+      - ghcr\.io/myorg/myapp:.+
+```
 
 ## Namespace filtering (`namespaceFilter`)
 
@@ -104,7 +173,8 @@ Multiple selectors within one list are OR-ed (a pod in scope if it matches any e
 
 `labels` and `annotations` filtering are applied independently and AND-ed: a pod must satisfy both to remain in scope.
 
-> **Note on annotation values:** equality matches (`key=value`) require values that conform to DNS-1123 label-value syntax (≤ 63 chars, alphanumeric, `-`, `_`, `.`). For free-form annotation values (URLs, JSON blobs, long strings) use presence (`key`) or absence (`!key`).
+> [!WARNING]
+> **About annotation values:** equality matches (`key=value`) require values that conform to DNS-1123 label-value syntax (≤ 63 chars, alphanumeric, `-`, `_`, `.`). For free-form annotation values (URLs, JSON blobs, long strings) use presence (`key`) or absence (`!key`).
 
 ### Examples
 
