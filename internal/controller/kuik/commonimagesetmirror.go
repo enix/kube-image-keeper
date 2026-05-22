@@ -33,7 +33,27 @@ type ImageSetMirrorBaseReconciler struct {
 	Scheme *runtime.Scheme
 	Config *config.Config
 
-	platforms []v1.Platform
+	platforms       []v1.Platform
+	globalPodFilter filter.PodFilter
+}
+
+// compileGlobalPodFilter compiles a pod filter from cfg.SkipLabels and cfg.SkipAnnotations.
+// It returns the compiled filter, or an error if compilation fails.
+func compileGlobalPodFilter(cfg *config.Config) (filter.PodFilter, error) {
+	f, err := filter.CompilePodFilter(nil, cfg.SkipLabels, nil, cfg.SkipAnnotations)
+	if err != nil {
+		return filter.PodFilter{}, err
+	}
+	return *f, nil
+}
+
+func (r *ImageSetMirrorBaseReconciler) setupGlobalPodFilter() error {
+	f, err := compileGlobalPodFilter(r.Config)
+	if err != nil {
+		return err
+	}
+	r.globalPodFilter = f
+	return nil
 }
 
 func (r *ImageSetMirrorBaseReconciler) setupPlatforms() {

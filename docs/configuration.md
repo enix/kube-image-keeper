@@ -23,6 +23,9 @@ The Helm chart does not ship a default `configuration:` block. Any field set und
 The following file shows every supported key with its default value. You only need to set the keys you want to override; everything else falls back to the defaults below.
 
 ```yaml
+skipLabels: []
+skipAnnotations: []
+
 routing:
   activeCheck:
     timeout: 1s
@@ -62,6 +65,26 @@ metrics:
       start: 1
       factor: 1.94
       # min, max, custom: see "legacy" section below
+```
+
+## `skipLabels` / `skipAnnotations`
+
+Cluster-wide pod skip lists. Pods whose labels or annotations match any entry are ignored by the mutating webhook (no image rewrite) and by all reconcilers (no mirroring, no availability tracking). The check runs before any CR is consulted and takes precedence over per-CR `podFilter` rules.
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `skipLabels` | []string | `[]` |
+| `skipAnnotations` | []string | `[]` |
+
+Both fields are skip-only (no include counterpart). The selector syntax is the same as `spec.podFilter` on individual CRDs — see [Pod filtering](./resource-filtering.md#pod-filtering-podfilter) in the resource-filtering guide for full syntax reference. A typo causes the operator to fail at startup (fail-fast).
+
+### Migrating from KuiK v1
+
+v1 honored `kube-image-keeper.enix.io/image-caching-policy: ignore` to opt a pod out of mirroring entirely. To get the same behavior on v2:
+
+```yaml
+skipLabels:
+  - kube-image-keeper.enix.io/image-caching-policy=ignore
 ```
 
 ## `routing`
