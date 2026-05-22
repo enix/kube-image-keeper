@@ -11,6 +11,7 @@ import (
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal"
 	"github.com/enix/kube-image-keeper/internal/config"
+	"github.com/enix/kube-image-keeper/internal/filter"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,6 +36,8 @@ type ClusterImageSetAvailabilityReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 	Config *config.Config
+
+	globalPodFilter filter.PodFilter
 }
 
 type monitoringCandidate struct {
@@ -45,6 +48,12 @@ type monitoringCandidate struct {
 }
 
 func (r *ClusterImageSetAvailabilityReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	f, err := compileGlobalPodFilter(r.Config)
+	if err != nil {
+		return err
+	}
+	r.globalPodFilter = f
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kuikv1alpha1.ClusterImageSetAvailability{}).
 		Named("kuik-clusterimagesetavailability").
@@ -52,6 +61,10 @@ func (r *ClusterImageSetAvailabilityReconciler) SetupWithManager(mgr ctrl.Manage
 		WatchesRawSource(source.TypedKind(mgr.GetCache(), &corev1.Pod{},
 			handler.TypedEnqueueRequestsFromMapFunc(func(ctx context.Context, pod *corev1.Pod) []reconcile.Request {
 				log := logf.FromContext(ctx).WithName("pod-mapper").WithValues("pod", klog.KObj(pod))
+
+				if !r.globalPodFilter.Match(pod) {
+					return nil
+				}
 
 				var cisaList kuikv1alpha1.ClusterImageSetAvailabilityList
 				if err := r.List(ctx, &cisaList); err != nil {
@@ -118,7 +131,7 @@ func (r *ClusterImageSetAvailabilityReconciler) Reconcile(ctx context.Context, r
 		return ctrl.Result{}, err
 	}
 	pods.Items = slices.DeleteFunc(pods.Items, func(p corev1.Pod) bool {
-		return !nsFilter.Match(p.Namespace) || !podFilter.Match(&p)
+		return !nsFilter.Match(p.Namespace) || !podFilter.Match(&p) || !r.globalPodFilter.Match(&p)
 	})
 
 	original := cisa.DeepCopy()

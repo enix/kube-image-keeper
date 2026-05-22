@@ -64,7 +64,7 @@ func (r *ClusterImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctr
 		return ctrl.Result{}, err
 	}
 	pods.Items = slices.DeleteFunc(pods.Items, func(p corev1.Pod) bool {
-		return !nsFilter.Match(p.Namespace) || !podFilter.Match(&p)
+		return !nsFilter.Match(p.Namespace) || !podFilter.Match(&p) || !r.globalPodFilter.Match(&p)
 	})
 
 	if !cism.DeletionTimestamp.IsZero() {
@@ -234,6 +234,9 @@ func (r *ClusterImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctr
 // SetupWithManager sets up the controller with the Manager.
 func (r *ClusterImageSetMirrorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.setupPlatforms()
+	if err := r.setupGlobalPodFilter(); err != nil {
+		return err
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kuikv1alpha1.ClusterImageSetMirror{}).
 		Named("kuik-clusterimagesetmirror").
@@ -246,6 +249,10 @@ func (r *ClusterImageSetMirrorReconciler) SetupWithManager(mgr ctrl.Manager) err
 				log := logf.FromContext(ctx).
 					WithName("pod-mapper").
 					WithValues("pod", klog.KObj(pod))
+
+				if !r.globalPodFilter.Match(pod) {
+					return nil
+				}
 
 				var cisms kuikv1alpha1.ClusterImageSetMirrorList
 				if err := r.List(ctx, &cisms); err != nil {

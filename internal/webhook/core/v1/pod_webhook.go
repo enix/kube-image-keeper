@@ -20,6 +20,7 @@ import (
 	"github.com/enix/kube-image-keeper/internal"
 	"github.com/enix/kube-image-keeper/internal/config"
 	kuikcontroller "github.com/enix/kube-image-keeper/internal/controller/kuik"
+	"github.com/enix/kube-image-keeper/internal/filter"
 	"github.com/enix/kube-image-keeper/internal/parallel"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/maypok86/otter"
@@ -58,10 +59,16 @@ func SetupPodWebhookWithManager(mgr ctrl.Manager, d *PodCustomDefaulter) error {
 		return err
 	}
 
+	globalPodFilter, err := filter.CompilePodFilter(nil, d.Config.SkipLabels, nil, d.Config.SkipAnnotations)
+	if err != nil {
+		return fmt.Errorf("invalid global skip (skipLabels / skipAnnotations): %w", err)
+	}
+
 	d.checkCache = checkCache
 	d.alternativeCache = alternativeCache
 	d.requestGroup = &singleflight.Group{}
 	d.cleanupSemaphore = make(chan struct{}, d.Config.Routing.ActiveCheck.StaleMirrorCleanup.MaxConcurrent)
+	d.globalPodFilter = *globalPodFilter
 
 	return ctrl.NewWebhookManagedBy(mgr, &corev1.Pod{}).
 		WithDefaulter(d).
@@ -83,6 +90,7 @@ type PodCustomDefaulter struct {
 	alternativeCache otter.Cache[string, *cachedAlternativeImage]
 	requestGroup     *singleflight.Group
 	cleanupSemaphore chan struct{}
+	globalPodFilter  filter.PodFilter
 }
 
 type AlternativeImage struct {
@@ -169,6 +177,11 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 
 	if _, isMirrorPod := pod.Annotations[kuikcontroller.MirrorPodAnnotation]; isMirrorPod {
 		log.V(1).Info("skipping mirror pod (static pod representation), kubelet would reject mutations")
+		return nil
+	}
+
+	if !d.globalPodFilter.Match(pod) {
+		log.V(1).Info("pod matches skipLabels/skipAnnotations, skipping")
 		return nil
 	}
 

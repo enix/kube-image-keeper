@@ -144,6 +144,9 @@ spec:
 
 ## Pod filtering (`podFilter`)
 
+> [!NOTE]
+> The operator also exposes a cluster-wide skip list (`skipLabels` / `skipAnnotations` in the [operator configuration](./configuration.md#skiplabels--skipannotations)). It uses the same selector syntax as `podFilter` but is exclude-only (no include list) and applies before any CR is consulted, taking precedence over all per-CR filters.
+
 `podFilter` is available on all five CRDs: `ClusterImageSetMirror`, `ImageSetMirror`, `ClusterReplicatedImageSet`, `ReplicatedImageSet`, and `ClusterImageSetAvailability`. It selects pods by their labels and/or annotations using Kubernetes label-selector syntax.
 
 ### Fields

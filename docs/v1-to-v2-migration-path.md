@@ -27,8 +27,6 @@ In v2, the model shifts to **ImageSets**. Each CR defines a group of images buil
 
 ## Migration path
 
-👷 Work in progress... (`excludeLabels` will be implemented in v2.3)
-
 - Setup a registry to replace the one deployed by kuik v1 and configure periodic garbage collect on it
 - Create a token to pull, push and delete on the registry and configure as secret with:
 
@@ -38,7 +36,14 @@ kubectl -n kuik-system create secret docker-registry my-registry-secret --docker
 
 - Either you will let kuik progressively populate your new registry as you re-deploy images or if you have image that no longer exist upstream, you can use a tool like [regsync](https://regclient.org/usage/regsync/) to copy images from kuik v1 registry to your new one
 - Uninstall KuiK v1 and install KuiK v2
-- Create a [*ClusterImageSetMirror*](/docs/crds.md#clusterimagesetmirror) which mirror all images and force rewrite in any case as in kuik v1:
+- To preserve v1's `kube-image-keeper.enix.io/image-caching-policy: ignore` opt-out behaviour, add this to the [operator configuration](./configuration.md#skiplabels--skipannotations):
+
+```yaml
+skipLabels:
+  - kube-image-keeper.enix.io/image-caching-policy=ignore
+```
+
+- Create a [*ClusterImageSetMirror*](/docs/crds.md#clusterimagesetmirror) which mirrors all images and force-rewrites as in kuik v1:
 
 ```yaml
 apiVersion: kuik.enix.io/v1alpha1
@@ -49,12 +54,10 @@ spec:
   priority: -1 # Rewrite image even if original one is available
   imageFilter:
     include:
-      - ".*" # Match every images
+      - ".*" # Match every image
     exclude:
     - localhost[^/]*/.+ # Exclude kuik v1 rewritten images we couldn't mirror
-    excludeLabels: # WIP: will be in kuik v2.3
-      - kube-image-keeper.enix.io/image-caching-policy=ignore # mirror exclude label from kuik v1
-  cleanup: # Cleanup image no longer referenced in cluster after a retetention period
+  cleanup: # Cleanup images no longer referenced in cluster after a retention period
     enabled: true
     retention: 168h # 7d
   mirrors:

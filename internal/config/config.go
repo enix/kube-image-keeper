@@ -16,10 +16,12 @@ import (
 )
 
 type Config struct {
-	Routing    Routing    `koanf:"routing"`
-	Mirroring  Mirroring  `koanf:"mirroring"`
-	Monitoring Monitoring `koanf:"monitoring"`
-	Metrics    Metrics    `koanf:"metrics"`
+	SkipLabels      []string   `koanf:"skipLabels"`
+	SkipAnnotations []string   `koanf:"skipAnnotations"`
+	Routing         Routing    `koanf:"routing"`
+	Mirroring       Mirroring  `koanf:"mirroring"`
+	Monitoring      Monitoring `koanf:"monitoring"`
+	Metrics         Metrics    `koanf:"metrics"`
 }
 
 type Routing struct {
