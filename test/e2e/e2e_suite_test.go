@@ -31,6 +31,9 @@ var (
 // The default setup requires Kind, builds/loads the Manager Docker image locally, and installs
 // CertManager.
 func TestE2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e suite in short mode")
+	}
 	RegisterFailHandler(Fail)
 	_, _ = fmt.Fprintf(GinkgoWriter, "Starting kube-image-keeper integration test suite\n")
 	RunSpecs(t, "e2e suite")
