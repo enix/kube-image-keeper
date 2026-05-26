@@ -16,6 +16,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -34,8 +35,9 @@ import (
 // ClusterImageSetAvailabilityReconciler reconciles a ClusterImageSetAvailability object.
 type ClusterImageSetAvailabilityReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
-	Config *config.Config
+	Scheme   *runtime.Scheme
+	Config   *config.Config
+	Recorder events.EventRecorder
 
 	globalPodFilter filter.PodFilter
 }
@@ -53,6 +55,10 @@ func (r *ClusterImageSetAvailabilityReconciler) SetupWithManager(mgr ctrl.Manage
 		return err
 	}
 	r.globalPodFilter = f
+
+	if r.Recorder == nil {
+		r.Recorder = mgr.GetEventRecorder("kuik-clusterimagesetavailability")
+	}
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kuikv1alpha1.ClusterImageSetAvailability{}).
@@ -124,11 +130,15 @@ func (r *ClusterImageSetAvailabilityReconciler) Reconcile(ctx context.Context, r
 
 	nsFilter, err := cisa.Spec.NamespaceFilter.Build()
 	if err != nil {
-		return ctrl.Result{}, err
+		log.Error(err, "invalid namespaceFilter; skipping reconcile until spec is fixed")
+		r.Recorder.Eventf(&cisa, nil, corev1.EventTypeWarning, "InvalidFilter", "ReconcileSkipped", "namespaceFilter is invalid: %v", err)
+		return ctrl.Result{}, nil
 	}
 	podFilter, err := cisa.Spec.PodFilter.Build()
 	if err != nil {
-		return ctrl.Result{}, err
+		log.Error(err, "invalid podFilter; skipping reconcile until spec is fixed")
+		r.Recorder.Eventf(&cisa, nil, corev1.EventTypeWarning, "InvalidFilter", "ReconcileSkipped", "podFilter is invalid: %v", err)
+		return ctrl.Result{}, nil
 	}
 	pods.Items = slices.DeleteFunc(pods.Items, func(p corev1.Pod) bool {
 		return !nsFilter.Match(p.Namespace) || !podFilter.Match(&p) || !r.globalPodFilter.Match(&p)

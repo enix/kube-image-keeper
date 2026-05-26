@@ -57,7 +57,9 @@ func (r *ImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	podFilter, err := cism.Spec.PodFilter.Build()
 	if err != nil {
-		return ctrl.Result{}, err
+		log.Error(err, "invalid podFilter; skipping reconcile until spec is fixed")
+		r.Recorder.Eventf(&cism, nil, corev1.EventTypeWarning, "InvalidFilter", "ReconcileSkipped", "podFilter is invalid: %v", err)
+		return ctrl.Result{}, nil
 	}
 	pods.Items = slices.DeleteFunc(pods.Items, func(p corev1.Pod) bool {
 		return !podFilter.Match(&p) || !r.globalPodFilter.Match(&p)
@@ -231,6 +233,9 @@ func (r *ImageSetMirrorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.setupPlatforms()
 	if err := r.setupGlobalPodFilter(); err != nil {
 		return err
+	}
+	if r.Recorder == nil {
+		r.Recorder = mgr.GetEventRecorder("kuik-imagesetmirror")
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kuikv1alpha1.ImageSetMirror{}).

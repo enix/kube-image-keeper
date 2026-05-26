@@ -10,6 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
@@ -378,6 +379,43 @@ var _ = Describe("ClusterImageSetAvailability Controller", func() {
 			Expect(resource.Status.Images).To(HaveLen(1))
 			Expect(resource.Status.Images[0].UnusedSince).NotTo(BeNil(),
 				"pod missing the required annotation must not keep the image in-use")
+		})
+	})
+
+	Context("When the CISA has an invalid filter spec", func() {
+		const resourceName = "test-invalid-filter-cisa"
+
+		ctx := context.Background()
+		typeNamespacedName := types.NamespacedName{Name: resourceName}
+
+		AfterEach(func() {
+			res := &kuikv1alpha1.ClusterImageSetAvailability{}
+			if err := k8sClient.Get(ctx, typeNamespacedName, res); err == nil {
+				_ = k8sClient.Delete(ctx, res)
+			}
+		})
+
+		It("does not retry on invalid podFilter and emits an InvalidFilter event", func() {
+			resource := &kuikv1alpha1.ClusterImageSetAvailability{
+				ObjectMeta: metav1.ObjectMeta{Name: resourceName},
+				Spec: kuikv1alpha1.ClusterImageSetAvailabilitySpec{
+					PodFilter: kuikv1alpha1.PodFilterDefinition{
+						Labels: kuikv1alpha1.SelectorFilter{Include: []string{"==="}},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+
+			r := newTestReconciler()
+			rec := events.NewFakeRecorder(1)
+			r.Recorder = rec
+
+			result, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred(),
+				"invalid filter spec must not bubble up as a reconcile error (would cause hot-loop)")
+			Expect(result.RequeueAfter).To(BeZero())
+
+			Eventually(rec.Events).Should(Receive(ContainSubstring("InvalidFilter")))
 		})
 	})
 })
