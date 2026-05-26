@@ -1,0 +1,114 @@
+# AGENTS.md
+
+This file provides guidance for AI coding agents (Claude Code, Cursor, Aider, OpenAI Codex CLI, etc.) when working with code in this repository.
+
+## Project Overview
+
+kube-image-keeper (kuik) v2 is a Kubernetes operator providing container image routing, mirroring, and replication. Built with Go and Kubebuilder v4 (controller-runtime). It intercepts Pod creation via a mutating webhook and rewrites container images to the first available alternative from a prioritized list defined via CRDs.
+
+## Common Commands
+
+The Makefile is the source of truth — run `make help` for the full list. A few non-obvious things:
+
+- `go test ./internal/controller/kuik -run TestName -v` — run a single unit test
+- `make test-e2e` needs a running Kind cluster (see [`docs/development.md`](docs/development.md))
+
+## Documentation
+
+The `docs/` directory contains user-facing documentation that is also useful for understanding the codebase:
+
+- [`docs/crds.md`](docs/crds.md) — CRD reference with all fields and semantics
+- [`docs/image-routing.md`](docs/image-routing.md) — deep dive into the priority system and webhook routing logic
+- [`docs/configuration.md`](docs/configuration.md) — all config fields with defaults and examples
+- [`docs/development.md`](docs/development.md) — local development setup and workflow
+
+Read these alongside the code when working on the corresponding areas.
+
+## Architecture
+
+### Custom Resources (5 CRDs)
+
+| CRD | Scope | Purpose |
+| --- | ----- | ------- |
+| **ClusterImageSetMirror / ImageSetMirror** | Cluster / Namespaced | Routes images to mirrored registries and triggers automated image copying |
+| **ClusterReplicatedImageSet / ReplicatedImageSet** | Cluster / Namespaced | Routes images to alternative upstream registries (checks availability, doesn't copy) |
+| **ClusterImageSetAvailability** | Cluster | Monitors image availability across the cluster, tracks per-image status |
+
+Cluster-scoped variants add `spec.namespaceFilter` to limit which namespaces they apply to.
+
+### Entry Point
+
+`cmd/main.go` wires everything into a controller-runtime `Manager`:
+
+- **Webhook server** (`webhook.NewServer`) with TLS — the serving cert is provisioned by cert-manager via `helm/kube-image-keeper/templates/webhook-certificate.yaml` (and `config/certmanager/` for the kustomize layout); `MutatingWebhookConfiguration` carries `cert-manager.io/inject-ca-from` for CA injection
+- **Metrics server** (controller-runtime's `metricsserver`) with optional TLS
+- **Leader election** under ID `e69ca865.enix.io` (off by default; toggled by `--leader-elect`)
+- **Reconcilers** registered against the manager (see Core Packages below)
+
+New work touching reconciler setup, webhook config, manager flags, or TLS plumbing starts here.
+
+### Webhook: Image Rewriting Flow
+
+`internal/webhook/core/v1/pod_webhook.go` is the critical path. On every Pod CREATE:
+
+1. **Global pod filter** — drops pods matching `config.SkipLabels` / `config.SkipAnnotations`; skips mirror pods and pods already annotated with `kuik.enix.io/original-images`
+2. **Per-container filtering** — skips digest-pinned images (`@sha256:...`) and `imagePullPolicy: Never` containers (configurable)
+3. **CR collection** — fetches all applicable CISM/ISM/CRIS/RIS, filtered by `spec.namespaceFilter` and `spec.podFilter`
+4. **Alternative building** — creates a prioritized list including the original image; each entry's position is determined by the two-level priority system (see below)
+5. **Availability checking** — uses `parallel.FirstSuccessful()` with singleflight deduplication and two 1-second TTL caches: `checkCache` (per-image availability boolean) and `alternativeCache` (the resolved alternative for a given original image, which short-circuits re-routing of the same image within the TTL)
+6. **Rewriting** — patches Pod containers; stores original images in `kuik.enix.io/original-images` annotation (JSON) to prevent re-processing
+
+### Two-Level Priority System _(see [`docs/image-routing.md`](docs/image-routing.md))_
+
+**Level 1 — CR priority (`spec.priority`, signed int, default 0):**
+
+- Negative: alternatives placed _before_ the original image (override)
+- Zero: original tried first, alternatives are fallback
+- Positive: alternatives tried after the original with lower priority
+
+**Level 2 — intra-CR priority (`mirrors[].priority` / `upstreams[].priority`, unsigned int, default 0):**
+
+- Lower value = higher priority (same semantics as Linux `nice`)
+- Zero preserves YAML declaration order
+
+Default type order when priorities are equal: Original → CISM → ISM → CRIS → RIS
+
+### Core Packages
+
+- **`internal/filter/`** — three components:
+  - `PodFilter`: label/annotation selector matching (include AND NOT exclude semantics)
+  - `IncludeExcludeFilter`: generic regex-based filter
+  - `PrefixFilter`: wraps any `Filter` to strip a registry prefix before matching
+  - Default-allow semantics (inject `.*` when Include is empty) live in `NamespaceFilterDefinition.Build()` and `ImageFilterDefinition.Build()` in `api/kuik/v1alpha1`
+
+- **`internal/registry/`** — registry interaction via go-containerregistry. `CheckImageAvailability()` returns typed statuses: `Available`, `NotFound`, `Unreachable`, `InvalidAuth`, `QuotaExceeded`. Two additional `ImageAvailabilityStatus` values (`Scheduled`, `UnavailableSecret`) exist but are set by the availability reconciler — not by `CheckImageAvailability()`. `CopyImage()` does the cross-registry transfer that backs mirroring, using `remote.Write` / `remote.WriteIndex` and honouring `config.Mirroring.Platforms`; it's invoked from `commonimagesetmirror.go`. Handles TLS, insecure registries, pull secrets, and rate-limit detection.
+
+- **`internal/parallel/`** — `FirstSuccessful[P,R]()`: runs `f` concurrently on all params, returns the first successful result in original param order along with prior errors.
+
+- **`internal/config/`** — koanf config from `/etc/kube-image-keeper/config.yaml`. Key fields: `SkipLabels`, `SkipAnnotations`, `Routing.ActiveCheck.Timeout`, `Routing.RewriteOnNeverImagePullPolicy`, `Mirroring.Platforms`, `Monitoring.Registries`. Full reference: [`docs/configuration.md`](docs/configuration.md).
+
+- **`internal/controller/kuik/`** — reconcilers:
+  - `ImageSetMirrorReconciler` and `ClusterImageSetMirrorReconciler` — namespaced and cluster-scoped peers, both extending `ImageSetMirrorBaseReconciler` (`commonimagesetmirror.go`) which holds the shared image-copying and stale-mirror-cleanup logic
+  - `ClusterImageSetAvailabilityReconciler` — monitors image availability, updates Prometheus metrics, and is the only place where the `Scheduled` and `UnavailableSecret` statuses are written
+  - `SecretOwnerReconciler[T client.Object]` — generic reconciler that adds a cleanup finalizer to an owner CR and, on deletion, removes every Secret labelled with the owner's UID (`OwnerUIDLabel`). Currently used only to garbage-collect the pull secrets injected into user namespaces for mirroring/replication; `cmd/main.go` instantiates it for `ClusterImageSetMirror` and `ClusterReplicatedImageSet`
+
+- **`internal/info/`** — build-time version metadata (`Version`, `Revision`, `BuildDateTime`, populated via `-ldflags`) and a Prometheus collector that exposes them under the `kube_image_keeper` metrics namespace.
+
+- **`internal/testsetup/`** — side-effect import for test suites that registers a Gomega custom formatter so `*regexp.Regexp` values render as their source string in failure output. Test suites are Ginkgo/Gomega with envtest; suite files follow `suite_test.go` and load CRDs from `config/crd/bases/`. End-to-end tests live under `test/e2e/`.
+
+### Non-Obvious Behaviors
+
+- **Stale mirror cleanup**: when the webhook gets `NotFound` for a mirrored image, it clears `mirroredAt` in the ISM/CISM status, signaling the controller to re-mirror.
+- **Image normalization**: `github.com/distribution/reference.ParseNormalizedNamed()` is used to canonicalize image refs before any comparison.
+- **`make manifests`** syncs generated CRDs into both `config/crd/bases/` and `helm/kube-image-keeper/crds/`; always run it after changing CRD types.
+
+## Change Discipline
+
+Any code change that adds, modifies, or removes behaviour must be accompanied by:
+
+- **Tests** — update or add unit/E2E tests covering the affected behaviour
+- **Documentation** — update `docs/` and, if applicable, Helm chart values docs or README / AGENTS.md sections
+
+## Git Hooks
+
+Lefthook runs `make manifests generate lint-fix` on pre-commit and `make test` on pre-push; conventional commits are enforced. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
