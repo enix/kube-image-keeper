@@ -1,0 +1,137 @@
+# yaml-language-server: $schema=https://storage.googleapis.com/coderabbit_public_assets/schema.v2.json
+
+# CodeRabbit configuration. The GitHub App reads this on every PR.
+# Docs: https://docs.coderabbit.ai/configuration/
+
+language: en-US
+
+chat:
+  # Replies to "@coderabbitai" comments without a leading slash command.
+  auto_reply: true
+
+# Style cadre applied to every review.
+tone_instructions: |
+  Be concise and technical. No promotional content, no references to
+  CodeRabbit features in comments, no suggestions to upgrade tier or
+  invite collaborators.
+
+reviews:
+  # 'chill' = friendly, suggests improvements; 'assertive' = nitpickier.
+  # Chill is the right default for a small team — assertive generates a
+  # lot of style noise that drowns the actually-useful findings.
+  profile: chill
+
+  # Don't request changes on the PR — leave merge gating to humans + CI.
+  # CodeRabbit flags issues as comments; the reviewer decides what blocks.
+  request_changes_workflow: false
+
+  # Top-level summary at the start of each review (the "Walkthrough"
+  # block). Useful for skim-reading what changed without opening every
+  # file diff.
+  high_level_summary: true
+
+  # No poems / no ASCII art. Keep the reviews professional.
+  poem: false
+
+  # Status posted as a check at the bottom of the PR.
+  review_status: true
+
+  # Auto-review every new PR (including from forks). Set drafts:false
+  # so we don't burn budget on WIP branches.
+  auto_review:
+    enabled: true
+    drafts: false
+    # Skip Dependabot's bot PRs — bumps are mechanical, the diff is
+    # just a version number change, and CodeRabbit has nothing useful
+    # to say. Same for semantic-release commits that only edit version
+    # metadata.
+    ignore_title_keywords:
+      - "build(deps):"
+      - "ci(deps):"
+      - "chore(deps):"
+      - "chore(release):"
+
+  # Auto-generated files: don't waste tokens reviewing them, the source
+  # of truth is elsewhere.
+  #   - zz_generated.deepcopy.go: produced by `make generate` (controller-gen)
+  #   - config/crd/bases & helm crds: produced by `make manifests`
+  #     (the helm copy is a verbatim mirror of config/crd/bases)
+  #   - helm clusterrole-*.yaml: sliced out of config/rbac by the Makefile
+  path_filters:
+    - "!api/kuik/v1alpha1/zz_generated.deepcopy.go"
+    - "!config/crd/bases/**"
+    - "!helm/kube-image-keeper/crds/**"
+    - "!helm/kube-image-keeper/files/clusterrole-rules.yaml"
+    - "!helm/kube-image-keeper/files/clusterrole-leader-elec-rules.yaml"
+    - "!cover.out"
+    - "!go.sum"
+
+  # Per-path guidance fed to the model alongside the diff. Keep these
+  # short and load-bearing — long instructions get diluted.
+  path_instructions:
+    - path: "internal/webhook/**/*.go"
+      instructions: |
+        This is the mutating admission webhook that rewrites Pod images
+        on CREATE — it sits in the critical path of every Pod admission
+        in the cluster. Treat it as security- and availability-critical:
+        flag anything that could panic, leak goroutines, block on a slow
+        registry call without honoring the configured timeout, or bypass
+        the `original-images` annotation guard (which prevents
+        re-processing). Be strict about error handling on the admission
+        response — returning an error fails Pod admission cluster-wide.
+
+    - path: "internal/registry/**/*.go"
+      instructions: |
+        Registry interaction via go-containerregistry. Pull-secret
+        credentials and TLS settings flow through here — flag any
+        unchecked input, credential logging, or path that could
+        misclassify a registry status (Available / NotFound /
+        Unreachable / InvalidAuth / QuotaExceeded). The status
+        classification feeds the webhook's failover logic, so a wrong
+        verdict reroutes user traffic.
+
+    - path: "internal/controller/**/*.go"
+      instructions: |
+        controller-runtime reconcilers. Flag missing requeue on
+        transient errors, status updates that race with spec changes
+        (always re-read before patching status), and any reconcile path
+        that can hot-loop. Owner references and finalizers must be set
+        consistently with the rest of the codebase.
+
+    - path: "api/kuik/v1alpha1/**/*.go"
+      instructions: |
+        CRD type definitions. Removed or renamed fields are breaking
+        for existing users; call them out explicitly.
+
+    - path: "**/*.go"
+      instructions: |
+        Go code for a Kubernetes operator (kubebuilder v4,
+        controller-runtime). Tests live next to the code (*_test.go)
+        and use Ginkgo/Gomega with envtest. Prefer idiomatic Go and
+        the patterns already in the file over introducing new
+        abstractions. New code should always be tested.
+
+    - path: "helm/kube-image-keeper/**/*.{yaml,tpl}"
+      instructions: |
+        Helm chart for the operator. Flag changes that break upgrades
+        from a previous chart version (renamed values, removed
+        defaults, changed selector labels on the Deployment or
+        webhook Service), and any RBAC widening beyond what the
+        controller and webhook strictly need. The chart README is
+        generated from `README.md.gotmpl` via helm-docs — don't ask
+        for hand-edits to a generated README.
+
+    - path: ".github/workflows/**"
+      instructions: |
+        Flag unpinned actions (`@v4` instead of `@<sha>`), missing
+        `permissions:` blocks, and overly broad `GITHUB_TOKEN` scopes.
+        Action versions are managed by Dependabot (see
+        `.github/dependabot.yml`) — don't suggest floating tags.
+
+    - path: "docs/**"
+      instructions: |
+        User-facing documentation. Any change to webhook routing
+        behaviour, CRD fields, priority semantics, or config defaults
+        must be reflected here. Flag code changes whose docs were
+        not updated in the same PR (see "Change Discipline" in
+        AGENTS.md).
