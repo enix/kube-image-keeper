@@ -32,6 +32,9 @@ var (
 )
 
 func TestControllers(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping envtest-based controller suite in short mode")
+	}
 	RegisterFailHandler(Fail)
 
 	RunSpecs(t, "Controller Suite")

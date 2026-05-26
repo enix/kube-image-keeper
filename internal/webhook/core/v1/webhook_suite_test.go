@@ -39,6 +39,9 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping envtest-based webhook suite in short mode")
+	}
 	RegisterFailHandler(Fail)
 
 	RunSpecs(t, "Webhook Suite")

@@ -1,21 +1,21 @@
+min_version: 1.7.0
+
 pre-commit:
-  parallel: true
+  piped: true
   jobs:
     - name: generate manifests and code
       run: make manifests generate
-      stage_fixed: true
-    - name: run go fmt
-      run: make fmt vet
+      glob: "{api/**/*.go,internal/webhook/**/*.go,internal/controller/**/*.go,PROJECT}"
       stage_fixed: true
     - name: lint and fix
       run: make lint-fix
+      glob: "**/*.go"
       stage_fixed: true
 
 pre-push:
-  parallel: true
   jobs:
-    - name: run go vet
-      run: make vet
+    - name: smoke tests
+      run: make test-short
 
 commit-msg:
   jobs:
