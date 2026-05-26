@@ -10,7 +10,7 @@ Before contributing to kube-image-keeper, ensure you have all prerequisites inst
 
 ### Git hooks (lefthook)
 
-We use [lefthook](https://github.com/evilmartians/lefthook) to run checks locally (code generation, formatting, linting, commit message linting). After cloning the repository, install lefthook, then register the hooks:
+We use [lefthook](https://github.com/evilmartians/lefthook) to run checks locally (code generation, Go linting, Markdown linting, commit message linting). After cloning the repository, install lefthook, then register the hooks:
 
 ```sh
 # Install lefthook (see https://lefthook.dev/install/ for other methods)
@@ -19,6 +19,8 @@ go install github.com/evilmartians/lefthook@latest
 # Register the git hooks
 lefthook install
 ```
+
+The Markdown lint step runs [`markdownlint-cli2`](https://github.com/DavidAnson/markdownlint-cli2) via `npx` and requires **Node.js ≥ 20**. If Node.js is missing or older, the step is automatically skipped — contributors who don't touch any `.md` files don't need a Node toolchain.
 
 ## Contributing guidelines
 

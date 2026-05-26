@@ -111,4 +111,4 @@ Any code change that adds, modifies, or removes behaviour must be accompanied by
 
 ## Git Hooks
 
-Lefthook runs `make manifests generate lint-fix` on pre-commit and `make test` on pre-push; conventional commits are enforced. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
+Lefthook runs `make manifests generate lint-fix` and `markdownlint-cli2` (the latter skipped unless Node.js ≥ 20 is available) on pre-commit, and `make test` on pre-push; conventional commits are enforced. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
