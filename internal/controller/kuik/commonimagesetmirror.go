@@ -21,6 +21,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -30,8 +31,9 @@ import (
 // ImageSetMirrorBaseReconciler provides a base for building ImageSetMirror and ClusterImageSetMirror reconciliers
 type ImageSetMirrorBaseReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
-	Config *config.Config
+	Scheme   *runtime.Scheme
+	Config   *config.Config
+	Recorder events.EventRecorder
 
 	platforms       []v1.Platform
 	globalPodFilter filter.PodFilter

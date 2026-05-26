@@ -57,11 +57,15 @@ func (r *ClusterImageSetMirrorReconciler) Reconcile(ctx context.Context, req ctr
 
 	nsFilter, err := cism.Spec.NamespaceFilter.Build()
 	if err != nil {
-		return ctrl.Result{}, err
+		log.Error(err, "invalid namespaceFilter; skipping reconcile until spec is fixed")
+		r.Recorder.Eventf(&cism, nil, corev1.EventTypeWarning, "InvalidFilter", "ReconcileSkipped", "namespaceFilter is invalid: %v", err)
+		return ctrl.Result{}, nil
 	}
 	podFilter, err := cism.Spec.PodFilter.Build()
 	if err != nil {
-		return ctrl.Result{}, err
+		log.Error(err, "invalid podFilter; skipping reconcile until spec is fixed")
+		r.Recorder.Eventf(&cism, nil, corev1.EventTypeWarning, "InvalidFilter", "ReconcileSkipped", "podFilter is invalid: %v", err)
+		return ctrl.Result{}, nil
 	}
 	pods.Items = slices.DeleteFunc(pods.Items, func(p corev1.Pod) bool {
 		return !nsFilter.Match(p.Namespace) || !podFilter.Match(&p) || !r.globalPodFilter.Match(&p)
@@ -236,6 +240,9 @@ func (r *ClusterImageSetMirrorReconciler) SetupWithManager(mgr ctrl.Manager) err
 	r.setupPlatforms()
 	if err := r.setupGlobalPodFilter(); err != nil {
 		return err
+	}
+	if r.Recorder == nil {
+		r.Recorder = mgr.GetEventRecorder("kuik-clusterimagesetmirror")
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kuikv1alpha1.ClusterImageSetMirror{}).
