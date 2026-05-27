@@ -146,7 +146,7 @@ func (r *ImageSetMirrorBaseReconciler) mirrorImage(ctx context.Context, namespac
 	}
 
 	// FIXME: if a platform is added or removed, already mirrored images are not updated consequently
-	if err := client.WithTimeout(0).WithPullSecrets(destSecrets).CopyImage(srcDesc, to.Image, r.platforms); err != nil {
+	if err := client.WithTimeout(0).WithPullSecrets(destSecrets).CopyImage(ctx, srcDesc, to.Image, r.platforms); err != nil {
 		return err
 	}
 
