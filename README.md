@@ -101,11 +101,9 @@ While both Custom Resources generate alternatives, their behavior differs slight
 
 ### Planned features
 
-- **v2.3** Various quality of life improvements
-  - Better filtering for resources (`includeNamespace` & `excludeNamespace`, `includeLabels` & `excludeLabels`, …)
-  - Optional monitoring of mirrored images with re-mirroring when needed
-- **v2.4** Improve stability of critical components (such as the mutating webhook) by deploying them individually
-  - Minimize memory footprint
+- [**v2.3** Better filtering](https://github.com/enix/kube-image-keeper/milestone/1)
+- [**v2.4** Complete OCI support of tags, architectures and digests](https://github.com/enix/kube-image-keeper/milestone/3)
+- [**v2.5** Improve stability & efficiancy](https://github.com/enix/kube-image-keeper/milestone/2)
 
 ## 🚧 Known limitations to date
 
