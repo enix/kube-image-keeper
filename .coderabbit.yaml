@@ -8,6 +8,7 @@ language: en-US
 chat:
   # Replies to "@coderabbitai" comments without a leading slash command.
   auto_reply: true
+  art: false
 
 # Style cadre applied to every review.
 tone_instructions: |
@@ -41,6 +42,8 @@ reviews:
   auto_review:
     enabled: true
     drafts: false
+    auto_incremental_review: false
+    auto_pause_after_reviewed_commits: 3
     # Skip Dependabot's bot PRs — bumps are mechanical, the diff is
     # just a version number change, and CodeRabbit has nothing useful
     # to say. Same for semantic-release commits that only edit version
@@ -135,3 +138,9 @@ reviews:
         must be reflected here. Flag code changes whose docs were
         not updated in the same PR (see "Change Discipline" in
         AGENTS.md).
+
+  finishing_touches:
+    docstrings:
+      enabled: false
+    unit_tests:
+      enabled: false
