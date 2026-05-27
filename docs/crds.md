@@ -30,6 +30,7 @@ This is particularly useful for multi-homed projects (e.g., Thanos, Prometheus, 
 | `spec.upstreams[].path` | ✅ | Path identifying the image in the registry (e.g. `/thanosio/thanos`). |
 | `spec.upstreams[].priority` | | Controls ordering of this upstream relative to other upstreams with the same parent priority. `0` means no specific ordering (YAML declaration order is preserved). Positive values are sorted ascending: lower value = higher priority. |
 | `spec.upstreams[].imageFilter` | | Rules used to select which images from this upstream are considered replicated. See [Image filtering](./resource-filtering.md#image-filtering-imagefilter). |
+| `spec.upstreams[].discardAlternative` | | When `true`, keeps the upstream in the configuration but excludes it from image routing. The upstream still participates in image matching, so other upstreams in the same CR continue to work. Useful when a registry no longer exists, to avoid waiting for the check timeout. |
 | `spec.upstreams[].credentialSecret` | | Reference to a Secret used to pull matching images from this upstream. |
 | `spec.upstreams[].credentialSecret.name` | | Name of the Secret. |
 | `spec.upstreams[].credentialSecret.namespace` | | Namespace of the Secret. Ignored for namespaced `ReplicatedImageSet` (uses the parent namespace instead). |

@@ -136,6 +136,12 @@ spec:
                             This value is ignored for namespaced resources and the namespace of the parent object is used instead.
                           type: string
                       type: object
+                    discardAlternative:
+                      description: |-
+                        DiscardAlternative excludes this upstream from image routing while keeping it in the configuration.
+                        The upstream still participates in image matching, so other upstreams in the same CR continue to work.
+                        Useful when a registry no longer exists, to avoid waiting for the check timeout.
+                      type: boolean
                     imageFilter:
                       description: ImageFilter defines the rules used to select replicated
                         images.

@@ -349,6 +349,24 @@ var _ = Describe("buildAlternativesList", func() {
 		}
 	}
 
+	makeRIS := func(upstreams ...kuikv1alpha1.ReplicatedUpstream) kuikv1alpha1.ReplicatedImageSet {
+		return kuikv1alpha1.ReplicatedImageSet{
+			Spec: kuikv1alpha1.ReplicatedImageSetSpec{
+				Upstreams: upstreams,
+			},
+		}
+	}
+
+	makeUpstream := func(registry string, discard bool) kuikv1alpha1.ReplicatedUpstream {
+		return kuikv1alpha1.ReplicatedUpstream{
+			ImageReference: kuikv1alpha1.ImageReference{Registry: registry},
+			ImageFilter: kuikv1alpha1.ImageFilterDefinition{
+				Include: []string{".*"},
+			},
+			DiscardAlternative: discard,
+		}
+	}
+
 	cismWithMirror := func(priority int, registry, mirrorPath string) kuikv1alpha1.ImageSetMirror {
 		return kuikv1alpha1.ImageSetMirror{
 			ObjectMeta: metav1.ObjectMeta{Name: "global"},
@@ -409,6 +427,68 @@ var _ = Describe("buildAlternativesList", func() {
 			Expect(references(c)).To(Equal([]string{
 				"docker.io/library/nginx:1.29",
 				"harbor.example.com/mirror/library/nginx:1.29",
+			}))
+		})
+	})
+
+	Context("with discardAlternative", func() {
+		It("excludes a discarded upstream from the alternatives list", func() {
+			c := makeContainer("docker.io/library/nginx:1.29", corev1.PullIfNotPresent)
+			err := d.buildAlternativesList(
+				ctx,
+				nil,
+				[]kuikv1alpha1.ReplicatedImageSet{
+					makeRIS(makeUpstream("docker.io", true)),
+				},
+				c,
+			)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(references(c)).To(Equal([]string{}))
+		})
+
+		ris := []kuikv1alpha1.ReplicatedImageSet{
+			makeRIS(
+				makeUpstream("docker.io", true),
+				makeUpstream("mirror.example.com", false),
+			),
+		}
+
+		It("excludes a discarded upstream while keeping the active one", func() {
+			c := makeContainer("mirror.example.com/library/nginx:1.29", corev1.PullIfNotPresent)
+			err := d.buildAlternativesList(ctx, nil, ris, c)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(references(c)).To(Equal([]string{
+				"mirror.example.com/library/nginx:1.29",
+			}))
+		})
+
+		It("matches a upstream that have been discarded without routing it", func() {
+			c := makeContainer("docker.io/library/nginx:1.29", corev1.PullIfNotPresent)
+			err := d.buildAlternativesList(ctx, nil, ris, c)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(references(c)).To(Equal([]string{
+				"mirror.example.com/library/nginx:1.29",
+			}))
+		})
+
+		It("keep the original image when the discarded upstream is not the one that it matches", func() {
+			c := makeContainer("docker.io/library/nginx:1.29", corev1.PullIfNotPresent)
+			err := d.buildAlternativesList(
+				ctx,
+				nil,
+				[]kuikv1alpha1.ReplicatedImageSet{
+					makeRIS(
+						makeUpstream("mirror1.example.com", true),
+						makeUpstream("mirror2.example.com", false),
+						makeUpstream("docker.io", false),
+					),
+				},
+				c,
+			)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(references(c)).To(Equal([]string{
+				"docker.io/library/nginx:1.29",
+				"mirror2.example.com/library/nginx:1.29",
 			}))
 		})
 	})

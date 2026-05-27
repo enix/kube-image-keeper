@@ -159,6 +159,34 @@ For a pod in namespace `my-app` requesting `docker-registry.example.com/my-app/a
 3. `harbor.example.com/global-mirror/my-app/api:v2` (CR priority `-1`)
 4. `docker-registry.example.com/my-app/api:v2` (original image, priority `0`)
 
+## Discarding an upstream without removing it (`discardAlternative`)
+
+Setting `discardAlternative: true` on a `(Cluster)ReplicatedImageSet` upstream keeps the entry in the configuration but excludes it from the list of alternatives the webhook tries. The upstream still participates in image matching (its `imageFilter` can trigger the CR), so other upstreams in the same CR continue to route correctly.
+
+This is useful when a source registry has been migrated or deleted: without this flag the webhook tries the dead registry on every pod admission and waits for the full check timeout before moving on. With `discardAlternative: true` the dead upstream is skipped immediately.
+
+```yaml
+apiVersion: kuik.enix.io/v1alpha1
+kind: ClusterReplicatedImageSet
+metadata:
+  name: bitnami
+spec:
+  upstreams:
+  - registry: docker.io
+    path: /bitnami
+    imageFilter:
+      include:
+      - /bitnami/.*
+    discardAlternative: true # old location, no longer reachable
+  - registry: registry.bitnami.com
+    path: /bitnami
+    imageFilter:
+      include:
+      - /bitnami/.*
+```
+
+In this example, pods referencing `docker.io/bitnami/nginx:latest` will be routed directly to `registry.bitnami.com/bitnami/nginx:latest` without attempting `docker.io` first.
+
 ## Interaction with `imagePullPolicy`
 
 By default, containers with `imagePullPolicy: Always` always pull the original image first; `spec.priority` on `(Cluster)ImageSetMirror` / `(Cluster)ReplicatedImageSet` is not honored for those containers. This preserves the semantic that `Always` should reach the upstream registry even when a higher-priority mirror is declared.
