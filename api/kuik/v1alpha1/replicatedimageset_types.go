@@ -49,8 +49,13 @@ type ReplicatedUpstream struct {
 	// Positive values are sorted ascending: lower value = higher priority.
 	// +optional
 	Priority uint `json:"priority,omitempty"`
+	// DiscardAlternative excludes this upstream from image routing while keeping it in the configuration.
+	// The upstream still participates in image matching, so other upstreams in the same CR continue to work.
+	// Useful when a registry no longer exists, to avoid waiting for the check timeout.
 	// +optional
+	DiscardAlternative bool `json:"discardAlternative,omitempty"`
 	// ImageFilter defines the rules used to select replicated images.
+	// +optional
 	ImageFilter ImageFilterDefinition `json:"imageFilter"`
 	// CredentialSecret is a reference to the secret used to pull matching images.
 	CredentialSecret *CredentialSecret `json:"credentialSecret,omitempty"`

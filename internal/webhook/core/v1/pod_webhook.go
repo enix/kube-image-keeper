@@ -463,18 +463,7 @@ func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSet
 	normalizedImage := container.NormalizedImage
 	alternatives := make([]prioritizedAlternative, 0, 1)
 
-	// Collect original image. By default, containers with imagePullPolicy: Always
-	// pin the original first regardless of CR priorities; mirrors/upstreams are
-	// still appended as fallback. Set HonorPrioritiesOnAlwaysImagePullPolicy to
-	// opt into priority sorting for those containers.
-	original := prioritizedAlternative{
-		reference: normalizedImage,
-		typeOrder: crTypeOrderOriginal,
-	}
-	if container.ImagePullPolicy == corev1.PullAlways && !d.Config.Routing.HonorPrioritiesOnAlwaysImagePullPolicy {
-		original.crPriority = math.MinInt
-	}
-	alternatives = append(alternatives, original)
+	discardOriginal := false
 
 	// Collect from ReplicatedImageSets
 	for risIdx := range replicatedImageSets {
@@ -488,6 +477,11 @@ func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSet
 		}
 
 		match := &ris.Spec.Upstreams[index]
+		if match.DiscardAlternative {
+			// A matching upstream with DiscardAlternative enabled prevents the original registry from
+			// being used as a fallback. We set discardOriginal to true here to suppress it later.
+			discardOriginal = true
+		}
 		prefix := path.Join(match.Registry, match.Path)
 		suffix := strings.TrimPrefix(normalizedImage, prefix)
 
@@ -497,6 +491,9 @@ func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSet
 		}
 
 		for declarationIdx, upstream := range ris.Spec.Upstreams {
+			if upstream.DiscardAlternative {
+				continue
+			}
 			alternatives = append(alternatives, prioritizedAlternative{
 				reference:        path.Join(upstream.Registry, upstream.Path) + suffix,
 				credentialSecret: upstream.CredentialSecret,
@@ -507,6 +504,21 @@ func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSet
 				declarationOrder: declarationIdx,
 			})
 		}
+	}
+
+	if !discardOriginal {
+		// By default, containers with imagePullPolicy: Always pin the original first
+		// regardless of CR priorities; mirrors/upstreams are still appended as
+		// fallback. Set HonorPrioritiesOnAlwaysImagePullPolicy to opt into priority
+		// sorting for those containers.
+		original := prioritizedAlternative{
+			reference: normalizedImage,
+			typeOrder: crTypeOrderOriginal,
+		}
+		if container.ImagePullPolicy == corev1.PullAlways && !d.Config.Routing.HonorPrioritiesOnAlwaysImagePullPolicy {
+			original.crPriority = math.MinInt
+		}
+		alternatives = append(alternatives, original)
 	}
 
 	// Collect from ImageSetMirrors
