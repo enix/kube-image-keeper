@@ -18,7 +18,7 @@ func CheckImageAvailability(ctx context.Context, reference string, method string
 	_, headers, err := NewClient(nil, nil).
 		WithTimeout(timeout).
 		WithPullSecrets(pullSecrets).
-		ReadDescriptor(method, reference)
+		ReadDescriptor(ctx, method, reference)
 
 	if IsRateLimited(headers) {
 		return kuikv1alpha1.ImageAvailabilityQuotaExceeded, fmt.Errorf("rate limit exceeded")

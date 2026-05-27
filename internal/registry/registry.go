@@ -73,7 +73,7 @@ func (c *Client) WithPullSecrets(pullSecrets []corev1.Secret) *Client {
 }
 
 // Execute execute a callback options including authentication and an optional timeout
-func (c *Client) Execute(imageName string, action func(ref name.Reference, opts ...remote.Option) error) error {
+func (c *Client) Execute(ctx context.Context, imageName string, action func(ref name.Reference, opts ...remote.Option) error) error {
 	keychains, err := GetKeychains(imageName, c.pullSecrets)
 	if err != nil {
 		return err
@@ -84,7 +84,6 @@ func (c *Client) Execute(imageName string, action func(ref name.Reference, opts 
 		return err
 	}
 
-	ctx := context.Background()
 	transportOption := c.newTransportOption(sourceRef)
 
 	if len(keychains) == 0 {
@@ -117,24 +116,24 @@ func (c *Client) Execute(imageName string, action func(ref name.Reference, opts 
 	return errors.Join(errs...)
 }
 
-func (c *Client) ReadDescriptor(httpMethod string, imageName string) (desc *v1.Descriptor, h http.Header, err error) {
-	err = c.Execute(imageName, func(ref name.Reference, opts ...remote.Option) (e error) {
+func (c *Client) ReadDescriptor(ctx context.Context, httpMethod string, imageName string) (desc *v1.Descriptor, h http.Header, err error) {
+	err = c.Execute(ctx, imageName, func(ref name.Reference, opts ...remote.Option) (e error) {
 		desc, e = getReader(httpMethod)(ref, opts...)
 		return e
 	})
 	return desc, c.headerCapture.GetLastHeaders(), err
 }
 
-func (c *Client) GetDescriptor(imageName string) (*remote.Descriptor, error) {
+func (c *Client) GetDescriptor(ctx context.Context, imageName string) (*remote.Descriptor, error) {
 	var desc *remote.Descriptor
-	return desc, c.Execute(imageName, func(ref name.Reference, opts ...remote.Option) (err error) {
+	return desc, c.Execute(ctx, imageName, func(ref name.Reference, opts ...remote.Option) (err error) {
 		desc, err = remote.Get(ref, opts...)
 		return err
 	})
 }
 
 func (c *Client) CopyImage(ctx context.Context, src *remote.Descriptor, dest string, platforms []v1.Platform) error {
-	return c.Execute(dest, func(destRef name.Reference, opts ...remote.Option) (err error) {
+	return c.Execute(ctx, dest, func(destRef name.Reference, opts ...remote.Option) (err error) {
 		switch src.MediaType {
 		case types.OCIImageIndex, types.DockerManifestList:
 			index, err := src.ImageIndex()
@@ -199,8 +198,8 @@ func (c *Client) CopyImage(ctx context.Context, src *remote.Descriptor, dest str
 	})
 }
 
-func (c *Client) DeleteImage(imageName string) error {
-	return c.Execute(imageName, func(ref name.Reference, opts ...remote.Option) (err error) {
+func (c *Client) DeleteImage(ctx context.Context, imageName string) error {
+	return c.Execute(ctx, imageName, func(ref name.Reference, opts ...remote.Option) (err error) {
 		descriptor, err := remote.Head(ref, opts...)
 		if err != nil {
 			if ErrIsImageNotFound(err) {
