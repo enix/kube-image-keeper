@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -18,6 +19,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	"github.com/google/go-containerregistry/pkg/v1/types"
 	corev1 "k8s.io/api/core/v1"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 type descriptorReader func(ref name.Reference, options ...remote.Option) (*v1.Descriptor, error)
@@ -131,7 +133,7 @@ func (c *Client) GetDescriptor(imageName string) (*remote.Descriptor, error) {
 	})
 }
 
-func (c *Client) CopyImage(src *remote.Descriptor, dest string, platforms []v1.Platform) error {
+func (c *Client) CopyImage(ctx context.Context, src *remote.Descriptor, dest string, platforms []v1.Platform) error {
 	return c.Execute(dest, func(destRef name.Reference, opts ...remote.Option) (err error) {
 		switch src.MediaType {
 		case types.OCIImageIndex, types.DockerManifestList:
@@ -141,6 +143,9 @@ func (c *Client) CopyImage(src *remote.Descriptor, dest string, platforms []v1.P
 			}
 
 			filteredIndex := mutate.RemoveManifests(index, func(src v1.Descriptor) bool {
+				if src.Platform == nil {
+					return true
+				}
 				return !slices.ContainsFunc(platforms, func(platform v1.Platform) bool {
 					return src.Platform.Satisfies(platform)
 				})
@@ -151,12 +156,15 @@ func (c *Client) CopyImage(src *remote.Descriptor, dest string, platforms []v1.P
 				return err
 			}
 
-			for _, platform := range platforms {
-				if !slices.ContainsFunc(indexManifest.Manifests, func(descriptor v1.Descriptor) bool {
-					return descriptor.Platform.Satisfies(platform)
-				}) {
-					return missingPlatformError(platform)
+			available := make([]v1.Platform, 0, len(indexManifest.Manifests))
+			for _, descriptor := range indexManifest.Manifests {
+				if descriptor.Platform != nil {
+					available = append(available, *descriptor.Platform)
 				}
+			}
+
+			if err := checkPlatforms(ctx, dest, platforms, available); err != nil {
+				return err
 			}
 
 			if err := remote.WriteIndex(destRef, filteredIndex, opts...); err != nil {
@@ -174,10 +182,12 @@ func (c *Client) CopyImage(src *remote.Descriptor, dest string, platforms []v1.P
 			}
 
 			src.Platform = config.Platform()
-			for _, platform := range platforms {
-				if !src.Platform.Satisfies(platform) {
-					return missingPlatformError(platform)
-				}
+			var available []v1.Platform
+			if src.Platform != nil {
+				available = []v1.Platform{*src.Platform}
+			}
+			if err := checkPlatforms(ctx, dest, platforms, available); err != nil {
+				return err
 			}
 
 			if err := remote.Write(destRef, image, opts...); err != nil {
@@ -243,10 +253,53 @@ func ErrIsImageNotFound(err error) bool {
 	return TransportStatusCode(err) == http.StatusNotFound
 }
 
-func missingPlatformError(platform v1.Platform) error {
-	if platform.OS == "" {
-		platform.OS = "_" // String() returns an empty string if OS is empty
-		return fmt.Errorf("missing platform: %s", platform.String()[2:])
+// checkPlatforms keeps the platforms that are available in the source image,
+// warns about the configured ones that are missing, and fails only when none of
+// them are available (nothing to mirror).
+func checkPlatforms(ctx context.Context, image string, configured, available []v1.Platform) error {
+	log := logf.FromContext(ctx)
+	matched, missing := matchPlatforms(configured, available)
+	for _, platform := range missing {
+		log.Info("requested platform not found in source image, skipping it", "image", image, "platform", platformString(platform))
 	}
-	return fmt.Errorf("missing platform: %s", platform.String())
+	if len(matched) == 0 {
+		return noMatchingPlatformError(configured)
+	}
+	return nil
+}
+
+// matchPlatforms splits the configured platforms into those that are available
+// among the source platforms and those that are missing. A configured platform
+// is considered available when at least one source platform satisfies it.
+func matchPlatforms(configured, available []v1.Platform) (matched, missing []v1.Platform) {
+	for _, platform := range configured {
+		if slices.ContainsFunc(available, func(src v1.Platform) bool {
+			return src.Satisfies(platform)
+		}) {
+			matched = append(matched, platform)
+		} else {
+			missing = append(missing, platform)
+		}
+	}
+	return matched, missing
+}
+
+// platformString renders a platform, falling back gracefully when the OS is
+// empty (Platform.String() returns an empty string in that case).
+func platformString(platform v1.Platform) string {
+	if platform.OS == "" {
+		platform.OS = "_"
+		return platform.String()[2:]
+	}
+	return platform.String()
+}
+
+// noMatchingPlatformError is returned when none of the configured platforms are
+// available in the source image, so there is nothing to mirror.
+func noMatchingPlatformError(platforms []v1.Platform) error {
+	strs := make([]string, len(platforms))
+	for i, platform := range platforms {
+		strs[i] = platformString(platform)
+	}
+	return fmt.Errorf("none of the configured platforms are available in the source image: %s", strings.Join(strs, ", "))
 }

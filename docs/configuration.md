@@ -96,7 +96,7 @@ Controls how `ImageSetMirror` and `ClusterImageSetMirror` reconcilers copy image
 
 ### `mirroring.platforms`
 
-List of platform manifests to keep when copying multi-arch images. Single-arch source images are copied as long as they satisfy at least one entry; multi-arch indexes are filtered to only include matching manifests, and the copy fails if any configured platform is missing from the source.
+List of platform manifests to keep when copying multi-arch images. Single-arch source images are copied as long as they satisfy at least one entry; multi-arch indexes are filtered to only include matching manifests. Configured platforms that are not present in the source image are logged as a warning and skipped, so only the intersection of configured and available platforms is mirrored. The copy fails only when the source image has none of the configured platforms.
 
 Defaults to `[{architecture: amd64}]` (single entry, OS and variant unset).
 
