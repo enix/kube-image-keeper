@@ -40,6 +40,25 @@ func NewClient(insecureRegistries []string, rootCAs *x509.CertPool) *Client {
 	}
 }
 
+// ClientFactory builds fresh Client instances sharing the same TLS configuration.
+// Client is stateful (timeout, pull secrets, captured headers), so each call
+// needs its own instance.
+type ClientFactory struct {
+	insecureRegistries []string
+	rootCAs            *x509.CertPool
+}
+
+func NewClientFactory(insecureRegistries []string, rootCAs *x509.CertPool) *ClientFactory {
+	return &ClientFactory{
+		insecureRegistries: insecureRegistries,
+		rootCAs:            rootCAs,
+	}
+}
+
+func (f *ClientFactory) New() *Client {
+	return NewClient(f.insecureRegistries, f.rootCAs)
+}
+
 func (c *Client) newTransportOption(ref name.Reference) remote.Option {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = &tls.Config{RootCAs: c.rootCAs}
@@ -82,6 +101,15 @@ func (c *Client) Execute(ctx context.Context, imageName string, action func(ref 
 	sourceRef, err := name.ParseReference(imageName)
 	if err != nil {
 		return err
+	}
+
+	// TLSClientConfig only relaxes HTTPS cert verification; reaching a plain-HTTP
+	// registry additionally requires the reference to be parsed as insecure so
+	// go-containerregistry falls back to HTTP.
+	if slices.Contains(c.insecureRegistries, sourceRef.Context().RegistryStr()) {
+		if sourceRef, err = name.ParseReference(imageName, name.Insecure); err != nil {
+			return err
+		}
 	}
 
 	transportOption := c.newTransportOption(sourceRef)

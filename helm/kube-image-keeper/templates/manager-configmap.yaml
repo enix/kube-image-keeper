@@ -1,4 +1,23 @@
-{{- if .Values.configuration }}
+{{- $tls := dict -}}
+{{- with .Values.insecureRegistries -}}
+  {{- $_ := set $tls "insecureRegistries" . -}}
+{{- end -}}
+{{- if .Values.rootCertificateAuthorities.keys -}}
+  {{- if not .Values.rootCertificateAuthorities.secretName -}}
+    {{- fail "rootCertificateAuthorities.secretName must be set when rootCertificateAuthorities.keys is non-empty" -}}
+  {{- end -}}
+  {{- $paths := list -}}
+  {{- range .Values.rootCertificateAuthorities.keys -}}
+    {{- $paths = append $paths (printf "%s/%s" (include "kube-image-keeper.rootCAMountPath" $) .) -}}
+  {{- end -}}
+  {{- $_ := set $tls "rootCertificateAuthorities" $paths -}}
+{{- end -}}
+{{- $config := deepCopy (default (dict) .Values.configuration) -}}
+{{- if $tls -}}
+  {{- $existingTls := default (dict) (get $config "tls") -}}
+  {{- $_ := set $config "tls" (merge $existingTls $tls) -}}
+{{- end -}}
+{{- if $config }}
 kind: ConfigMap
 apiVersion: v1
 metadata:
@@ -6,5 +25,5 @@ metadata:
   namespace: {{ .Release.Namespace }}
 data:
   config.yaml: |
-    {{- .Values.configuration | toYaml | nindent 4 }}
+    {{- $config | toYaml | nindent 4 }}
 {{- end }}
