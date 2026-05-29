@@ -103,6 +103,15 @@ func (c *Client) Execute(ctx context.Context, imageName string, action func(ref 
 		return err
 	}
 
+	// TLSClientConfig only relaxes HTTPS cert verification; reaching a plain-HTTP
+	// registry additionally requires the reference to be parsed as insecure so
+	// go-containerregistry falls back to HTTP.
+	if slices.Contains(c.insecureRegistries, sourceRef.Context().RegistryStr()) {
+		if sourceRef, err = name.ParseReference(imageName, name.Insecure); err != nil {
+			return err
+		}
+	}
+
 	transportOption := c.newTransportOption(sourceRef)
 
 	if len(keychains) == 0 {
