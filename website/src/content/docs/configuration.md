@@ -1,8 +1,10 @@
-# Operator configuration
+---
+title: Operator configuration
+---
 
 The kuik manager reads a YAML configuration file at startup to tune routing, monitoring, and metrics behaviors. This page lists every supported field, its type, default value, and effect.
 
-CRDs (`ReplicatedImageSet`, `ImageSetMirror`, `ClusterImageSetAvailability`, ...) are documented separately in [`crds.md`](./crds.md). This page only covers the operator-wide configuration file.
+CRDs (`ReplicatedImageSet`, `ImageSetMirror`, `ClusterImageSetAvailability`, ...) are documented separately in [`crds.md`](/crds/). This page only covers the operator-wide configuration file.
 
 ## File location and loading
 
@@ -22,7 +24,7 @@ The Helm chart does not ship a default `configuration:` block. Any field set und
 
 The following file shows every supported key with its default value. You only need to set the keys you want to override; everything else falls back to the defaults below.
 
-```yaml
+```yaml  title="/etc/kube-image-keeper/config.yaml"
 skipLabels: []
 skipAnnotations: []
 
@@ -76,7 +78,7 @@ Cluster-wide pod skip lists. Pods whose labels or annotations match any entry ar
 | `skipLabels` | []string | `[]` |
 | `skipAnnotations` | []string | `[]` |
 
-Both fields are skip-only (no include counterpart). The selector syntax is the same as `spec.podFilter` on individual CRDs — see [Pod filtering](./resource-filtering.md#pod-filtering-podfilter) in the resource-filtering guide for full syntax reference. A typo causes the operator to fail at startup (fail-fast).
+Both fields are skip-only (no include counterpart). The selector syntax is the same as `spec.podFilter` on individual CRDs — see [Pod filtering](/resource-filtering/#pod-filtering-podfilter) in the resource-filtering guide for full syntax reference. A typo causes the operator to fail at startup (fail-fast).
 
 ### Migrating from KuiK v1
 
@@ -123,8 +125,9 @@ List of platform manifests to keep when copying multi-arch images. Single-arch s
 
 Defaults to `[{architecture: amd64}]` (single entry, OS and variant unset).
 
-> [!NOTE]
-> Setting `mirroring.platforms` **replaces** the default, koanf does not deep-merge slices. If you want to keep `amd64` while adding more platforms, list it explicitly.
+:::note
+Setting `mirroring.platforms` **replaces** the default, koanf does not deep-merge slices. If you want to keep `amd64` while adding more platforms, list it explicitly.
+:::
 
 Each entry supports the following fields:
 
@@ -136,8 +139,9 @@ Each entry supports the following fields:
 
 The list must contain at least one entry with a non-empty `architecture`; the operator refuses to start otherwise.
 
-> [!WARNING]
-> Changing this list after images have been mirrored does not re-mirror or delete previously copied manifests; the new platform set only applies to subsequent mirror operations.
+:::caution
+Changing this list after images have been mirrored does not re-mirror or delete previously copied manifests; the new platform set only applies to subsequent mirror operations.
+:::
 
 ### Example
 
@@ -155,7 +159,7 @@ mirroring:
 
 ## `monitoring`
 
-Controls the rate at which `ClusterImageSetAvailability` checks reach upstream registries. See also the [ClusterImageSetAvailability operator-configuration block](./crds.md#operator-configuration) for how these values interact with the CRD.
+Controls the rate at which `ClusterImageSetAvailability` checks reach upstream registries. See also the [ClusterImageSetAvailability operator-configuration block](/crds/#operator-configuration) for how these values interact with the CRD.
 
 `monitoring.registries.default` applies to every registry that has no explicit entry in `monitoring.registries.items`. Each `items.<host>` entry overrides the matching field from `default` for that host only; unset fields inherit from `default`.
 

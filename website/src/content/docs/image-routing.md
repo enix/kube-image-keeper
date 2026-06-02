@@ -1,4 +1,6 @@
-# Image routing
+---
+title: Image routing
+---
 
 When a Pod is created, kube-image-keeper's mutating webhook evaluates every container image against the declared `(Cluster)ImageSetMirror` and `(Cluster)ReplicatedImageSet` resources. It builds an ordered list of alternative images and rewrites the container to use the first available one.
 
@@ -195,4 +197,4 @@ To honor priorities for `Always` containers as well (for example, in clusters wh
 
 Containers with `imagePullPolicy: Never` are skipped entirely by default; this can be flipped with `routing.rewriteOnNeverImagePullPolicy: true`.
 
-See the full [operator configuration reference](./configuration.md) for the list of all supported fields, their defaults, and the precedence rules.
+See the full [operator configuration reference](/configuration/) for the list of all supported fields, their defaults, and the precedence rules.

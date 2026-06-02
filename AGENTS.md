@@ -11,18 +11,28 @@ kube-image-keeper (kuik) v2 is a Kubernetes operator providing container image r
 The Makefile is the source of truth — run `make help` for the full list. A few non-obvious things:
 
 - `go test ./internal/controller/kuik -run TestName -v` — run a single unit test
-- `make test-e2e` needs a running Kind cluster (see [`docs/development.md`](docs/development.md))
+- `make test-e2e` needs a running Kind cluster (see [`website/src/content/docs/guides/development.md`](website/src/content/docs/guides/development.md))
+
+For the documentation site (Astro / Starlight), commands live in [`website/`](website/) — see its [README](website/README.md). Local preview: `cd website && npm install && npm run dev`.
 
 ## Documentation
 
-The `docs/` directory contains user-facing documentation that is also useful for understanding the codebase:
+User-facing documentation lives under [`website/src/content/docs/`](website/src/content/docs/) and is published at **[kuik.enix.io](https://kuik.enix.io)**. The markdown files are the single source of truth (read them alongside the code when working on the corresponding areas):
 
-- [`docs/crds.md`](docs/crds.md) — CRD reference with all fields and semantics
-- [`docs/image-routing.md`](docs/image-routing.md) — deep dive into the priority system and webhook routing logic
-- [`docs/configuration.md`](docs/configuration.md) — all config fields with defaults and examples
-- [`docs/development.md`](docs/development.md) — local development setup and workflow
+- [`website/src/content/docs/crds.md`](website/src/content/docs/crds.md) — CRD reference with all fields and semantics
+- [`website/src/content/docs/image-routing.md`](website/src/content/docs/image-routing.md) — deep dive into the priority system and webhook routing logic
+- [`website/src/content/docs/configuration.md`](website/src/content/docs/configuration.md) — all config fields with defaults and examples
+- [`website/src/content/docs/resource-filtering.md`](website/src/content/docs/resource-filtering.md) — image / namespace / pod filtering semantics
+- [`website/src/content/docs/guides/development.md`](website/src/content/docs/guides/development.md) — local development setup and workflow
 
-Read these alongside the code when working on the corresponding areas.
+### Markdown conventions for the docs site
+
+The site is built with [Astro Starlight](https://starlight.astro.build/). When editing or adding docs:
+
+- Every page needs frontmatter with at least a `title:`. Add a `description:` too — it doubles as the SEO `<meta>` description and is shown on the use-cases index cards.
+- Internal links use the rendered route, not the markdown path: `[Pod filtering](/resource-filtering/#pod-filtering-podfilter)`, **not** `./resource-filtering.md#pod-filtering-podfilter`.
+- Asides use Starlight's native syntax: `:::note`, `:::tip`, `:::caution`, `:::danger` — **not** GitHub's `> [!NOTE]` syntax which is not supported.
+- New use-case files dropped under `website/src/content/docs/use-cases/` are automatically picked up by the index page (`use-cases/index.mdx` reads the collection at build time).
 
 ## Architecture
 
@@ -58,7 +68,7 @@ New work touching reconciler setup, webhook config, manager flags, or TLS plumbi
 5. **Availability checking** — uses `parallel.FirstSuccessful()` with singleflight deduplication and two 1-second TTL caches: `checkCache` (per-image availability boolean) and `alternativeCache` (the resolved alternative for a given original image, which short-circuits re-routing of the same image within the TTL)
 6. **Rewriting** — patches Pod containers; stores original images in `kuik.enix.io/original-images` annotation (JSON) to prevent re-processing
 
-### Two-Level Priority System _(see [`docs/image-routing.md`](docs/image-routing.md))_
+### Two-Level Priority System _(see [`website/src/content/docs/image-routing.md`](website/src/content/docs/image-routing.md))_
 
 **Level 1 — CR priority (`spec.priority`, signed int, default 0):**
 
@@ -85,7 +95,7 @@ Default type order when priorities are equal: Original → CISM → ISM → CRIS
 
 - **`internal/parallel/`** — `FirstSuccessful[P,R]()`: runs `f` concurrently on all params, returns the first successful result in original param order along with prior errors.
 
-- **`internal/config/`** — koanf config from `/etc/kube-image-keeper/config.yaml`. Key fields: `SkipLabels`, `SkipAnnotations`, `Routing.ActiveCheck.Timeout`, `Routing.RewriteOnNeverImagePullPolicy`, `Mirroring.Platforms`, `Monitoring.Registries`. Full reference: [`docs/configuration.md`](docs/configuration.md).
+- **`internal/config/`** — koanf config from `/etc/kube-image-keeper/config.yaml`. Key fields: `SkipLabels`, `SkipAnnotations`, `Routing.ActiveCheck.Timeout`, `Routing.RewriteOnNeverImagePullPolicy`, `Mirroring.Platforms`, `Monitoring.Registries`. Full reference: [`website/src/content/docs/configuration.md`](website/src/content/docs/configuration.md).
 
 - **`internal/controller/kuik/`** — reconcilers:
   - `ImageSetMirrorReconciler` and `ClusterImageSetMirrorReconciler` — namespaced and cluster-scoped peers, both extending `ImageSetMirrorBaseReconciler` (`commonimagesetmirror.go`) which holds the shared image-copying and stale-mirror-cleanup logic
@@ -107,7 +117,7 @@ Default type order when priorities are equal: Original → CISM → ISM → CRIS
 Any code change that adds, modifies, or removes behaviour must be accompanied by:
 
 - **Tests** — update or add unit/E2E tests covering the affected behaviour
-- **Documentation** — update `docs/` and, if applicable, Helm chart values docs or README / AGENTS.md sections
+- **Documentation** — update the relevant page under `website/src/content/docs/` and, if applicable, Helm chart values docs or README / AGENTS.md sections. The documentation site (published at [kuik.enix.io](https://kuik.enix.io)) auto-deploys from `main` via [`.github/workflows/website.yaml`](.github/workflows/website.yaml).
 
 ## Git Hooks
 

@@ -1,4 +1,7 @@
-# Detect missing images before outage
+---
+title: Detect missing images before outage
+description: Monitor image availability across registries and get alerted before ImagePullBackOff reaches production.
+---
 
 This documentation will help you configure Kuik in order to monitor image availability, enable supervision and alerting, and therefore avoid the typical `ImagePullBackoff` error.
 
@@ -17,7 +20,7 @@ You will be able to rebuild your registry in advance, and avoid `ImagePullBackof
 
 ### Kuik custom resource to use
 
-- [ClusterImageSetAvailability](/docs/crds.md#clusterimagesetavailability)
+- [ClusterImageSetAvailability](/crds/#clusterimagesetavailability)
 
 ### Configuration example
 

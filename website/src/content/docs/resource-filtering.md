@@ -1,4 +1,6 @@
-# Resource filtering
+---
+title: Resource filtering
+---
 
 Kuik resources expose three independent filter fields:
 
@@ -14,8 +16,9 @@ All three filters are optional and compose independently: a resource applies to 
 
 `imageFilter` is available on all five CRDs: `ClusterImageSetMirror`, `ImageSetMirror`, `ClusterReplicatedImageSet`, `ReplicatedImageSet`, and `ClusterImageSetAvailability`. It selects images by their full normalised reference using RE2 regular expressions.
 
-> [!IMPORTANT]
-> Kuik [normalises](https://github.com/distribution/reference/blob/main/normalize.go) image references before matching, so short forms are expanded: `busybox:stable` becomes `docker.io/library/busybox:stable`. Always write patterns against the full normalised form.
+:::caution
+Kuik [normalises](https://github.com/distribution/reference/blob/main/normalize.go) image references before matching, so short forms are expanded: `busybox:stable` becomes `docker.io/library/busybox:stable`. Always write patterns against the full normalised form.
+:::
 
 ### Fields
 
@@ -25,8 +28,9 @@ All three filters are optional and compose independently: a resource applies to 
 | `spec.imageFilter.include` | | List of RE2 regex patterns. When non-empty, only images matching at least one pattern are in scope. |
 | `spec.imageFilter.exclude` | | List of RE2 regex patterns. Images matching any pattern are removed from scope (takes precedence over `include`). When `include` is omitted, a `.*` is injected so that `exclude`-only filters match everything except the excluded patterns. |
 
-> [!NOTE]
-> For `(Cluster)ReplicatedImageSet`, the filter lives at `spec.upstreams[].imageFilter` and applies per upstream entry.
+:::note
+For `(Cluster)ReplicatedImageSet`, the filter lives at `spec.upstreams[].imageFilter` and applies per upstream entry.
+:::
 
 ### Semantics
 
@@ -35,8 +39,9 @@ All three filters are optional and compose independently: a resource applies to 
 - **`include` only** — only images matching at least one `include` pattern are in scope.
 - **Both set** — only images matching `include` are in scope, minus those matching `exclude`.
 
-> [!IMPORTANT]
-> Patterns are implicitly anchored (full-string match).
+:::caution
+Patterns are implicitly anchored (full-string match).
+:::
 
 ### Examples
 
@@ -144,8 +149,9 @@ spec:
 
 ## Pod filtering (`podFilter`)
 
-> [!NOTE]
-> The operator also exposes a cluster-wide skip list (`skipLabels` / `skipAnnotations` in the [operator configuration](./configuration.md#skiplabels--skipannotations)). It uses the same selector syntax as `podFilter` but is exclude-only (no include list) and applies before any CR is consulted, taking precedence over all per-CR filters.
+:::note
+The operator also exposes a cluster-wide skip list (`skipLabels` / `skipAnnotations` in the [operator configuration](/configuration/#skiplabels--skipannotations)). It uses the same selector syntax as `podFilter` but is exclude-only (no include list) and applies before any CR is consulted, taking precedence over all per-CR filters.
+:::
 
 `podFilter` is available on all five CRDs: `ClusterImageSetMirror`, `ImageSetMirror`, `ClusterReplicatedImageSet`, `ReplicatedImageSet`, and `ClusterImageSetAvailability`. It selects pods by their labels and/or annotations using Kubernetes label-selector syntax.
 
@@ -176,8 +182,9 @@ Multiple selectors within one list are OR-ed (a pod in scope if it matches any e
 
 `labels` and `annotations` filtering are applied independently and AND-ed: a pod must satisfy both to remain in scope.
 
-> [!WARNING]
-> **About annotation values:** equality matches (`key=value`) require values that conform to DNS-1123 label-value syntax (≤ 63 chars, alphanumeric, `-`, `_`, `.`). For free-form annotation values (URLs, JSON blobs, long strings) use presence (`key`) or absence (`!key`).
+:::caution
+**About annotation values:** equality matches (`key=value`) require values that conform to DNS-1123 label-value syntax (≤ 63 chars, alphanumeric, `-`, `_`, `.`). For free-form annotation values (URLs, JSON blobs, long strings) use presence (`key`) or absence (`!key`).
+:::
 
 ### Examples
 
