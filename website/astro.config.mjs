@@ -27,6 +27,23 @@ export default defineConfig({
         SiteTitle: './src/components/SiteTitle.astro',
       },
       sidebar: [
+        {
+          label: 'Configuration',
+          items: [
+            'configuration',
+            'image-routing',
+            'resource-filtering',
+            'crds',
+          ],
+        },
+        {
+          label: 'Use cases',
+          items: [{ autogenerate: { directory: 'use-cases' } }],
+        },
+        {
+          label: 'Guides',
+          items: [{ autogenerate: { directory: 'guides' } }],
+        },
       ],
     }),
     favicons({

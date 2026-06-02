@@ -10,6 +10,8 @@
 > [!NOTE]
 > Kuik v2 has reached **General Availability** and is **Production Ready** as of v2.2.2 🚀
 
+📖 **Full documentation: [kuik.enix.io](https://kuik.enix.io)**
+
 ## Table of contents
 
 - [Introduction](#introduction)
@@ -33,7 +35,7 @@ kuik v2 is a **complete rewrite** of the project with a focus on **simplicity** 
 ### Concept : Container image alternative
 
 KuiK utilizes a **mutating webhook** to rewrite Pod container images when the primary ("original") source is not available.
-By leveraging [*ImageSetMirror* or *ReplicatedImageSet*](docs/crds.md) Custom Resources, Kuik generates a list of **alternative** image locations (including the **original** one). It then validates their availability to determine whether to stick with the **original** image or rewrite the manifest to a healthy alternative.
+By leveraging [*ImageSetMirror* or *ReplicatedImageSet*](https://kuik.enix.io/crds/) Custom Resources, Kuik generates a list of **alternative** image locations (including the **original** one). It then validates their availability to determine whether to stick with the **original** image or rewrite the manifest to a healthy alternative.
 
 While both Custom Resources generate alternatives, their behavior differs slightly:
 
@@ -47,7 +49,7 @@ While both Custom Resources generate alternatives, their behavior differs slight
 - You face an image pull rate limit
 - Your upstream registry is no longer available
 
-&emsp;[Implementation guide](/docs/use-case/overcome-public-registry-limitations.md)
+&emsp;[Implementation guide](https://kuik.enix.io/use-cases/overcome-public-registry-limitations/)
 
 ### ✅ Detect missing images before outage
 
@@ -55,7 +57,7 @@ While both Custom Resources generate alternatives, their behavior differs slight
 - You plan a Kubernetes upgrade
 - You have a lot of legacy images deployed on your cluster
 
-&emsp;[Implementation guide](/docs/use-case/detect-missing-images-before-outage.md)
+&emsp;[Implementation guide](https://kuik.enix.io/use-cases/detect-missing-images-before-outage/)
 
 ### ✅ Protect images from garbage collect
 
@@ -63,14 +65,14 @@ While both Custom Resources generate alternatives, their behavior differs slight
 - You have plenty of images (outdated, prior versions, development version) but only a small fraction is being used in reality
 - You would like to push only a subset of useful images to your production registry
 
-&emsp;[Implementation guide](/docs/use-case/protect-images-from-garbage-collect.md)
+&emsp;[Implementation guide](https://kuik.enix.io/use-cases/protect-images-from-garbage-collect/)
 
 ### ✅ Automatically route images to a proxy cache registry
 
 - You already have setup a proxy cache registry (like Harbor or Gitlab proxy cache) but do not know how to use it
 - You do not want to review all workloads deployments (and change their image path)
 
-&emsp;[Implementation guide](/docs/use-case/automatically-route-images-to-a-proxy-cache-registry.md)
+&emsp;[Implementation guide](https://kuik.enix.io/use-cases/automatically-route-images-to-a-proxy-cache-registry/)
 
 ### ✅ Better performance with local registry
 
@@ -79,16 +81,18 @@ While both Custom Resources generate alternatives, their behavior differs slight
 - Image pull from Kubernetes are too slow / long.
 - Your source registry is too far away (from a network / geographic / latency standpoint) from the Kubernetes cluster
 
-&emsp;[Implementation guide](/docs/use-case/better-performance-with-local-registry.md)
+&emsp;[Implementation guide](https://kuik.enix.io/use-cases/better-performance-with-local-registry/)
 
 ## 📘 Documentation
 
-- A detailed explanation of all [Kuik Custom Resources](docs/crds.md)
-- A reference for the [operator configuration file](docs/configuration.md) (routing, monitoring, metrics)
-- Kuik manages multiple alternatives of an image and selects the best-suited one. You might want to learn more about the [Priority mechanism](docs/image-routing.md)
-- A preliminary migration path from [Kuik v1 to Kuik v2](docs/v1-to-v2-migration-path.md)
-- A collection of documented [use cases](#when-to-use-kube-image-keeper)
-- A [development guide](docs/development.md)
+The full documentation is published at **[kuik.enix.io](https://kuik.enix.io)** and the source markdown lives under [`website/src/content/docs/`](website/src/content/docs/).
+
+- A detailed explanation of all [Kuik Custom Resources](https://kuik.enix.io/crds/)
+- A reference for the [operator configuration file](https://kuik.enix.io/configuration/) (routing, monitoring, metrics)
+- Kuik manages multiple alternatives of an image and selects the best-suited one. You might want to learn more about the [Priority mechanism](https://kuik.enix.io/image-routing/)
+- A preliminary migration path from [Kuik v1 to Kuik v2](https://kuik.enix.io/guides/v1-to-v2-migration-path/)
+- A collection of documented [use cases](https://kuik.enix.io/use-cases/)
+- A [development guide](https://kuik.enix.io/guides/development/)
 
 ## 📅 Releases & Roadmap
 
@@ -122,9 +126,9 @@ helm upgrade --install --create-namespace --namespace kuik-system kube-image-kee
 
 <!-- HELM_DOCS_END -->
 
-Custom Resource Definitions (CRDs) are used to configure the behavior of kuik such as its routing and mirroring features. Those are described in the [docs/crds.md](./docs/crds.md) document.
+Custom Resource Definitions (CRDs) are used to configure the behavior of kuik such as its routing and mirroring features. Those are described in the [CRD reference](https://kuik.enix.io/crds/).
 
-To setup an [*ImageSetMirror* (or a *ClusterImageSetMirror*)](./docs/crds.md#clusterimagesetmirror), you will first need to configure a registry where kuik will copy matched images. Then generate a token with permission to pull, push and delete (if cleanup enabled) in this registry and create the secret to use in your *ImageSetMirror* with:
+To setup an [*ImageSetMirror* (or a *ClusterImageSetMirror*)](https://kuik.enix.io/crds/#clusterimagesetmirror), you will first need to configure a registry where kuik will copy matched images. Then generate a token with permission to pull, push and delete (if cleanup enabled) in this registry and create the secret to use in your *ImageSetMirror* with:
 
 ```bash
 kubectl create secret docker-registry my-registry-secret --docker-server=my-registry.company.com --docker-username=my-username --docker-password=my-token

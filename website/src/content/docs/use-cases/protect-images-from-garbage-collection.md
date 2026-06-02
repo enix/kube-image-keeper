@@ -1,4 +1,7 @@
-# Protect images from garbage collect
+---
+title: Protect images from garbage collection
+description: Back up the images currently used by running Pods to a second registry before upstream garbage collection removes them.
+---
 
 This documentation will help you configure Kuik in order to "backup" useful (used by a running Pod) images on another registry, prior to a garbace collect on your origin registry.
 
@@ -17,8 +20,8 @@ This documentation will help you configure Kuik in order to "backup" useful (use
 
 ### Kuik custom resource to use
 
-- [ClusterImageSetMirror](/docs/crds.md#clusterimagesetmirror)
-- or [ImageSetMirror](/docs/crds.md#clusterimagesetmirror)
+- [ClusterImageSetMirror](/crds/#clusterimagesetmirror)
+- or [ImageSetMirror](/crds/#clusterimagesetmirror)
 
 ### Configuration example
 

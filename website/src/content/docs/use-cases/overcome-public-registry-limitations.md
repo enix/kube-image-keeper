@@ -1,4 +1,7 @@
-# Overcome public registry limitations
+---
+title: Overcome public registry limitations
+description: Route around rate limits and outages by replicating or mirroring the images you depend on.
+---
 
 This documentation wil help you configure Kuik in order to overcome public registry limitations.
 
@@ -7,7 +10,7 @@ This documentation wil help you configure Kuik in order to overcome public regis
 - You face an image pull rate limit
 - Your upstream registry is no longer available
 - Your images are already pushed to multiple registries
-  - or, you can replicate thanks to Kuik using a [ImageSetMirror](https://github.com/enix/kube-image-keeper/blob/docs/use-cases/docs/crds.md#clusterimagesetmirror)
+  - or, you can replicate thanks to Kuik using a [ImageSetMirror](/crds/#clusterimagesetmirror)
 
 ## Benefits
 
@@ -17,8 +20,8 @@ Your Kubernetes cluster will **seamlessly** pull images from another registry an
 
 ### Kuik custom resource to use
 
-- [ClusterReplicatedImageSet or ReplicatedImageSet](/docs/crds.md#clusterreplicatedimageset) to reroute to another upstream registry
-- [ClusterImageSetMirror or ImageSetMirror](/docs/crds.md#clusterimagesetmirror) to mirror/cache images in your own registry
+- [ClusterReplicatedImageSet or ReplicatedImageSet](/crds/#clusterreplicatedimageset) to reroute to another upstream registry
+- [ClusterImageSetMirror or ImageSetMirror](/crds/#clusterimagesetmirror) to mirror/cache images in your own registry
 
 ### Configuration example
 
