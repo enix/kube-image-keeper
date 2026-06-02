@@ -1,0 +1,47 @@
+name: Deploy website to GitHub Pages
+
+on:
+  push:
+    branches: [main, docs/website]
+    paths:
+      - "website/**"
+      - "docs/**"
+      - ".github/workflows/website.yaml"
+
+permissions:
+  contents: read
+
+# Allow one concurrent deployment, cancel in-progress runs in favor of new ones
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install, build, and upload your site
+        uses: withastro/action@v6
+        with:
+          path: website
+          node-version: 24
+
+  deploy:
+    needs: build
+    # Allow the job to clone the repo and create a Pages deployment
+    permissions:
+      pages: write
+      id-token: write
+    # Only deploy from the default branch; other branches get build-only validation.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
