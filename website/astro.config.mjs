@@ -1,0 +1,46 @@
+// @ts-check
+import { defineConfig } from 'astro/config';
+import starlight from '@astrojs/starlight';
+import favicons from 'astro-favicons';
+
+// https://astro.build/config
+export default defineConfig({
+  site: 'https://kuik.enix.io',
+  integrations: [
+    starlight({
+      title: 'kube-image-keeper',
+      description: 'Documentation for kube-image-keeper (kuik), the Kubernetes operator for container image routing, mirroring, and replication.',
+      favicon: '/favicon.png',
+      logo: {
+        src: './src/assets/logo.svg',
+        alt: 'kube-image-keeper logo',
+        replacesTitle: true,
+      },
+      social: [
+        {
+          icon: 'github',
+          label: 'GitHub',
+          href: 'https://github.com/enix/kube-image-keeper',
+        },
+      ],
+      components: {
+        SiteTitle: './src/components/SiteTitle.astro',
+      },
+      sidebar: [
+      ],
+    }),
+    favicons({
+      input: {
+        favicons: ['./src/assets/logo.svg']
+      },
+      icons: {
+        favicons: true,
+        appleIcon: false,
+        android: false,
+        appleStartup: false,
+        windows: false,
+        yandex: false,
+      },
+    }),
+  ],
+});

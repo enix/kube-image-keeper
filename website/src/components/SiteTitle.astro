@@ -1,0 +1,35 @@
+---
+import Default from '@astrojs/starlight/components/SiteTitle.astro';
+---
+
+<div class="site-title-wrapper sl-flex">
+  <Default />
+  <a class="built-by" href="https://enix.io" target="_blank" rel="noopener" >
+    Built with ♥ by <strong>Enix</strong>
+  </a>
+</div>
+
+<style>
+  .site-title-wrapper {
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+  }
+  .built-by {
+    font-size: var(--sl-text-xs);
+    color: var(--sl-color-gray-3);
+    text-decoration: none;
+    white-space: nowrap;
+    padding-inline-start: 0.75rem;
+    border-inline-start: 1px solid var(--sl-color-hairline);
+  }
+  .built-by:hover {
+    color: var(--sl-color-text-accent);
+  }
+  /* hide the tagline on narrow screens so the header doesn't crowd */
+  @media (max-width: 20rem) {
+    .built-by {
+      display: none;
+    }
+  }
+</style>
