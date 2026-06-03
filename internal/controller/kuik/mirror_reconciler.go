@@ -3,6 +3,7 @@ package kuik
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"iter"
 	"maps"
 	"path"
@@ -22,11 +23,37 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/events"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/client-go/util/workqueue"
+	"k8s.io/klog/v2"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 )
+
+// MirrorObject is the common interface implemented by *ImageSetMirror and
+// *ClusterImageSetMirror. It lets ImageSetMirrorBaseReconciler reconcile both
+// kinds through one code path; the concrete reconcilers only supply the object
+// type and the listing of their own kind (see Reconcile / SetupWithManager in
+// imagesetmirror_controller.go and clusterimagesetmirror_controller.go).
+//
+// Scope differences are derived, not branched: the pod list scope, the mirror
+// operation namespace, and the getAllMirrorPrefixes bucketing all key off
+// obj.GetNamespace() (empty for cluster-scoped objects). Namespace filtering is
+// folded into PodMatcher by the cluster-scoped accessor.
+type MirrorObject interface {
+	client.Object
+	MirrorSpec() *kuikv1alpha1.ImageSetMirrorSpec
+	MirrorStatus() *kuikv1alpha1.ImageSetMirrorStatus
+	PodMatcher() (func(pod *corev1.Pod) bool, error)
+	ImageFilter() (filter.Filter, error)
+}
 
 // ImageSetMirrorBaseReconciler provides a base for building ImageSetMirror and ClusterImageSetMirror reconciliers
 type ImageSetMirrorBaseReconciler struct {
@@ -37,6 +64,284 @@ type ImageSetMirrorBaseReconciler struct {
 
 	platforms       []v1.Platform
 	globalPodFilter filter.PodFilter
+}
+
+// reconcile is the shared reconciliation loop for both mirror kinds. The
+// concrete reconcilers call it with a freshly-allocated, empty object of their
+// own kind; it is populated by the Get below.
+//
+// FIXME: split this into smaller steps to drop the gocyclo exemption.
+//
+//nolint:gocyclo
+func (r *ImageSetMirrorBaseReconciler) reconcile(ctx context.Context, req ctrl.Request, obj MirrorObject) (ctrl.Result, error) {
+	log := logf.FromContext(ctx)
+
+	log.V(1).Info("reconciliation started")
+
+	if err := r.Get(ctx, req.NamespacedName, obj); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	// Empty namespace (cluster-scoped objects) lists pods cluster-wide.
+	namespace := obj.GetNamespace()
+
+	var pods corev1.PodList
+	if err := r.List(ctx, &pods, &client.ListOptions{Namespace: namespace}); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	podMatcher, err := obj.PodMatcher()
+	if err != nil {
+		log.Error(err, "invalid filter; skipping reconcile until spec is fixed")
+		r.Recorder.Eventf(obj, nil, corev1.EventTypeWarning, "InvalidFilter", "ReconcileSkipped", "filter is invalid: %v", err)
+		return ctrl.Result{}, nil
+	}
+	imageFilter, err := obj.ImageFilter()
+	if err != nil {
+		log.Error(err, "invalid filter; skipping reconcile until spec is fixed")
+		r.Recorder.Eventf(obj, nil, corev1.EventTypeWarning, "InvalidFilter", "ReconcileSkipped", "filter is invalid: %v", err)
+		return ctrl.Result{}, nil
+	}
+	pods.Items = slices.DeleteFunc(pods.Items, func(p corev1.Pod) bool {
+		return !podMatcher(&p) || !r.globalPodFilter.Match(&p)
+	})
+
+	spec, status := obj.MirrorSpec(), obj.MirrorStatus()
+
+	if !obj.GetDeletionTimestamp().IsZero() {
+		if controllerutil.ContainsFinalizer(obj, imageSetMirrorFinalizer) {
+			log.Info("deleting images from cache")
+
+			for _, matchingImages := range status.MatchingImages {
+				for _, mirror := range matchingImages.Mirrors {
+					cleanupLog := log.WithValues("image", mirror.Image)
+					if mirror.MirroredAt.IsZero() {
+						cleanupLog.V(1).Info("image not mirrored yet, skipping deletion")
+						continue
+					}
+					cleanupLog.V(1).Info("deleting image")
+					if !r.cleanupMirror(logf.IntoContext(ctx, cleanupLog), mirror.Image, namespace, spec.Mirrors) {
+						return ctrl.Result{}, errors.New("could not cleanup mirrors")
+					}
+				}
+			}
+
+			log.Info("removing finalizer")
+			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				if err := r.Get(ctx, client.ObjectKeyFromObject(obj), obj); err != nil {
+					return client.IgnoreNotFound(err)
+				}
+				controllerutil.RemoveFinalizer(obj, imageSetMirrorFinalizer)
+				return r.Update(ctx, obj)
+			})
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+
+		return ctrl.Result{}, nil
+	}
+
+	if !controllerutil.ContainsFinalizer(obj, imageSetMirrorFinalizer) {
+		log.Info("adding finalizer")
+		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			if err := r.Get(ctx, client.ObjectKeyFromObject(obj), obj); err != nil {
+				return err
+			}
+			controllerutil.AddFinalizer(obj, imageSetMirrorFinalizer)
+			return r.Update(ctx, obj)
+		})
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	mirrorPrefixes, err := r.getAllMirrorPrefixes(ctx, namespace == "")
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	original := obj.DeepCopyObject().(client.Object)
+	podsByMatchingImages, err := mergePreviousAndCurrentMatchingImages(logf.IntoContext(ctx, log), pods.Items, obj, mirrorPrefixes, imageFilter)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if err := r.Status().Patch(ctx, obj, client.MergeFrom(original)); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	someDeletionFailed := false
+	requeueAfter := time.Duration(0)
+	matchingImagesAfterCleanup := []kuikv1alpha1.MatchingImage{}
+	for i := range status.MatchingImages {
+		matchingImage := &status.MatchingImages[i]
+
+		if matchingImage.UnusedSince == nil {
+			matchingImagesAfterCleanup = append(matchingImagesAfterCleanup, *matchingImage)
+			continue
+		}
+
+		mirrorsAfterCleanup := []kuikv1alpha1.MirrorStatus{}
+		for j := range matchingImage.Mirrors {
+			mirror := &matchingImage.Mirrors[j]
+
+			cleanupEnabled := spec.Cleanup.Enabled
+			retentionDuration := spec.Cleanup.Retention.Duration // TODO: merge retention options
+			deleteAfter := retentionDuration - time.Since(matchingImage.UnusedSince.Time)
+			if !cleanupEnabled {
+				mirrorsAfterCleanup = append(mirrorsAfterCleanup, *mirror)
+				continue
+			} else if deleteAfter > 0 {
+				if requeueAfter == 0 || deleteAfter < requeueAfter {
+					requeueAfter = deleteAfter
+				}
+				mirrorsAfterCleanup = append(mirrorsAfterCleanup, *mirror)
+				continue
+			}
+
+			cleanupLog := log.WithValues("image", mirror.Image)
+			cleanupLog.Info("image is unused for more than the retention duration, deleting it", "retentionDuration", retentionDuration)
+			if mirror.MirroredAt != nil {
+				if !r.cleanupMirror(logf.IntoContext(ctx, cleanupLog), mirror.Image, namespace, spec.Mirrors) {
+					mirrorsAfterCleanup = append(mirrorsAfterCleanup, *mirror)
+					someDeletionFailed = true
+				}
+			}
+		}
+
+		if len(mirrorsAfterCleanup) > 0 {
+			matchingImage.Mirrors = mirrorsAfterCleanup
+			matchingImagesAfterCleanup = append(matchingImagesAfterCleanup, *matchingImage)
+		}
+	}
+
+	original = obj.DeepCopyObject().(client.Object)
+	status.MatchingImages = matchingImagesAfterCleanup
+	if err := r.Status().Patch(ctx, obj, client.MergeFrom(original)); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	someMirrorFailed := false
+	for i := range status.MatchingImages {
+		matchingImage := &status.MatchingImages[i]
+		original = obj.DeepCopyObject().(client.Object)
+
+		if matchingImage.UnusedSince != nil {
+			continue
+		}
+
+		for j := range matchingImage.Mirrors {
+			mirror := &matchingImage.Mirrors[j]
+
+			if mirror.MirroredAt == nil {
+				mirrorLog := log.WithValues("from", matchingImage.Image, "to", mirror.Image)
+				mirrorLog.Info("mirroring image")
+
+				err := r.mirrorImage(ctx, namespace, spec.Mirrors, podsByMatchingImages, matchingImage.Image, mirror)
+				if err != nil {
+					mirrorLog.Error(err, "could not mirror image")
+					someMirrorFailed = true
+					mirror.LastError = err.Error()
+				} else {
+					mirrorLog.Info("successfully mirrored image")
+					mirror.LastError = ""
+				}
+			}
+		}
+
+		if err := r.Status().Patch(ctx, obj, client.MergeFrom(original)); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	if someDeletionFailed {
+		return ctrl.Result{}, errors.New("one or more image(s) could not be deleted")
+	}
+
+	if someMirrorFailed {
+		return ctrl.Result{}, errors.New("one or more image(s) could not be mirrored")
+	}
+
+	if requeueAfter > 0 {
+		return ctrl.Result{RequeueAfter: requeueAfter}, nil
+	}
+
+	return ctrl.Result{}, nil
+}
+
+// setupController wires the shared controller plumbing (rate limiter, generation
+// predicate, pod watch). The concrete reconciler supplies its kind name, an empty
+// object for the For() type, the pod mapper, and itself as the Reconciler.
+func (r *ImageSetMirrorBaseReconciler) setupController(mgr ctrl.Manager, name string, obj client.Object, mapPod handler.TypedMapFunc[*corev1.Pod, reconcile.Request], rec reconcile.Reconciler) error {
+	r.setupPlatforms()
+	if err := r.setupGlobalPodFilter(); err != nil {
+		return err
+	}
+	if r.Recorder == nil {
+		r.Recorder = mgr.GetEventRecorder(name)
+	}
+	return ctrl.NewControllerManagedBy(mgr).
+		For(obj).
+		Named(name).
+		WithOptions(controller.Options{
+			RateLimiter: newMirroringRateLimiter(),
+		}).
+		WithEventFilter(predicate.GenerationChangedPredicate{}).
+		WatchesRawSource(source.TypedKind(mgr.GetCache(), &corev1.Pod{}, handler.TypedEnqueueRequestsFromMapFunc(mapPod))).
+		Complete(rec)
+}
+
+// enqueueForPod is the shared pod-mapper body. The concrete reconciler supplies a
+// listObjects closure that lists its own kind (scoped to the pod's namespace for
+// the namespaced kind, cluster-wide for the cluster kind).
+func (r *ImageSetMirrorBaseReconciler) enqueueForPod(ctx context.Context, pod *corev1.Pod, listObjects func(ctx context.Context) ([]MirrorObject, error)) []reconcile.Request {
+	log := logf.FromContext(ctx).
+		WithName("pod-mapper").
+		WithValues("pod", klog.KObj(pod))
+
+	if !r.globalPodFilter.Match(pod) {
+		return nil
+	}
+
+	objs, err := listObjects(ctx)
+	if err != nil {
+		log.Error(err, "failed to list mirror resources")
+		return nil
+	}
+
+	imageNames := normalizedImageNamesFromPod(pod)
+
+	reqs := []reconcile.Request{}
+	for _, obj := range objs {
+		podMatcher, err := obj.PodMatcher()
+		if err != nil {
+			log.Error(err, "skipping mirror resource with invalid filter", "namespace", obj.GetNamespace(), "name", obj.GetName())
+			continue
+		}
+		if !podMatcher(pod) {
+			continue
+		}
+		imageFilter, err := obj.ImageFilter()
+		if err != nil {
+			log.Error(err, "skipping mirror resource with invalid image filter", "namespace", obj.GetNamespace(), "name", obj.GetName())
+			continue
+		}
+		for imageName := range imageNames {
+			if strings.Contains(imageName, "@") {
+				continue // ignore digest-based images
+			}
+
+			if imageFilter.Match(imageName) {
+				reqs = append(reqs, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(obj),
+				})
+				break
+			}
+		}
+	}
+
+	return reqs
 }
 
 // compileGlobalPodFilter compiles a pod filter from cfg.SkipLabels and cfg.SkipAnnotations.
@@ -176,14 +481,14 @@ func (r *ImageSetMirrorBaseReconciler) cleanupMirror(ctx context.Context, image,
 	return true
 }
 
-func mergePreviousAndCurrentMatchingImages(ctx context.Context, pods []corev1.Pod, ismSpec *kuikv1alpha1.ImageSetMirrorSpec, ismStatus *kuikv1alpha1.ImageSetMirrorStatus, mirrorPrefixes map[string][]string) (map[string]*corev1.Pod, error) {
-	imageFilter := ismSpec.ImageFilter.MustBuild()
+func mergePreviousAndCurrentMatchingImages(ctx context.Context, pods []corev1.Pod, obj MirrorObject, mirrorPrefixes map[string][]string, imageFilter filter.Filter) (map[string]*corev1.Pod, error) {
+	spec, status := obj.MirrorSpec(), obj.MirrorStatus()
 	podsByMatchingImages := podsByNormalizedMatchingImages(ctx, imageFilter, mirrorPrefixes, pods)
 
 	matchingImagesMap := map[string]kuikv1alpha1.MatchingImage{}
 	for matchingImage := range podsByMatchingImages {
 		mirrors := []kuikv1alpha1.MirrorStatus{}
-		for _, mirror := range ismSpec.Mirrors {
+		for _, mirror := range spec.Mirrors {
 			matchingImageWithoutRegistry := strings.SplitN(matchingImage, "/", 2)[1]
 			mirrors = append(mirrors, kuikv1alpha1.MirrorStatus{
 				Image: path.Join(mirror.Registry, mirror.Path, matchingImageWithoutRegistry),
@@ -196,13 +501,13 @@ func mergePreviousAndCurrentMatchingImages(ctx context.Context, pods []corev1.Po
 	}
 
 	inUseImages := podsInUseImages(ctx, pods)
-	if err := updateUnusedSince(ctx, matchingImagesMap, inUseImages, ismStatus, imageFilter); err != nil {
+	if err := updateUnusedSince(ctx, matchingImagesMap, inUseImages, status, imageFilter); err != nil {
 		return nil, err
 	}
 
-	ismStatus.MatchingImages = make([]kuikv1alpha1.MatchingImage, 0, len(matchingImagesMap))
+	status.MatchingImages = make([]kuikv1alpha1.MatchingImage, 0, len(matchingImagesMap))
 	for _, img := range matchingImagesMap {
-		ismStatus.MatchingImages = append(ismStatus.MatchingImages, img)
+		status.MatchingImages = append(status.MatchingImages, img)
 	}
 
 	return podsByMatchingImages, nil
