@@ -1,0 +1,13 @@
+---
+const { head } = Astro.locals.starlightRoute;
+
+// astro-favicons injects the full icon set (favicon.ico, sized PNGs, SVG) plus
+// the PWA manifest. Starlight always injects its own `rel="shortcut icon"` link
+// too, which duplicates the .ico astro-favicons already emits. Strip Starlight's
+// so astro-favicons is the single source of favicon tags.
+const filteredHead = head.filter(
+  (entry) => !(entry.tag === 'link' && entry.attrs?.rel === 'shortcut icon')
+);
+---
+
+{filteredHead.map(({ tag: Tag, attrs, content }) => <Tag {...attrs} set:html={content} />)}

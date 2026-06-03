@@ -10,7 +10,6 @@ export default defineConfig({
     starlight({
       title: 'kube-image-keeper',
       description: 'Documentation for kube-image-keeper (kuik), the Kubernetes operator for container image routing, mirroring, and replication.',
-      favicon: '/favicon.png',
       logo: {
         src: './src/assets/logo.svg',
         alt: 'kube-image-keeper logo',
@@ -25,6 +24,7 @@ export default defineConfig({
       ],
       components: {
         SiteTitle: './src/components/SiteTitle.astro',
+        Head: './src/components/Head.astro',
       },
       sidebar: [
         {
