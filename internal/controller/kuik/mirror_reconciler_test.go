@@ -9,6 +9,13 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/events"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 // Regression tests for https://github.com/enix/kube-image-keeper/issues/567.
@@ -63,23 +70,24 @@ var _ = Describe("Issue #567: rewritten pods keep the original image in use", fu
 
 	Context("mergePreviousAndCurrentMatchingImages", func() {
 		It("leaves unusedSince nil for the original image while a rewritten pod still references it", func() {
-			spec := &kuikv1alpha1.ImageSetMirrorSpec{
-				ImageFilter: kuikv1alpha1.ImageFilterDefinition{
-					Include: []string{`a\.example\.com/.*`},
+			obj := &kuikv1alpha1.ImageSetMirror{
+				Spec: kuikv1alpha1.ImageSetMirrorSpec{
+					ImageFilter: kuikv1alpha1.ImageFilterDefinition{
+						Include: []string{`a\.example\.com/.*`},
+					},
+					Mirrors: kuikv1alpha1.Mirrors{
+						{Registry: "b.example.com"},
+					},
 				},
-				Mirrors: kuikv1alpha1.Mirrors{
-					{Registry: "b.example.com"},
-				},
-			}
-
-			// Prior reconciliation (when pod-1 was still around, unrewritten)
-			// already recorded the original image in the status.
-			status := &kuikv1alpha1.ImageSetMirrorStatus{
-				MatchingImages: []kuikv1alpha1.MatchingImage{
-					{
-						Image: originalImage,
-						Mirrors: []kuikv1alpha1.MirrorStatus{
-							{Image: rewrittenImage},
+				// Prior reconciliation (when pod-1 was still around, unrewritten)
+				// already recorded the original image in the status.
+				Status: kuikv1alpha1.ImageSetMirrorStatus{
+					MatchingImages: []kuikv1alpha1.MatchingImage{
+						{
+							Image: originalImage,
+							Mirrors: []kuikv1alpha1.MirrorStatus{
+								{Image: rewrittenImage},
+							},
 						},
 					},
 				},
@@ -89,12 +97,12 @@ var _ = Describe("Issue #567: rewritten pods keep the original image in use", fu
 			pods := []corev1.Pod{newRewrittenPod("pod-2")}
 			mirrorPrefixes := map[string][]string{"": {mirrorPrefix}}
 
-			_, err := mergePreviousAndCurrentMatchingImages(ctx, pods, spec, status, mirrorPrefixes)
+			_, err := mergePreviousAndCurrentMatchingImages(ctx, pods, obj, mirrorPrefixes, obj.Spec.ImageFilter.MustBuild())
 			Expect(err).NotTo(HaveOccurred())
 
-			Expect(status.MatchingImages).To(HaveLen(1))
-			Expect(status.MatchingImages[0].Image).To(Equal(originalImage))
-			Expect(status.MatchingImages[0].UnusedSince).To(BeNil(),
+			Expect(obj.Status.MatchingImages).To(HaveLen(1))
+			Expect(obj.Status.MatchingImages[0].Image).To(Equal(originalImage))
+			Expect(obj.Status.MatchingImages[0].UnusedSince).To(BeNil(),
 				"unusedSince must stay nil while a rewritten pod still needs the mirrored image")
 		})
 
@@ -103,21 +111,22 @@ var _ = Describe("Issue #567: rewritten pods keep the original image in use", fu
 			// EXISTING mirror entry alive (covered above), but must NOT create
 			// new mirror entries for the original reference — only the current
 			// container image drives what gets mirrored (d26a099).
-			spec := &kuikv1alpha1.ImageSetMirrorSpec{
-				ImageFilter: kuikv1alpha1.ImageFilterDefinition{
-					Include: []string{`a\.example\.com/.*`},
-				},
-				Mirrors: kuikv1alpha1.Mirrors{
-					{Registry: "b.example.com"},
+			obj := &kuikv1alpha1.ImageSetMirror{
+				Spec: kuikv1alpha1.ImageSetMirrorSpec{
+					ImageFilter: kuikv1alpha1.ImageFilterDefinition{
+						Include: []string{`a\.example\.com/.*`},
+					},
+					Mirrors: kuikv1alpha1.Mirrors{
+						{Registry: "b.example.com"},
+					},
 				},
 			}
-			status := &kuikv1alpha1.ImageSetMirrorStatus{}
 			pods := []corev1.Pod{newRewrittenPod("pod-2")}
 			mirrorPrefixes := map[string][]string{"": {mirrorPrefix}}
 
-			_, err := mergePreviousAndCurrentMatchingImages(ctx, pods, spec, status, mirrorPrefixes)
+			_, err := mergePreviousAndCurrentMatchingImages(ctx, pods, obj, mirrorPrefixes, obj.Spec.ImageFilter.MustBuild())
 			Expect(err).NotTo(HaveOccurred())
-			Expect(status.MatchingImages).To(BeEmpty())
+			Expect(obj.Status.MatchingImages).To(BeEmpty())
 		})
 	})
 })
@@ -192,4 +201,48 @@ var _ = Describe("Mirror controllers match on rewritten, not original image", fu
 			Expect(got).To(BeEmpty())
 		})
 	})
+})
+
+// An invalid imageFilter regex must skip the reconcile gracefully (no error, no
+// requeue, no mutation) instead of panicking. The CRD's CEL validation already
+// rejects such regexes at admission, so this is exercised through a fake client
+// that bypasses that validation.
+var _ = Describe("Mirror reconcile skips on an invalid image filter", func() {
+	ctx := context.Background()
+	badFilter := kuikv1alpha1.ImageFilterDefinition{Include: []string{"["}}
+
+	newFakeReconciler := func(obj client.Object) (reconcile.Reconciler, client.Client) {
+		c := fake.NewClientBuilder().
+			WithScheme(scheme.Scheme).
+			WithObjects(obj).
+			Build()
+		base := ImageSetMirrorBaseReconciler{Client: c, Scheme: scheme.Scheme, Recorder: events.NewFakeRecorder(10)}
+		if _, ok := obj.(*kuikv1alpha1.ClusterImageSetMirror); ok {
+			return &ClusterImageSetMirrorReconciler{base}, c
+		}
+		return &ImageSetMirrorReconciler{base}, c
+	}
+
+	DescribeTable("does not panic and leaves the object untouched",
+		func(obj client.Object) {
+			r, c := newFakeReconciler(obj)
+			key := client.ObjectKeyFromObject(obj)
+
+			res, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(res).To(Equal(ctrl.Result{}), "an invalid filter must not requeue")
+
+			Expect(c.Get(ctx, key, obj)).To(Succeed())
+			Expect(controllerutil.ContainsFinalizer(obj, imageSetMirrorFinalizer)).To(BeFalse(),
+				"reconcile must skip before any mutation when the filter is invalid")
+		},
+		Entry("ImageSetMirror", &kuikv1alpha1.ImageSetMirror{
+			ObjectMeta: metav1.ObjectMeta{Name: "ism-bad-filter", Namespace: "default"},
+			Spec:       kuikv1alpha1.ImageSetMirrorSpec{ImageFilter: badFilter},
+		}),
+		Entry("ClusterImageSetMirror", &kuikv1alpha1.ClusterImageSetMirror{
+			ObjectMeta: metav1.ObjectMeta{Name: "cism-bad-filter"},
+			Spec:       kuikv1alpha1.ClusterImageSetMirrorSpec{ImageSetMirrorSpec: kuikv1alpha1.ImageSetMirrorSpec{ImageFilter: badFilter}},
+		}),
+	)
 })
