@@ -3,9 +3,9 @@ package registry
 import (
 	"fmt"
 
-	"github.com/distribution/reference"
 	"github.com/enix/kube-image-keeper/internal/registry/credentialprovider/secrets"
 	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/name"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -32,10 +32,19 @@ func GetKeychains(repositoryName string, pullSecrets []corev1.Secret) ([]authn.K
 func getKeychainsFromSecrets(repositoryName string, pullSecrets []corev1.Secret) ([]authn.Keychain, error) {
 	keychains := []authn.Keychain{}
 
-	named, err := reference.ParseNormalizedNamed(repositoryName)
+	// Use go-containerregistry/pkg/name to canonicalize the repository name
+	// so that Resolve()'s strict equality below matches what
+	// remote.{Get,Write,Head} hands us as target.String(). The previous
+	// implementation used distribution/reference, which normalizes Docker
+	// Hub as "docker.io/..." while go-containerregistry normalizes it as
+	// "index.docker.io/..." — the mismatch caused Resolve() to always
+	// return Anonymous for Docker Hub images, regardless of valid creds in
+	// the pullSecrets keyring.
+	ref, err := name.ParseReference(repositoryName)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't parse image name: %v", err)
 	}
+	canonicalName := ref.Context().Name()
 
 	keyring, err := secrets.MakeDockerKeyring(pullSecrets)
 	if err != nil {
@@ -46,10 +55,10 @@ func getKeychainsFromSecrets(repositoryName string, pullSecrets []corev1.Secret)
 		return keychains, nil
 	}
 
-	creds, _ := keyring.Lookup(named.Name())
+	creds, _ := keyring.Lookup(canonicalName)
 	for _, cred := range creds {
 		keychains = append(keychains, &authConfigKeychain{
-			repositoryName: named.Name(),
+			repositoryName: canonicalName,
 			AuthConfig: authn.AuthConfig{
 				Username:      cred.Username,
 				Password:      cred.Password,
