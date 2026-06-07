@@ -40,6 +40,26 @@ type StaleMirrorCleanup struct {
 
 type Mirroring struct {
 	Platforms []Platform `koanf:"platforms" validate:"min=1,dive"`
+
+	// Registries maps an upstream registry hostname (e.g. "index.docker.io",
+	// "quay.io") to per-registry mirroring configuration. The hostname key
+	// must match what go-containerregistry's name.ParseReference returns from
+	// .Context().RegistryStr(), i.e. "index.docker.io" — NOT "docker.io".
+	Registries map[string]MirrorRegistry `koanf:"registries"`
+}
+
+// MirrorRegistry holds per-upstream-registry mirror controller config.
+//
+// FallbackCredentialSecret is the Secret the mirror controller uses to
+// authenticate to the upstream when no pod in the cluster contributes
+// credentials via pod.Spec.ImagePullSecrets. This is the common case once
+// the kuik webhook has rewritten workloads to pull from the mirror — the
+// only pods carrying the original `docker.io/...` image string then
+// disappear, leaving the mirror controller with no pod-derived secrets.
+// Mirrors the shape of Monitoring.Registries.<host>.fallbackCredentialSecret
+// used by the ClusterImageSetAvailability controller.
+type MirrorRegistry struct {
+	FallbackCredentialSecret *kuikv1alpha1.CredentialSecret `koanf:"fallbackCredentialSecret"`
 }
 
 type Platform struct {

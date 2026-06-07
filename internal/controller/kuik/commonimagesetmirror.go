@@ -16,6 +16,7 @@ import (
 	"github.com/enix/kube-image-keeper/internal/config"
 	"github.com/enix/kube-image-keeper/internal/filter"
 	"github.com/enix/kube-image-keeper/internal/registry"
+	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"golang.org/x/time/rate"
 	corev1 "k8s.io/api/core/v1"
@@ -71,6 +72,44 @@ func (r *ImageSetMirrorBaseReconciler) getPullSecretsFromPods(ctx context.Contex
 	return secrets, nil
 }
 
+// getMirroringFallbackSecret returns the FallbackCredentialSecret declared
+// in config.Mirroring.Registries[<host>] for the upstream registry of the
+// given image, or nil if no entry is configured for that host.
+//
+// This closes the gap left by getPullSecretsFromPods: once the kuik webhook
+// has rewritten workloads to pull from the mirror, no pod in the cluster
+// carries the original image string, so podsByMatchingImages[image] misses
+// and the mirror controller has no credentials for a private upstream
+// (Docker Hub, private quay.io, etc.). With this fallback, an operator can
+// declare a chart-level Secret per upstream host and the mirror copy
+// authenticates regardless of pod state.
+func (r *ImageSetMirrorBaseReconciler) getMirroringFallbackSecret(ctx context.Context, image string) (*corev1.Secret, error) {
+	if r.Config == nil || len(r.Config.Mirroring.Registries) == 0 {
+		return nil, nil
+	}
+
+	ref, err := name.ParseReference(image)
+	if err != nil {
+		return nil, err
+	}
+	host := ref.Context().RegistryStr()
+
+	entry, ok := r.Config.Mirroring.Registries[host]
+	if !ok || entry.FallbackCredentialSecret == nil {
+		return nil, nil
+	}
+
+	secret := &corev1.Secret{}
+	key := client.ObjectKey{
+		Namespace: entry.FallbackCredentialSecret.Namespace,
+		Name:      entry.FallbackCredentialSecret.Name,
+	}
+	if err := r.Get(ctx, key, secret); err != nil {
+		return nil, err
+	}
+	return secret, nil
+}
+
 func (r *ImageSetMirrorBaseReconciler) getImageSecretFromMirrors(ctx context.Context, image, namespace string, mirrors kuikv1alpha1.Mirrors) (*corev1.Secret, error) {
 	destCredentialSecret := mirrors.GetCredentialSecretForImage(image)
 
@@ -95,6 +134,19 @@ func (r *ImageSetMirrorBaseReconciler) mirrorImage(ctx context.Context, namespac
 	srcSecrets, err := r.getPullSecretsFromPods(ctx, podsByMatchingImages, from)
 	if err != nil {
 		return err
+	}
+
+	// Fall back to a chart-configured FallbackCredentialSecret when no pod
+	// in the cluster contributes credentials (the common case once the
+	// webhook has rewritten consumers to pull from the mirror).
+	if len(srcSecrets) == 0 {
+		fb, err := r.getMirroringFallbackSecret(ctx, from)
+		if err != nil {
+			return err
+		}
+		if fb != nil {
+			srcSecrets = []corev1.Secret{*fb}
+		}
 	}
 
 	destSecrets := make([]corev1.Secret, 1)
