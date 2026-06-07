@@ -151,12 +151,12 @@ func (c *Client) CopyImage(src *remote.Descriptor, dest string, platforms []v1.P
 				return err
 			}
 
-			for _, platform := range platforms {
-				if !slices.ContainsFunc(indexManifest.Manifests, func(descriptor v1.Descriptor) bool {
-					return descriptor.Platform.Satisfies(platform)
-				}) {
-					return missingPlatformError(platform)
-				}
+			// Tolerate partial-platform sources: cache whatever subset of
+			// configured platforms is present, only error if NOTHING
+			// matches. Lets amd64-only (or arm64-only) sources still be
+			// mirrored when the configured set is multi-arch.
+			if len(indexManifest.Manifests) == 0 {
+				return missingPlatformError(platforms[0])
 			}
 
 			if err := remote.WriteIndex(destRef, filteredIndex, opts...); err != nil {
@@ -174,10 +174,13 @@ func (c *Client) CopyImage(src *remote.Descriptor, dest string, platforms []v1.P
 			}
 
 			src.Platform = config.Platform()
-			for _, platform := range platforms {
-				if !src.Platform.Satisfies(platform) {
-					return missingPlatformError(platform)
-				}
+			// Single-image source: must satisfy AT LEAST ONE configured
+			// platform. (Mirroring an image that satisfies none would
+			// produce a destination workloads can never schedule.)
+			if !slices.ContainsFunc(platforms, func(platform v1.Platform) bool {
+				return src.Platform.Satisfies(platform)
+			}) {
+				return missingPlatformError(platforms[0])
 			}
 
 			if err := remote.Write(destRef, image, opts...); err != nil {
