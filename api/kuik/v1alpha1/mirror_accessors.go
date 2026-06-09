@@ -12,10 +12,12 @@ import (
 // package). They MUST live here because Go only allows methods to be defined in
 // the package that declares the receiver type.
 //
-// The cluster-scoped variant folds its namespace filter into PodMatcher, so the
-// common reconciler never needs a separate "namespace filter" concept: the
-// namespaced variant matches on pod labels/annotations only, the cluster variant
-// additionally requires the pod's namespace to match.
+// Each accessor resolves the active selection mode by precedence: when the
+// unified spec.filter is set it wins; otherwise the legacy imageFilter /
+// podFilter / namespaceFilter are used. The cluster-scoped variant folds its
+// namespace dimension into PodMatcher (filter carries it as a namespace item;
+// the legacy path ANDs namespaceFilter), so the common reconciler never needs a
+// separate "namespace filter" concept.
 
 // --- ImageSetMirror (namespaced) ---
 
@@ -23,6 +25,9 @@ func (i *ImageSetMirror) MirrorSpec() *ImageSetMirrorBase     { return &i.Spec.I
 func (i *ImageSetMirror) MirrorStatus() *ImageSetMirrorStatus { return &i.Status }
 
 func (i *ImageSetMirror) PodMatcher() (func(pod *corev1.Pod) bool, error) {
+	if !i.Spec.Filter.IsEmpty() {
+		return i.Spec.Filter.BuildPodMatcher()
+	}
 	podFilter, err := i.Spec.PodFilter.Build()
 	if err != nil {
 		return nil, fmt.Errorf("podFilter: %w", err)
@@ -31,6 +36,9 @@ func (i *ImageSetMirror) PodMatcher() (func(pod *corev1.Pod) bool, error) {
 }
 
 func (i *ImageSetMirror) ImageFilter() (filter.Filter, error) {
+	if !i.Spec.Filter.IsEmpty() {
+		return i.Spec.Filter.BuildImageFilter()
+	}
 	return i.Spec.ImageFilter.Build()
 }
 
@@ -43,6 +51,9 @@ func (c *ClusterImageSetMirror) MirrorStatus() *ImageSetMirrorStatus {
 }
 
 func (c *ClusterImageSetMirror) PodMatcher() (func(pod *corev1.Pod) bool, error) {
+	if !c.Spec.Filter.IsEmpty() {
+		return c.Spec.Filter.BuildPodMatcher()
+	}
 	podFilter, err := c.Spec.PodFilter.Build()
 	if err != nil {
 		return nil, fmt.Errorf("podFilter: %w", err)
@@ -57,5 +68,8 @@ func (c *ClusterImageSetMirror) PodMatcher() (func(pod *corev1.Pod) bool, error)
 }
 
 func (c *ClusterImageSetMirror) ImageFilter() (filter.Filter, error) {
+	if !c.Spec.Filter.IsEmpty() {
+		return c.Spec.Filter.BuildImageFilter()
+	}
 	return c.Spec.ImageFilter.Build()
 }
