@@ -78,7 +78,14 @@ spec:
                             the Pod's namespace.
                           type: string
                       type: object
+                    maxItems: 16
                     type: array
+                    x-kubernetes-validations:
+                    - message: each filter item must set exactly one of image, label,
+                        annotation or namespace
+                      rule: 'self.all(item, (has(item.image) ? 1 : 0) + (has(item.label)
+                        ? 1 : 0) + (has(item.annotation) ? 1 : 0) + (has(item.namespace)
+                        ? 1 : 0) == 1)'
                   include:
                     items:
                       description: |-
@@ -104,7 +111,14 @@ spec:
                             the Pod's namespace.
                           type: string
                       type: object
+                    maxItems: 16
                     type: array
+                    x-kubernetes-validations:
+                    - message: each filter item must set exactly one of image, label,
+                        annotation or namespace
+                      rule: 'self.all(item, (has(item.image) ? 1 : 0) + (has(item.label)
+                        ? 1 : 0) + (has(item.annotation) ? 1 : 0) + (has(item.namespace)
+                        ? 1 : 0) == 1)'
                 type: object
               imageFilter:
                 description: ImageFilter selects which images to monitor. Superseded

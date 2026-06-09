@@ -14,6 +14,8 @@ Every kuik resource exposes a single unified `spec.filter` field that selects wh
 
 The `namespace` item is only available on the cluster-scoped resources (`ClusterImageSetMirror`, `ClusterReplicatedImageSet`, `ClusterImageSetAvailability`); the namespaced variants (`ImageSetMirror`, `ReplicatedImageSet`) have no namespace dimension.
 
+Each item must set **exactly one** selector key (an item with zero or multiple keys is rejected at admission), and each of `include` / `exclude` holds at most 16 items.
+
 ```yaml
 spec:
   filter:

@@ -51,7 +51,10 @@ spec:
                       description: |-
                         FilterItem is a single include / exclude selector for the unified filter.
                         Exactly one of its fields is set; the populated field determines the
-                        dimension (image, label or annotation) the item contributes to.
+                        dimension (image, label or annotation) the item contributes to. The
+                        "exactly one field" contract is enforced per-item by the XValidation rules
+                        on the Include/Exclude lists that hold these items (the cluster-scoped lists
+                        add the namespace dimension to the same rule).
                       properties:
                         annotation:
                           description: Annotation is a Kubernetes label-selector string
@@ -68,13 +71,22 @@ spec:
                             "!key", "key in (a,b)", "key notin (a,b)").
                           type: string
                       type: object
+                    maxItems: 16
                     type: array
+                    x-kubernetes-validations:
+                    - message: each filter item must set exactly one of image, label
+                        or annotation
+                      rule: 'self.all(item, (has(item.image) ? 1 : 0) + (has(item.label)
+                        ? 1 : 0) + (has(item.annotation) ? 1 : 0) == 1)'
                   include:
                     items:
                       description: |-
                         FilterItem is a single include / exclude selector for the unified filter.
                         Exactly one of its fields is set; the populated field determines the
-                        dimension (image, label or annotation) the item contributes to.
+                        dimension (image, label or annotation) the item contributes to. The
+                        "exactly one field" contract is enforced per-item by the XValidation rules
+                        on the Include/Exclude lists that hold these items (the cluster-scoped lists
+                        add the namespace dimension to the same rule).
                       properties:
                         annotation:
                           description: Annotation is a Kubernetes label-selector string
@@ -91,7 +103,13 @@ spec:
                             "!key", "key in (a,b)", "key notin (a,b)").
                           type: string
                       type: object
+                    maxItems: 16
                     type: array
+                    x-kubernetes-validations:
+                    - message: each filter item must set exactly one of image, label
+                        or annotation
+                      rule: 'self.all(item, (has(item.image) ? 1 : 0) + (has(item.label)
+                        ? 1 : 0) + (has(item.annotation) ? 1 : 0) == 1)'
                 type: object
               priority:
                 description: |-
