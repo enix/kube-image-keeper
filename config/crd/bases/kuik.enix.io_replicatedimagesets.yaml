@@ -42,6 +42,58 @@ spec:
           spec:
             description: ReplicatedImageSetSpec defines the desired state of ReplicatedImageSet.
             properties:
+              filter:
+                description: |-
+                  Filter selects which pods and images this resource applies to. It
+                  replaces the deprecated imageFilter.
+                properties:
+                  exclude:
+                    items:
+                      description: |-
+                        FilterItem is a single include / exclude selector for the unified filter.
+                        Exactly one of its fields is set; the populated field determines the
+                        dimension (image, label or annotation) the item contributes to.
+                      properties:
+                        annotation:
+                          description: Annotation is a Kubernetes label-selector string
+                            matched against the Pod's annotations.
+                          type: string
+                        image:
+                          description: Image is a regular expression matched against
+                            the normalised image reference.
+                          type: string
+                        label:
+                          description: |-
+                            Label is a Kubernetes label-selector string matched against the Pod's labels
+                            (k8s.io/apimachinery/pkg/labels syntax: "key=value", "key!=value", "key",
+                            "!key", "key in (a,b)", "key notin (a,b)").
+                          type: string
+                      type: object
+                    type: array
+                  include:
+                    items:
+                      description: |-
+                        FilterItem is a single include / exclude selector for the unified filter.
+                        Exactly one of its fields is set; the populated field determines the
+                        dimension (image, label or annotation) the item contributes to.
+                      properties:
+                        annotation:
+                          description: Annotation is a Kubernetes label-selector string
+                            matched against the Pod's annotations.
+                          type: string
+                        image:
+                          description: Image is a regular expression matched against
+                            the normalised image reference.
+                          type: string
+                        label:
+                          description: |-
+                            Label is a Kubernetes label-selector string matched against the Pod's labels
+                            (k8s.io/apimachinery/pkg/labels syntax: "key=value", "key!=value", "key",
+                            "!key", "key in (a,b)", "key notin (a,b)").
+                          type: string
+                      type: object
+                    type: array
+                type: object
               podFilter:
                 description: |-
                   PodFilter narrows which pods this resource applies to, by pod labels

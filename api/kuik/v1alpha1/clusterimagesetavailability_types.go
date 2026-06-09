@@ -28,7 +28,7 @@ type ClusterImageSetAvailabilitySpec struct {
 	// +optional
 	UnusedImageExpiry metav1.Duration `json:"unusedImageExpiry,omitempty"`
 
-	// ImageFilter selects which images to monitor.
+	// ImageFilter selects which images to monitor. Superseded by filter.
 	// +optional
 	ImageFilter ImageFilterDefinition `json:"imageFilter,omitempty"`
 
@@ -37,6 +37,11 @@ type ClusterImageSetAvailabilitySpec struct {
 
 	// +optional
 	PodFilter PodFilterDefinition `json:"podFilter,omitempty"`
+
+	// Filter selects which pods, namespaces and images to monitor. It replaces
+	// the deprecated imageFilter.
+	// +optional
+	Filter ClusterFilter `json:"filter,omitempty"`
 }
 
 // MonitoredImage holds the current availability state for a single image.

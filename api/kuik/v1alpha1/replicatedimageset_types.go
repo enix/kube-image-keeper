@@ -24,6 +24,11 @@ type ReplicatedImageSetBase struct {
 // ReplicatedImageSetSpec defines the desired state of ReplicatedImageSet.
 type ReplicatedImageSetSpec struct {
 	ReplicatedImageSetBase `json:",inline"`
+
+	// Filter selects which pods and images this resource applies to. It
+	// replaces the deprecated imageFilter.
+	// +optional
+	Filter Filter `json:"filter,omitempty"`
 }
 
 // ReplicatedImageSetStatus defines the observed state of ReplicatedImageSet.

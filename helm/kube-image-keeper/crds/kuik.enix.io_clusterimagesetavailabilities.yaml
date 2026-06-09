@@ -47,8 +47,67 @@ spec:
             description: ClusterImageSetAvailabilitySpec defines the desired monitoring
               configuration.
             properties:
+              filter:
+                description: |-
+                  Filter selects which pods, namespaces and images to monitor. It replaces
+                  the deprecated imageFilter.
+                properties:
+                  exclude:
+                    items:
+                      description: |-
+                        ClusterFilterItem is a FilterItem extended with the namespace dimension,
+                        available only on cluster-scoped resources.
+                      properties:
+                        annotation:
+                          description: Annotation is a Kubernetes label-selector string
+                            matched against the Pod's annotations.
+                          type: string
+                        image:
+                          description: Image is a regular expression matched against
+                            the normalised image reference.
+                          type: string
+                        label:
+                          description: |-
+                            Label is a Kubernetes label-selector string matched against the Pod's labels
+                            (k8s.io/apimachinery/pkg/labels syntax: "key=value", "key!=value", "key",
+                            "!key", "key in (a,b)", "key notin (a,b)").
+                          type: string
+                        namespace:
+                          description: Namespace is a regular expression matched against
+                            the Pod's namespace.
+                          type: string
+                      type: object
+                    type: array
+                  include:
+                    items:
+                      description: |-
+                        ClusterFilterItem is a FilterItem extended with the namespace dimension,
+                        available only on cluster-scoped resources.
+                      properties:
+                        annotation:
+                          description: Annotation is a Kubernetes label-selector string
+                            matched against the Pod's annotations.
+                          type: string
+                        image:
+                          description: Image is a regular expression matched against
+                            the normalised image reference.
+                          type: string
+                        label:
+                          description: |-
+                            Label is a Kubernetes label-selector string matched against the Pod's labels
+                            (k8s.io/apimachinery/pkg/labels syntax: "key=value", "key!=value", "key",
+                            "!key", "key in (a,b)", "key notin (a,b)").
+                          type: string
+                        namespace:
+                          description: Namespace is a regular expression matched against
+                            the Pod's namespace.
+                          type: string
+                      type: object
+                    type: array
+                type: object
               imageFilter:
-                description: ImageFilter selects which images to monitor.
+                description: ImageFilter selects which images to monitor. Superseded
+                  by filter.
                 properties:
                   exclude:
                     items:

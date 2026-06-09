@@ -10,6 +10,11 @@ type ClusterReplicatedImageSetSpec struct {
 
 	// +optional
 	NamespaceFilter NamespaceFilterDefinition `json:"namespaceFilter,omitempty"`
+
+	// Filter selects which pods, namespaces and images this resource applies
+	// to. It replaces the deprecated imageFilter.
+	// +optional
+	Filter ClusterFilter `json:"filter,omitempty"`
 }
 
 // ClusterReplicatedImageSetStatus defines the observed state of ClusterReplicatedImageSet.
