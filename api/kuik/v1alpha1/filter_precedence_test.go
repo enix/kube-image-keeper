@@ -6,76 +6,73 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-// These tests cover the accessor precedence wiring: when spec.filter is set it
-// wins over the legacy imageFilter / podFilter / namespaceFilter fields; when it
-// is empty the legacy fields are used (parity with the pre-filter behaviour).
+// These tests cover the accessor precedence wiring after the legacy podFilter /
+// namespaceFilter fields were removed: image selection prefers spec.filter and
+// falls back to the deprecated imageFilter; pod/namespace selection comes from
+// spec.filter, matching every pod when filter is unset.
 
-func TestImageSetMirrorFilterPrecedence(t *testing.T) {
+func TestImageSetMirrorImageFilterPrecedence(t *testing.T) {
 	g := NewWithT(t)
 
-	// filter set: it wins, the legacy podFilter/imageFilter are ignored.
+	// filter set: its image dimension wins, the deprecated imageFilter is ignored.
 	ism := &ImageSetMirror{Spec: ImageSetMirrorSpec{
-		ImageSetMirrorBase: ImageSetMirrorBase{
-			PodFilter:   PodFilterDefinition{Labels: SelectorFilter{Include: []string{"legacy=yes"}}},
-			ImageFilter: ImageFilterDefinition{Include: []string{"legacy-only"}},
-		},
-		Filter: Filter{Include: []FilterItem{{Label: "app=foo"}, {Image: "nginx"}}},
+		ImageSetMirrorBase: ImageSetMirrorBase{ImageFilter: ImageFilterDefinition{Include: []string{"legacy-only"}}},
+		Filter:             Filter{Include: []FilterItem{{Image: "nginx"}}},
 	}}
-
-	match, err := ism.PodMatcher()
-	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(match(pod("any", map[string]string{"app": "foo"}, nil))).To(BeTrue(), "filter label should match")
-	g.Expect(match(pod("any", map[string]string{"legacy": "yes"}, nil))).To(BeFalse(), "legacy podFilter must be ignored when filter is set")
-
 	imgFilter, err := ism.ImageFilter()
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(imgFilter.Match("nginx")).To(BeTrue())
-	g.Expect(imgFilter.Match("legacy-only")).To(BeFalse(), "legacy imageFilter must be ignored when filter is set")
-}
+	g.Expect(imgFilter.Match("legacy-only")).To(BeFalse(), "deprecated imageFilter must be ignored when filter is set")
 
-func TestImageSetMirrorLegacyFallback(t *testing.T) {
-	g := NewWithT(t)
-
-	// filter empty: legacy fields drive matching.
-	ism := &ImageSetMirror{Spec: ImageSetMirrorSpec{ImageSetMirrorBase: ImageSetMirrorBase{
-		PodFilter:   PodFilterDefinition{Labels: SelectorFilter{Include: []string{"legacy=yes"}}},
+	// filter unset: imageFilter drives selection.
+	ism = &ImageSetMirror{Spec: ImageSetMirrorSpec{ImageSetMirrorBase: ImageSetMirrorBase{
 		ImageFilter: ImageFilterDefinition{Include: []string{"legacy-only"}},
 	}}}
-
-	match, err := ism.PodMatcher()
-	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(match(pod("any", map[string]string{"legacy": "yes"}, nil))).To(BeTrue())
-	g.Expect(match(pod("any", map[string]string{"app": "foo"}, nil))).To(BeFalse())
-
-	imgFilter, err := ism.ImageFilter()
+	imgFilter, err = ism.ImageFilter()
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(imgFilter.Match("legacy-only")).To(BeTrue())
 	g.Expect(imgFilter.Match("nginx")).To(BeFalse())
 }
 
-func TestClusterImageSetMirrorFilterNamespacePrecedence(t *testing.T) {
+func TestImageSetMirrorPodMatcher(t *testing.T) {
 	g := NewWithT(t)
 
-	// filter set with a namespace item: it replaces namespaceFilter+podFilter.
-	cism := &ClusterImageSetMirror{Spec: ClusterImageSetMirrorSpec{
-		ImageSetMirrorBase: ImageSetMirrorBase{PodFilter: PodFilterDefinition{Labels: SelectorFilter{Include: []string{"legacy=yes"}}}},
-		NamespaceFilter:    NamespaceFilterDefinition{Include: []string{"legacy-ns"}},
-		Filter:             ClusterFilter{Include: []ClusterFilterItem{{Namespace: "allowed"}}},
-	}}
+	// filter unset: every pod matches.
+	ism := &ImageSetMirror{}
+	match, err := ism.PodMatcher()
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(match(pod("any", nil, nil))).To(BeTrue())
 
+	// filter set: only matching pods.
+	ism = &ImageSetMirror{Spec: ImageSetMirrorSpec{Filter: Filter{Include: []FilterItem{{Label: "app=foo"}}}}}
+	match, err = ism.PodMatcher()
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(match(pod("any", map[string]string{"app": "foo"}, nil))).To(BeTrue())
+	g.Expect(match(pod("any", map[string]string{"app": "bar"}, nil))).To(BeFalse())
+}
+
+func TestClusterImageSetMirrorPodMatcherNamespace(t *testing.T) {
+	g := NewWithT(t)
+
+	// filter unset: every pod matches (every namespace).
+	cism := &ClusterImageSetMirror{}
 	match, err := cism.PodMatcher()
 	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(match(pod("whatever", nil, nil))).To(BeTrue())
+
+	// filter set with a namespace dimension: only that namespace matches.
+	cism = &ClusterImageSetMirror{Spec: ClusterImageSetMirrorSpec{Filter: ClusterFilter{Include: []ClusterFilterItem{{Namespace: "allowed"}}}}}
+	match, err = cism.PodMatcher()
+	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(match(pod("allowed", nil, nil))).To(BeTrue())
-	g.Expect(match(pod("legacy-ns", map[string]string{"legacy": "yes"}, nil))).To(BeFalse(),
-		"legacy namespaceFilter/podFilter must be ignored when filter is set")
+	g.Expect(match(pod("denied", nil, nil))).To(BeFalse())
 }
 
 func TestClusterImageSetAvailabilityFilterPrecedence(t *testing.T) {
 	g := NewWithT(t)
 
 	cisa := &ClusterImageSetAvailability{Spec: ClusterImageSetAvailabilitySpec{
-		ImageFilter:     ImageFilterDefinition{Include: []string{"legacy-only"}},
-		NamespaceFilter: NamespaceFilterDefinition{Include: []string{"legacy-ns"}},
+		ImageFilter: ImageFilterDefinition{Include: []string{"legacy-only"}},
 		Filter: ClusterFilter{Include: []ClusterFilterItem{
 			{Namespace: "allowed"},
 			{FilterItem: FilterItem{Image: "nginx"}},
@@ -85,24 +82,34 @@ func TestClusterImageSetAvailabilityFilterPrecedence(t *testing.T) {
 	match, err := cisa.PodMatcher()
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(match(pod("allowed", nil, nil))).To(BeTrue())
-	g.Expect(match(pod("legacy-ns", nil, nil))).To(BeFalse())
+	g.Expect(match(pod("denied", nil, nil))).To(BeFalse())
 
 	imgFilter, err := cisa.ImageFilter()
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(imgFilter.Match("nginx")).To(BeTrue())
-	g.Expect(imgFilter.Match("legacy-only")).To(BeFalse())
+	g.Expect(imgFilter.Match("legacy-only")).To(BeFalse(), "deprecated imageFilter must be ignored when filter is set")
 }
 
 func TestClusterReplicatedImageSetFilterNamespace(t *testing.T) {
 	g := NewWithT(t)
 
-	cris := &ClusterReplicatedImageSet{Spec: ClusterReplicatedImageSetSpec{
-		NamespaceFilter: NamespaceFilterDefinition{Include: []string{"legacy-ns"}},
-		Filter:          ClusterFilter{Include: []ClusterFilterItem{{Namespace: "allowed"}}},
-	}}
-
+	cris := &ClusterReplicatedImageSet{Spec: ClusterReplicatedImageSetSpec{Filter: ClusterFilter{Include: []ClusterFilterItem{{Namespace: "allowed"}}}}}
 	match, err := cris.PodMatcher()
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(match(pod("allowed", nil, nil))).To(BeTrue())
-	g.Expect(match(pod("legacy-ns", nil, nil))).To(BeFalse())
+	g.Expect(match(pod("denied", nil, nil))).To(BeFalse())
+}
+
+func TestReplicatedImageSetFilterLabel(t *testing.T) {
+	g := NewWithT(t)
+
+	ris := &ReplicatedImageSet{
+		Spec: ReplicatedImageSetSpec{
+			Filter: Filter{Include: []FilterItem{{Label: "app=foo"}}},
+		},
+	}
+	match, err := ris.PodMatcher()
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(match(pod("any", map[string]string{"app": "foo"}, nil))).To(BeTrue())
+	g.Expect(match(pod("any", map[string]string{"app": "bar"}, nil))).To(BeFalse())
 }

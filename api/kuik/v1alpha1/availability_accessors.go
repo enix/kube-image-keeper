@@ -1,16 +1,15 @@
 package v1alpha1
 
 import (
-	"fmt"
-
 	"github.com/enix/kube-image-keeper/internal/filter"
 	corev1 "k8s.io/api/core/v1"
 )
 
-// These accessors resolve the active selection mode for ClusterImageSetAvailability
-// by precedence: when spec.filter is set it wins (covering image, label,
-// annotation and namespace dimensions); otherwise the legacy imageFilter /
-// podFilter / namespaceFilter triplet is used.
+// These accessors resolve the active selection mode for ClusterImageSetAvailability:
+// when spec.filter is set it wins (covering image, label, annotation and
+// namespace dimensions); otherwise pod/namespace selection matches everything
+// (the legacy podFilter / namespaceFilter fields have been removed) and image
+// selection falls back to the deprecated imageFilter.
 
 // PodMatcher reports whether a pod is in monitoring scope (labels, annotations
 // and namespace).
@@ -18,17 +17,7 @@ func (c *ClusterImageSetAvailability) PodMatcher() (func(pod *corev1.Pod) bool, 
 	if !c.Spec.Filter.IsEmpty() {
 		return c.Spec.Filter.BuildPodMatcher()
 	}
-	podFilter, err := c.Spec.PodFilter.Build()
-	if err != nil {
-		return nil, fmt.Errorf("podFilter: %w", err)
-	}
-	nsFilter, err := c.Spec.NamespaceFilter.Build()
-	if err != nil {
-		return nil, fmt.Errorf("namespaceFilter: %w", err)
-	}
-	return func(pod *corev1.Pod) bool {
-		return podFilter.Match(pod) && nsFilter.Match(pod.Namespace)
-	}, nil
+	return matchAllPods, nil
 }
 
 // ImageFilter selects which images to monitor.

@@ -15,8 +15,6 @@ type ReplicatedImageSetBase struct {
 	// Default is 0 (original image first, then alternatives in default type order).
 	// +optional
 	Priority int `json:"priority,omitempty"`
-	// +optional
-	PodFilter PodFilterDefinition `json:"podFilter,omitempty"`
 	// +kubebuilder:validation:MaxItems=32
 	Upstreams []ReplicatedUpstream `json:"upstreams,omitempty"`
 }

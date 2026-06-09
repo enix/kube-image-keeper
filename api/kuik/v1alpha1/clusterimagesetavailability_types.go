@@ -32,12 +32,6 @@ type ClusterImageSetAvailabilitySpec struct {
 	// +optional
 	ImageFilter ImageFilterDefinition `json:"imageFilter,omitempty"`
 
-	// +optional
-	NamespaceFilter NamespaceFilterDefinition `json:"namespaceFilter,omitempty"`
-
-	// +optional
-	PodFilter PodFilterDefinition `json:"podFilter,omitempty"`
-
 	// Filter selects which pods, namespaces and images to monitor. It replaces
 	// the deprecated imageFilter.
 	// +optional

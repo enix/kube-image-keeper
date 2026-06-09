@@ -42,10 +42,28 @@ func (c *conflictOnFirstUpdateClient) Update(ctx context.Context, obj client.Obj
 // independent of whether the resource is an ImageSetMirror or a
 // ClusterImageSetMirror.
 type mirrorSpecOpts struct {
+	// imageFilter drives the legacy (deprecated) imageFilter mode; mutually
+	// exclusive with filter*.
 	imageFilter []string
-	mirrors     kuikv1alpha1.Mirrors
-	podFilter   kuikv1alpha1.PodFilterDefinition
-	finalizer   bool
+	// filterInclude / filterExclude drive the unified spec.filter mode (items
+	// are the namespaced shape; the cluster build wraps them with the namespace
+	// axis).
+	filterInclude []kuikv1alpha1.FilterItem
+	filterExclude []kuikv1alpha1.FilterItem
+	mirrors       kuikv1alpha1.Mirrors
+	finalizer     bool
+}
+
+// clusterFilterItems wraps namespaced filter items into their cluster shape.
+func clusterFilterItems(items []kuikv1alpha1.FilterItem) []kuikv1alpha1.ClusterFilterItem {
+	if items == nil {
+		return nil
+	}
+	out := make([]kuikv1alpha1.ClusterFilterItem, len(items))
+	for i, it := range items {
+		out[i] = kuikv1alpha1.ClusterFilterItem{FilterItem: it}
+	}
+	return out
 }
 
 // mirrorKind abstracts ImageSetMirror vs ClusterImageSetMirror so the shared
@@ -63,7 +81,6 @@ type mirrorKind struct {
 func ismSpec(opts mirrorSpecOpts) kuikv1alpha1.ImageSetMirrorBase {
 	return kuikv1alpha1.ImageSetMirrorBase{
 		ImageFilter: kuikv1alpha1.ImageFilterDefinition{Include: opts.imageFilter},
-		PodFilter:   opts.podFilter,
 		Mirrors:     opts.mirrors,
 	}
 }
@@ -82,7 +99,10 @@ var mirrorKinds = []mirrorKind{
 		build: func(name, workloadNS string, opts mirrorSpecOpts) client.Object {
 			return &kuikv1alpha1.ImageSetMirror{
 				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: workloadNS, Finalizers: mirrorFinalizers(opts)},
-				Spec:       kuikv1alpha1.ImageSetMirrorSpec{ImageSetMirrorBase: ismSpec(opts)},
+				Spec: kuikv1alpha1.ImageSetMirrorSpec{
+					ImageSetMirrorBase: ismSpec(opts),
+					Filter:             kuikv1alpha1.Filter{Include: opts.filterInclude, Exclude: opts.filterExclude},
+				},
 			}
 		},
 		fresh: func() client.Object { return &kuikv1alpha1.ImageSetMirror{} },
@@ -96,7 +116,13 @@ var mirrorKinds = []mirrorKind{
 		build: func(name, workloadNS string, opts mirrorSpecOpts) client.Object {
 			return &kuikv1alpha1.ClusterImageSetMirror{
 				ObjectMeta: metav1.ObjectMeta{Name: name, Finalizers: mirrorFinalizers(opts)},
-				Spec:       kuikv1alpha1.ClusterImageSetMirrorSpec{ImageSetMirrorBase: ismSpec(opts)},
+				Spec: kuikv1alpha1.ClusterImageSetMirrorSpec{
+					ImageSetMirrorBase: ismSpec(opts),
+					Filter: kuikv1alpha1.ClusterFilter{
+						Include: clusterFilterItems(opts.filterInclude),
+						Exclude: clusterFilterItems(opts.filterExclude),
+					},
+				},
 			}
 		},
 		fresh: func() client.Object { return &kuikv1alpha1.ClusterImageSetMirror{} },
@@ -303,12 +329,17 @@ var _ = Describe("Mirror reconcile (shared across kinds)", func() {
 			})
 
 			Context("pod filters", func() {
-				seedWithPodFilter := func(name string, podFilter kuikv1alpha1.PodFilterDefinition) types.NamespacedName {
+				// seedWithFilter folds the nginx image dimension into spec.filter
+				// alongside the given pod include/exclude items (imageFilter and
+				// filter are mutually exclusive, so the image selector must live in
+				// the unified filter).
+				seedWithFilter := func(name string, include, exclude []kuikv1alpha1.FilterItem) types.NamespacedName {
+					include = append([]kuikv1alpha1.FilterItem{{Image: nginxFilter}}, include...)
 					key := create(name, mirrorSpecOpts{
-						imageFilter: []string{nginxFilter},
-						mirrors:     cacheMirror,
-						podFilter:   podFilter,
-						finalizer:   true,
+						filterInclude: include,
+						filterExclude: exclude,
+						mirrors:       cacheMirror,
+						finalizer:     true,
 					})
 					mirroredAt := metav1.NewTime(time.Now())
 					seed(key, []kuikv1alpha1.MatchingImage{{
@@ -319,9 +350,7 @@ var _ = Describe("Mirror reconcile (shared across kinds)", func() {
 				}
 
 				It("drops pods whose labels match an exclude selector", func() {
-					key := seedWithPodFilter(k.slug+"-pf-exclude", kuikv1alpha1.PodFilterDefinition{
-						Labels: kuikv1alpha1.SelectorFilter{Exclude: []string{"cnpg.io/podRole=instance"}},
-					})
+					key := seedWithFilter(k.slug+"-pf-exclude", nil, []kuikv1alpha1.FilterItem{{Label: "cnpg.io/podRole=instance"}})
 					createPod(k.slug+"-pf-excluded", nginxImage, map[string]string{"cnpg.io/podRole": "instance"}, nil)
 
 					doReconcile(key)
@@ -331,9 +360,7 @@ var _ = Describe("Mirror reconcile (shared across kinds)", func() {
 				})
 
 				It("keeps pods whose labels don't match an exclude selector", func() {
-					key := seedWithPodFilter(k.slug+"-pf-keep", kuikv1alpha1.PodFilterDefinition{
-						Labels: kuikv1alpha1.SelectorFilter{Exclude: []string{"cnpg.io/podRole=instance"}},
-					})
+					key := seedWithFilter(k.slug+"-pf-keep", nil, []kuikv1alpha1.FilterItem{{Label: "cnpg.io/podRole=instance"}})
 					createPod(k.slug+"-pf-kept", nginxImage, map[string]string{"app": "foo"}, nil)
 
 					doReconcile(key)
@@ -343,9 +370,7 @@ var _ = Describe("Mirror reconcile (shared across kinds)", func() {
 				})
 
 				It("narrows to pods that match an include label selector", func() {
-					key := seedWithPodFilter(k.slug+"-pf-include", kuikv1alpha1.PodFilterDefinition{
-						Labels: kuikv1alpha1.SelectorFilter{Include: []string{"app=mirror-me"}},
-					})
+					key := seedWithFilter(k.slug+"-pf-include", []kuikv1alpha1.FilterItem{{Label: "app=mirror-me"}}, nil)
 					createPod(k.slug+"-pf-out", nginxImage, map[string]string{"app": "skip-me"}, nil)
 
 					doReconcile(key)
@@ -355,9 +380,7 @@ var _ = Describe("Mirror reconcile (shared across kinds)", func() {
 				})
 
 				It("supports annotation presence-only includes", func() {
-					key := seedWithPodFilter(k.slug+"-pf-anno", kuikv1alpha1.PodFilterDefinition{
-						Annotations: kuikv1alpha1.SelectorFilter{Include: []string{"my.company.com/custom-annotation"}},
-					})
+					key := seedWithFilter(k.slug+"-pf-anno", []kuikv1alpha1.FilterItem{{Annotation: "my.company.com/custom-annotation"}}, nil)
 					createPod(k.slug+"-pf-no-anno", nginxImage, map[string]string{"app": "foo"}, nil)
 
 					doReconcile(key)

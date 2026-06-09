@@ -8,9 +8,6 @@ import (
 type ClusterReplicatedImageSetSpec struct {
 	ReplicatedImageSetBase `json:",inline"`
 
-	// +optional
-	NamespaceFilter NamespaceFilterDefinition `json:"namespaceFilter,omitempty"`
-
 	// Filter selects which pods, namespaces and images this resource applies
 	// to. It replaces the deprecated imageFilter.
 	// +optional
