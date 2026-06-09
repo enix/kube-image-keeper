@@ -270,35 +270,30 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 
 	imageSetMirrors := make([]kuikv1alpha1.ImageSetMirror, 0, len(cismList.Items))
 	for _, cism := range cismList.Items {
-		nsFilter, err := cism.Spec.NamespaceFilter.Build()
+		match, err := cism.PodMatcher()
 		if err != nil {
-			log.Error(err, "skipping ClusterImageSetMirror with invalid namespace filter", "name", cism.Name)
+			log.Error(err, "skipping ClusterImageSetMirror with invalid filter", "name", cism.Name)
 			continue
 		}
-		if !nsFilter.Match(pod.Namespace) {
-			continue
-		}
-		podFilter, err := cism.Spec.PodFilter.Build()
-		if err != nil {
-			log.Error(err, "skipping ClusterImageSetMirror with invalid pod filter", "name", cism.Name)
-			continue
-		}
-		if !podFilter.Match(pod) {
+		if !match(pod) {
 			continue
 		}
 		imageSetMirrors = append(imageSetMirrors, kuikv1alpha1.ImageSetMirror{
 			ObjectMeta: cism.ObjectMeta,
-			Spec:       kuikv1alpha1.ImageSetMirrorSpec{ImageSetMirrorBase: cism.Spec.ImageSetMirrorBase},
-			Status:     kuikv1alpha1.ImageSetMirrorStatus(cism.Status),
+			Spec: kuikv1alpha1.ImageSetMirrorSpec{
+				ImageSetMirrorBase: cism.Spec.ImageSetMirrorBase,
+				Filter:             cism.Spec.Filter.ToFilter(),
+			},
+			Status: kuikv1alpha1.ImageSetMirrorStatus(cism.Status),
 		})
 	}
 	for _, ism := range ismList.Items {
-		podFilter, err := ism.Spec.PodFilter.Build()
+		match, err := ism.PodMatcher()
 		if err != nil {
-			log.Error(err, "skipping ImageSetMirror with invalid pod filter", "namespace", ism.Namespace, "name", ism.Name)
+			log.Error(err, "skipping ImageSetMirror with invalid filter", "namespace", ism.Namespace, "name", ism.Name)
 			continue
 		}
-		if !podFilter.Match(pod) {
+		if !match(pod) {
 			continue
 		}
 		for i := range ism.Spec.Mirrors {
@@ -312,34 +307,29 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 
 	replicatedImageSets := make([]kuikv1alpha1.ReplicatedImageSet, 0, len(crisList.Items))
 	for _, cris := range crisList.Items {
-		nsFilter, err := cris.Spec.NamespaceFilter.Build()
+		match, err := cris.PodMatcher()
 		if err != nil {
-			log.Error(err, "skipping ClusterReplicatedImageSet with invalid namespace filter", "name", cris.Name)
+			log.Error(err, "skipping ClusterReplicatedImageSet with invalid filter", "name", cris.Name)
 			continue
 		}
-		if !nsFilter.Match(pod.Namespace) {
-			continue
-		}
-		podFilter, err := cris.Spec.PodFilter.Build()
-		if err != nil {
-			log.Error(err, "skipping ClusterReplicatedImageSet with invalid pod filter", "name", cris.Name)
-			continue
-		}
-		if !podFilter.Match(pod) {
+		if !match(pod) {
 			continue
 		}
 		replicatedImageSets = append(replicatedImageSets, kuikv1alpha1.ReplicatedImageSet{
 			ObjectMeta: cris.ObjectMeta,
-			Spec:       kuikv1alpha1.ReplicatedImageSetSpec{ReplicatedImageSetBase: cris.Spec.ReplicatedImageSetBase},
+			Spec: kuikv1alpha1.ReplicatedImageSetSpec{
+				ReplicatedImageSetBase: cris.Spec.ReplicatedImageSetBase,
+				Filter:                 cris.Spec.Filter.ToFilter(),
+			},
 		})
 	}
 	for _, ris := range risList.Items {
-		podFilter, err := ris.Spec.PodFilter.Build()
+		match, err := ris.PodMatcher()
 		if err != nil {
-			log.Error(err, "skipping ReplicatedImageSet with invalid pod filter", "namespace", ris.Namespace, "name", ris.Name)
+			log.Error(err, "skipping ReplicatedImageSet with invalid filter", "namespace", ris.Namespace, "name", ris.Name)
 			continue
 		}
-		if !podFilter.Match(pod) {
+		if !match(pod) {
 			continue
 		}
 		for i := range ris.Spec.Upstreams {
@@ -524,7 +514,10 @@ func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSet
 	// Collect from ImageSetMirrors
 	for ismIdx := range imageSetMirrors {
 		ism := &imageSetMirrors[ismIdx]
-		imageFilter := ism.Spec.ImageFilter.MustBuild()
+		imageFilter, err := ism.ImageFilter()
+		if err != nil {
+			return err
+		}
 
 		for _, alternative := range alternatives {
 			imgRegistry, imgPath, err := internal.RegistryAndPathFromReference(alternative.reference)

@@ -82,23 +82,19 @@ func (r *ClusterImageSetAvailabilityReconciler) SetupWithManager(mgr ctrl.Manage
 
 				var reqs []reconcile.Request
 				for _, cisa := range cisaList.Items {
-					nsFilter, err := cisa.Spec.NamespaceFilter.Build()
+					match, err := cisa.PodMatcher()
 					if err != nil {
-						log.Error(err, "skipping ClusterImageSetAvailability with invalid namespace filter", "name", cisa.Name)
+						log.Error(err, "skipping ClusterImageSetAvailability with invalid filter", "name", cisa.Name)
 						continue
 					}
-					if !nsFilter.Match(pod.Namespace) {
+					if !match(pod) {
 						continue
 					}
-					podFilter, err := cisa.Spec.PodFilter.Build()
+					imageFilter, err := cisa.ImageFilter()
 					if err != nil {
-						log.Error(err, "skipping ClusterImageSetAvailability with invalid pod filter", "name", cisa.Name)
+						log.Error(err, "skipping ClusterImageSetAvailability with invalid filter", "name", cisa.Name)
 						continue
 					}
-					if !podFilter.Match(pod) {
-						continue
-					}
-					imageFilter := cisa.Spec.ImageFilter.MustBuild()
 					for imageName := range imageNames {
 						if imageFilter.Match(imageName) {
 							reqs = append(reqs, reconcile.Request{
@@ -128,20 +124,14 @@ func (r *ClusterImageSetAvailabilityReconciler) Reconcile(ctx context.Context, r
 		return ctrl.Result{}, err
 	}
 
-	nsFilter, err := cisa.Spec.NamespaceFilter.Build()
+	podMatcher, err := cisa.PodMatcher()
 	if err != nil {
-		log.Error(err, "invalid namespaceFilter; skipping reconcile until spec is fixed")
-		r.Recorder.Eventf(&cisa, nil, corev1.EventTypeWarning, "InvalidFilter", "ReconcileSkipped", "namespaceFilter is invalid: %v", err)
-		return ctrl.Result{}, nil
-	}
-	podFilter, err := cisa.Spec.PodFilter.Build()
-	if err != nil {
-		log.Error(err, "invalid podFilter; skipping reconcile until spec is fixed")
-		r.Recorder.Eventf(&cisa, nil, corev1.EventTypeWarning, "InvalidFilter", "ReconcileSkipped", "podFilter is invalid: %v", err)
+		log.Error(err, "invalid filter; skipping reconcile until spec is fixed")
+		r.Recorder.Eventf(&cisa, nil, corev1.EventTypeWarning, "InvalidFilter", "ReconcileSkipped", "filter is invalid: %v", err)
 		return ctrl.Result{}, nil
 	}
 	pods.Items = slices.DeleteFunc(pods.Items, func(p corev1.Pod) bool {
-		return !nsFilter.Match(p.Namespace) || !podFilter.Match(&p) || !r.globalPodFilter.Match(&p)
+		return !podMatcher(&p) || !r.globalPodFilter.Match(&p)
 	})
 
 	original := cisa.DeepCopy()
@@ -288,7 +278,12 @@ func (r *ClusterImageSetAvailabilityReconciler) syncImageList(ctx context.Contex
 	log := logf.FromContext(ctx)
 	now := metav1.NewTime(time.Now())
 	instantExpiryMarker := metav1.NewTime(time.Time{}.Add(time.Hour))
-	imageFilter := cisa.Spec.ImageFilter.MustBuild()
+	imageFilter, err := cisa.ImageFilter()
+	if err != nil {
+		log.Error(err, "invalid filter; skipping reconcile until spec is fixed")
+		r.Recorder.Eventf(cisa, nil, corev1.EventTypeWarning, "InvalidFilter", "ReconcileSkipped", "filter is invalid: %v", err)
+		return false
+	}
 
 	// List in-use images from pods
 	currentImages := map[string]bool{}

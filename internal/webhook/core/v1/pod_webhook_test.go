@@ -386,6 +386,59 @@ var _ = Describe("buildAlternativesList", func() {
 		}
 	}
 
+	Context("with spec.filter", func() {
+		ismWithFilter := func(imageRegex, registry, mirrorPath string) kuikv1alpha1.ImageSetMirror {
+			return kuikv1alpha1.ImageSetMirror{
+				ObjectMeta: metav1.ObjectMeta{Name: "global"},
+				Spec: kuikv1alpha1.ImageSetMirrorSpec{
+					ImageSetMirrorBase: kuikv1alpha1.ImageSetMirrorBase{
+						Mirrors: kuikv1alpha1.Mirrors{{Registry: registry, Path: mirrorPath}},
+					},
+					Filter: kuikv1alpha1.Filter{Include: []kuikv1alpha1.FilterItem{{Image: imageRegex}}},
+				},
+			}
+		}
+
+		It("routes an image matching the filter image dimension to the mirror", func() {
+			c := makeContainer("docker.io/library/nginx:1.29", corev1.PullIfNotPresent)
+			err := d.buildAlternativesList(
+				ctx,
+				[]kuikv1alpha1.ImageSetMirror{ismWithFilter(`docker\.io/library/nginx.*`, "harbor.example.com", "/mirror")},
+				nil,
+				c,
+			)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(references(c)).To(Equal([]string{
+				"docker.io/library/nginx:1.29",
+				"harbor.example.com/mirror/library/nginx:1.29",
+			}))
+		})
+
+		It("does not route an image excluded by the filter image dimension", func() {
+			c := makeContainer("docker.io/library/redis:7", corev1.PullIfNotPresent)
+			err := d.buildAlternativesList(
+				ctx,
+				[]kuikv1alpha1.ImageSetMirror{ismWithFilter(`docker\.io/library/nginx.*`, "harbor.example.com", "/mirror")},
+				nil,
+				c,
+			)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(references(c)).To(Equal([]string{"docker.io/library/redis:7"}))
+		})
+
+		It("gates a ReplicatedImageSet on its top-level filter image dimension", func() {
+			ris := kuikv1alpha1.ReplicatedImageSet{Spec: kuikv1alpha1.ReplicatedImageSetSpec{
+				ReplicatedImageSetBase: kuikv1alpha1.ReplicatedImageSetBase{Upstreams: []kuikv1alpha1.ReplicatedUpstream{makeUpstream("docker.io", false)}},
+				Filter:                 kuikv1alpha1.Filter{Include: []kuikv1alpha1.FilterItem{{Image: `docker\.io/library/nginx.*`}}},
+			}}
+
+			// Excluded image: the top-level gate drops the whole RIS, leaving only the original.
+			c := makeContainer("docker.io/library/redis:7", corev1.PullIfNotPresent)
+			Expect(d.buildAlternativesList(ctx, nil, []kuikv1alpha1.ReplicatedImageSet{ris}, c)).To(Succeed())
+			Expect(references(c)).To(Equal([]string{"docker.io/library/redis:7"}))
+		})
+	})
+
 	Context("with imagePullPolicy: Always", func() {
 		It("pins the original first by default, ignoring negative spec.priority", func() {
 			c := makeContainer("docker.io/library/nginx:1.29", corev1.PullAlways)
