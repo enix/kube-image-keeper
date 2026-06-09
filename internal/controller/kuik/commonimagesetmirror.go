@@ -93,6 +93,83 @@ func (r *ImageSetMirrorBaseReconciler) getPullSecretsFromPods(ctx context.Contex
 	return secrets, nil
 }
 
+// matchUpstreamCredentialSecret returns the CredentialSecret of the first
+// ReplicatedUpstream whose ImageFilter (compiled with its registry) matches
+// image, or nil if none matches. This mirrors how the pod webhook resolves
+// the upstream source credential in buildAlternativesList, so the mirror
+// controller authenticates to a private upstream exactly like the webhook
+// does when it checks availability.
+func matchUpstreamCredentialSecret(upstreams []kuikv1alpha1.ReplicatedUpstream, image string) *kuikv1alpha1.CredentialSecret {
+	for i := range upstreams {
+		upstream := &upstreams[i]
+		if upstream.CredentialSecret == nil {
+			continue
+		}
+		if upstream.ImageFilter.MustBuildWithRegistry(upstream.Registry).Match(image) {
+			return upstream.CredentialSecret
+		}
+	}
+	return nil
+}
+
+// getSourceSecretFromReplicatedImageSets resolves the SOURCE (upstream)
+// credential for the image being mirrored from the CredentialSecret declared
+// on a matching (Cluster)ReplicatedImageSet upstream.
+//
+// This closes the gap that breaks mirroring of private upstreams (issue #606):
+// getPullSecretsFromPods can only contribute credentials while a pod still
+// references the original image, but the webhook rewrites consumers to pull
+// from the mirror at admission time, so in steady state no pod carries the
+// original reference and srcSecrets ends up empty. The upstream credential the
+// operator already declared on the (Cluster)ReplicatedImageSet — described as
+// "the secret used to pull matching images" — is the natural source of truth.
+//
+// ClusterReplicatedImageSet (cluster-scoped) is always consulted. For a
+// namespaced ImageSetMirror, ReplicatedImageSets in its namespace are also
+// considered, with the secret resolved in that namespace.
+func (r *ImageSetMirrorBaseReconciler) getSourceSecretFromReplicatedImageSets(ctx context.Context, image, namespace string) (*corev1.Secret, error) {
+	var credentialSecret *kuikv1alpha1.CredentialSecret
+
+	var crisList kuikv1alpha1.ClusterReplicatedImageSetList
+	if err := r.List(ctx, &crisList); err != nil {
+		return nil, err
+	}
+	for i := range crisList.Items {
+		if cs := matchUpstreamCredentialSecret(crisList.Items[i].Spec.Upstreams, image); cs != nil {
+			credentialSecret = cs
+			break
+		}
+	}
+
+	if credentialSecret == nil && namespace != "" {
+		var risList kuikv1alpha1.ReplicatedImageSetList
+		if err := r.List(ctx, &risList, client.InNamespace(namespace)); err != nil {
+			return nil, err
+		}
+		for i := range risList.Items {
+			ris := &risList.Items[i]
+			if cs := matchUpstreamCredentialSecret(ris.Spec.Upstreams, image); cs != nil {
+				// CredentialSecret.Namespace is ignored for namespaced
+				// resources; the secret lives in the RIS' own namespace.
+				qualified := *cs
+				qualified.Namespace = ris.Namespace
+				credentialSecret = &qualified
+				break
+			}
+		}
+	}
+
+	if credentialSecret == nil {
+		return nil, nil
+	}
+
+	secret := &corev1.Secret{}
+	if err := r.getPullSecret(ctx, credentialSecret.Namespace, credentialSecret.Name, secret); err != nil {
+		return nil, err
+	}
+	return secret, nil
+}
+
 func (r *ImageSetMirrorBaseReconciler) getImageSecretFromMirrors(ctx context.Context, image, namespace string, mirrors kuikv1alpha1.Mirrors) (*corev1.Secret, error) {
 	destCredentialSecret := mirrors.GetCredentialSecretForImage(image)
 
@@ -117,6 +194,22 @@ func (r *ImageSetMirrorBaseReconciler) mirrorImage(ctx context.Context, namespac
 	srcSecrets, err := r.getPullSecretsFromPods(ctx, podsByMatchingImages, from)
 	if err != nil {
 		return err
+	}
+
+	// When no consuming pod contributes credentials — the steady-state case
+	// once the webhook has rewritten workloads to pull from the mirror — fall
+	// back to the source CredentialSecret declared on a matching
+	// (Cluster)ReplicatedImageSet upstream. Without this, private upstreams
+	// (Docker Hub, private quay.io, ...) fail to mirror with 401 UNAUTHORIZED
+	// (issue #606).
+	if len(srcSecrets) == 0 {
+		secret, err := r.getSourceSecretFromReplicatedImageSets(ctx, from, namespace)
+		if err != nil {
+			return err
+		}
+		if secret != nil {
+			srcSecrets = []corev1.Secret{*secret}
+		}
 	}
 
 	destSecrets := make([]corev1.Secret, 1)
