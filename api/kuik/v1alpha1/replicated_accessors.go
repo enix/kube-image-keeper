@@ -14,17 +14,11 @@ import (
 // --- ReplicatedImageSet (namespaced) ---
 
 func (r *ReplicatedImageSet) PodMatcher() (func(pod *corev1.Pod) bool, error) {
-	if !r.Spec.Filter.IsEmpty() {
-		return r.Spec.Filter.BuildPodMatcher()
-	}
-	return matchAllPods, nil
+	return podMatcher(r.Spec.Filter)
 }
 
 // --- ClusterReplicatedImageSet (cluster-scoped) ---
 
 func (c *ClusterReplicatedImageSet) PodMatcher() (func(pod *corev1.Pod) bool, error) {
-	if !c.Spec.Filter.IsEmpty() {
-		return c.Spec.Filter.BuildPodMatcher()
-	}
-	return matchAllPods, nil
+	return podMatcher(c.Spec.Filter)
 }
