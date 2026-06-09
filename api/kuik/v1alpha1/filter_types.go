@@ -69,6 +69,37 @@ func (f Filter) IsEmpty() bool { return len(f.Include)+len(f.Exclude) == 0 }
 // IsEmpty reports whether the cluster filter declares no items at all.
 func (cf ClusterFilter) IsEmpty() bool { return len(cf.Include)+len(cf.Exclude) == 0 }
 
+// filterSelector is implemented by both Filter and ClusterFilter. It lets the
+// per-kind accessors share the single precedence rule below instead of copying
+// the "unified filter wins, otherwise fall back" branch into every accessor.
+type filterSelector interface {
+	IsEmpty() bool
+	BuildPodMatcher() (func(pod *corev1.Pod) bool, error)
+	BuildImageFilter() (filter.Filter, error)
+}
+
+// matchAllPods is the pod matcher used when spec.filter is unset: it matches
+// every pod, the behaviour the removed podFilter/namespaceFilter fields had.
+func matchAllPods(*corev1.Pod) bool { return true }
+
+// podMatcher resolves a kind's pod matcher: the unified filter when set,
+// otherwise match-all.
+func podMatcher(f filterSelector) (func(pod *corev1.Pod) bool, error) {
+	if f.IsEmpty() {
+		return matchAllPods, nil
+	}
+	return f.BuildPodMatcher()
+}
+
+// imageFilter resolves a kind's image filter: the unified filter when set,
+// otherwise the deprecated imageFilter supplied via legacy.
+func imageFilter(f filterSelector, legacy func() (filter.Filter, error)) (filter.Filter, error) {
+	if f.IsEmpty() {
+		return legacy()
+	}
+	return f.BuildImageFilter()
+}
+
 // BuildImageFilter compiles the image dimension into an image matcher. An empty
 // image dimension matches every image.
 func (f Filter) BuildImageFilter() (filter.Filter, error) {

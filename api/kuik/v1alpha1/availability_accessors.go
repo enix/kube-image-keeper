@@ -14,16 +14,10 @@ import (
 // PodMatcher reports whether a pod is in monitoring scope (labels, annotations
 // and namespace).
 func (c *ClusterImageSetAvailability) PodMatcher() (func(pod *corev1.Pod) bool, error) {
-	if !c.Spec.Filter.IsEmpty() {
-		return c.Spec.Filter.BuildPodMatcher()
-	}
-	return matchAllPods, nil
+	return podMatcher(c.Spec.Filter)
 }
 
 // ImageFilter selects which images to monitor.
 func (c *ClusterImageSetAvailability) ImageFilter() (filter.Filter, error) {
-	if !c.Spec.Filter.IsEmpty() {
-		return c.Spec.Filter.BuildImageFilter()
-	}
-	return c.Spec.ImageFilter.Build()
+	return imageFilter(c.Spec.Filter, c.Spec.ImageFilter.Build)
 }
