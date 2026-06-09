@@ -7,7 +7,10 @@ import (
 
 // FilterItem is a single include / exclude selector for the unified filter.
 // Exactly one of its fields is set; the populated field determines the
-// dimension (image, label or annotation) the item contributes to.
+// dimension (image, label or annotation) the item contributes to. The
+// "exactly one field" contract is enforced per-item by the XValidation rules
+// on the Include/Exclude lists that hold these items (the cluster-scoped lists
+// add the namespace dimension to the same rule).
 type FilterItem struct {
 	// Image is a regular expression matched against the normalised image reference.
 	Image string `json:"image,omitempty"`
@@ -35,8 +38,12 @@ type ClusterFilterItem struct {
 // with no include items matches everything in that dimension.
 type Filter struct {
 	// +optional
+	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:XValidation:rule="self.all(item, (has(item.image) ? 1 : 0) + (has(item.label) ? 1 : 0) + (has(item.annotation) ? 1 : 0) == 1)",message="each filter item must set exactly one of image, label or annotation"
 	Include []FilterItem `json:"include,omitempty"`
 	// +optional
+	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:XValidation:rule="self.all(item, (has(item.image) ? 1 : 0) + (has(item.label) ? 1 : 0) + (has(item.annotation) ? 1 : 0) == 1)",message="each filter item must set exactly one of image, label or annotation"
 	Exclude []FilterItem `json:"exclude,omitempty"`
 }
 
@@ -45,8 +52,12 @@ type Filter struct {
 // namespace dimension AND'd in alongside image, label and annotation.
 type ClusterFilter struct {
 	// +optional
+	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:XValidation:rule="self.all(item, (has(item.image) ? 1 : 0) + (has(item.label) ? 1 : 0) + (has(item.annotation) ? 1 : 0) + (has(item.namespace) ? 1 : 0) == 1)",message="each filter item must set exactly one of image, label, annotation or namespace"
 	Include []ClusterFilterItem `json:"include,omitempty"`
 	// +optional
+	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:XValidation:rule="self.all(item, (has(item.image) ? 1 : 0) + (has(item.label) ? 1 : 0) + (has(item.annotation) ? 1 : 0) + (has(item.namespace) ? 1 : 0) == 1)",message="each filter item must set exactly one of image, label, annotation or namespace"
 	Exclude []ClusterFilterItem `json:"exclude,omitempty"`
 }
 
