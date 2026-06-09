@@ -31,10 +31,10 @@ metadata:
   name: monitor-public-critical-images
 spec:
   unusedImageExpiry: 24h # continue monitoring previously used images (useful for Cronjobs)
-  imageFilter:
+  filter:
     include:
-      - ".*/bitnami/.+" # any (used) bitnami image, on any registry, will be detected if missing
-      - "docker.io/library/.+" # monitor any (used) docker.io official image
+      - image: ".*/bitnami/.+" # any (used) bitnami image, on any registry, will be detected if missing
+      - image: "docker.io/library/.+" # monitor any (used) docker.io official image
 ---
 apiVersion: kuik.enix.io/v1alpha1
 kind: ClusterImageSetAvailability
@@ -42,7 +42,7 @@ metadata:
   name: monitor-private-critical-images
 spec:
   unusedImageExpiry: 24h # continue monitoring previously used images (useful for Cronjobs)
-  imageFilter:
+  filter:
     include:
-      - "myregistry.mydomain/myproject/myimage:.+" # monitor your (used) critical project images
+      - image: "myregistry.mydomain/myproject/myimage:.+" # monitor your (used) critical project images
 ```

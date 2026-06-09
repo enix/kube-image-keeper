@@ -30,7 +30,7 @@ User-facing documentation lives under [`website/src/content/docs/`](website/src/
 The site is built with [Astro Starlight](https://starlight.astro.build/). When editing or adding docs:
 
 - Every page needs frontmatter with at least a `title:`. Add a `description:` too — it doubles as the SEO `<meta>` description and is shown on the use-cases index cards.
-- Internal links use the rendered route, not the markdown path: `[Pod filtering](/resource-filtering/#pod-filtering-podfilter)`, **not** `./resource-filtering.md#pod-filtering-podfilter`.
+- Internal links use the rendered route, not the markdown path: `[Label selectors](/resource-filtering/#label-and-annotation-selector-syntax)`, **not** `./resource-filtering.md#label-and-annotation-selector-syntax`.
 - Asides use Starlight's native syntax: `:::note`, `:::tip`, `:::caution`, `:::danger` — **not** GitHub's `> [!NOTE]` syntax which is not supported.
 - New use-case files dropped under `website/src/content/docs/use-cases/` are automatically picked up by the index page (`use-cases/index.mdx` reads the collection at build time).
 
@@ -44,7 +44,7 @@ The site is built with [Astro Starlight](https://starlight.astro.build/). When e
 | **ClusterReplicatedImageSet / ReplicatedImageSet** | Cluster / Namespaced | Routes images to alternative upstream registries (checks availability, doesn't copy) |
 | **ClusterImageSetAvailability** | Cluster | Monitors image availability across the cluster, tracks per-image status |
 
-Cluster-scoped variants add `spec.namespaceFilter` to limit which namespaces they apply to.
+Every resource is scoped by a unified `spec.filter` (image / label / annotation selectors; cluster-scoped variants add a `namespace` dimension). It replaces the removed `spec.podFilter` / `spec.namespaceFilter` fields and supersedes the deprecated `spec.imageFilter`. `(Cluster)ReplicatedImageSet` ignores the filter's `image` dimension (image selection is per-upstream via `spec.upstreams[].imageFilter`). See [`website/src/content/docs/resource-filtering.md`](website/src/content/docs/resource-filtering.md).
 
 ### Entry Point
 
@@ -63,7 +63,7 @@ New work touching reconciler setup, webhook config, manager flags, or TLS plumbi
 
 1. **Global pod filter** — drops pods matching `config.SkipLabels` / `config.SkipAnnotations`; skips mirror pods and pods already annotated with `kuik.enix.io/original-images`
 2. **Per-container filtering** — skips digest-pinned images (`@sha256:...`) and `imagePullPolicy: Never` containers (configurable)
-3. **CR collection** — fetches all applicable CISM/ISM/CRIS/RIS, filtered by `spec.namespaceFilter` and `spec.podFilter`
+3. **CR collection** — fetches all applicable CISM/ISM/CRIS/RIS, filtered by each resource's unified `spec.filter` (pod labels / annotations, plus `namespace` for cluster-scoped kinds)
 4. **Alternative building** — creates a prioritized list including the original image; each entry's position is determined by the two-level priority system (see below)
 5. **Availability checking** — uses `parallel.FirstSuccessful()` with singleflight deduplication and two 1-second TTL caches: `checkCache` (per-image availability boolean) and `alternativeCache` (the resolved alternative for a given original image, which short-circuits re-routing of the same image within the TTL)
 6. **Rewriting** — patches Pod containers; stores original images in `kuik.enix.io/original-images` annotation (JSON) to prevent re-processing
@@ -89,7 +89,7 @@ Default type order when priorities are equal: Original → CISM → ISM → CRIS
   - `PodFilter`: label/annotation selector matching (include AND NOT exclude semantics)
   - `IncludeExcludeFilter`: generic regex-based filter
   - `PrefixFilter`: wraps any `Filter` to strip a registry prefix before matching
-  - Default-allow semantics (inject `.*` when Include is empty) live in `NamespaceFilterDefinition.Build()` and `ImageFilterDefinition.Build()` in `api/kuik/v1alpha1`
+  - The unified `spec.filter` (`Filter` / `ClusterFilter`) lives in `api/kuik/v1alpha1/filter_types.go`. Default-allow semantics (inject `.*` when a dimension's `include` is empty) live in `Filter.BuildImageFilter()` (image dimension) and `ClusterFilter.BuildPodMatcher()` (namespace dimension), plus the deprecated `ImageFilterDefinition.Build()`
 
 - **`internal/registry/`** — registry interaction via go-containerregistry. `CheckImageAvailability()` returns typed statuses: `Available`, `NotFound`, `Unreachable`, `InvalidAuth`, `QuotaExceeded`. Two additional `ImageAvailabilityStatus` values (`Scheduled`, `UnavailableSecret`) exist but are set by the availability reconciler — not by `CheckImageAvailability()`. `CopyImage()` does the cross-registry transfer that backs mirroring, using `remote.Write` / `remote.WriteIndex` and honouring `config.Mirroring.Platforms`; it's invoked from `commonimagesetmirror.go`. Handles TLS, insecure registries, pull secrets, and rate-limit detection.
 
