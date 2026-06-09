@@ -352,7 +352,9 @@ var _ = Describe("buildAlternativesList", func() {
 	makeRIS := func(upstreams ...kuikv1alpha1.ReplicatedUpstream) kuikv1alpha1.ReplicatedImageSet {
 		return kuikv1alpha1.ReplicatedImageSet{
 			Spec: kuikv1alpha1.ReplicatedImageSetSpec{
-				Upstreams: upstreams,
+				ReplicatedImageSetBase: kuikv1alpha1.ReplicatedImageSetBase{
+					Upstreams: upstreams,
+				},
 			},
 		}
 	}
@@ -371,12 +373,14 @@ var _ = Describe("buildAlternativesList", func() {
 		return kuikv1alpha1.ImageSetMirror{
 			ObjectMeta: metav1.ObjectMeta{Name: "global"},
 			Spec: kuikv1alpha1.ImageSetMirrorSpec{
-				Priority: priority,
-				ImageFilter: kuikv1alpha1.ImageFilterDefinition{
-					Include: []string{".*"},
-				},
-				Mirrors: kuikv1alpha1.Mirrors{
-					{Registry: registry, Path: mirrorPath},
+				ImageSetMirrorBase: kuikv1alpha1.ImageSetMirrorBase{
+					Priority: priority,
+					ImageFilter: kuikv1alpha1.ImageFilterDefinition{
+						Include: []string{".*"},
+					},
+					Mirrors: kuikv1alpha1.Mirrors{
+						{Registry: registry, Path: mirrorPath},
+					},
 				},
 			},
 		}

@@ -4,8 +4,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// ReplicatedImageSetSpec defines the desired state of ReplicatedImageSet.
-type ReplicatedImageSetSpec struct {
+// ReplicatedImageSetBase holds the fields shared by ReplicatedImageSet and
+// ClusterReplicatedImageSet. It is extracted from ReplicatedImageSetSpec so each
+// scope can carry its own filter type (Filter for the namespaced kind,
+// ClusterFilter for the cluster-scoped kind) without the embedded namespaced
+// spec forcing a single shared type.
+type ReplicatedImageSetBase struct {
 	// Priority controls the ordering of alternatives from this CR relative to the original image and other CRs.
 	// Negative values place alternatives before the original image; positive values place them after.
 	// Default is 0 (original image first, then alternatives in default type order).
@@ -15,6 +19,11 @@ type ReplicatedImageSetSpec struct {
 	PodFilter PodFilterDefinition `json:"podFilter,omitempty"`
 	// +kubebuilder:validation:MaxItems=32
 	Upstreams []ReplicatedUpstream `json:"upstreams,omitempty"`
+}
+
+// ReplicatedImageSetSpec defines the desired state of ReplicatedImageSet.
+type ReplicatedImageSetSpec struct {
+	ReplicatedImageSetBase `json:",inline"`
 }
 
 // ReplicatedImageSetStatus defines the observed state of ReplicatedImageSet.

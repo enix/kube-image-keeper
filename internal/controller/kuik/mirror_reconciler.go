@@ -49,7 +49,7 @@ import (
 // folded into PodMatcher by the cluster-scoped accessor.
 type MirrorObject interface {
 	client.Object
-	MirrorSpec() *kuikv1alpha1.ImageSetMirrorSpec
+	MirrorSpec() *kuikv1alpha1.ImageSetMirrorBase
 	MirrorStatus() *kuikv1alpha1.ImageSetMirrorStatus
 	PodMatcher() (func(pod *corev1.Pod) bool, error)
 	ImageFilter() (filter.Filter, error)

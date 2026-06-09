@@ -19,7 +19,7 @@ import (
 
 // --- ImageSetMirror (namespaced) ---
 
-func (i *ImageSetMirror) MirrorSpec() *ImageSetMirrorSpec     { return &i.Spec }
+func (i *ImageSetMirror) MirrorSpec() *ImageSetMirrorBase     { return &i.Spec.ImageSetMirrorBase }
 func (i *ImageSetMirror) MirrorStatus() *ImageSetMirrorStatus { return &i.Status }
 
 func (i *ImageSetMirror) PodMatcher() (func(pod *corev1.Pod) bool, error) {
@@ -36,7 +36,7 @@ func (i *ImageSetMirror) ImageFilter() (filter.Filter, error) {
 
 // --- ClusterImageSetMirror (cluster-scoped) ---
 
-func (c *ClusterImageSetMirror) MirrorSpec() *ImageSetMirrorSpec { return &c.Spec.ImageSetMirrorSpec }
+func (c *ClusterImageSetMirror) MirrorSpec() *ImageSetMirrorBase { return &c.Spec.ImageSetMirrorBase }
 
 func (c *ClusterImageSetMirror) MirrorStatus() *ImageSetMirrorStatus {
 	return (*ImageSetMirrorStatus)(&c.Status)
