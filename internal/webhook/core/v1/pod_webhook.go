@@ -288,7 +288,7 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 		}
 		imageSetMirrors = append(imageSetMirrors, kuikv1alpha1.ImageSetMirror{
 			ObjectMeta: cism.ObjectMeta,
-			Spec:       cism.Spec.ImageSetMirrorSpec,
+			Spec:       kuikv1alpha1.ImageSetMirrorSpec{ImageSetMirrorBase: cism.Spec.ImageSetMirrorBase},
 			Status:     kuikv1alpha1.ImageSetMirrorStatus(cism.Status),
 		})
 	}
@@ -330,7 +330,7 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 		}
 		replicatedImageSets = append(replicatedImageSets, kuikv1alpha1.ReplicatedImageSet{
 			ObjectMeta: cris.ObjectMeta,
-			Spec:       cris.Spec.ReplicatedImageSetSpec,
+			Spec:       kuikv1alpha1.ReplicatedImageSetSpec{ReplicatedImageSetBase: cris.Spec.ReplicatedImageSetBase},
 		})
 	}
 	for _, ris := range risList.Items {

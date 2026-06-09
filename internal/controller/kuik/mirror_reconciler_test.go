@@ -72,11 +72,13 @@ var _ = Describe("Issue #567: rewritten pods keep the original image in use", fu
 		It("leaves unusedSince nil for the original image while a rewritten pod still references it", func() {
 			obj := &kuikv1alpha1.ImageSetMirror{
 				Spec: kuikv1alpha1.ImageSetMirrorSpec{
-					ImageFilter: kuikv1alpha1.ImageFilterDefinition{
-						Include: []string{`a\.example\.com/.*`},
-					},
-					Mirrors: kuikv1alpha1.Mirrors{
-						{Registry: "b.example.com"},
+					ImageSetMirrorBase: kuikv1alpha1.ImageSetMirrorBase{
+						ImageFilter: kuikv1alpha1.ImageFilterDefinition{
+							Include: []string{`a\.example\.com/.*`},
+						},
+						Mirrors: kuikv1alpha1.Mirrors{
+							{Registry: "b.example.com"},
+						},
 					},
 				},
 				// Prior reconciliation (when pod-1 was still around, unrewritten)
@@ -113,11 +115,13 @@ var _ = Describe("Issue #567: rewritten pods keep the original image in use", fu
 			// container image drives what gets mirrored (d26a099).
 			obj := &kuikv1alpha1.ImageSetMirror{
 				Spec: kuikv1alpha1.ImageSetMirrorSpec{
-					ImageFilter: kuikv1alpha1.ImageFilterDefinition{
-						Include: []string{`a\.example\.com/.*`},
-					},
-					Mirrors: kuikv1alpha1.Mirrors{
-						{Registry: "b.example.com"},
+					ImageSetMirrorBase: kuikv1alpha1.ImageSetMirrorBase{
+						ImageFilter: kuikv1alpha1.ImageFilterDefinition{
+							Include: []string{`a\.example\.com/.*`},
+						},
+						Mirrors: kuikv1alpha1.Mirrors{
+							{Registry: "b.example.com"},
+						},
 					},
 				},
 			}
@@ -238,11 +242,11 @@ var _ = Describe("Mirror reconcile skips on an invalid image filter", func() {
 		},
 		Entry("ImageSetMirror", &kuikv1alpha1.ImageSetMirror{
 			ObjectMeta: metav1.ObjectMeta{Name: "ism-bad-filter", Namespace: "default"},
-			Spec:       kuikv1alpha1.ImageSetMirrorSpec{ImageFilter: badFilter},
+			Spec:       kuikv1alpha1.ImageSetMirrorSpec{ImageSetMirrorBase: kuikv1alpha1.ImageSetMirrorBase{ImageFilter: badFilter}},
 		}),
 		Entry("ClusterImageSetMirror", &kuikv1alpha1.ClusterImageSetMirror{
 			ObjectMeta: metav1.ObjectMeta{Name: "cism-bad-filter"},
-			Spec:       kuikv1alpha1.ClusterImageSetMirrorSpec{ImageSetMirrorSpec: kuikv1alpha1.ImageSetMirrorSpec{ImageFilter: badFilter}},
+			Spec:       kuikv1alpha1.ClusterImageSetMirrorSpec{ImageSetMirrorBase: kuikv1alpha1.ImageSetMirrorBase{ImageFilter: badFilter}},
 		}),
 	)
 })

@@ -60,8 +60,8 @@ type mirrorKind struct {
 	newReconciler func(c client.Client) reconcile.Reconciler
 }
 
-func ismSpec(opts mirrorSpecOpts) kuikv1alpha1.ImageSetMirrorSpec {
-	return kuikv1alpha1.ImageSetMirrorSpec{
+func ismSpec(opts mirrorSpecOpts) kuikv1alpha1.ImageSetMirrorBase {
+	return kuikv1alpha1.ImageSetMirrorBase{
 		ImageFilter: kuikv1alpha1.ImageFilterDefinition{Include: opts.imageFilter},
 		PodFilter:   opts.podFilter,
 		Mirrors:     opts.mirrors,
@@ -82,7 +82,7 @@ var mirrorKinds = []mirrorKind{
 		build: func(name, workloadNS string, opts mirrorSpecOpts) client.Object {
 			return &kuikv1alpha1.ImageSetMirror{
 				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: workloadNS, Finalizers: mirrorFinalizers(opts)},
-				Spec:       ismSpec(opts),
+				Spec:       kuikv1alpha1.ImageSetMirrorSpec{ImageSetMirrorBase: ismSpec(opts)},
 			}
 		},
 		fresh: func() client.Object { return &kuikv1alpha1.ImageSetMirror{} },
@@ -96,7 +96,7 @@ var mirrorKinds = []mirrorKind{
 		build: func(name, workloadNS string, opts mirrorSpecOpts) client.Object {
 			return &kuikv1alpha1.ClusterImageSetMirror{
 				ObjectMeta: metav1.ObjectMeta{Name: name, Finalizers: mirrorFinalizers(opts)},
-				Spec:       kuikv1alpha1.ClusterImageSetMirrorSpec{ImageSetMirrorSpec: ismSpec(opts)},
+				Spec:       kuikv1alpha1.ClusterImageSetMirrorSpec{ImageSetMirrorBase: ismSpec(opts)},
 			}
 		},
 		fresh: func() client.Object { return &kuikv1alpha1.ClusterImageSetMirror{} },

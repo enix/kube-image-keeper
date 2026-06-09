@@ -8,8 +8,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// ImageSetMirrorSpec defines the desired state of ImageSetMirror.
-type ImageSetMirrorSpec struct {
+// ImageSetMirrorBase holds the fields shared by ImageSetMirror and
+// ClusterImageSetMirror. It is extracted from ImageSetMirrorSpec so each scope
+// can carry its own filter type (Filter for the namespaced kind, ClusterFilter
+// for the cluster-scoped kind) without the embedded namespaced spec forcing a
+// single shared type.
+type ImageSetMirrorBase struct {
 	// Priority controls the ordering of alternatives from this CR relative to the original image and other CRs.
 	// Negative values place alternatives before the original image; positive values place them after.
 	// Default is 0 (original image first, then alternatives in default type order).
@@ -21,6 +25,11 @@ type ImageSetMirrorSpec struct {
 	PodFilter PodFilterDefinition `json:"podFilter,omitempty"`
 	Cleanup   Cleanup             `json:"cleanup,omitempty"`
 	Mirrors   Mirrors             `json:"mirrors,omitempty"`
+}
+
+// ImageSetMirrorSpec defines the desired state of ImageSetMirror.
+type ImageSetMirrorSpec struct {
+	ImageSetMirrorBase `json:",inline"`
 }
 
 // ImageSetMirrorStatus defines the observed state of ImageSetMirror.

@@ -6,7 +6,7 @@ import (
 
 // ClusterReplicatedImageSetSpec defines the desired state of ClusterReplicatedImageSet.
 type ClusterReplicatedImageSetSpec struct {
-	ReplicatedImageSetSpec `json:",inline"`
+	ReplicatedImageSetBase `json:",inline"`
 
 	// +optional
 	NamespaceFilter NamespaceFilterDefinition `json:"namespaceFilter,omitempty"`

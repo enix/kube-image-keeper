@@ -74,7 +74,7 @@ var _ = Describe("ClusterImageSetMirror namespace filtering", func() {
 				Finalizers: []string{imageSetMirrorFinalizer},
 			},
 			Spec: kuikv1alpha1.ClusterImageSetMirrorSpec{
-				ImageSetMirrorSpec: kuikv1alpha1.ImageSetMirrorSpec{
+				ImageSetMirrorBase: kuikv1alpha1.ImageSetMirrorBase{
 					ImageFilter: kuikv1alpha1.ImageFilterDefinition{
 						Include: []string{`docker\.io/library/nginx:.*`},
 					},

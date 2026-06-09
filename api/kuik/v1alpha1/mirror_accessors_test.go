@@ -19,13 +19,15 @@ func TestImageSetMirrorAccessors(t *testing.T) {
 
 	ism := &ImageSetMirror{
 		Spec: ImageSetMirrorSpec{
-			PodFilter: PodFilterDefinition{
-				Labels: SelectorFilter{Include: []string{"app=foo"}},
+			ImageSetMirrorBase: ImageSetMirrorBase{
+				PodFilter: PodFilterDefinition{
+					Labels: SelectorFilter{Include: []string{"app=foo"}},
+				},
 			},
 		},
 	}
 
-	g.Expect(ism.MirrorSpec()).To(BeIdenticalTo(&ism.Spec))
+	g.Expect(ism.MirrorSpec()).To(BeIdenticalTo(&ism.Spec.ImageSetMirrorBase))
 	g.Expect(ism.MirrorStatus()).To(BeIdenticalTo(&ism.Status))
 
 	match, err := ism.PodMatcher()
@@ -42,7 +44,7 @@ func TestClusterImageSetMirrorAccessorsFoldNamespace(t *testing.T) {
 
 	cism := &ClusterImageSetMirror{
 		Spec: ClusterImageSetMirrorSpec{
-			ImageSetMirrorSpec: ImageSetMirrorSpec{
+			ImageSetMirrorBase: ImageSetMirrorBase{
 				PodFilter: PodFilterDefinition{
 					Labels: SelectorFilter{Include: []string{"app=foo"}},
 				},
@@ -53,8 +55,8 @@ func TestClusterImageSetMirrorAccessorsFoldNamespace(t *testing.T) {
 		},
 	}
 
-	// MirrorSpec unwraps the embedded spec; MirrorStatus exposes the shared status type.
-	g.Expect(cism.MirrorSpec()).To(BeIdenticalTo(&cism.Spec.ImageSetMirrorSpec))
+	// MirrorSpec unwraps the embedded base; MirrorStatus exposes the shared status type.
+	g.Expect(cism.MirrorSpec()).To(BeIdenticalTo(&cism.Spec.ImageSetMirrorBase))
 	g.Expect(cism.MirrorStatus()).To(BeIdenticalTo((*ImageSetMirrorStatus)(&cism.Status)))
 
 	match, err := cism.PodMatcher()
