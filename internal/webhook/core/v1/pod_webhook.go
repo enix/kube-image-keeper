@@ -287,6 +287,7 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 			Status: kuikv1alpha1.ImageSetMirrorStatus(cism.Status),
 		})
 	}
+	clusterImageSetMirrorCount := len(imageSetMirrors)
 	for _, ism := range ismList.Items {
 		match, err := ism.PodMatcher()
 		if err != nil {
@@ -323,6 +324,7 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 			},
 		})
 	}
+	clusterReplicatedImageSetCount := len(replicatedImageSets)
 	for _, ris := range risList.Items {
 		match, err := ris.PodMatcher()
 		if err != nil {
@@ -364,10 +366,10 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 	}
 
 	log.V(1).Info("reviewing alternatives",
-		"clusterImageSetMirrors", len(cismList.Items),
-		"imageSetMirrors", len(imageSetMirrors)-len(cismList.Items),
-		"clusterReplicatedImageSet", len(crisList.Items),
-		"replicatedImageSet", len(replicatedImageSets)-len(crisList.Items),
+		"clusterImageSetMirrors", clusterImageSetMirrorCount,
+		"imageSetMirrors", len(imageSetMirrors)-clusterImageSetMirrorCount,
+		"clusterReplicatedImageSet", clusterReplicatedImageSetCount,
+		"replicatedImageSet", len(replicatedImageSets)-clusterReplicatedImageSetCount,
 		"podImagePullSecrets", len(podCredentialSecrets),
 	)
 
