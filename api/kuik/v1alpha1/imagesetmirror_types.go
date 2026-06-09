@@ -19,6 +19,7 @@ type ImageSetMirrorBase struct {
 	// Default is 0 (original image first, then alternatives in default type order).
 	// +optional
 	Priority int `json:"priority,omitempty"`
+	// ImageFilter selects which images to mirror. Superseded by filter.
 	// +optional
 	ImageFilter ImageFilterDefinition `json:"imageFilter,omitempty"`
 	// +optional
@@ -30,6 +31,11 @@ type ImageSetMirrorBase struct {
 // ImageSetMirrorSpec defines the desired state of ImageSetMirror.
 type ImageSetMirrorSpec struct {
 	ImageSetMirrorBase `json:",inline"`
+
+	// Filter selects which pods and images this resource applies to. It
+	// replaces the deprecated imageFilter.
+	// +optional
+	Filter Filter `json:"filter,omitempty"`
 }
 
 // ImageSetMirrorStatus defines the observed state of ImageSetMirror.
