@@ -1,8 +1,6 @@
 package v1alpha1
 
 import (
-	"fmt"
-
 	"github.com/enix/kube-image-keeper/internal/filter"
 	corev1 "k8s.io/api/core/v1"
 )
@@ -13,11 +11,14 @@ import (
 // the package that declares the receiver type.
 //
 // Each accessor resolves the active selection mode by precedence: when the
-// unified spec.filter is set it wins; otherwise the legacy imageFilter /
-// podFilter / namespaceFilter are used. The cluster-scoped variant folds its
-// namespace dimension into PodMatcher (filter carries it as a namespace item;
-// the legacy path ANDs namespaceFilter), so the common reconciler never needs a
-// separate "namespace filter" concept.
+// unified spec.filter is set it wins; otherwise pod/namespace selection matches
+// everything (the legacy podFilter / namespaceFilter fields have been removed)
+// and image selection falls back to the deprecated imageFilter. The
+// cluster-scoped variant carries the namespace dimension inside filter.
+
+// matchAllPods is the pod matcher used when spec.filter is unset: it matches
+// every pod, which is the behaviour an empty podFilter/namespaceFilter had.
+func matchAllPods(*corev1.Pod) bool { return true }
 
 // --- ImageSetMirror (namespaced) ---
 
@@ -28,11 +29,7 @@ func (i *ImageSetMirror) PodMatcher() (func(pod *corev1.Pod) bool, error) {
 	if !i.Spec.Filter.IsEmpty() {
 		return i.Spec.Filter.BuildPodMatcher()
 	}
-	podFilter, err := i.Spec.PodFilter.Build()
-	if err != nil {
-		return nil, fmt.Errorf("podFilter: %w", err)
-	}
-	return podFilter.Match, nil
+	return matchAllPods, nil
 }
 
 func (i *ImageSetMirror) ImageFilter() (filter.Filter, error) {
@@ -54,17 +51,7 @@ func (c *ClusterImageSetMirror) PodMatcher() (func(pod *corev1.Pod) bool, error)
 	if !c.Spec.Filter.IsEmpty() {
 		return c.Spec.Filter.BuildPodMatcher()
 	}
-	podFilter, err := c.Spec.PodFilter.Build()
-	if err != nil {
-		return nil, fmt.Errorf("podFilter: %w", err)
-	}
-	nsFilter, err := c.Spec.NamespaceFilter.Build()
-	if err != nil {
-		return nil, fmt.Errorf("namespaceFilter: %w", err)
-	}
-	return func(pod *corev1.Pod) bool {
-		return podFilter.Match(pod) && nsFilter.Match(pod.Namespace)
-	}, nil
+	return matchAllPods, nil
 }
 
 func (c *ClusterImageSetMirror) ImageFilter() (filter.Filter, error) {

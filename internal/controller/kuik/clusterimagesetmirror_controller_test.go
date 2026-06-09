@@ -68,6 +68,16 @@ var _ = Describe("ClusterImageSetMirror namespace filtering", func() {
 	}
 
 	createCISMAndSeed := func(include, exclude []string) {
+		// imageFilter and namespaceFilter both fold into the unified filter:
+		// the image regex becomes an image item, namespaces become namespace items.
+		filterInclude := []kuikv1alpha1.ClusterFilterItem{{FilterItem: kuikv1alpha1.FilterItem{Image: `docker\.io/library/nginx:.*`}}}
+		for _, ns := range include {
+			filterInclude = append(filterInclude, kuikv1alpha1.ClusterFilterItem{Namespace: ns})
+		}
+		var filterExclude []kuikv1alpha1.ClusterFilterItem
+		for _, ns := range exclude {
+			filterExclude = append(filterExclude, kuikv1alpha1.ClusterFilterItem{Namespace: ns})
+		}
 		resource := &kuikv1alpha1.ClusterImageSetMirror{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:       resourceName,
@@ -75,17 +85,11 @@ var _ = Describe("ClusterImageSetMirror namespace filtering", func() {
 			},
 			Spec: kuikv1alpha1.ClusterImageSetMirrorSpec{
 				ImageSetMirrorBase: kuikv1alpha1.ImageSetMirrorBase{
-					ImageFilter: kuikv1alpha1.ImageFilterDefinition{
-						Include: []string{`docker\.io/library/nginx:.*`},
-					},
 					Mirrors: kuikv1alpha1.Mirrors{
 						{Registry: "mirror.example.com", Path: "cache"},
 					},
 				},
-				NamespaceFilter: kuikv1alpha1.NamespaceFilterDefinition{
-					Include: include,
-					Exclude: exclude,
-				},
+				Filter: kuikv1alpha1.ClusterFilter{Include: filterInclude, Exclude: filterExclude},
 			},
 		}
 		Expect(k8sClient.Create(ctx, resource)).To(Succeed())

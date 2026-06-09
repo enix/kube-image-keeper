@@ -22,10 +22,8 @@ type ImageSetMirrorBase struct {
 	// ImageFilter selects which images to mirror. Superseded by filter.
 	// +optional
 	ImageFilter ImageFilterDefinition `json:"imageFilter,omitempty"`
-	// +optional
-	PodFilter PodFilterDefinition `json:"podFilter,omitempty"`
-	Cleanup   Cleanup             `json:"cleanup,omitempty"`
-	Mirrors   Mirrors             `json:"mirrors,omitempty"`
+	Cleanup     Cleanup               `json:"cleanup,omitempty"`
+	Mirrors     Mirrors               `json:"mirrors,omitempty"`
 }
 
 // ImageSetMirrorSpec defines the desired state of ImageSetMirror.

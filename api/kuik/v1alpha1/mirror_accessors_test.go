@@ -19,11 +19,7 @@ func TestImageSetMirrorAccessors(t *testing.T) {
 
 	ism := &ImageSetMirror{
 		Spec: ImageSetMirrorSpec{
-			ImageSetMirrorBase: ImageSetMirrorBase{
-				PodFilter: PodFilterDefinition{
-					Labels: SelectorFilter{Include: []string{"app=foo"}},
-				},
-			},
+			Filter: Filter{Include: []FilterItem{{Label: "app=foo"}}},
 		},
 	}
 
@@ -44,14 +40,10 @@ func TestClusterImageSetMirrorAccessorsFoldNamespace(t *testing.T) {
 
 	cism := &ClusterImageSetMirror{
 		Spec: ClusterImageSetMirrorSpec{
-			ImageSetMirrorBase: ImageSetMirrorBase{
-				PodFilter: PodFilterDefinition{
-					Labels: SelectorFilter{Include: []string{"app=foo"}},
-				},
-			},
-			NamespaceFilter: NamespaceFilterDefinition{
-				Include: []string{"allowed-ns"},
-			},
+			Filter: ClusterFilter{Include: []ClusterFilterItem{
+				{FilterItem: FilterItem{Label: "app=foo"}},
+				{Namespace: "allowed-ns"},
+			}},
 		},
 	}
 
@@ -62,7 +54,7 @@ func TestClusterImageSetMirrorAccessorsFoldNamespace(t *testing.T) {
 	match, err := cism.PodMatcher()
 	g.Expect(err).NotTo(HaveOccurred())
 
-	// The cluster kind folds the namespace filter into PodMatcher: both the pod label
+	// The cluster kind carries the namespace dimension in filter: both the pod label
 	// filter AND the namespace filter must pass.
 	g.Expect(match(podWith("allowed-ns", map[string]string{"app": "foo"}))).To(BeTrue())
 	g.Expect(match(podWith("denied-ns", map[string]string{"app": "foo"}))).To(BeFalse(),

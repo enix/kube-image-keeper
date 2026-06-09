@@ -159,18 +159,21 @@ var _ = Describe("ClusterImageSetAvailability Controller", func() {
 		}
 
 		createCISAAndSeed := func(include, exclude []string) {
+			// imageFilter and namespaceFilter both fold into the unified filter.
+			filterInclude := []kuikv1alpha1.ClusterFilterItem{{FilterItem: kuikv1alpha1.FilterItem{Image: `docker\.io/library/nginx:.*`}}}
+			for _, ns := range include {
+				filterInclude = append(filterInclude, kuikv1alpha1.ClusterFilterItem{Namespace: ns})
+			}
+			var filterExclude []kuikv1alpha1.ClusterFilterItem
+			for _, ns := range exclude {
+				filterExclude = append(filterExclude, kuikv1alpha1.ClusterFilterItem{Namespace: ns})
+			}
 			resource := &kuikv1alpha1.ClusterImageSetAvailability{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: resourceName,
 				},
 				Spec: kuikv1alpha1.ClusterImageSetAvailabilitySpec{
-					ImageFilter: kuikv1alpha1.ImageFilterDefinition{
-						Include: []string{`docker\.io/library/nginx:.*`},
-					},
-					NamespaceFilter: kuikv1alpha1.NamespaceFilterDefinition{
-						Include: include,
-						Exclude: exclude,
-					},
+					Filter: kuikv1alpha1.ClusterFilter{Include: filterInclude, Exclude: filterExclude},
 				},
 			}
 			Expect(k8sClient.Create(ctx, resource)).To(Succeed())
@@ -281,16 +284,16 @@ var _ = Describe("ClusterImageSetAvailability Controller", func() {
 			})
 		}
 
-		createCISAAndSeed := func(podFilter kuikv1alpha1.PodFilterDefinition) {
+		// createCISAAndSeed folds the nginx image dimension into spec.filter
+		// alongside the given pod include/exclude items.
+		createCISAAndSeed := func(include, exclude []kuikv1alpha1.ClusterFilterItem) {
+			filterInclude := append([]kuikv1alpha1.ClusterFilterItem{{FilterItem: kuikv1alpha1.FilterItem{Image: `docker\.io/library/nginx:.*`}}}, include...)
 			resource := &kuikv1alpha1.ClusterImageSetAvailability{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: resourceName,
 				},
 				Spec: kuikv1alpha1.ClusterImageSetAvailabilitySpec{
-					ImageFilter: kuikv1alpha1.ImageFilterDefinition{
-						Include: []string{`docker\.io/library/nginx:.*`},
-					},
-					PodFilter: podFilter,
+					Filter: kuikv1alpha1.ClusterFilter{Include: filterInclude, Exclude: exclude},
 				},
 			}
 			Expect(k8sClient.Create(ctx, resource)).To(Succeed())
@@ -318,9 +321,7 @@ var _ = Describe("ClusterImageSetAvailability Controller", func() {
 		})
 
 		It("drops pods whose labels match an exclude selector", func() {
-			createCISAAndSeed(kuikv1alpha1.PodFilterDefinition{
-				Labels: kuikv1alpha1.SelectorFilter{Exclude: []string{"cnpg.io/podRole=instance"}},
-			})
+			createCISAAndSeed(nil, []kuikv1alpha1.ClusterFilterItem{{FilterItem: kuikv1alpha1.FilterItem{Label: "cnpg.io/podRole=instance"}}})
 			createPod("cisa-pod-excluded", map[string]string{"cnpg.io/podRole": "instance"}, nil)
 
 			_, err := newTestReconciler().Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
@@ -334,9 +335,7 @@ var _ = Describe("ClusterImageSetAvailability Controller", func() {
 		})
 
 		It("keeps pods whose labels don't match an exclude selector", func() {
-			createCISAAndSeed(kuikv1alpha1.PodFilterDefinition{
-				Labels: kuikv1alpha1.SelectorFilter{Exclude: []string{"cnpg.io/podRole=instance"}},
-			})
+			createCISAAndSeed(nil, []kuikv1alpha1.ClusterFilterItem{{FilterItem: kuikv1alpha1.FilterItem{Label: "cnpg.io/podRole=instance"}}})
 			createPod("cisa-pod-kept", map[string]string{"app": "foo"}, nil)
 
 			_, err := newTestReconciler().Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
@@ -350,9 +349,7 @@ var _ = Describe("ClusterImageSetAvailability Controller", func() {
 		})
 
 		It("narrows to pods that match an include label selector", func() {
-			createCISAAndSeed(kuikv1alpha1.PodFilterDefinition{
-				Labels: kuikv1alpha1.SelectorFilter{Include: []string{"app=monitor-me"}},
-			})
+			createCISAAndSeed([]kuikv1alpha1.ClusterFilterItem{{FilterItem: kuikv1alpha1.FilterItem{Label: "app=monitor-me"}}}, nil)
 			createPod("cisa-pod-out", map[string]string{"app": "skip-me"}, nil)
 
 			_, err := newTestReconciler().Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
@@ -366,9 +363,7 @@ var _ = Describe("ClusterImageSetAvailability Controller", func() {
 		})
 
 		It("supports annotation presence-only includes", func() {
-			createCISAAndSeed(kuikv1alpha1.PodFilterDefinition{
-				Annotations: kuikv1alpha1.SelectorFilter{Include: []string{"my.company.com/custom-annotation"}},
-			})
+			createCISAAndSeed([]kuikv1alpha1.ClusterFilterItem{{FilterItem: kuikv1alpha1.FilterItem{Annotation: "my.company.com/custom-annotation"}}}, nil)
 			createPod("cisa-pod-no-anno", map[string]string{"app": "foo"}, nil)
 
 			_, err := newTestReconciler().Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
@@ -395,12 +390,12 @@ var _ = Describe("ClusterImageSetAvailability Controller", func() {
 			}
 		})
 
-		It("does not retry on invalid podFilter and emits an InvalidFilter event", func() {
+		It("does not retry on invalid filter and emits an InvalidFilter event", func() {
 			resource := &kuikv1alpha1.ClusterImageSetAvailability{
 				ObjectMeta: metav1.ObjectMeta{Name: resourceName},
 				Spec: kuikv1alpha1.ClusterImageSetAvailabilitySpec{
-					PodFilter: kuikv1alpha1.PodFilterDefinition{
-						Labels: kuikv1alpha1.SelectorFilter{Include: []string{"==="}},
+					Filter: kuikv1alpha1.ClusterFilter{
+						Include: []kuikv1alpha1.ClusterFilterItem{{FilterItem: kuikv1alpha1.FilterItem{Label: "==="}}},
 					},
 				},
 			}
