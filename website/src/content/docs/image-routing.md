@@ -41,9 +41,9 @@ metadata:
   name: private-mirror
 spec:
   priority: -1
-  imageFilter:
+  filter:
     include:
-    - .*
+    - image: .*
   mirrors:
   - registry: registry.example.com
     path: /mirror
@@ -120,9 +120,9 @@ metadata:
   name: global-mirror
 spec:
   priority: -1
-  imageFilter:
+  filter:
     include:
-    - .*
+    - image: .*
   mirrors:
   - registry: harbor.example.com
     path: /global-mirror
@@ -138,9 +138,9 @@ metadata:
   namespace: my-app
 spec:
   priority: -10
-  imageFilter:
+  filter:
     include:
-    - docker-registry.example.com/my-app/.+
+    - image: docker-registry.example.com/my-app/.+
   mirrors:
   - registry: fast-registry.internal
     priority: 1

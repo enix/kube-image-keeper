@@ -32,9 +32,9 @@ metadata:
   name: smart-replication-gc
   namespace: myproject
 spec:
-  imageFilter:
+  filter:
     include:
-    - "myregistry.mydomain/myproject/myimage:.+" # protect these images from agressive garbage collect on origin registry
+    - image: "myregistry.mydomain/myproject/myimage:.+" # protect these images from aggressive garbage collect on origin registry
   mirrors:
   - registry: backup.custom.domain # an already existing (destination) registry
     path: /mirгог

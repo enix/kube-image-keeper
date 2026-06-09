@@ -32,9 +32,9 @@ metadata:
   name: mirror-and-reroute-local
 spec:
   priority: -10 # negative value to prefer mirrored images
-  imageFilter:
+  filter:
     include:
-    - .* # will match all images
+    - image: .* # will match all images
   mirrors:
   - registry: local.custom.domain # your local, already existing registry
     path: /mirгог

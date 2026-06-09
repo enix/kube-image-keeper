@@ -71,14 +71,14 @@ metrics:
 
 ## `skipLabels` / `skipAnnotations`
 
-Cluster-wide pod skip lists. Pods whose labels or annotations match any entry are ignored by the mutating webhook (no image rewrite) and by all reconcilers (no mirroring, no availability tracking). The check runs before any CR is consulted and takes precedence over per-CR `podFilter` rules.
+Cluster-wide pod skip lists. Pods whose labels or annotations match any entry are ignored by the mutating webhook (no image rewrite) and by all reconcilers (no mirroring, no availability tracking). The check runs before any CR is consulted and takes precedence over per-CR `spec.filter` rules.
 
 | Field | Type | Default |
 | --- | --- | --- |
 | `skipLabels` | []string | `[]` |
 | `skipAnnotations` | []string | `[]` |
 
-Both fields are skip-only (no include counterpart). The selector syntax is the same as `spec.podFilter` on individual CRDs — see [Pod filtering](/resource-filtering/#pod-filtering-podfilter) in the resource-filtering guide for full syntax reference. A typo causes the operator to fail at startup (fail-fast).
+Both fields are skip-only (no include counterpart). The selector syntax is the same as the `label` / `annotation` items of `spec.filter` on individual CRDs — see [Label and annotation selector syntax](/resource-filtering/#label-and-annotation-selector-syntax) in the resource-filtering guide for full syntax reference. A typo causes the operator to fail at startup (fail-fast).
 
 ### Migrating from KuiK v1
 

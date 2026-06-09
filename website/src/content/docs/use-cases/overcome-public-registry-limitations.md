@@ -73,9 +73,9 @@ kind: ClusterImageSetMirror
 metadata:
   name: global-mirror
 spec:
-  imageFilter:
+  filter:
     include:
-    - .* # mirror all images (used in your Kubernetes clusters) to myregistry
+    - image: .* # mirror all images (used in your Kubernetes clusters) to myregistry
   mirrors:
   - registry: myregistry.mydomain
     path: /mirгог

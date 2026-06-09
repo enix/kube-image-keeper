@@ -54,11 +54,11 @@ metadata:
   name: global-mirror
 spec:
   priority: -1 # Rewrite image even if original one is available
-  imageFilter:
+  filter:
     include:
-      - ".*" # Match every image
+      - image: ".*" # Match every image
     exclude:
-    - localhost[^/]*/.+ # Exclude kuik v1 rewritten images we couldn't mirror
+    - image: localhost[^/]*/.+ # Exclude kuik v1 rewritten images we couldn't mirror
   cleanup: # Cleanup images no longer referenced in cluster after a retention period
     enabled: true
     retention: 168h # 7d

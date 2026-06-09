@@ -4,7 +4,7 @@ title: Custom Resource Definitions
 
 This document describes the available Custom Resource Definitions (CRDs). Examples provided are non-exhaustive; for a full list of fields, please refer to the `kubectl describe <resource-name>` command.
 
-For image, namespace, and pod filtering (scoping resources to specific images, namespaces, or pods) see [Resource filtering](/resource-filtering/).
+For filtering (scoping resources to specific images, namespaces, or pods via the unified `spec.filter` field) see [Resource filtering](/resource-filtering/).
 
 Resource Types:
 
@@ -25,13 +25,12 @@ This is particularly useful for multi-homed projects (e.g., Thanos, Prometheus, 
 | Field | Required | Description |
 | --- | --- | --- |
 | `spec.priority` | | Controls ordering of alternatives relative to the original image and other CRs. Negative values place alternatives before the original image; positive values place them after. Default is `0` (original image first). |
-| `spec.namespaceFilter` | | (`ClusterReplicatedImageSet` only.) Restricts which namespaces this resource applies to. See [Namespace filtering](/resource-filtering/#namespace-filtering-namespacefilter). |
-| `spec.podFilter` | | Restricts which pods this resource applies to. See [Pod filtering](/resource-filtering/#pod-filtering-podfilter). |
+| `spec.filter` | | Selects which pods and namespaces (cluster-scoped only) this resource applies to. The `image` dimension is **not** supported here and is **ignored**: image selection is done per-upstream via `spec.upstreams[].imageFilter`. See [Resource filtering](/resource-filtering/). |
 | `spec.upstreams[]` | | List of upstream image sources that should be considered equivalent. |
 | `spec.upstreams[].registry` | ✅ | Registry where the upstream image is hosted (e.g. `docker.io`, `quay.io`). |
 | `spec.upstreams[].path` | ✅ | Path identifying the image in the registry (e.g. `/thanosio/thanos`). |
 | `spec.upstreams[].priority` | | Controls ordering of this upstream relative to other upstreams with the same parent priority. `0` means no specific ordering (YAML declaration order is preserved). Positive values are sorted ascending: lower value = higher priority. |
-| `spec.upstreams[].imageFilter` | | Rules used to select which images from this upstream are considered replicated. See [Image filtering](/resource-filtering/#image-filtering-imagefilter). |
+| `spec.upstreams[].imageFilter` | | Rules used to select which images from this upstream are considered replicated. This per-upstream filter is distinct from the deprecated top-level `imageFilter` and is unaffected by its deprecation. See [Per-upstream image filtering](/resource-filtering/#per-upstream-image-filtering-on-clusterreplicatedimageset). |
 | `spec.upstreams[].discardAlternative` | | When `true`, keeps the upstream in the configuration but excludes it from image routing. The upstream still participates in image matching, so other upstreams in the same CR continue to work. Useful when a registry no longer exists, to avoid waiting for the check timeout. |
 | `spec.upstreams[].credentialSecret` | | Reference to a Secret used to pull matching images from this upstream. |
 | `spec.upstreams[].credentialSecret.name` | | Name of the Secret. |
@@ -99,9 +98,8 @@ The `ImageSetMirror` and `ClusterImageSetMirror` resources define the actual mir
 | Field | Required | Description |
 | --- | --- | --- |
 | `spec.priority` | | Controls ordering of alternatives relative to the original image and other CRs. Negative values place alternatives before the original image; positive values place them after. Default is `0` (original image first). |
-| `spec.namespaceFilter` | | (`ClusterImageSetMirror` only.) Restricts which namespaces this resource applies to. See [Namespace filtering](/resource-filtering/#namespace-filtering-namespacefilter). |
-| `spec.podFilter` | | Restricts which pods this resource applies to. See [Pod filtering](/resource-filtering/#pod-filtering-podfilter). |
-| `spec.imageFilter` | | Rules used to select which images are eligible for mirroring. See [Image filtering](/resource-filtering/#image-filtering-imagefilter). |
+| `spec.filter` | | Selects which pods, namespaces (cluster-scoped only) and images this resource applies to. See [Resource filtering](/resource-filtering/). |
+| `spec.imageFilter` | | **Deprecated** (superseded by `spec.filter`, with which it is mutually exclusive). Rules used to select which images are eligible for mirroring. See [Migration](/resource-filtering/#migration-from-imagefilter--namespacefilter--podfilter). |
 | `spec.cleanup` | | Cleanup strategy for mirrored images. |
 | `spec.cleanup.enabled` | | Whether automatic cleanup of unused mirrored images is enabled. Default is `false`. |
 | `spec.cleanup.retention` | | Duration to retain unused mirrored images before cleanup (e.g. `720h`). |
@@ -124,9 +122,9 @@ kind: ClusterImageSetMirror
 metadata:
   name: global-mirror
 spec:
-  imageFilter:
+  filter:
     include:
-    - .*
+    - image: .*
   mirrors:
   - registry: registry.example.com
     path: /mirror
@@ -159,14 +157,13 @@ This is useful for detecting images that have been deleted, made private, or are
 | Field | Required | Description |
 | --- | --- | --- |
 | `spec.unusedImageExpiry` | | How long to keep tracking an image after no Pod uses it. Once elapsed the image is removed from status (e.g. `720h`). Zero means unused images are never removed. |
-| `spec.imageFilter` | | Rules used to select which images to monitor. See [Image filtering](/resource-filtering/#image-filtering-imagefilter). |
-| `spec.namespaceFilter` | | Restricts which namespaces this resource applies to. See [Namespace filtering](/resource-filtering/#namespace-filtering-namespacefilter). |
-| `spec.podFilter` | | Restricts which pods this resource applies to. See [Pod filtering](/resource-filtering/#pod-filtering-podfilter). |
+| `spec.filter` | | Selects which pods, namespaces and images to monitor. See [Resource filtering](/resource-filtering/). |
+| `spec.imageFilter` | | **Deprecated** (superseded by `spec.filter`, with which it is mutually exclusive). Rules used to select which images to monitor. See [Migration](/resource-filtering/#migration-from-imagefilter--namespacefilter--podfilter). |
 
 ### How it works
 
 1. The controller watches all Pods in the cluster and collects their container image references.
-2. Images matching the `imageFilter` are added to `.status.images` with status `Scheduled`.
+2. Images matching the `filter` are added to `.status.images` with status `Scheduled`.
 3. A rate-limited checker performs availability checks against each image's source registry (one image per registry per tick, configurable via `monitoring.registries` in the operator configuration file).
 4. When a Pod is deleted and no other Pod uses the same image, `unusedSince` is set. After `unusedImageExpiry`, the image is removed from tracking.
 
@@ -179,10 +176,10 @@ metadata:
   name: monitor-critical-images
 spec:
   unusedImageExpiry: 720h
-  imageFilter:
+  filter:
     include:
-      - ".+/nginx:.+"
-      - ".+/redis:.+"
+      - image: ".+/nginx:.+"
+      - image: ".+/redis:.+"
 ```
 
 ### Operator configuration

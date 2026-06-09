@@ -1,173 +1,52 @@
 ---
 title: Resource filtering
+description: Select which pods, namespaces and images a kuik resource applies to with the unified spec.filter field.
 ---
 
-Kuik resources expose three independent filter fields:
+Every kuik resource exposes a single unified `spec.filter` field that selects which pods, namespaces and images it applies to. A filter is a list of typed `include` / `exclude` items, each carrying exactly one selector:
 
-| Filter | Available on | Default when omitted |
-| --- | --- | --- |
-| `imageFilter` | all five CRDs | nothing matches (must be set explicitly) |
-| `namespaceFilter` | cluster-scoped CRDs only | every namespace is in scope |
-| `podFilter` | all five CRDs | every pod is in scope |
+| Item key | Dimension | Matches against | Syntax |
+| --- | --- | --- | --- |
+| `image` | image | the full normalised image reference | RE2 regular expression |
+| `label` | pod labels | the pod's labels | Kubernetes label-selector |
+| `annotation` | pod annotations | the pod's annotations | Kubernetes label-selector |
+| `namespace` | namespace | the pod's namespace | RE2 regular expression |
 
-All three filters are optional and compose independently: a resource applies to an image when the image passes `imageFilter`, the pod's namespace passes `namespaceFilter`, and the pod itself passes `podFilter`.
+The `namespace` item is only available on the cluster-scoped resources (`ClusterImageSetMirror`, `ClusterReplicatedImageSet`, `ClusterImageSetAvailability`); the namespaced variants (`ImageSetMirror`, `ReplicatedImageSet`) have no namespace dimension.
 
-## Image filtering (`imageFilter`)
+```yaml
+spec:
+  filter:
+    include:
+    - image: docker\.io/library/nginx:.+
+    - label: app=frontend
+    - annotation: monitoring=enabled
+    exclude:
+    - namespace: kube-.*
+```
 
-`imageFilter` is available on all five CRDs: `ClusterImageSetMirror`, `ImageSetMirror`, `ClusterReplicatedImageSet`, `ReplicatedImageSet`, and `ClusterImageSetAvailability`. It selects images by their full normalised reference using RE2 regular expressions.
+## Matching semantics
 
-:::caution
-Kuik [normalises](https://github.com/distribution/reference/blob/main/normalize.go) image references before matching, so short forms are expanded: `busybox:stable` becomes `docker.io/library/busybox:stable`. Always write patterns against the full normalised form.
-:::
+Items are grouped by dimension (all `image` items together, all `label` items together, and so on), then evaluated:
 
-### Fields
+- **Within a dimension** — items are OR-ed. A candidate passes the dimension if it matches at least one `include` item of that dimension.
+- **Across dimensions** — dimensions are AND-ed. A candidate must pass every dimension that has `include` items.
+- **`exclude`** — if a candidate matches any `exclude` item (in any dimension), it is dropped. `exclude` takes precedence over `include`.
+- **Empty dimension** — a dimension with no `include` items matches everything. In particular, a filter with only `label` items applies to **every image**.
 
-| Field | Required | Description |
-| --- | --- | --- |
-| `spec.imageFilter` | | Rules used to select which images this resource applies to. When both `include` and `exclude` are empty (or the field is omitted), no images match. |
-| `spec.imageFilter.include` | | List of RE2 regex patterns. When non-empty, only images matching at least one pattern are in scope. |
-| `spec.imageFilter.exclude` | | List of RE2 regex patterns. Images matching any pattern are removed from scope (takes precedence over `include`). When `include` is omitted, a `.*` is injected so that `exclude`-only filters match everything except the excluded patterns. |
+This makes the filter a faithful superset of the per-dimension filters it replaces: a resource applies to an `(pod, image)` pair when the image passes the image dimension, the namespace passes the namespace dimension, and the pod passes the label and annotation dimensions.
 
 :::note
-For `(Cluster)ReplicatedImageSet`, the filter lives at `spec.upstreams[].imageFilter` and applies per upstream entry.
+`(Cluster)ReplicatedImageSet` is the exception: it ignores the `image` dimension of `spec.filter` and selects images per-upstream instead. See [Per-upstream image filtering](#per-upstream-image-filtering-on-clusterreplicatedimageset).
 :::
-
-### Semantics
-
-- **Both empty** (`imageFilter` omitted or both fields left empty) — nothing matches; no images are selected.
-- **`exclude` only** (`include` empty, `exclude` non-empty) — `.*` is injected as the include pattern, so every image is in scope except those matching `exclude`.
-- **`include` only** — only images matching at least one `include` pattern are in scope.
-- **Both set** — only images matching `include` are in scope, minus those matching `exclude`.
 
 :::caution
-Patterns are implicitly anchored (full-string match).
+Kuik [normalises](https://github.com/distribution/reference/blob/main/normalize.go) image references before matching, so short forms are expanded: `busybox:stable` becomes `docker.io/library/busybox:stable`. Always write `image` patterns against the full normalised form. Regex patterns are implicitly anchored (full-string match).
 :::
 
-### Examples
+## Label and annotation selector syntax
 
-**Monitor only nginx and redis images:**
-
-```yaml
-spec:
-  imageFilter:
-    include:
-    - docker\.io/library/nginx:.+
-    - docker\.io/library/redis:.+
-```
-
-**Mirror everything except images from a specific registry:**
-
-```yaml
-spec:
-  imageFilter:
-    exclude:
-    - untrusted\.registry\.example\.com/.*
-```
-
-**Scope an upstream to a specific image path:**
-
-```yaml
-spec:
-  upstreams:
-  - registry: ghcr.io
-    path: /myorg/myapp
-    imageFilter:
-      include:
-      - ghcr\.io/myorg/myapp:.+
-```
-
-## Namespace filtering (`namespaceFilter`)
-
-`namespaceFilter` is available on the three cluster-scoped resources: `ClusterImageSetMirror`, `ClusterReplicatedImageSet`, and `ClusterImageSetAvailability`. It has no effect on the namespaced variants (`ImageSetMirror`, `ReplicatedImageSet`).
-
-### Fields
-
-| Field | Required | Description |
-| --- | --- | --- |
-| `spec.namespaceFilter` | | Restricts which namespaces this resource applies to. Omitted or empty means the resource applies to every namespace. |
-| `spec.namespaceFilter.include` | | List of RE2 regex patterns. When non-empty, the resource only applies to pods whose namespace matches at least one entry. |
-| `spec.namespaceFilter.exclude` | | List of RE2 regex patterns. Pods whose namespace matches any entry are out of scope. |
-
-### Semantics
-
-Both `include` and `exclude` hold lists of RE2 regular expressions matched against the pod namespace name (full-string match, implicitly anchored).
-
-- **Empty `include`** — every namespace is in scope (default-allow).
-- **Non-empty `include`** — only namespaces matching at least one entry are in scope.
-- **`exclude`** — removes namespaces from scope; takes precedence over `include` when both match.
-
-### Examples
-
-**Scope to a set of namespaces by prefix:**
-
-```yaml
-spec:
-  namespaceFilter:
-    include:
-    - prod-.*
-```
-
-**Exclude system namespaces, keep everything else:**
-
-```yaml
-spec:
-  namespaceFilter:
-    exclude:
-    - kube-.*
-    - kuik-system
-```
-
-**Narrow to a prefix family while carving out a legacy namespace:**
-
-```yaml
-spec:
-  namespaceFilter:
-    include:
-    - prod-.*
-    exclude:
-    - prod-legacy
-```
-
-**Full example — mirror images only in `prod-*` namespaces:**
-
-```yaml
-apiVersion: kuik.enix.io/v1alpha1
-kind: ClusterImageSetMirror
-metadata:
-  name: prod-mirror
-spec:
-  namespaceFilter:
-    include:
-    - prod-.*
-  imageFilter:
-    include:
-    - .*
-  mirrors:
-  - registry: registry.example.com
-    path: /mirror
-```
-
-## Pod filtering (`podFilter`)
-
-:::note
-The operator also exposes a cluster-wide skip list (`skipLabels` / `skipAnnotations` in the [operator configuration](/configuration/#skiplabels--skipannotations)). It uses the same selector syntax as `podFilter` but is exclude-only (no include list) and applies before any CR is consulted, taking precedence over all per-CR filters.
-:::
-
-`podFilter` is available on all five CRDs: `ClusterImageSetMirror`, `ImageSetMirror`, `ClusterReplicatedImageSet`, `ReplicatedImageSet`, and `ClusterImageSetAvailability`. It selects pods by their labels and/or annotations using Kubernetes label-selector syntax.
-
-### Fields
-
-| Field | Required | Description |
-| --- | --- | --- |
-| `spec.podFilter` | | Restricts which pods this resource applies to, by pod labels and annotations. Omitted or empty means the resource applies to every pod. |
-| `spec.podFilter.labels.include` | | List of Kubernetes label selectors. Pods matching at least one entry are in scope. When omitted, all pods are in scope as far as labels are concerned. |
-| `spec.podFilter.labels.exclude` | | List of Kubernetes label selectors. Pods matching any entry are removed from scope (takes precedence over `include` on tie). |
-| `spec.podFilter.annotations.include` | | List of selector strings matched against pod annotations. Same syntax as label selectors. |
-| `spec.podFilter.annotations.exclude` | | List of selector strings matched against pod annotations. Same syntax as label selectors. |
-
-### Syntax
-
-`podFilter.labels` and `podFilter.annotations` each accept `include` and `exclude` lists of selector strings. Supported forms:
+`label` and `annotation` items use Kubernetes label-selector syntax:
 
 | Form | Meaning |
 | ---- | ------- |
@@ -178,15 +57,40 @@ The operator also exposes a cluster-wide skip list (`skipLabels` / `skipAnnotati
 | `key in (a, b)` | key value is one of the listed values |
 | `key notin (a, b)` | key value is not in the listed values |
 
-Multiple selectors within one list are OR-ed (a pod in scope if it matches any entry). `exclude` takes precedence over `include` when a pod matches both.
-
-`labels` and `annotations` filtering are applied independently and AND-ed: a pod must satisfy both to remain in scope.
-
 :::caution
 **About annotation values:** equality matches (`key=value`) require values that conform to DNS-1123 label-value syntax (≤ 63 chars, alphanumeric, `-`, `_`, `.`). For free-form annotation values (URLs, JSON blobs, long strings) use presence (`key`) or absence (`!key`).
 :::
 
-### Examples
+:::note
+The operator also exposes a cluster-wide skip list (`skipLabels` / `skipAnnotations` in the [operator configuration](/configuration/#skiplabels--skipannotations)). It uses the same selector syntax but is exclude-only and applies before any CR is consulted, taking precedence over all per-CR filters.
+:::
+
+## Per-upstream image filtering on `(Cluster)ReplicatedImageSet`
+
+`(Cluster)ReplicatedImageSet` selects images **per upstream** via `spec.upstreams[].imageFilter`, which chooses the images each upstream entry replicates. That field is unrelated to the deprecated top-level `imageFilter` below and is **not** affected by its deprecation.
+
+Because image selection is per-upstream, the **`image` dimension of the top-level `spec.filter` is not supported and is ignored** on `(Cluster)ReplicatedImageSet`: any `image` `include` / `exclude` items there have no effect. Only the `label`, `annotation` and (cluster-scoped) `namespace` dimensions of `spec.filter` apply, as a resource-wide pod / namespace gate.
+
+## Examples
+
+**Monitor only nginx and redis images:**
+
+```yaml
+spec:
+  filter:
+    include:
+    - image: docker\.io/library/nginx:.+
+    - image: docker\.io/library/redis:.+
+```
+
+**Mirror everything except images from a specific registry:**
+
+```yaml
+spec:
+  filter:
+    exclude:
+    - image: untrusted\.registry\.example\.com/.*
+```
 
 **Exclude pods managed by CloudNativePG to prevent image rewriting from breaking database clusters:**
 
@@ -196,13 +100,9 @@ kind: ClusterImageSetMirror
 metadata:
   name: mirror-except-cnpg
 spec:
-  podFilter:
-    labels:
-      exclude:
-      - cnpg.io/podRole=instance
-  imageFilter:
-    include:
-    - .*
+  filter:
+    exclude:
+    - label: cnpg.io/podRole=instance
   mirrors:
   - registry: registry.example.com
     path: /mirror
@@ -216,19 +116,15 @@ kind: ClusterImageSetMirror
 metadata:
   name: opt-in-mirror
 spec:
-  podFilter:
-    annotations:
-      include:
-      - my.company.com/kuik-mirror
-  imageFilter:
+  filter:
     include:
-    - .*
+    - annotation: my.company.com/kuik-mirror
   mirrors:
   - registry: registry.example.com
     path: /mirror
 ```
 
-**Combine namespace and pod filtering — scope to `prod-*` namespaces, exclude monitoring pods:**
+**Combine namespace, pod and image filtering — mirror non-monitoring pods in `prod-*` namespaces:**
 
 ```yaml
 apiVersion: kuik.enix.io/v1alpha1
@@ -236,17 +132,34 @@ kind: ClusterImageSetMirror
 metadata:
   name: prod-non-monitoring
 spec:
-  namespaceFilter:
+  filter:
     include:
-    - prod-.*
-  podFilter:
-    labels:
-      exclude:
-      - app.kubernetes.io/part-of=monitoring
-  imageFilter:
-    include:
-    - .*
+    - namespace: prod-.*
+    exclude:
+    - label: app.kubernetes.io/part-of=monitoring
   mirrors:
   - registry: registry.example.com
     path: /mirror
 ```
+
+## Migration from `imageFilter` / `namespaceFilter` / `podFilter`
+
+Earlier releases exposed three separate fields. They map onto `spec.filter` items as follows:
+
+| Legacy field | `spec.filter` item |
+| --- | --- |
+| `imageFilter.include: [P]` | `include: [{image: P}]` |
+| `imageFilter.exclude: [P]` | `exclude: [{image: P}]` |
+| `namespaceFilter.include: [N]` | `include: [{namespace: N}]` |
+| `namespaceFilter.exclude: [N]` | `exclude: [{namespace: N}]` |
+| `podFilter.labels.include: [S]` | `include: [{label: S}]` |
+| `podFilter.labels.exclude: [S]` | `exclude: [{label: S}]` |
+| `podFilter.annotations.include: [S]` | `include: [{annotation: S}]` |
+| `podFilter.annotations.exclude: [S]` | `exclude: [{annotation: S}]` |
+
+- **`namespaceFilter` and `podFilter` have been removed.** They only ever shipped in `v2.3` beta releases. Resources that still set them will have those fields **pruned by the API server on the next apply** — move their selectors into `spec.filter` before upgrading.
+- **`imageFilter` is deprecated but still works.** It is **mutually exclusive** with `spec.filter`: setting both on the same resource is rejected at admission. When migrating, fold the `imageFilter` patterns into `spec.filter` `image` items and remove `imageFilter`.
+
+:::caution
+One semantic difference when folding `imageFilter` into `filter`: an **empty image dimension matches every image**, whereas an omitted `imageFilter` matched nothing. If you rely on `imageFilter` to restrict which images a resource handles, keep at least one `image` item in `spec.filter` — otherwise the resource applies to all images.
+:::
