@@ -25,7 +25,7 @@ This is particularly useful for multi-homed projects (e.g., Thanos, Prometheus, 
 | Field | Required | Description |
 | --- | --- | --- |
 | `spec.priority` | | Controls ordering of alternatives relative to the original image and other CRs. Negative values place alternatives before the original image; positive values place them after. Default is `0` (original image first). |
-| `spec.filter` | | Selects which pods and namespaces (cluster-scoped only) this resource applies to. The `image` dimension is **not** supported here and is **ignored**: image selection is done per-upstream via `spec.upstreams[].imageFilter`. See [Resource filtering](/resource-filtering/). |
+| `spec.filter` | | Selects which pods and namespaces (cluster-scoped only) this resource applies to. The `image` dimension is **not** supported here and an `image` item is **rejected at admission**: image selection is done per-upstream via `spec.upstreams[].imageFilter`. See [Resource filtering](/resource-filtering/). |
 | `spec.upstreams[]` | | List of upstream image sources that should be considered equivalent. |
 | `spec.upstreams[].registry` | ✅ | Registry where the upstream image is hosted (e.g. `docker.io`, `quay.io`). |
 | `spec.upstreams[].path` | ✅ | Path identifying the image in the registry (e.g. `/thanosio/thanos`). |
