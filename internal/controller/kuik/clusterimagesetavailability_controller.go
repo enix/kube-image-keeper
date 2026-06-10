@@ -142,7 +142,7 @@ func (r *ClusterImageSetAvailabilityReconciler) Reconcile(ctx context.Context, r
 		log.V(1).Info("updated ClusterImageSetAvailability image monitoring list", "count", len(cisa.Status.Images))
 	}
 
-	candidates, err := r.getRegistriesCandidates(ctx)
+	candidates, err := r.monitoringCandidatesByRegistry(ctx)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -172,7 +172,27 @@ func (r *ClusterImageSetAvailabilityReconciler) Reconcile(ctx context.Context, r
 	return ctrl.Result{RequeueAfter: minRequeueAfter}, nil
 }
 
-func (r *ClusterImageSetAvailabilityReconciler) getRegistriesCandidates(ctx context.Context) (map[string]*monitoringCandidate, error) {
+// monitoringCandidatesByRegistry selects, for each registry, the single image that is
+// the next due for an availability check, keyed by registry.
+//
+// Availability checks are rate-limited per registry (see checkNextForRegistry),
+// so we don't check every monitored image on every reconcile; instead we check
+// one image per registry per tick. This walks every ClusterImageSetAvailability's
+// status.images, groups them by registry, and for each registry keeps:
+//
+//   - imageName / cisa / lastMonitor: the most overdue image and its owning CR —
+//     an image that was never checked (LastMonitor == nil) wins, otherwise the
+//     one with the oldest LastMonitor. cisa is carried so the check result can be
+//     written back to the right object's status.
+//   - registryLastMonitor: the most recent check time across all of the
+//     registry's images, used to decide whether the per-registry interval has
+//     elapsed before checking the chosen image.
+//
+// CRs whose filter no longer compiles are ignored (their status images must not
+// keep being monitored). The returned map has one entry per distinct registry.
+func (r *ClusterImageSetAvailabilityReconciler) monitoringCandidatesByRegistry(ctx context.Context) (map[string]*monitoringCandidate, error) {
+	log := logf.FromContext(ctx)
+
 	var cisas kuikv1alpha1.ClusterImageSetAvailabilityList
 	if err := r.List(ctx, &cisas); err != nil {
 		return nil, err
@@ -181,6 +201,14 @@ func (r *ClusterImageSetAvailabilityReconciler) getRegistriesCandidates(ctx cont
 	candidates := map[string]*monitoringCandidate{}
 	for i := range cisas.Items {
 		cisa := &cisas.Items[i]
+		if _, err := cisa.PodMatcher(); err != nil {
+			log.V(1).Info("skipping ClusterImageSetAvailability with invalid filter as monitoring candidate", "name", cisa.Name)
+			continue
+		}
+		if _, err := cisa.ImageFilter(); err != nil {
+			log.V(1).Info("skipping ClusterImageSetAvailability with invalid filter as monitoring candidate", "name", cisa.Name)
+			continue
+		}
 
 		for j := range cisa.Status.Images {
 			image := &cisa.Status.Images[j]

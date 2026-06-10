@@ -412,5 +412,30 @@ var _ = Describe("ClusterImageSetAvailability Controller", func() {
 
 			Eventually(rec.Events).Should(Receive(ContainSubstring("InvalidFilter")))
 		})
+
+		It("excludes a CISA with an invalid filter from monitoring candidates", func() {
+			const registry = "invalid-filter-registry.example.com"
+			resource := &kuikv1alpha1.ClusterImageSetAvailability{
+				ObjectMeta: metav1.ObjectMeta{Name: resourceName},
+				Spec: kuikv1alpha1.ClusterImageSetAvailabilitySpec{
+					Filter: kuikv1alpha1.ClusterFilter{
+						Include: []kuikv1alpha1.ClusterFilterItem{{FilterItem: kuikv1alpha1.FilterItem{Label: "==="}}},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+
+			// Images captured while the filter was still valid must not keep being
+			// monitored once the spec becomes invalid.
+			resource.Status.Images = []kuikv1alpha1.MonitoredImage{{
+				Image:  registry + "/foo:latest",
+				Status: kuikv1alpha1.ImageAvailabilityAvailable,
+			}}
+			Expect(k8sClient.Status().Update(ctx, resource)).To(Succeed())
+
+			candidates, err := newTestReconciler().monitoringCandidatesByRegistry(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(candidates).NotTo(HaveKey(registry))
+		})
 	})
 })
