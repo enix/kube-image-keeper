@@ -107,21 +107,18 @@ func imageFilter(f filterSelector, legacy func() (filter.Filter, error)) (filter
 // BuildImageFilter compiles the image dimension into an image filter. An empty
 // image dimension matches every image.
 func (f Filter) BuildImageFilter() (filter.Filter, error) {
-	include := collectFilterItems(f.Include, imageField)
-	if len(include) == 0 {
-		include = []string{".*"}
-	}
-	return filter.CompileIncludeExcludeFilter(include, collectFilterItems(f.Exclude, imageField))
+	include := defaultedToMatchAll(collectStrings(f.Include, imageField))
+	return filter.CompileIncludeExcludeFilter(include, collectStrings(f.Exclude, imageField))
 }
 
 // BuildPodMatcher compiles the label and annotation dimensions into a pod
 // matcher. An empty dimension matches every pod for that dimension.
 func (f Filter) BuildPodMatcher() (func(pod *corev1.Pod) bool, error) {
 	podFilter, err := filter.CompilePodFilter(
-		collectFilterItems(f.Include, labelField),
-		collectFilterItems(f.Exclude, labelField),
-		collectFilterItems(f.Include, annotationField),
-		collectFilterItems(f.Exclude, annotationField),
+		collectStrings(f.Include, labelField),
+		collectStrings(f.Exclude, labelField),
+		collectStrings(f.Include, annotationField),
+		collectStrings(f.Exclude, annotationField),
 	)
 	if err != nil {
 		return nil, err
@@ -160,11 +157,8 @@ func (cf ClusterFilter) BuildPodMatcher() (func(pod *corev1.Pod) bool, error) {
 	if err != nil {
 		return nil, err
 	}
-	include := collectClusterNamespaces(cf.Include)
-	if len(include) == 0 {
-		include = []string{".*"}
-	}
-	nsFilter, err := filter.CompileIncludeExcludeFilter(include, collectClusterNamespaces(cf.Exclude))
+	include := defaultedToMatchAll(collectStrings(cf.Include, namespaceField))
+	nsFilter, err := filter.CompileIncludeExcludeFilter(include, collectStrings(cf.Exclude, namespaceField))
 	if err != nil {
 		return nil, err
 	}
@@ -174,12 +168,13 @@ func (cf ClusterFilter) BuildPodMatcher() (func(pod *corev1.Pod) bool, error) {
 }
 
 // field selectors used to group items by dimension.
-func imageField(i FilterItem) string      { return i.Image }
-func labelField(i FilterItem) string      { return i.Label }
-func annotationField(i FilterItem) string { return i.Annotation }
+func imageField(i FilterItem) string            { return i.Image }
+func labelField(i FilterItem) string            { return i.Label }
+func annotationField(i FilterItem) string       { return i.Annotation }
+func namespaceField(i ClusterFilterItem) string { return i.Namespace }
 
-// collectFilterItems returns the non-empty values of one dimension, in order.
-func collectFilterItems(items []FilterItem, get func(FilterItem) string) []string {
+// collectStrings returns the non-empty get(item) values, in declaration order.
+func collectStrings[T any](items []T, get func(T) string) []string {
 	var out []string
 	for _, item := range items {
 		if v := get(item); v != "" {
@@ -189,13 +184,13 @@ func collectFilterItems(items []FilterItem, get func(FilterItem) string) []strin
 	return out
 }
 
-// collectClusterNamespaces returns the non-empty namespace values, in order.
-func collectClusterNamespaces(items []ClusterFilterItem) []string {
-	var out []string
-	for _, item := range items {
-		if item.Namespace != "" {
-			out = append(out, item.Namespace)
-		}
+// defaultedToMatchAll returns include unchanged, or a match-everything pattern
+// ([".*"]) when it is empty. CompileIncludeExcludeFilter treats an empty include
+// list as "match nothing", so callers that want "an empty dimension matches
+// everything" must inject the wildcard.
+func defaultedToMatchAll(include []string) []string {
+	if len(include) == 0 {
+		return []string{".*"}
 	}
-	return out
+	return include
 }
