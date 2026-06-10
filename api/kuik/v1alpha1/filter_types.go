@@ -13,12 +13,15 @@ import (
 // add the namespace dimension to the same rule).
 type FilterItem struct {
 	// Image is a regular expression matched against the normalised image reference.
+	// +kubebuilder:validation:MaxLength=128
 	Image string `json:"image,omitempty"`
 	// Label is a Kubernetes label-selector string matched against the Pod's labels
 	// (k8s.io/apimachinery/pkg/labels syntax: "key=value", "key!=value", "key",
 	// "!key", "key in (a,b)", "key notin (a,b)").
+	// +kubebuilder:validation:MaxLength=512
 	Label string `json:"label,omitempty"`
 	// Annotation is a Kubernetes label-selector string matched against the Pod's annotations.
+	// +kubebuilder:validation:MaxLength=512
 	Annotation string `json:"annotation,omitempty"`
 }
 
@@ -27,6 +30,7 @@ type FilterItem struct {
 type ClusterFilterItem struct {
 	FilterItem `json:",inline"`
 	// Namespace is a regular expression matched against the Pod's namespace.
+	// +kubebuilder:validation:MaxLength=128
 	Namespace string `json:"namespace,omitempty"`
 }
 
