@@ -274,6 +274,36 @@ var _ = Describe("CRD admission validation", func() {
 		}
 		Expect(k8sClient.Create(ctx, ism)).To(MatchError(ContainSubstring("mutually exclusive")))
 	})
+
+	It("rejects an image item in a ReplicatedImageSet spec.filter (image selection is per-upstream)", func() {
+		ris := &kuikv1alpha1.ReplicatedImageSet{
+			ObjectMeta: metav1.ObjectMeta{Name: "ris-image-filter", Namespace: "default"},
+			Spec: kuikv1alpha1.ReplicatedImageSetSpec{
+				Filter: kuikv1alpha1.Filter{Include: []kuikv1alpha1.FilterItem{{Image: "nginx.*"}}},
+			},
+		}
+		Expect(k8sClient.Create(ctx, ris)).To(MatchError(ContainSubstring("image selection is per-upstream")))
+	})
+
+	It("rejects an image item in a ClusterReplicatedImageSet spec.filter", func() {
+		cris := &kuikv1alpha1.ClusterReplicatedImageSet{
+			ObjectMeta: metav1.ObjectMeta{Name: "cris-image-filter"},
+			Spec: kuikv1alpha1.ClusterReplicatedImageSetSpec{
+				Filter: kuikv1alpha1.ClusterFilter{Exclude: []kuikv1alpha1.ClusterFilterItem{{FilterItem: kuikv1alpha1.FilterItem{Image: "nginx.*"}}}},
+			},
+		}
+		Expect(k8sClient.Create(ctx, cris)).To(MatchError(ContainSubstring("image selection is per-upstream")))
+	})
+
+	It("accepts a label item in a ReplicatedImageSet spec.filter", func() {
+		ris := &kuikv1alpha1.ReplicatedImageSet{
+			ObjectMeta: metav1.ObjectMeta{Name: "ris-label-filter", Namespace: "default"},
+			Spec: kuikv1alpha1.ReplicatedImageSetSpec{
+				Filter: kuikv1alpha1.Filter{Include: []kuikv1alpha1.FilterItem{{Label: "app=foo"}}},
+			},
+		}
+		Expect(k8sClient.Create(ctx, ris)).To(Succeed())
+	})
 })
 
 // conflictOnFirstUpdateClient wraps a client.Client and returns a conflict

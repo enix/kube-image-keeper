@@ -5,11 +5,13 @@ import (
 )
 
 // ClusterReplicatedImageSetSpec defines the desired state of ClusterReplicatedImageSet.
+// +kubebuilder:validation:XValidation:rule="!has(self.filter) || ((!has(self.filter.include) || self.filter.include.all(i, !has(i.image))) && (!has(self.filter.exclude) || self.filter.exclude.all(i, !has(i.image))))",message="spec.filter image items are not supported on ClusterReplicatedImageSet; image selection is per-upstream via spec.upstreams[].imageFilter"
 type ClusterReplicatedImageSetSpec struct {
 	ReplicatedImageSetBase `json:",inline"`
 
-	// Filter selects which pods, namespaces and images this resource applies
-	// to. It replaces the deprecated imageFilter.
+	// Filter selects which pods and namespaces this resource applies to (label,
+	// annotation and namespace dimensions). The image dimension is not supported
+	// here: image selection is per-upstream via spec.upstreams[].imageFilter.
 	// +optional
 	Filter ClusterFilter `json:"filter,omitempty"`
 }

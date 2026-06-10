@@ -39,7 +39,7 @@ Items are grouped by dimension (all `image` items together, all `label` items to
 This makes the filter a faithful superset of the per-dimension filters it replaces: a resource applies to an `(pod, image)` pair when the image passes the image dimension, the namespace passes the namespace dimension, and the pod passes the label and annotation dimensions.
 
 :::note
-`(Cluster)ReplicatedImageSet` is the exception: it ignores the `image` dimension of `spec.filter` and selects images per-upstream instead. See [Per-upstream image filtering](#per-upstream-image-filtering-on-clusterreplicatedimageset).
+`(Cluster)ReplicatedImageSet` is the exception: it has no `image` dimension in `spec.filter` (an `image` item is rejected at admission) and selects images per-upstream instead. See [Per-upstream image filtering](#per-upstream-image-filtering-on-clusterreplicatedimageset).
 :::
 
 :::caution
@@ -71,7 +71,7 @@ The operator also exposes a cluster-wide skip list (`skipLabels` / `skipAnnotati
 
 `(Cluster)ReplicatedImageSet` selects images **per upstream** via `spec.upstreams[].imageFilter`, which chooses the images each upstream entry replicates. That field is unrelated to the deprecated top-level `imageFilter` below and is **not** affected by its deprecation.
 
-Because image selection is per-upstream, the **`image` dimension of the top-level `spec.filter` is not supported and is ignored** on `(Cluster)ReplicatedImageSet`: any `image` `include` / `exclude` items there have no effect. Only the `label`, `annotation` and (cluster-scoped) `namespace` dimensions of `spec.filter` apply, as a resource-wide pod / namespace gate.
+Because image selection is per-upstream, the **`image` dimension of the top-level `spec.filter` is not supported** on `(Cluster)ReplicatedImageSet`: an `image` `include` / `exclude` item is rejected at admission. Only the `label`, `annotation` and (cluster-scoped) `namespace` dimensions of `spec.filter` apply, as a resource-wide pod / namespace gate.
 
 ## Examples
 
