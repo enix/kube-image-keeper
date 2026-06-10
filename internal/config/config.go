@@ -32,6 +32,7 @@ type Routing struct {
 
 type ActiveCheck struct {
 	Timeout            time.Duration      `koanf:"timeout"`
+	ResolveDigest      bool               `koanf:"resolveDigest"`
 	StaleMirrorCleanup StaleMirrorCleanup `koanf:"staleMirrorCleanup"`
 }
 
@@ -64,7 +65,14 @@ type RegistryMonitoring struct {
 	Interval                 time.Duration                  `koanf:"interval"`
 	MaxPerInterval           int                            `koanf:"maxPerInterval"`
 	Timeout                  time.Duration                  `koanf:"timeout"`
+	ResolveDigest            *bool                          `koanf:"resolveDigest"`
 	FallbackCredentialSecret *kuikv1alpha1.CredentialSecret `koanf:"fallbackCredentialSecret"`
+}
+
+// ResolveDigestEnabled returns true when the digest-path check is enabled for
+// this registry. A nil ResolveDigest means unset (inherit / disabled).
+func (r *RegistryMonitoring) ResolveDigestEnabled() bool {
+	return r.ResolveDigest != nil && *r.ResolveDigest
 }
 
 type Metrics struct {
