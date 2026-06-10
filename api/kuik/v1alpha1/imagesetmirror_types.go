@@ -135,11 +135,11 @@ func (i ImageFilterDefinition) Build() (filter.Filter, error) {
 }
 
 func (i ImageFilterDefinition) MustBuild() filter.Filter {
-	matcher, err := i.Build()
+	f, err := i.Build()
 	if err != nil {
 		panic(err)
 	}
-	return matcher
+	return f
 }
 
 func (i ImageFilterDefinition) BuildWithRegistry(registry string) (filter.Filter, error) {
@@ -147,11 +147,11 @@ func (i ImageFilterDefinition) BuildWithRegistry(registry string) (filter.Filter
 }
 
 func (i ImageFilterDefinition) MustBuildWithRegistry(registry string) filter.Filter {
-	matcher, err := i.BuildWithRegistry(registry)
+	f, err := i.BuildWithRegistry(registry)
 	if err != nil {
 		panic(err)
 	}
-	return matcher
+	return f
 }
 
 func (m *Mirror) Prefix() string {

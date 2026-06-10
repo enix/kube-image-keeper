@@ -100,7 +100,7 @@ func imageFilter(f filterSelector, legacy func() (filter.Filter, error)) (filter
 	return f.BuildImageFilter()
 }
 
-// BuildImageFilter compiles the image dimension into an image matcher. An empty
+// BuildImageFilter compiles the image dimension into an image filter. An empty
 // image dimension matches every image.
 func (f Filter) BuildImageFilter() (filter.Filter, error) {
 	include := collectFilterItems(f.Include, imageField)
