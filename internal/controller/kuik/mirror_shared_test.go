@@ -419,6 +419,30 @@ var _ = Describe("Mirror reconcile (shared across kinds)", func() {
 						return errors.IsNotFound(err)
 					}, 5*time.Second, time.Millisecond*500).Should(BeTrue())
 				})
+
+				It("removes the finalizer on deletion even when the filter is invalid", func() {
+					// An unparseable label selector passes CEL admission but fails to
+					// compile at runtime. A finalized object that ends up in this state
+					// must still be deletable: reconcile handles deletion before
+					// compiling the filter, otherwise the finalizer would never be
+					// removed and the object would stay stuck in Terminating forever.
+					key := create(k.slug+"-fz-bad-filter", mirrorSpecOpts{
+						filterInclude: []kuikv1alpha1.FilterItem{{Label: "==="}},
+						finalizer:     true,
+					})
+
+					got := k.fresh()
+					Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
+					Expect(k8sClient.Delete(ctx, got)).To(Succeed())
+
+					doReconcile(key)
+
+					Eventually(func() bool {
+						err := k8sClient.Get(ctx, key, k.fresh())
+						return errors.IsNotFound(err)
+					}, 5*time.Second, time.Millisecond*500).Should(BeTrue(),
+						"deletion must not depend on a valid filter")
+				})
 			})
 		})
 	}
