@@ -57,20 +57,24 @@ spec:
                         annotation:
                           description: Annotation is a Kubernetes label-selector string
                             matched against the Pod's annotations.
+                          maxLength: 512
                           type: string
                         image:
                           description: Image is a regular expression matched against
                             the normalised image reference.
+                          maxLength: 128
                           type: string
                         label:
                           description: |-
                             Label is a Kubernetes label-selector string matched against the Pod's labels
                             (k8s.io/apimachinery/pkg/labels syntax: "key=value", "key!=value", "key",
                             "!key", "key in (a,b)", "key notin (a,b)").
+                          maxLength: 512
                           type: string
                         namespace:
                           description: Namespace is a regular expression matched against
                             the Pod's namespace.
+                          maxLength: 128
                           type: string
                       type: object
                     maxItems: 16
@@ -90,20 +94,24 @@ spec:
                         annotation:
                           description: Annotation is a Kubernetes label-selector string
                             matched against the Pod's annotations.
+                          maxLength: 512
                           type: string
                         image:
                           description: Image is a regular expression matched against
                             the normalised image reference.
+                          maxLength: 128
                           type: string
                         label:
                           description: |-
                             Label is a Kubernetes label-selector string matched against the Pod's labels
                             (k8s.io/apimachinery/pkg/labels syntax: "key=value", "key!=value", "key",
                             "!key", "key in (a,b)", "key notin (a,b)").
+                          maxLength: 512
                           type: string
                         namespace:
                           description: Namespace is a regular expression matched against
                             the Pod's namespace.
+                          maxLength: 128
                           type: string
                       type: object
                     maxItems: 16
