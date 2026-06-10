@@ -256,6 +256,26 @@ var _ = Describe("Mirror reconcile skips on an invalid image filter", func() {
 	)
 })
 
+// The API server rejects setting both spec.filter and the deprecated
+// spec.imageFilter on the same resource (the documented mutual exclusion),
+// exercised through the real envtest client which enforces the CEL rule.
+var _ = Describe("CRD admission validation", func() {
+	ctx := context.Background()
+
+	It("rejects setting both spec.filter and the deprecated spec.imageFilter", func() {
+		ism := &kuikv1alpha1.ImageSetMirror{
+			ObjectMeta: metav1.ObjectMeta{Name: "ism-both-filters", Namespace: "default"},
+			Spec: kuikv1alpha1.ImageSetMirrorSpec{
+				ImageSetMirrorBase: kuikv1alpha1.ImageSetMirrorBase{
+					ImageFilter: kuikv1alpha1.ImageFilterDefinition{Include: []string{"nginx.*"}},
+				},
+				Filter: kuikv1alpha1.Filter{Include: []kuikv1alpha1.FilterItem{{Label: "app=foo"}}},
+			},
+		}
+		Expect(k8sClient.Create(ctx, ism)).To(MatchError(ContainSubstring("mutually exclusive")))
+	})
+})
+
 // conflictOnFirstUpdateClient wraps a client.Client and returns a conflict
 // error on the first Update call, then delegates to the real client.
 type conflictOnFirstUpdateClient struct {
