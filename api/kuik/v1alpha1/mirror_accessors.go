@@ -5,18 +5,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-// These accessors let a single reconciler operate on both ImageSetMirror and
-// ClusterImageSetMirror through a common interface (defined in the controller
-// package). They MUST live here because Go only allows methods to be defined in
-// the package that declares the receiver type.
-//
-// Each accessor resolves the active selection mode through the shared
-// podMatcher / imageFilter helpers (filter_types.go): when the unified
-// spec.filter is set it wins; otherwise pod/namespace selection matches
-// everything (the legacy podFilter / namespaceFilter fields have been removed)
-// and image selection falls back to the deprecated imageFilter. The
-// cluster-scoped variant carries the namespace dimension inside filter.
-
 // --- ImageSetMirror (namespaced) ---
 
 func (i *ImageSetMirror) MirrorSpec() *ImageSetMirrorBase     { return &i.Spec.ImageSetMirrorBase }

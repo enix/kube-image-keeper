@@ -426,16 +426,21 @@ var _ = Describe("buildAlternativesList", func() {
 			Expect(references(c)).To(Equal([]string{"docker.io/library/redis:7"}))
 		})
 
-		It("gates a ReplicatedImageSet on its top-level filter image dimension", func() {
+		It("ignores the top-level filter image dimension on a ReplicatedImageSet", func() {
+			// Per design (crds.md / resource-filtering.md), (Cluster)ReplicatedImageSet
+			// ignores the image dimension of spec.filter; image selection is per-upstream.
 			ris := kuikv1alpha1.ReplicatedImageSet{Spec: kuikv1alpha1.ReplicatedImageSetSpec{
-				ReplicatedImageSetBase: kuikv1alpha1.ReplicatedImageSetBase{Upstreams: []kuikv1alpha1.ReplicatedUpstream{makeUpstream("docker.io", false)}},
-				Filter:                 kuikv1alpha1.Filter{Include: []kuikv1alpha1.FilterItem{{Image: `docker\.io/library/nginx.*`}}},
+				ReplicatedImageSetBase: kuikv1alpha1.ReplicatedImageSetBase{Upstreams: []kuikv1alpha1.ReplicatedUpstream{
+					makeUpstream("docker.io", false),
+					makeUpstream("mirror.example.com", false),
+				}},
+				Filter: kuikv1alpha1.Filter{Include: []kuikv1alpha1.FilterItem{{Image: `docker\.io/library/nginx.*`}}},
 			}}
 
-			// Excluded image: the top-level gate drops the whole RIS, leaving only the original.
 			c := makeContainer("docker.io/library/redis:7", corev1.PullIfNotPresent)
 			Expect(d.buildAlternativesList(ctx, nil, []kuikv1alpha1.ReplicatedImageSet{ris}, c)).To(Succeed())
-			Expect(references(c)).To(Equal([]string{"docker.io/library/redis:7"}))
+			Expect(references(c)).To(ContainElement("docker.io/library/redis:7"))
+			Expect(references(c)).To(ContainElement("mirror.example.com/library/redis:7"))
 		})
 	})
 
