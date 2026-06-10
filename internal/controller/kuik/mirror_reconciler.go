@@ -84,28 +84,6 @@ func (r *ImageSetMirrorBaseReconciler) reconcile(ctx context.Context, req ctrl.R
 
 	// Empty namespace (cluster-scoped objects) lists pods cluster-wide.
 	namespace := obj.GetNamespace()
-
-	var pods corev1.PodList
-	if err := r.List(ctx, &pods, &client.ListOptions{Namespace: namespace}); err != nil {
-		return ctrl.Result{}, err
-	}
-
-	podMatcher, err := obj.PodMatcher()
-	if err != nil {
-		log.Error(err, "invalid filter; skipping reconcile until spec is fixed")
-		r.Recorder.Eventf(obj, nil, corev1.EventTypeWarning, "InvalidFilter", "ReconcileSkipped", "filter is invalid: %v", err)
-		return ctrl.Result{}, nil
-	}
-	imageFilter, err := obj.ImageFilter()
-	if err != nil {
-		log.Error(err, "invalid filter; skipping reconcile until spec is fixed")
-		r.Recorder.Eventf(obj, nil, corev1.EventTypeWarning, "InvalidFilter", "ReconcileSkipped", "filter is invalid: %v", err)
-		return ctrl.Result{}, nil
-	}
-	pods.Items = slices.DeleteFunc(pods.Items, func(p corev1.Pod) bool {
-		return !podMatcher(&p) || !r.globalPodFilter.Match(&p)
-	})
-
 	spec, status := obj.MirrorSpec(), obj.MirrorStatus()
 
 	if !obj.GetDeletionTimestamp().IsZero() {
@@ -141,6 +119,27 @@ func (r *ImageSetMirrorBaseReconciler) reconcile(ctx context.Context, req ctrl.R
 
 		return ctrl.Result{}, nil
 	}
+
+	var pods corev1.PodList
+	if err := r.List(ctx, &pods, &client.ListOptions{Namespace: namespace}); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	podMatcher, err := obj.PodMatcher()
+	if err != nil {
+		log.Error(err, "invalid filter; skipping reconcile until spec is fixed")
+		r.Recorder.Eventf(obj, nil, corev1.EventTypeWarning, "InvalidFilter", "ReconcileSkipped", "filter is invalid: %v", err)
+		return ctrl.Result{}, nil
+	}
+	imageFilter, err := obj.ImageFilter()
+	if err != nil {
+		log.Error(err, "invalid filter; skipping reconcile until spec is fixed")
+		r.Recorder.Eventf(obj, nil, corev1.EventTypeWarning, "InvalidFilter", "ReconcileSkipped", "filter is invalid: %v", err)
+		return ctrl.Result{}, nil
+	}
+	pods.Items = slices.DeleteFunc(pods.Items, func(p corev1.Pod) bool {
+		return !podMatcher(&p) || !r.globalPodFilter.Match(&p)
+	})
 
 	if !controllerutil.ContainsFinalizer(obj, imageSetMirrorFinalizer) {
 		log.Info("adding finalizer")
