@@ -439,6 +439,56 @@ var _ = Describe("buildAlternativesList", func() {
 		})
 	})
 
+	Context("with an invalid image filter", func() {
+		// A single malformed CR must not break admission for unrelated pods: the
+		// offending CR is logged and skipped, leaving the original image untouched.
+		invalidUpstream := func(registry string) kuikv1alpha1.ReplicatedUpstream {
+			return kuikv1alpha1.ReplicatedUpstream{
+				ImageReference: kuikv1alpha1.ImageReference{Registry: registry},
+				ImageFilter:    kuikv1alpha1.ImageFilterDefinition{Include: []string{"["}},
+			}
+		}
+
+		It("contributes no alternative when every upstream filter is invalid", func() {
+			ris := makeRIS(invalidUpstream("mirror.example.com"))
+			c := makeContainer("docker.io/library/nginx:1.29", corev1.PullIfNotPresent)
+			Expect(d.buildAlternativesList(ctx, nil, []kuikv1alpha1.ReplicatedImageSet{ris}, c)).To(Succeed())
+			Expect(references(c)).To(Equal([]string{"docker.io/library/nginx:1.29"}))
+		})
+
+		It("skips only the invalid upstream and still routes via the valid ones", func() {
+			ris := makeRIS(
+				invalidUpstream("broken.example.com"),
+				makeUpstream("docker.io", false),
+				makeUpstream("mirror.example.com", false),
+			)
+			c := makeContainer("docker.io/library/nginx:1.29", corev1.PullIfNotPresent)
+			Expect(d.buildAlternativesList(ctx, nil, []kuikv1alpha1.ReplicatedImageSet{ris}, c)).To(Succeed())
+			// The invalid upstream (broken.example.com) is excluded; the valid
+			// upstreams still produce alternatives alongside the original.
+			Expect(references(c)).To(ContainElements(
+				"docker.io/library/nginx:1.29",
+				"mirror.example.com/library/nginx:1.29",
+			))
+			Expect(references(c)).NotTo(ContainElement(ContainSubstring("broken.example.com")))
+		})
+
+		It("skips an ImageSetMirror with an invalid image filter", func() {
+			ism := kuikv1alpha1.ImageSetMirror{
+				ObjectMeta: metav1.ObjectMeta{Name: "global"},
+				Spec: kuikv1alpha1.ImageSetMirrorSpec{
+					ImageSetMirrorBase: kuikv1alpha1.ImageSetMirrorBase{
+						ImageFilter: kuikv1alpha1.ImageFilterDefinition{Include: []string{"["}},
+						Mirrors:     kuikv1alpha1.Mirrors{{Registry: "harbor.example.com", Path: "/mirror"}},
+					},
+				},
+			}
+			c := makeContainer("docker.io/library/nginx:1.29", corev1.PullIfNotPresent)
+			Expect(d.buildAlternativesList(ctx, []kuikv1alpha1.ImageSetMirror{ism}, nil, c)).To(Succeed())
+			Expect(references(c)).To(Equal([]string{"docker.io/library/nginx:1.29"}))
+		})
+	})
+
 	Context("with imagePullPolicy: Always", func() {
 		It("pins the original first by default, ignoring negative spec.priority", func() {
 			c := makeContainer("docker.io/library/nginx:1.29", corev1.PullAlways)

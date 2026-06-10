@@ -460,10 +460,23 @@ func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSet
 	// Collect from ReplicatedImageSets
 	for risIdx := range replicatedImageSets {
 		ris := &replicatedImageSets[risIdx]
-		index := slices.IndexFunc(ris.Spec.Upstreams, func(upstream kuikv1alpha1.ReplicatedUpstream) (match bool) {
-			// TODO: use a validating admission policy to ensure the regexp is valid
-			return upstream.ImageFilter.MustBuildWithRegistry(upstream.Registry).Match(normalizedImage)
-		})
+		// A malformed image filter on one upstream must not break admission nor
+		// disable the rest of the CR: skip only the offending upstream (both as a
+		// match candidate and as a routing alternative below).
+		index := -1
+		validUpstream := make([]bool, len(ris.Spec.Upstreams))
+		for i := range ris.Spec.Upstreams {
+			upstream := &ris.Spec.Upstreams[i]
+			imageFilter, err := upstream.ImageFilter.BuildWithRegistry(upstream.Registry)
+			if err != nil {
+				log.Error(err, "skipping ReplicatedImageSet upstream with invalid image filter", "namespace", ris.Namespace, "name", ris.Name, "registry", upstream.Registry)
+				continue
+			}
+			validUpstream[i] = true
+			if index == -1 && imageFilter.Match(normalizedImage) {
+				index = i
+			}
+		}
 		if index == -1 {
 			continue
 		}
@@ -483,7 +496,7 @@ func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSet
 		}
 
 		for declarationIdx, upstream := range ris.Spec.Upstreams {
-			if upstream.DiscardAlternative {
+			if !validUpstream[declarationIdx] || upstream.DiscardAlternative {
 				continue
 			}
 			alternatives = append(alternatives, prioritizedAlternative{
@@ -518,7 +531,8 @@ func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSet
 		ism := &imageSetMirrors[ismIdx]
 		imageFilter, err := ism.ImageFilter()
 		if err != nil {
-			return err
+			log.Error(err, "skipping ImageSetMirror with invalid image filter", "namespace", ism.Namespace, "name", ism.Name)
+			continue
 		}
 
 		for _, alternative := range alternatives {
