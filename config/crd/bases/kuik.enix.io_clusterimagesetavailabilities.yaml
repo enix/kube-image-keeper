@@ -158,6 +158,12 @@ spec:
                   Zero means unused images are never removed.
                 type: string
             type: object
+            x-kubernetes-validations:
+            - message: spec.filter and the deprecated spec.imageFilter are mutually
+                exclusive; fold imageFilter patterns into spec.filter image items
+              rule: '!((has(self.imageFilter) && (has(self.imageFilter.include) ||
+                has(self.imageFilter.exclude))) && (has(self.filter) && (has(self.filter.include)
+                || has(self.filter.exclude))))'
           status:
             description: ClusterImageSetAvailabilityStatus defines the observed state.
             properties:

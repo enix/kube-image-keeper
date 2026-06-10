@@ -21,6 +21,7 @@ const (
 )
 
 // ClusterImageSetAvailabilitySpec defines the desired monitoring configuration.
+// +kubebuilder:validation:XValidation:rule="!((has(self.imageFilter) && (has(self.imageFilter.include) || has(self.imageFilter.exclude))) && (has(self.filter) && (has(self.filter.include) || has(self.filter.exclude))))",message="spec.filter and the deprecated spec.imageFilter are mutually exclusive; fold imageFilter patterns into spec.filter image items"
 type ClusterImageSetAvailabilitySpec struct {
 	// UnusedImageExpiry is how long to keep tracking an image after no Pod uses it.
 	// Once elapsed the image is removed from status. Example: "720h" (30 days).

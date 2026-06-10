@@ -5,6 +5,7 @@ import (
 )
 
 // ClusterImageSetMirrorSpec defines the desired state of ClusterImageSetMirror.
+// +kubebuilder:validation:XValidation:rule="!((has(self.imageFilter) && (has(self.imageFilter.include) || has(self.imageFilter.exclude))) && (has(self.filter) && (has(self.filter.include) || has(self.filter.exclude))))",message="spec.filter and the deprecated spec.imageFilter are mutually exclusive; fold imageFilter patterns into spec.filter image items"
 type ClusterImageSetMirrorSpec struct {
 	ImageSetMirrorBase `json:",inline"`
 
