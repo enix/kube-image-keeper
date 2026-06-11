@@ -16,7 +16,6 @@
 
 - [Introduction](#introduction)
 - [When to use Kube Image Keeper](#when-to-use-kube-image-keeper)
-- [Documentation](#-documentation)
 - [Releases & Roadmap](#-releases--roadmap)
 - [Known limitations to date](#-known-limitations-to-date)
 - [Installation](#-installation)
@@ -82,17 +81,6 @@ While both Custom Resources generate alternatives, their behavior differs slight
 - Your source registry is too far away (from a network / geographic / latency standpoint) from the Kubernetes cluster
 
 &emsp;[Implementation guide](./docs/use-cases/better-performance-with-local-registry.md)
-
-## 📘 Documentation
-
-The documentation source markdown lives under [`docs/`](docs/) (browsable directly on GitHub) and is also published at **[kuik.enix.io](https://kuik.enix.io)**.
-
-- A detailed explanation of all [Kuik Custom Resources](./docs/crds.md)
-- A reference for the [operator configuration file](./docs/configuration.md) (routing, monitoring, metrics)
-- Kuik manages multiple alternatives of an image and selects the best-suited one. You might want to learn more about the [Priority mechanism](./docs/image-routing.md)
-- A preliminary migration path from [Kuik v1 to Kuik v2](./docs/guides/v1-to-v2-migration-path.md)
-- A collection of documented [use cases](./docs/use-cases/)
-- A [development guide](./docs/guides/development.md)
 
 ## 📅 Releases & Roadmap
 

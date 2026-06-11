@@ -25,9 +25,11 @@ hero:
 
 **kube-image-keeper** (kuik) is a Kubernetes operator providing container image routing, mirroring (caching) and replication. It intercepts Pod creation via a mutating webhook and rewrites container images to the first available alternative from a prioritized list defined via CRDs.
 
-## Where to start
+## Explore the docs
 
-- [Image routing](/image-routing/) explains how Pods are rewritten to use alternative images.
-- [CRD reference](/crds/) lists every Custom Resource and field.
-- [Operator configuration](/configuration/) covers the YAML config file.
-- [Use cases](/use-cases/) walk through common deployment scenarios.
+- A detailed explanation of all [Kuik Custom Resources](/crds/)
+- A reference for the [operator configuration file](/configuration/) (routing, monitoring, metrics)
+- Kuik manages multiple alternatives of an image and selects the best-suited one. You might want to learn more about the [Priority mechanism](/image-routing/)
+- A preliminary migration path from [Kuik v1 to Kuik v2](/guides/v1-to-v2-migration-path/)
+- A collection of documented [use cases](/use-cases/)
+- A [development guide](/guides/development/)
