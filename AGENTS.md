@@ -11,28 +11,38 @@ kube-image-keeper (kuik) v2 is a Kubernetes operator providing container image r
 The Makefile is the source of truth — run `make help` for the full list. A few non-obvious things:
 
 - `go test ./internal/controller/kuik -run TestName -v` — run a single unit test
-- `make test-e2e` needs a running Kind cluster (see [`website/src/content/docs/guides/development.md`](website/src/content/docs/guides/development.md))
+- `make test-e2e` needs a running Kind cluster (see [`docs/guides/development.md`](docs/guides/development.md))
 
 For the documentation site (Astro / Starlight), commands live in [`website/`](website/) — see its [README](website/README.md). Local preview: `cd website && npm install && npm run dev`.
 
 ## Documentation
 
-User-facing documentation lives under [`website/src/content/docs/`](website/src/content/docs/) and is published at **[kuik.enix.io](https://kuik.enix.io)**. The markdown files are the single source of truth (read them alongside the code when working on the corresponding areas):
+User-facing documentation lives under [`docs/`](docs/) at the repository root and is published at **[kuik.enix.io](https://kuik.enix.io)**. The markdown files are the single source of truth (read them alongside the code when working on the corresponding areas):
 
-- [`website/src/content/docs/crds.md`](website/src/content/docs/crds.md) — CRD reference with all fields and semantics
-- [`website/src/content/docs/image-routing.md`](website/src/content/docs/image-routing.md) — deep dive into the priority system and webhook routing logic
-- [`website/src/content/docs/configuration.md`](website/src/content/docs/configuration.md) — all config fields with defaults and examples
-- [`website/src/content/docs/resource-filtering.md`](website/src/content/docs/resource-filtering.md) — image / namespace / pod filtering semantics
-- [`website/src/content/docs/guides/development.md`](website/src/content/docs/guides/development.md) — local development setup and workflow
+- [`docs/crds.md`](docs/crds.md): CRD reference with all fields and semantics
+- [`docs/image-routing.md`](docs/image-routing.md): deep dive into the priority system and webhook routing logic
+- [`docs/configuration.md`](docs/configuration.md): all config fields with defaults and examples
+- [`docs/resource-filtering.md`](docs/resource-filtering.md): image / namespace / pod filtering semantics
+- [`docs/guides/development.md`](docs/guides/development.md): local development setup and workflow
+
+The same files render both on GitHub (browse `docs/`) and on the Astro Starlight site. Author them in GitHub-flavored markdown; the website build converts the GitHub-specific bits to Starlight at build time (see [How the docs site is built](#how-the-docs-site-is-built)).
 
 ### Markdown conventions for the docs site
 
-The site is built with [Astro Starlight](https://starlight.astro.build/). When editing or adding docs:
+Write for GitHub first; the build adapts. When editing or adding docs under `docs/`:
 
-- Every page needs frontmatter with at least a `title:`. Add a `description:` too — it doubles as the SEO `<meta>` description and is shown on the use-cases index cards.
-- Internal links use the rendered route, not the markdown path: `[Label selectors](/resource-filtering/#label-and-annotation-selector-syntax)`, **not** `./resource-filtering.md#label-and-annotation-selector-syntax`.
-- Asides use Starlight's native syntax: `:::note`, `:::tip`, `:::caution`, `:::danger` — **not** GitHub's `> [!NOTE]` syntax which is not supported.
-- New use-case files dropped under `website/src/content/docs/use-cases/` are automatically picked up by the index page (`use-cases/index.mdx` reads the collection at build time).
+- Every page needs frontmatter with at least a `title:`. Add a `description:` too; it doubles as the SEO `<meta>` description and is shown on the use-cases index cards. GitHub renders the frontmatter as a small table (expected); do not add a body `# H1`, since Starlight generates the page title from `title:`.
+- Use relative markdown links between docs: `[Label selectors](./resource-filtering.md#label-and-annotation-selector-syntax)`. They work on GitHub, and the build rewrites them to site routes (`/resource-filtering/#...`). Do NOT write rendered routes like `/resource-filtering/`; they break on GitHub.
+- Use GitHub alert syntax for callouts: `> [!NOTE]`, `> [!TIP]`, `> [!WARNING]`, `> [!IMPORTANT]`, `> [!CAUTION]`. They render natively on GitHub, and the build converts them to Starlight asides (note / tip / caution / danger). Do NOT use Starlight's `:::note` syntax; it shows as raw text on GitHub.
+- New use-case files dropped under `docs/use-cases/` are automatically picked up by the use-cases index page and the sidebar on the next build.
+
+### How the docs site is built
+
+The site (in [`website/`](website/), Astro Starlight) does not read `docs/` directly. A `sync-docs` integration in [`website/astro.config.mjs`](website/astro.config.mjs) copies `docs/` plus [`website/src/content/overlay/`](website/src/content/overlay/) into `website/src/content/docs/` (gitignored, generated) before content collections load. The overlay holds website-only pages that must not live in `docs/` (the homepage `index.md` and the use-cases landing `use-cases/index.mdx`); it is copied last, so it wins on path conflicts.
+
+This indirection exists because Starlight's sidebar `autogenerate`, asides, and routing all assume the conventional `src/content/docs` collection directory; loading `docs/` directly (via a custom loader or a symlink) breaks them. Two markdown plugins then bridge GitHub and Starlight syntax: `remark-github-admonitions-to-directives` (alerts to asides) and `astro-rehype-relative-markdown-links` (relative `.md` links to routes).
+
+In dev (`npm run dev` in `website/`), a chokidar watcher in the integration mirrors changes from `docs/` and the overlay into the generated directory, so edits hot-reload. Caveats: run only one `astro dev` at a time (two instances fight over the generated directory), and editing `website/astro.config.mjs` or `website/scripts/sync-docs.mjs` restarts the dev server.
 
 ## Architecture
 
@@ -44,7 +54,7 @@ The site is built with [Astro Starlight](https://starlight.astro.build/). When e
 | **ClusterReplicatedImageSet / ReplicatedImageSet** | Cluster / Namespaced | Routes images to alternative upstream registries (checks availability, doesn't copy) |
 | **ClusterImageSetAvailability** | Cluster | Monitors image availability across the cluster, tracks per-image status |
 
-Every resource is scoped by a unified `spec.filter` (image / label / annotation selectors; cluster-scoped variants add a `namespace` dimension). It replaces the removed `spec.podFilter` / `spec.namespaceFilter` fields and supersedes the deprecated `spec.imageFilter`. `(Cluster)ReplicatedImageSet` ignores the filter's `image` dimension (image selection is per-upstream via `spec.upstreams[].imageFilter`). See [`website/src/content/docs/resource-filtering.md`](website/src/content/docs/resource-filtering.md).
+Every resource is scoped by a unified `spec.filter` (image / label / annotation selectors; cluster-scoped variants add a `namespace` dimension). It replaces the removed `spec.podFilter` / `spec.namespaceFilter` fields and supersedes the deprecated `spec.imageFilter`. `(Cluster)ReplicatedImageSet` ignores the filter's `image` dimension (image selection is per-upstream via `spec.upstreams[].imageFilter`). See [`docs/resource-filtering.md`](docs/resource-filtering.md).
 
 ### Entry Point
 
@@ -68,7 +78,7 @@ New work touching reconciler setup, webhook config, manager flags, or TLS plumbi
 5. **Availability checking** — uses `parallel.FirstSuccessful()` with singleflight deduplication and two 1-second TTL caches: `checkCache` (per-image availability boolean) and `alternativeCache` (the resolved alternative for a given original image, which short-circuits re-routing of the same image within the TTL)
 6. **Rewriting** — patches Pod containers; stores original images in `kuik.enix.io/original-images` annotation (JSON) to prevent re-processing
 
-### Two-Level Priority System _(see [`website/src/content/docs/image-routing.md`](website/src/content/docs/image-routing.md))_
+### Two-Level Priority System _(see [`docs/image-routing.md`](docs/image-routing.md))_
 
 **Level 1 — CR priority (`spec.priority`, signed int, default 0):**
 
@@ -95,7 +105,7 @@ Default type order when priorities are equal: Original → CISM → ISM → CRIS
 
 - **`internal/parallel/`** — `FirstSuccessful[P,R]()`: runs `f` concurrently on all params, returns the first successful result in original param order along with prior errors.
 
-- **`internal/config/`** — koanf config from `/etc/kube-image-keeper/config.yaml`. Key fields: `SkipLabels`, `SkipAnnotations`, `Routing.ActiveCheck.Timeout`, `Routing.RewriteOnNeverImagePullPolicy`, `Mirroring.Platforms`, `Monitoring.Registries`. Full reference: [`website/src/content/docs/configuration.md`](website/src/content/docs/configuration.md).
+- **`internal/config/`** — koanf config from `/etc/kube-image-keeper/config.yaml`. Key fields: `SkipLabels`, `SkipAnnotations`, `Routing.ActiveCheck.Timeout`, `Routing.RewriteOnNeverImagePullPolicy`, `Mirroring.Platforms`, `Monitoring.Registries`. Full reference: [`docs/configuration.md`](docs/configuration.md).
 
 - **`internal/controller/kuik/`** — reconcilers:
   - `ImageSetMirrorReconciler` and `ClusterImageSetMirrorReconciler` — namespaced and cluster-scoped peers, both extending `ImageSetMirrorBaseReconciler` (`commonimagesetmirror.go`) which holds the shared image-copying and stale-mirror-cleanup logic
@@ -117,7 +127,7 @@ Default type order when priorities are equal: Original → CISM → ISM → CRIS
 Any code change that adds, modifies, or removes behaviour must be accompanied by:
 
 - **Tests** — update or add unit/E2E tests covering the affected behaviour
-- **Documentation** — update the relevant page under `website/src/content/docs/` and, if applicable, Helm chart values docs or README / AGENTS.md sections. The documentation site (published at [kuik.enix.io](https://kuik.enix.io)) auto-deploys from `main` via [`.github/workflows/website.yaml`](.github/workflows/website.yaml).
+- **Documentation** — update the relevant page under `docs/` and, if applicable, Helm chart values docs or README / AGENTS.md sections. The documentation site (published at [kuik.enix.io](https://kuik.enix.io)) auto-deploys from `main` via [`.github/workflows/website.yaml`](.github/workflows/website.yaml).
 
 ## Git Hooks
 
