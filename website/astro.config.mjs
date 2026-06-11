@@ -2,14 +2,33 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import favicons from 'astro-favicons';
+import remarkGithubAdmonitionsToDirectives from 'remark-github-admonitions-to-directives';
 
 // https://astro.build/config
 export default defineConfig({
   site: 'https://kuik.enix.io',
+  markdown: {
+    remarkPlugins: [
+      // (> [!NOTE]) into the directive syntax (:::note) it renders.
+      [remarkGithubAdmonitionsToDirectives, {
+        mapping: {
+          NOTE: 'note',
+          TIP: 'tip',
+          IMPORTANT: 'note',
+          WARNING: 'caution',
+          CAUTION: 'danger',
+        },
+      }]
+    ],
+  },
   integrations: [
     starlight({
       title: 'kube-image-keeper',
       description: 'Documentation for kube-image-keeper (kuik), the Kubernetes operator for container image routing, mirroring, and replication.',
+      markdown: {
+        // Starlight only applies its remark/rehype passes (asides, heading links) to its own collection dir by default, so register ../docs explicitly.
+        processedDirs: ['../docs'],
+      },
       logo: {
         src: './src/assets/logo.svg',
         alt: 'kube-image-keeper logo',

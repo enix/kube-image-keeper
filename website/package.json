@@ -15,5 +15,8 @@
     "astro": "^6.3.1",
     "astro-favicons": "^3.1.6",
     "sharp": "^0.34.5"
+  },
+  "devDependencies": {
+    "remark-github-admonitions-to-directives": "^2.1.0"
   }
 }
