@@ -4,7 +4,8 @@ import starlight from '@astrojs/starlight';
 import favicons from 'astro-favicons';
 import remarkGithubAdmonitionsToDirectives from 'remark-github-admonitions-to-directives';
 import rehypeAstroRelativeMarkdownLinks from 'astro-rehype-relative-markdown-links';
-import { syncDocs } from './scripts/sync-docs.mjs';
+import chokidar from 'chokidar';
+import { syncDocs, applySourceChange, SOURCE_ROOTS } from './scripts/sync-docs.mjs';
 
 // Sync ../docs + overlay into src/content/docs before content collections load.
 // Runs for every astro command (build, dev, CI via withastro/action), so the
@@ -13,6 +14,17 @@ const syncDocsIntegration = {
   name: 'sync-docs',
   hooks: {
     'astro:config:setup': () => syncDocs(),
+    // In dev, watch the source roots with our own chokidar instance. Vite's
+    // watcher won't reliably track ../docs (it lives outside the project root),
+    // so we run a dedicated watcher and copy each change into src/content/docs,
+    // which Astro IS watching — its content HMR then picks it up.
+    'astro:server:setup': ({ server, logger }) => {
+      const watcher = chokidar.watch(SOURCE_ROOTS, { ignoreInitial: true });
+      watcher.on('all', (event, file) => {
+        if (applySourceChange(event, file)) logger.info(`${event} ${file}`);
+      });
+      server.watcher.on('close', () => watcher.close());
+    },
   },
 };
 
