@@ -38,13 +38,11 @@ Items are grouped by dimension (all `image` items together, all `label` items to
 
 This makes the filter a faithful superset of the per-dimension filters it replaces: a resource applies to an `(pod, image)` pair when the image passes the image dimension, the namespace passes the namespace dimension, and the pod passes the label and annotation dimensions.
 
-:::note
-`(Cluster)ReplicatedImageSet` is the exception: it has no `image` dimension in `spec.filter` (an `image` item is rejected at admission) and selects images per-upstream instead. See [Per-upstream image filtering](#per-upstream-image-filtering-on-clusterreplicatedimageset).
-:::
+> [!NOTE]
+> `(Cluster)ReplicatedImageSet` is the exception: it has no `image` dimension in `spec.filter` (an `image` item is rejected at admission) and selects images per-upstream instead. See [Per-upstream image filtering](#per-upstream-image-filtering-on-clusterreplicatedimageset).
 
-:::caution
-Kuik [normalises](https://github.com/distribution/reference/blob/main/normalize.go) image references before matching, so short forms are expanded: `busybox:stable` becomes `docker.io/library/busybox:stable`. Always write `image` patterns against the full normalised form. Regex patterns are implicitly anchored (full-string match).
-:::
+> [!IMPORTANT]
+> Kuik [normalises](https://github.com/distribution/reference/blob/main/normalize.go) image references before matching, so short forms are expanded: `busybox:stable` becomes `docker.io/library/busybox:stable`. Always write `image` patterns against the full normalised form. Regex patterns are implicitly anchored (full-string match).
 
 ## Label and annotation selector syntax
 
@@ -59,13 +57,11 @@ Kuik [normalises](https://github.com/distribution/reference/blob/main/normalize.
 | `key in (a, b)` | key value is one of the listed values |
 | `key notin (a, b)` | key value is not in the listed values |
 
-:::caution
-**About annotation values:** equality matches (`key=value`) require values that conform to DNS-1123 label-value syntax (≤ 63 chars, alphanumeric, `-`, `_`, `.`). For free-form annotation values (URLs, JSON blobs, long strings) use presence (`key`) or absence (`!key`).
-:::
+> [!WARNING]
+> **About annotation values:** equality matches (`key=value`) require values that conform to DNS-1123 label-value syntax (≤ 63 chars, alphanumeric, `-`, `_`, `.`). For free-form annotation values (URLs, JSON blobs, long strings) use presence (`key`) or absence (`!key`).
 
-:::note
-The operator also exposes a cluster-wide skip list (`skipLabels` / `skipAnnotations` in the [operator configuration](/configuration/#skiplabels--skipannotations)). It uses the same selector syntax but is exclude-only and applies before any CR is consulted, taking precedence over all per-CR filters.
-:::
+> [!NOTE]
+> The operator also exposes a cluster-wide skip list (`skipLabels` / `skipAnnotations` in the [operator configuration](./configuration.md#skiplabels--skipannotations)). It uses the same selector syntax but is exclude-only and applies before any CR is consulted, taking precedence over all per-CR filters.
 
 ## Per-upstream image filtering on `(Cluster)ReplicatedImageSet`
 
@@ -162,6 +158,5 @@ Earlier releases exposed three separate fields. They map onto `spec.filter` item
 - **`namespaceFilter` and `podFilter` have been removed.** They only ever shipped in `v2.3` beta releases. Resources that still set them will have those fields **pruned by the API server on the next apply** — move their selectors into `spec.filter` before upgrading.
 - **`imageFilter` is deprecated but still works.** It is **mutually exclusive** with `spec.filter`: setting both on the same resource is rejected at admission. When migrating, fold the `imageFilter` patterns into `spec.filter` `image` items and remove `imageFilter`.
 
-:::caution
-One semantic difference when folding `imageFilter` into `filter`: an **empty image dimension matches every image**, whereas an omitted `imageFilter` matched nothing. If you rely on `imageFilter` to restrict which images a resource handles, keep at least one `image` item in `spec.filter` — otherwise the resource applies to all images.
-:::
+> [!WARNING]
+> One semantic difference when folding `imageFilter` into `filter`: an **empty image dimension matches every image**, whereas an omitted `imageFilter` matched nothing. If you rely on `imageFilter` to restrict which images a resource handles, keep at least one `image` item in `spec.filter` — otherwise the resource applies to all images.

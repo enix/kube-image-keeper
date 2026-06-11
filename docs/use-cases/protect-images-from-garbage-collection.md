@@ -20,8 +20,8 @@ This documentation will help you configure Kuik in order to "backup" useful (use
 
 ### Kuik custom resource to use
 
-- [ClusterImageSetMirror](/crds/#clusterimagesetmirror)
-- or [ImageSetMirror](/crds/#clusterimagesetmirror)
+- [ClusterImageSetMirror](../crds.md#clusterimagesetmirror)
+- or [ImageSetMirror](../crds.md#clusterimagesetmirror)
 
 ### Configuration example
 

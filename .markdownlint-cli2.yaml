@@ -3,5 +3,6 @@ config:
   MD033: false # Inline HTML
   MD024:
     siblings_only: true
+  MD028: false # Allow adjacent GitHub alert blockquotes (`> [!NOTE]` + `> [!WARNING]`)
   MD060:
     style: compact
