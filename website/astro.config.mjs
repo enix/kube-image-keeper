@@ -3,6 +3,7 @@ import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import favicons from 'astro-favicons';
 import remarkGithubAdmonitionsToDirectives from 'remark-github-admonitions-to-directives';
+import rehypeAstroRelativeMarkdownLinks from 'astro-rehype-relative-markdown-links';
 import { syncDocs } from './scripts/sync-docs.mjs';
 
 // Sync ../docs + overlay into src/content/docs before content collections load.
@@ -30,6 +31,13 @@ export default defineConfig({
           CAUTION: 'danger',
         },
       }]
+    ],
+    // Rewrite relative .md links (./crds.md#x, ../crds.md#x) authored for GitHub
+    // into site routes. collectionBase: false because Starlight serves the docs
+    // collection at the site root (/crds/, not /docs/crds/); trailingSlash to
+    // match Starlight's default.
+    rehypePlugins: [
+      [rehypeAstroRelativeMarkdownLinks, { collectionBase: false, trailingSlash: 'always' }],
     ],
   },
   integrations: [
