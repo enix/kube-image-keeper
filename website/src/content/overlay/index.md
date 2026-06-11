@@ -4,7 +4,7 @@ head:
   - tag: title
     content: kube-image-keeper by Enix
 description: Container image routing, mirroring and replication for Kubernetes.
-template: splash
+template: doc
 pagefind: false
 hero:
   tagline: kuik (pronounced "quick") keeps your container images available, routed and replicated across registries.
