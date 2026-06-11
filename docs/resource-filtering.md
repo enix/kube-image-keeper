@@ -38,8 +38,7 @@ Items are grouped by dimension (all `image` items together, all `label` items to
 
 This makes the filter a faithful superset of the per-dimension filters it replaces: a resource applies to an `(pod, image)` pair when the image passes the image dimension, the namespace passes the namespace dimension, and the pod passes the label and annotation dimensions.
 
-> [!NOTE]
-> `(Cluster)ReplicatedImageSet` is the exception: it has no `image` dimension in `spec.filter` (an `image` item is rejected at admission) and selects images per-upstream instead. See [Per-upstream image filtering](#per-upstream-image-filtering-on-clusterreplicatedimageset).
+`(Cluster)ReplicatedImageSet` is the one exception: it has no `image` dimension in `spec.filter` (an `image` item is rejected at admission) and selects images per-upstream instead. See [Per-upstream image filtering](#per-upstream-image-filtering-on-clusterreplicatedimageset).
 
 > [!IMPORTANT]
 > Kuik [normalises](https://github.com/distribution/reference/blob/main/normalize.go) image references before matching, so short forms are expanded: `busybox:stable` becomes `docker.io/library/busybox:stable`. Always write `image` patterns against the full normalised form. Regex patterns are implicitly anchored (full-string match).
@@ -60,8 +59,7 @@ This makes the filter a faithful superset of the per-dimension filters it replac
 > [!WARNING]
 > **About annotation values:** equality matches (`key=value`) require values that conform to DNS-1123 label-value syntax (≤ 63 chars, alphanumeric, `-`, `_`, `.`). For free-form annotation values (URLs, JSON blobs, long strings) use presence (`key`) or absence (`!key`).
 
-> [!NOTE]
-> The operator also exposes a cluster-wide skip list (`skipLabels` / `skipAnnotations` in the [operator configuration](./configuration.md#skiplabels--skipannotations)). It uses the same selector syntax but is exclude-only and applies before any CR is consulted, taking precedence over all per-CR filters.
+The same selector syntax also drives the operator's cluster-wide skip list (`skipLabels` / `skipAnnotations` in the [operator configuration](./configuration.md#skiplabels--skipannotations)), which is exclude-only and applies before any CR is consulted, taking precedence over all per-CR filters.
 
 ## Per-upstream image filtering on `(Cluster)ReplicatedImageSet`
 
