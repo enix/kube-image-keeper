@@ -16,26 +16,49 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/random"
 )
 
-// brokenDigestRegistry wraps an in-memory registry and can be set to return
-// 404 for manifest requests by digest while keeping tag requests working.
-// This reproduces a pull-through proxy with a stale tag cache: tags keep
-// resolving (HEAD and GET return 200 with a Docker-Content-Digest header),
-// but the manifests behind those digests are gone, so container runtimes
-// fail to pull on any node that does not already have the image.
+// digestResponseMode controls how brokenDigestRegistry responds to manifest-by-digest requests.
+type digestResponseMode int
+
+const (
+	digestResponseNormal           digestResponseMode = iota // pass through to the real registry
+	digestResponseNotFound                                   // 404 — stale tag cache / blocked by policy
+	digestResponseRateLimit                                  // 429 with RateLimit-Remaining: 0 header
+	digestResponseUnauthorized                               // 401 — fine-grained auth on digest path
+	digestResponseMethodNotAllowed                           // 405 — proxy supports tags but not digest lookup
+)
+
+// brokenDigestRegistry wraps an in-memory registry and can intercept manifest-by-digest
+// requests to simulate various proxy and registry failure modes while keeping tag requests
+// working. Subtests must not run in parallel because digestMode is shared state.
 type brokenDigestRegistry struct {
 	handler       http.Handler
-	brokenDigests atomic.Bool
+	digestMode    atomic.Int32 // stores digestResponseMode
 	manifestReads atomic.Int64
 }
 
 func (b *brokenDigestRegistry) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.Contains(r.URL.Path, "/manifests/") && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
 		b.manifestReads.Add(1)
-		if b.brokenDigests.Load() && strings.Contains(r.URL.Path, "/manifests/sha256:") {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusNotFound)
-			fmt.Fprint(w, `{"errors":[{"code":"MANIFEST_UNKNOWN","message":"manifest unknown"}]}`)
-			return
+		if strings.Contains(r.URL.Path, "/manifests/sha256:") {
+			switch digestResponseMode(b.digestMode.Load()) {
+			case digestResponseNotFound:
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusNotFound)
+				fmt.Fprint(w, `{"errors":[{"code":"MANIFEST_UNKNOWN","message":"manifest unknown"}]}`)
+				return
+			case digestResponseRateLimit:
+				w.Header().Set("RateLimit-Remaining", "0;w=21600")
+				w.WriteHeader(http.StatusTooManyRequests)
+				return
+			case digestResponseUnauthorized:
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				fmt.Fprint(w, `{"errors":[{"code":"UNAUTHORIZED","message":"authentication required"}]}`)
+				return
+			case digestResponseMethodNotAllowed:
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
 		}
 	}
 	b.handler.ServeHTTP(w, r)
@@ -66,7 +89,7 @@ func TestCheckImageAvailabilityResolveDigest(t *testing.T) {
 		name          string
 		reference     string
 		method        string
-		brokenDigests bool
+		digestMode    digestResponseMode
 		resolveDigest bool
 		want          kuikv1alpha1.ImageAvailabilityStatus
 		wantErr       string
@@ -96,18 +119,18 @@ func TestCheckImageAvailabilityResolveDigest(t *testing.T) {
 			wantReads:     2,
 		},
 		{
-			name:          "broken digests without digest resolution stay invisible",
-			reference:     tagReference,
-			method:        http.MethodHead,
-			brokenDigests: true,
-			want:          kuikv1alpha1.ImageAvailabilityAvailable,
-			wantReads:     1,
+			name:       "broken digests without digest resolution stay invisible",
+			reference:  tagReference,
+			method:     http.MethodHead,
+			digestMode: digestResponseNotFound,
+			want:       kuikv1alpha1.ImageAvailabilityAvailable,
+			wantReads:  1,
 		},
 		{
 			name:          "broken digests with digest resolution HEAD are detected",
 			reference:     tagReference,
 			method:        http.MethodHead,
-			brokenDigests: true,
+			digestMode:    digestResponseNotFound,
 			resolveDigest: true,
 			want:          kuikv1alpha1.ImageAvailabilityNotFound,
 			wantErr:       "tag/digest inconsistency",
@@ -117,7 +140,7 @@ func TestCheckImageAvailabilityResolveDigest(t *testing.T) {
 			name:          "broken digests with digest resolution GET are detected",
 			reference:     tagReference,
 			method:        http.MethodGet,
-			brokenDigests: true,
+			digestMode:    digestResponseNotFound,
 			resolveDigest: true,
 			want:          kuikv1alpha1.ImageAvailabilityNotFound,
 			wantErr:       "tag/digest inconsistency",
@@ -131,11 +154,40 @@ func TestCheckImageAvailabilityResolveDigest(t *testing.T) {
 			want:          kuikv1alpha1.ImageAvailabilityAvailable,
 			wantReads:     1,
 		},
+		{
+			name:          "rate limit on digest path returns QuotaExceeded",
+			reference:     tagReference,
+			method:        http.MethodHead,
+			digestMode:    digestResponseRateLimit,
+			resolveDigest: true,
+			want:          kuikv1alpha1.ImageAvailabilityQuotaExceeded,
+			wantErr:       "rate limit exceeded",
+			wantReads:     2,
+		},
+		{
+			name:          "auth failure on digest path returns InvalidAuth",
+			reference:     tagReference,
+			method:        http.MethodHead,
+			digestMode:    digestResponseUnauthorized,
+			resolveDigest: true,
+			want:          kuikv1alpha1.ImageAvailabilityInvalidAuth,
+			wantErr:       "authentication failed",
+			wantReads:     2,
+		},
+		{
+			name:          "digest method not allowed returns Available",
+			reference:     tagReference,
+			method:        http.MethodHead,
+			digestMode:    digestResponseMethodNotAllowed,
+			resolveDigest: true,
+			want:          kuikv1alpha1.ImageAvailabilityAvailable,
+			wantReads:     2,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			fake.brokenDigests.Store(tt.brokenDigests)
+			fake.digestMode.Store(int32(tt.digestMode))
 			readsBefore := fake.manifestReads.Load()
 
 			method := tt.method
@@ -157,7 +209,7 @@ func TestCheckImageAvailabilityResolveDigest(t *testing.T) {
 				}
 			}
 			if reads := fake.manifestReads.Load() - readsBefore; reads != tt.wantReads {
-				t.Errorf("manifest read requests = %d, want %d", reads, tt.wantReads)
+				t.Errorf("manifest read requests = %d, want %d (ref=%s method=%s resolveDigest=%v)", reads, tt.wantReads, tt.reference, tt.method, tt.resolveDigest)
 			}
 		})
 	}

@@ -69,8 +69,10 @@ type RegistryMonitoring struct {
 	FallbackCredentialSecret *kuikv1alpha1.CredentialSecret `koanf:"fallbackCredentialSecret"`
 }
 
-// ResolveDigestEnabled returns true when the digest-path check is enabled for
-// this registry. A nil ResolveDigest means unset (inherit / disabled).
+// ResolveDigestEnabled returns true when the digest-path check is explicitly
+// enabled for this registry. The three states are: nil = inherit from default
+// (treated as disabled until overridden), *false = explicitly disabled (overrides
+// an enabled default for this specific registry), *true = enabled.
 func (r *RegistryMonitoring) ResolveDigestEnabled() bool {
 	return r.ResolveDigest != nil && *r.ResolveDigest
 }
