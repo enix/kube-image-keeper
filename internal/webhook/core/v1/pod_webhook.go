@@ -613,7 +613,7 @@ func (d *PodCustomDefaulter) checkImageAvailabilityCached(ctx context.Context, i
 	err, _ := d.requestGroup.Do("availability:"+image.Reference, func() (any, error) {
 		log := logf.FromContext(ctx, "reference", image.Reference)
 
-		result, err := registry.CheckImageAvailability(ctx, image.Reference, http.MethodHead, d.Config.Routing.ActiveCheck.Timeout, pullSecrets)
+		result, err := registry.CheckImageAvailability(ctx, image.Reference, http.MethodHead, d.Config.Routing.ActiveCheck.Timeout, pullSecrets, d.Config.Routing.ActiveCheck.ResolveDigest)
 		if err != nil {
 			log.V(1).Info("image is not available", "error", err)
 		} else {

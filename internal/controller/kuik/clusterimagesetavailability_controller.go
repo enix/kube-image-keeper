@@ -256,6 +256,9 @@ func (r *ClusterImageSetAvailabilityReconciler) registryConfig(registry string) 
 		if override.Timeout != 0 {
 			merged.Timeout = override.Timeout
 		}
+		if override.ResolveDigest != nil {
+			merged.ResolveDigest = override.ResolveDigest
+		}
 		if override.FallbackCredentialSecret != nil {
 			merged.FallbackCredentialSecret = override.FallbackCredentialSecret
 		}
@@ -394,7 +397,7 @@ func (r *ClusterImageSetAvailabilityReconciler) performCheck(ctx context.Context
 		image.LastError = err.Error()
 	}
 
-	result, checkErr := registry.CheckImageAvailability(ctx, image.Image, registryConfig.Method, registryConfig.Timeout, pullSecrets)
+	result, checkErr := registry.CheckImageAvailability(ctx, image.Image, registryConfig.Method, registryConfig.Timeout, pullSecrets, registryConfig.ResolveDigestEnabled())
 	image.LastMonitor = &now
 
 	if image.Status == kuikv1alpha1.ImageAvailabilityUnavailableSecret && result == kuikv1alpha1.ImageAvailabilityInvalidAuth {
