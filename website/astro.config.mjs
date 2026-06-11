@@ -3,6 +3,17 @@ import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import favicons from 'astro-favicons';
 import remarkGithubAdmonitionsToDirectives from 'remark-github-admonitions-to-directives';
+import { syncDocs } from './scripts/sync-docs.mjs';
+
+// Sync ../docs + overlay into src/content/docs before content collections load.
+// Runs for every astro command (build, dev, CI via withastro/action), so the
+// gitignored collection dir is always present and current.
+const syncDocsIntegration = {
+  name: 'sync-docs',
+  hooks: {
+    'astro:config:setup': () => syncDocs(),
+  },
+};
 
 // https://astro.build/config
 export default defineConfig({
@@ -22,13 +33,10 @@ export default defineConfig({
     ],
   },
   integrations: [
+    syncDocsIntegration,
     starlight({
       title: 'kube-image-keeper',
       description: 'Documentation for kube-image-keeper (kuik), the Kubernetes operator for container image routing, mirroring, and replication.',
-      markdown: {
-        // Starlight only applies its remark/rehype passes (asides, heading links) to its own collection dir by default, so register ../docs explicitly.
-        processedDirs: ['../docs'],
-      },
       logo: {
         src: './src/assets/logo.svg',
         alt: 'kube-image-keeper logo',
