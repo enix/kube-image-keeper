@@ -2,7 +2,12 @@ name: Deploy website to GitHub Pages
 
 on:
   push:
-    branches: [main, docs/website]
+    branches: [main]
+    paths:
+      - "website/**"
+      - "docs/**"
+      - ".github/workflows/website.yaml"
+  pull_request:
     paths:
       - "website/**"
       - "docs/**"
