@@ -95,8 +95,8 @@ Controls the mutating webhook that rewrites Pod container images.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `routing.activeCheck.timeout` | duration | `1s` | Per-image upper bound on the availability HTTP probe (HEAD request) made by the webhook before falling back to the next alternative. When `resolveDigest` is enabled this envelope covers both requests. |
-| `routing.activeCheck.resolveDigest` | bool | `false` | When `true`, the webhook active-check makes a second request by manifest digest after resolving the tag, detecting stale tag caches on pull-through proxies that advertise a tag but 404 on its digest. Doubles the number of requests per admission. |
+| `routing.activeCheck.timeout` | duration | `1s` | Per-image upper bound on the availability HTTP probe (HEAD request) made by the webhook before falling back to the next alternative. When `resolveDigest` is enabled this single envelope covers both the tag and digest requests sequentially; increase to at least `2s`–`3s` to give each request a fair share of the budget. |
+| `routing.activeCheck.resolveDigest` | bool | `false` | When `true` and the reference is a tag, the webhook active-check makes a second request by manifest digest after resolving the tag, detecting stale tag caches on pull-through proxies that advertise a tag but 404 on its digest. References already by digest are not rechecked. Doubles the number of requests per tag admission. |
 | `routing.activeCheck.staleMirrorCleanup.maxConcurrent` | int | `10` | Maximum number of concurrent goroutines clearing stale mirror status entries. The cleanup is dropped (not retried inline) if the semaphore is full; the next availability check that returns `NotFound` will trigger it again. |
 | `routing.activeCheck.staleMirrorCleanup.timeout` | duration | `5s` | Per-cleanup deadline for the goroutine that clears a stale mirror status entry. |
 | `routing.rewriteOnNeverImagePullPolicy` | bool | `false` | When `false`, containers with `imagePullPolicy: Never` are left untouched (the cluster-local image is assumed authoritative). Set to `true` to rewrite them as well. |
@@ -104,16 +104,31 @@ Controls the mutating webhook that rewrites Pod container images.
 
 Durations use Go's `time.ParseDuration` syntax (`"500ms"`, `"30s"`, `"2h"`, ...).
 
-### Example
+### Examples
 
-Lower the active-check timeout, keep `Always` containers in the standard
-priority sort:
+Lower the active-check timeout and keep `Always` containers in the standard priority sort:
 
 ```yaml
 routing:
   activeCheck:
     timeout: 500ms
   honorPrioritiesOnAlwaysImagePullPolicy: true
+```
+
+Enable digest-path verification and adjust rate limits to account for doubled requests:
+
+```yaml
+routing:
+  activeCheck:
+    resolveDigest: true
+    timeout: 3s  # increase from the 1s default — resolveDigest makes two sequential requests
+
+monitoring:
+  registries:
+    items:
+      docker.io:
+        interval: 1h
+        maxPerInterval: 3  # halved from 6 — resolveDigest doubles per-image request count
 ```
 
 ## `mirroring`

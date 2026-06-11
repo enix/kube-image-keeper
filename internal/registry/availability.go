@@ -78,6 +78,10 @@ func checkDigestPath(ctx context.Context, client *Client, method string, referen
 		return kuikv1alpha1.ImageAvailabilityUnreachable, fmt.Errorf("could not parse reference: %w", err)
 	}
 
+	// Digest-addressed refs already targeted the exact manifest the runtime will
+	// pull, so no second request is needed. desc == nil is a defensive fallback:
+	// ReadDescriptor returned no error but no descriptor; skip digest verification
+	// and treat the image as available rather than failing open on a nil dereference.
 	if _, isDigest := ref.(name.Digest); isDigest || desc == nil {
 		return kuikv1alpha1.ImageAvailabilityAvailable, nil
 	}
@@ -90,8 +94,13 @@ func checkDigestPath(ctx context.Context, client *Client, method string, referen
 	}
 
 	if err != nil {
-		if TransportStatusCode(err) == http.StatusNotFound {
+		switch TransportStatusCode(err) {
+		case http.StatusNotFound:
 			return kuikv1alpha1.ImageAvailabilityNotFound, fmt.Errorf("tag/digest inconsistency: %q resolves to digest %s but the registry does not serve that manifest by digest, pulls from this registry will fail on any node that does not already have the image: %w", reference, desc.Digest.String(), err)
+		case http.StatusMethodNotAllowed, http.StatusNotImplemented:
+			// The registry supports tag lookup but not manifest-by-digest for this
+			// HTTP method; the tag check already passed so the image is pullable.
+			return kuikv1alpha1.ImageAvailabilityAvailable, nil
 		}
 		return availabilityFromError(err)
 	}
