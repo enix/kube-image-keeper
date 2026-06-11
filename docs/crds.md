@@ -4,7 +4,7 @@ title: Custom Resource Definitions
 
 This document describes the available Custom Resource Definitions (CRDs). Examples provided are non-exhaustive; for a full list of fields, please refer to the `kubectl describe <resource-name>` command.
 
-For filtering (scoping resources to specific images, namespaces, or pods via the unified `spec.filter` field) see [Resource filtering](/resource-filtering/).
+For filtering (scoping resources to specific images, namespaces, or pods via the unified `spec.filter` field) see [Resource filtering](./resource-filtering.md).
 
 Resource Types:
 
@@ -25,12 +25,12 @@ This is particularly useful for multi-homed projects (e.g., Thanos, Prometheus, 
 | Field | Required | Description |
 | --- | --- | --- |
 | `spec.priority` | | Controls ordering of alternatives relative to the original image and other CRs. Negative values place alternatives before the original image; positive values place them after. Default is `0` (original image first). |
-| `spec.filter` | | Selects which pods and namespaces (cluster-scoped only) this resource applies to. The `image` dimension is **not** supported here and an `image` item is **rejected at admission**: image selection is done per-upstream via `spec.upstreams[].imageFilter`. See [Resource filtering](/resource-filtering/). |
+| `spec.filter` | | Selects which pods and namespaces (cluster-scoped only) this resource applies to. The `image` dimension is **not** supported here and an `image` item is **rejected at admission**: image selection is done per-upstream via `spec.upstreams[].imageFilter`. See [Resource filtering](./resource-filtering.md). |
 | `spec.upstreams[]` | | List of upstream image sources that should be considered equivalent. |
 | `spec.upstreams[].registry` | ✅ | Registry where the upstream image is hosted (e.g. `docker.io`, `quay.io`). |
 | `spec.upstreams[].path` | ✅ | Path identifying the image in the registry (e.g. `/thanosio/thanos`). |
 | `spec.upstreams[].priority` | | Controls ordering of this upstream relative to other upstreams with the same parent priority. `0` means no specific ordering (YAML declaration order is preserved). Positive values are sorted ascending: lower value = higher priority. |
-| `spec.upstreams[].imageFilter` | | Rules used to select which images from this upstream are considered replicated. This per-upstream filter is distinct from the deprecated top-level `imageFilter` and is unaffected by its deprecation. See [Per-upstream image filtering](/resource-filtering/#per-upstream-image-filtering-on-clusterreplicatedimageset). |
+| `spec.upstreams[].imageFilter` | | Rules used to select which images from this upstream are considered replicated. This per-upstream filter is distinct from the deprecated top-level `imageFilter` and is unaffected by its deprecation. See [Per-upstream image filtering](./resource-filtering.md#per-upstream-image-filtering-on-clusterreplicatedimageset). |
 | `spec.upstreams[].discardAlternative` | | When `true`, keeps the upstream in the configuration but excludes it from image routing. The upstream still participates in image matching, so other upstreams in the same CR continue to work. Useful when a registry no longer exists, to avoid waiting for the check timeout. |
 | `spec.upstreams[].credentialSecret` | | Reference to a Secret used to pull matching images from this upstream. |
 | `spec.upstreams[].credentialSecret.name` | | Name of the Secret. |
@@ -98,8 +98,8 @@ The `ImageSetMirror` and `ClusterImageSetMirror` resources define the actual mir
 | Field | Required | Description |
 | --- | --- | --- |
 | `spec.priority` | | Controls ordering of alternatives relative to the original image and other CRs. Negative values place alternatives before the original image; positive values place them after. Default is `0` (original image first). |
-| `spec.filter` | | Selects which pods, namespaces (cluster-scoped only) and images this resource applies to. See [Resource filtering](/resource-filtering/). |
-| `spec.imageFilter` | | **Deprecated** (superseded by `spec.filter`, with which it is mutually exclusive). Rules used to select which images are eligible for mirroring. See [Migration](/resource-filtering/#migration-from-imagefilter--namespacefilter--podfilter). |
+| `spec.filter` | | Selects which pods, namespaces (cluster-scoped only) and images this resource applies to. See [Resource filtering](./resource-filtering.md). |
+| `spec.imageFilter` | | **Deprecated** (superseded by `spec.filter`, with which it is mutually exclusive). Rules used to select which images are eligible for mirroring. See [Migration](./resource-filtering.md#migration-from-imagefilter--namespacefilter--podfilter). |
 | `spec.cleanup` | | Cleanup strategy for mirrored images. |
 | `spec.cleanup.enabled` | | Whether automatic cleanup of unused mirrored images is enabled. Default is `false`. |
 | `spec.cleanup.retention` | | Duration to retain unused mirrored images before cleanup (e.g. `720h`). |
@@ -157,8 +157,8 @@ This is useful for detecting images that have been deleted, made private, or are
 | Field | Required | Description |
 | --- | --- | --- |
 | `spec.unusedImageExpiry` | | How long to keep tracking an image after no Pod uses it. Once elapsed the image is removed from status (e.g. `720h`). Zero means unused images are never removed. |
-| `spec.filter` | | Selects which pods, namespaces and images to monitor. See [Resource filtering](/resource-filtering/). |
-| `spec.imageFilter` | | **Deprecated** (superseded by `spec.filter`, with which it is mutually exclusive). Rules used to select which images to monitor. See [Migration](/resource-filtering/#migration-from-imagefilter--namespacefilter--podfilter). |
+| `spec.filter` | | Selects which pods, namespaces and images to monitor. See [Resource filtering](./resource-filtering.md). |
+| `spec.imageFilter` | | **Deprecated** (superseded by `spec.filter`, with which it is mutually exclusive). Rules used to select which images to monitor. See [Migration](./resource-filtering.md#migration-from-imagefilter--namespacefilter--podfilter). |
 
 ### How it works
 
@@ -184,7 +184,7 @@ spec:
 
 ### Operator configuration
 
-The check rate and method are controlled per-registry in the operator's `config.yaml`, not in the CRD. See the full [operator configuration reference](/configuration/) for the list of all supported fields, their defaults, and the precedence rules.
+The check rate and method are controlled per-registry in the operator's `config.yaml`, not in the CRD. See the full [operator configuration reference](./configuration.md) for the list of all supported fields, their defaults, and the precedence rules.
 
 ```yaml
 monitoring:

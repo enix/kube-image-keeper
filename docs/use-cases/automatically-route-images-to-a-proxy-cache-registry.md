@@ -19,7 +19,7 @@ Kuik will manage the burden of rerouting calls to your proxy cache
 
 ### Kuik custom resource to use
 
-- [ClusterReplicatedImageSet](/crds/#clusterreplicatedimageset)
+- [ClusterReplicatedImageSet](../crds.md#clusterreplicatedimageset)
 
 ### Configuration example
 
