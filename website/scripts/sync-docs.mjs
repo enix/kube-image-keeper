@@ -97,11 +97,14 @@ export function applySourceChange(event, file) {
 
   if (event === 'unlink' || event === 'unlinkDir') {
     rmSync(m.dest, { recursive: true, force: true });
-    // If an overlay file is removed but ../docs still defines the same path,
-    // fall back to the ../docs version.
-    if (event === 'unlink' && m.root === OVERLAY_ROOT) {
+    // If overlay content (file or directory) is removed but ../docs still
+    // defines the same path, fall back to the ../docs version.
+    if (m.root === OVERLAY_ROOT) {
       const fallback = path.join(SOURCE_ROOTS[0], m.rel);
-      if (existsSync(fallback)) { cpSync(fallback, m.dest); liftTitlesUnder(m.dest); }
+      if (existsSync(fallback)) {
+        cpSync(fallback, m.dest, { recursive: true });
+        liftTitlesUnder(m.dest);
+      }
     }
     return true;
   }
