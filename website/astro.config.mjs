@@ -72,7 +72,8 @@ export default defineConfig({
       ],
       // Build-time validation of internal links and heading anchors. Runs after
       // astro-rehype-relative-markdown-links has rewritten the GitHub-style .md
-      // links to site routes, so it validates the final shipped routes.      plugins: [starlightLinksValidator()],
+      // links to site routes, so it validates the final shipped routes.
+      plugins: [starlightLinksValidator()],
       components: {
         SiteTitle: './src/components/SiteTitle.astro',
         Head: './src/components/Head.astro',

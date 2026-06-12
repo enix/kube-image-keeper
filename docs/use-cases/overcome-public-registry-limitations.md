@@ -4,14 +4,14 @@ description: Route around rate limits and outages by replicating or mirroring th
 
 # Overcome public registry limitations
 
-This documentation wil help you configure Kuik in order to overcome public registry limitations.
+This documentation will help you configure Kuik in order to overcome public registry limitations.
 
 ## Best suited for
 
 - You face an image pull rate limit
 - Your upstream registry is no longer available
 - Your images are already pushed to multiple registries
-  - or, you can replicate thanks to Kuik using a [ImageSetMirror](../crds.md#clusterimagesetmirror)
+  - or, you can replicate thanks to Kuik using an [ImageSetMirror](../crds.md#clusterimagesetmirror)
 
 ## Benefits
 

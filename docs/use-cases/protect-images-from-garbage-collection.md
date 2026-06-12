@@ -4,7 +4,7 @@ description: Back up the images currently used by running Pods to a second regis
 
 # Protect images from garbage collection
 
-This documentation will help you configure Kuik in order to "backup" useful (used by a running Pod) images on another registry, prior to a garbace collect on your origin registry.
+This documentation will help you configure Kuik in order to "backup" useful (used by a running Pod) images on another registry, prior to a garbage collection on your origin registry.
 
 ## Best suited for
 
