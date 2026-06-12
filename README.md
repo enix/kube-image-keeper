@@ -10,9 +10,11 @@
 Its primary objective is to maximize the availability of Pod images within a Kubernetes cluster.
 Its secondary goal is to ensure bulletproof reliability by keeping the manipulation of Kubernetes primitives to an absolute minimum.
 
-From a technical standpoint, kuik operates as a lightweight webhook that automatically rewrites image paths whenever the source registry becomes unavailable.
+## Under the hood
 
-Under the hood, kuik relies on three core mechanisms:
+kuik operates as a lightweight webhook that automatically rewrites image paths whenever the source registry becomes unavailable.
+
+It relies on three core mechanisms:
 - **Image routing**: rewrites Pod image paths on the fly to redirect them to a functional registry.
 - **Image copy**: mirror images between registries to build a virtual, highly available registry.
 - **Image monitoring**: continuously tracks the availability of Pod images across various registries.
