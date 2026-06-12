@@ -7,9 +7,9 @@
 
 **kuik** (pronounced /kwɪk/, like "quick") is the shortname of **kube-image-keeper**.
 
-Its primary objective is to **maximize the availability of Pod images** within a Kubernetes cluster.
+✅ Its primary objective is to **maximize the availability of Pod images** within a Kubernetes cluster.
 
-Its secondary goal is to ensure **bulletproof reliability** by keeping the manipulation of Kubernetes primitives to an absolute minimum.
+✅ Its secondary goal is to ensure **bulletproof reliability** by keeping the manipulation of Kubernetes primitives to an absolute minimum.
 
 ## Under the hood
 
@@ -36,7 +36,7 @@ Developed by Enix, kube-image-keeper is a battle-tested solution currently runni
 We rely on [cert-manager Custom Resources](./helm/kube-image-keeper/templates/webhook-certificate.yaml) to manage the kuik mutating webhook certificate, so you need to [install it first](https://cert-manager.io/docs/installation/).
 
 ```bash
-VERSION=2.2.2
+VERSION=2.2.3
 helm upgrade --install --create-namespace --namespace kuik-system kube-image-keeper oci://quay.io/enix/charts/kube-image-keeper:$VERSION
 ```
 
@@ -54,8 +54,7 @@ If you let kuik cleanup expired images in your registry, you still have to confi
 
 ## 📅 Releases & Roadmap
 
-> [!NOTE]
-> Kuik v2 has reached **General Availability** and is **Production Ready** as of v2.2.2 🚀
+Kuik v2 has reached **General Availability** and is **Production Ready** as of v2.2.2 🚀
 
 ### Already available
 
