@@ -7,8 +7,9 @@
 
 **kuik** (pronounced /kwɪk/, like "quick") is the shortname of **kube-image-keeper**.
 
-Its primary objective is to maximize the availability of Pod images within a Kubernetes cluster.
-Its secondary goal is to ensure bulletproof reliability by keeping the manipulation of Kubernetes primitives to an absolute minimum.
+Its primary objective is to **maximize the availability of Pod images** within a Kubernetes cluster.
+
+Its secondary goal is to ensure **bulletproof reliability** by keeping the manipulation of Kubernetes primitives to an absolute minimum.
 
 ## Under the hood
 
