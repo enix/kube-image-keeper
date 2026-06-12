@@ -138,24 +138,3 @@ spec:
   - registry: registry.example.com
     path: /mirror
 ```
-
-## Migration from `imageFilter` / `namespaceFilter` / `podFilter`
-
-Earlier releases exposed three separate fields. They map onto `spec.filter` items as follows:
-
-| Legacy field | `spec.filter` item |
-| --- | --- |
-| `imageFilter.include: [P]` | `include: [{image: P}]` |
-| `imageFilter.exclude: [P]` | `exclude: [{image: P}]` |
-| `namespaceFilter.include: [N]` | `include: [{namespace: N}]` |
-| `namespaceFilter.exclude: [N]` | `exclude: [{namespace: N}]` |
-| `podFilter.labels.include: [S]` | `include: [{label: S}]` |
-| `podFilter.labels.exclude: [S]` | `exclude: [{label: S}]` |
-| `podFilter.annotations.include: [S]` | `include: [{annotation: S}]` |
-| `podFilter.annotations.exclude: [S]` | `exclude: [{annotation: S}]` |
-
-- **`namespaceFilter` and `podFilter` have been removed.** They only ever shipped in `v2.3` beta releases. Resources that still set them will have those fields **pruned by the API server on the next apply** — move their selectors into `spec.filter` before upgrading.
-- **`imageFilter` is deprecated but still works.** It is **mutually exclusive** with `spec.filter`: setting both on the same resource is rejected at admission. When migrating, fold the `imageFilter` patterns into `spec.filter` `image` items and remove `imageFilter`.
-
-> [!WARNING]
-> One semantic difference when folding `imageFilter` into `filter`: an **empty image dimension matches every image**, whereas an omitted `imageFilter` matched nothing. If you rely on `imageFilter` to restrict which images a resource handles, keep at least one `image` item in `spec.filter` — otherwise the resource applies to all images.

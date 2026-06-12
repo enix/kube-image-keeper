@@ -97,7 +97,7 @@ The `ImageSetMirror` and `ClusterImageSetMirror` resources define the actual mir
 | --- | --- | --- |
 | `spec.priority` | | Controls ordering of alternatives relative to the original image and other CRs. Negative values place alternatives before the original image; positive values place them after. Default is `0` (original image first). |
 | `spec.filter` | | Selects which pods, namespaces (cluster-scoped only) and images this resource applies to. See [Resource filtering](./resource-filtering.md). |
-| `spec.imageFilter` | | **Deprecated** (superseded by `spec.filter`, with which it is mutually exclusive). Rules used to select which images are eligible for mirroring. See [Migration](./resource-filtering.md#migration-from-imagefilter--namespacefilter--podfilter). |
+| `spec.imageFilter` | | **Deprecated** (superseded by `spec.filter`, with which it is mutually exclusive). Rules used to select which images are eligible for mirroring. |
 | `spec.cleanup` | | Cleanup strategy for mirrored images. |
 | `spec.cleanup.enabled` | | Whether automatic cleanup of unused mirrored images is enabled. Default is `false`. |
 | `spec.cleanup.retention` | | Duration to retain unused mirrored images before cleanup (e.g. `720h`). |
@@ -156,7 +156,7 @@ This is useful for detecting images that have been deleted, made private, or are
 | --- | --- | --- |
 | `spec.unusedImageExpiry` | | How long to keep tracking an image after no Pod uses it. Once elapsed the image is removed from status (e.g. `720h`). Zero means unused images are never removed. |
 | `spec.filter` | | Selects which pods, namespaces and images to monitor. See [Resource filtering](./resource-filtering.md). |
-| `spec.imageFilter` | | **Deprecated** (superseded by `spec.filter`, with which it is mutually exclusive). Rules used to select which images to monitor. See [Migration](./resource-filtering.md#migration-from-imagefilter--namespacefilter--podfilter). |
+| `spec.imageFilter` | | **Deprecated** (superseded by `spec.filter`, with which it is mutually exclusive). Rules used to select which images to monitor. |
 
 ### How it works
 
