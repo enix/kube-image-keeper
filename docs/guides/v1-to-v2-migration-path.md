@@ -1,3 +1,8 @@
+---
+sidebar:
+  order: 1
+---
+
 # v1 to v2 migration path
 
 kube-image-keeper v1 is reaching end of life and will not be maintained anymore. This document describes the key differences between v1 and v2 and how to migrate your setup.
