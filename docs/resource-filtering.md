@@ -1,7 +1,8 @@
 ---
-title: Resource filtering
 description: Select which pods, namespaces and images a kuik resource applies to with the unified spec.filter field.
 ---
+
+# Resource filtering
 
 Every kuik resource exposes a single unified `spec.filter` field that selects which pods, namespaces and images it applies to. A filter is a list of typed `include` / `exclude` items, each carrying exactly one selector:
 

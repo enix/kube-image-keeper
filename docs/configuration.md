@@ -1,6 +1,4 @@
----
-title: Operator configuration
----
+# Operator configuration
 
 The kuik manager reads a YAML configuration file at startup to tune routing, monitoring, and metrics behaviors. This page lists every supported field, its type, default value, and effect.
 

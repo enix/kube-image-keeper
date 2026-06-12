@@ -7,7 +7,7 @@
 // Overlay is copied last, so it wins on path conflicts. Invoked from
 // astro.config.mjs (full sync at config:setup, incremental on dev watch) and
 // available as `npm run sync-docs`.
-import { cpSync, rmSync, mkdirSync, existsSync } from 'node:fs';
+import { cpSync, rmSync, mkdirSync, existsSync, readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { argv } from 'node:process';
 import path from 'node:path';
@@ -21,12 +21,58 @@ export const SOURCE_ROOTS = [
 ];
 const OVERLAY_ROOT = SOURCE_ROOTS[SOURCE_ROOTS.length - 1];
 
+// Starlight requires the page title in frontmatter (`title:`) and would render
+// a duplicate heading if the body also opened with an H1. We author docs the
+// GitHub way instead — a leading `# Title` H1, no `title:` in frontmatter — and
+// lift that H1 into the frontmatter here, stripping it from the body. Files that
+// already carry a frontmatter title (e.g. the website-only overlay pages) are
+// left untouched.
+function liftTitle(content) {
+  const lines = content.split('\n');
+  let fmEnd = -1;
+  if (lines[0] === '---') {
+    for (let i = 1; i < lines.length; i++) {
+      if (lines[i] === '---') { fmEnd = i; break; }
+    }
+  }
+  const hasFrontmatter = fmEnd > 0;
+  const fmLines = hasFrontmatter ? lines.slice(1, fmEnd) : [];
+  if (fmLines.some((l) => /^title\s*:/.test(l))) return content;
+
+  const bodyLines = hasFrontmatter ? lines.slice(fmEnd + 1) : lines.slice();
+  // The title must be the first non-blank body line; anything else is left alone.
+  let i = 0;
+  while (i < bodyLines.length && bodyLines[i].trim() === '') i++;
+  const m = i < bodyLines.length ? /^#\s+(.+?)\s*$/.exec(bodyLines[i]) : null;
+  if (!m) return content;
+
+  bodyLines.splice(0, i + 1); // drop leading blanks + the H1
+  while (bodyLines.length && bodyLines[0].trim() === '') bodyLines.shift();
+
+  const titleLine = `title: "${m[1].replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+  return ['---', titleLine, ...fmLines, '---', '', ...bodyLines].join('\n');
+}
+
+// Apply liftTitle in place to every .md/.mdx file under p (file or directory).
+function liftTitlesUnder(p) {
+  const st = statSync(p);
+  if (st.isDirectory()) {
+    for (const entry of readdirSync(p)) liftTitlesUnder(path.join(p, entry));
+    return;
+  }
+  if (!/\.mdx?$/.test(p)) return;
+  const content = readFileSync(p, 'utf8');
+  const lifted = liftTitle(content);
+  if (lifted !== content) writeFileSync(p, lifted);
+}
+
 export function syncDocs() {
   rmSync(DEST_ROOT, { recursive: true, force: true });
   mkdirSync(DEST_ROOT, { recursive: true });
   for (const root of SOURCE_ROOTS) {
     if (existsSync(root)) cpSync(root, DEST_ROOT, { recursive: true });
   }
+  liftTitlesUnder(DEST_ROOT);
   console.log(`[sync-docs] synced ${SOURCE_ROOTS.length} source(s) -> ${DEST_ROOT}`);
 }
 
@@ -55,7 +101,7 @@ export function applySourceChange(event, file) {
     // fall back to the ../docs version.
     if (event === 'unlink' && m.root === OVERLAY_ROOT) {
       const fallback = path.join(SOURCE_ROOTS[0], m.rel);
-      if (existsSync(fallback)) cpSync(fallback, m.dest);
+      if (existsSync(fallback)) { cpSync(fallback, m.dest); liftTitlesUnder(m.dest); }
     }
     return true;
   }
@@ -67,6 +113,7 @@ export function applySourceChange(event, file) {
   }
   mkdirSync(path.dirname(m.dest), { recursive: true });
   cpSync(file, m.dest, { recursive: true });
+  liftTitlesUnder(m.dest);
   return true;
 }
 
