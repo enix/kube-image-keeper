@@ -1,7 +1,8 @@
 ---
-title: Automatically route images to a proxy cache registry
 description: Rewrite Pod images on the fly to a proxy cache registry, with no spec changes to your workloads.
 ---
+
+# Automatically route images to a proxy cache registry
 
 This documentation will help you configure Kuik in order to simplify a proxy cache registry implementation in Kubernetes.
 In other words, Kuik will automatically rewrite image paths to use a proxy cache; without requiring any `spec` customization (Deployment, StatefulSet, ...).
