@@ -24,7 +24,7 @@ Developed by Enix, kube-image-keeper is a battle-tested solution currently runni
 
 ## Table of contents
 
-📖 **Documentation, concepts and use cases are available here: [kuik.enix.io](https://kuik.enix.io)**
+Documentation, concepts and use cases are available here: [kuik.enix.io](https://kuik.enix.io)
 
 - [Get started](#-get-started)
 - [Releases & Roadmap](#-releases--roadmap)
