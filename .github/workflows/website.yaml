@@ -1,0 +1,69 @@
+name: Deploy website to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+      # Versioned-docs branches: pushing one redeploys the site so the archived
+      # version it backs is refreshed (see website/versions.mjs). The build
+      # always runs against main's website config (see the checkout ref below).
+      - "docs/v*"
+    paths:
+      - "website/**"
+      - "docs/**"
+      - ".github/workflows/website.yaml"
+  pull_request:
+    paths:
+      - "website/**"
+      - "docs/**"
+      - ".github/workflows/website.yaml"
+
+permissions:
+  contents: read
+
+# Allow one concurrent deployment, cancel in-progress runs in favor of new ones
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        # fetch-depth: 0 fetches all branches/tags so the build can source each
+        # archived version's docs via `git archive <ref> docs` (see
+        # website/versions.mjs and website/scripts/sync-docs.mjs).
+        #
+        # On a docs/v* push, build from main: the site's structure (website
+        # config, versions list, current docs) always comes from main, while the
+        # pushed version branch is sourced via git archive. Other events use the
+        # default ref (empty string).
+        with:
+          fetch-depth: 0
+          ref: ${{ startsWith(github.ref, 'refs/heads/docs/v') && 'main' || '' }}
+
+      - name: Install, build, and upload your site
+        uses: withastro/action@v6
+        with:
+          path: website
+          node-version: 24
+
+  deploy:
+    needs: build
+    # Allow the job to clone the repo and create a Pages deployment
+    permissions:
+      pages: write
+      id-token: write
+    # Deploy on pushes to main and to versioned-docs branches (docs/v*); pull
+    # requests get build-only validation.
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/docs/v'))
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
