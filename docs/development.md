@@ -1,4 +1,4 @@
-# 🔧 Development
+# Development
 
 ```bash
 # generate CRDs definitions from go code and install them on the cluster you're connected to
