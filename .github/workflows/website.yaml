@@ -27,6 +27,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        # fetch-depth: 0 fetches all branches/tags so the build can source each
+        # archived version's docs via `git archive <ref> docs` (see
+        # website/versions.mjs and website/scripts/sync-docs.mjs).
+        with:
+          fetch-depth: 0
 
       - name: Install, build, and upload your site
         uses: withastro/action@v6

@@ -1,3 +1,6 @@
+# Don't lint generated/ignored content (e.g. website/src/content/docs, which is
+# synced from ../docs + the version branches and is gitignored).
+gitignore: true
 config:
   MD013: false # Line length
   MD033: false # Inline HTML

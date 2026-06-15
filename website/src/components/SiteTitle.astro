@@ -1,5 +1,18 @@
 ---
 import Default from '@astrojs/starlight/components/SiteTitle.astro';
+import versionsConfig from 'virtual:starlight-versions-config';
+
+// Point the site title at the home of the version the reader is browsing
+// (e.g. /2.2/) instead of always the site root, so clicking the logo keeps you
+// within that version.
+const { entry } = Astro.locals.starlightRoute;
+const version = versionsConfig.versions.find(
+  (v) => entry.id === v.slug || entry.id.startsWith(`${v.slug}/`),
+);
+if (version) {
+  const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+  Astro.locals.starlightRoute.siteTitleHref = `${base}/${version.slug}/`;
+}
 ---
 
 <div class="site-title-wrapper sl-flex">
