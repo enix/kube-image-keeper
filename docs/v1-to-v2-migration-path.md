@@ -54,7 +54,7 @@ spec:
     - localhost[^/]*/.+ # Exclude kuik v1 rewritten images we couldn't mirror
     excludeLabels: # WIP: will be in kuik v2.3
       - kube-image-keeper.enix.io/image-caching-policy=ignore # mirror exclude label from kuik v1
-  cleanup: # Cleanup image no longer referenced in cluster after a retetention period
+  cleanup: # Cleanup image no longer referenced in cluster after a retention period
     enabled: true
     retention: 168h # 7d
   mirrors:

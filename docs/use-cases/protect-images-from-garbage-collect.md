@@ -4,7 +4,7 @@ description: Back up the images currently used by running Pods to a second regis
 
 # Protect images from garbage collection
 
-This documentation will help you configure Kuik in order to "backup" useful (used by a running Pod) images on another registry, prior to a garbace collect on your origin registry.
+This documentation will help you configure Kuik in order to "backup" useful (used by a running Pod) images on another registry, prior to a garbage collect on your origin registry.
 
 ## Best suited for
 
@@ -35,10 +35,10 @@ metadata:
 spec:
   imageFilter:
     include:
-    - "myregistry.mydomain/myproject/myimage:.+" # protect these images from agressive garbage collect on origin registry
+    - "myregistry.mydomain/myproject/myimage:.+" # protect these images from aggressive garbage collect on origin registry
   mirrors:
   - registry: backup.custom.domain # an already existing (destination) registry
-    path: /mirгог
+    path: /mirror
     credentialSecret:
       name: backup-registry-secret # the secret must be located in the same namespace
   cleanup:
