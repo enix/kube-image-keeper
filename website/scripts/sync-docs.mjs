@@ -1,12 +1,15 @@
 // Populates src/content/docs (the Starlight collection dir, gitignored) from:
-//   1. the repo-root ../docs tree  (the single source of truth, also rendered
-//      on GitHub)
-//   2. src/content/overlay         (website-only files that must not live in
+//   1. the repo-root ../docs tree  (the single source of truth for the current
+//      version, also rendered on GitHub)
+//   2. src/content/versioned-docs  (frozen snapshots of older doc versions,
+//      one subdir per version slug, e.g. 2.2/; consumed by starlight-versions)
+//   3. src/content/overlay         (website-only files that must not live in
 //      ../docs, e.g. the homepage and the use-cases landing page)
 //
-// Overlay is copied last, so it wins on path conflicts. Invoked from
-// astro.config.mjs (full sync at config:setup, incremental on dev watch) and
-// available as `npm run sync-docs`.
+// Overlay is copied last, so it wins on path conflicts. The versioned snapshots
+// only ever add /<slug>/ subtrees, which never collide with ../docs or overlay.
+// Invoked from astro.config.mjs (full sync at config:setup, incremental on dev
+// watch) and available as `npm run sync-docs`.
 import { cpSync, rmSync, mkdirSync, existsSync, readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { argv } from 'node:process';
@@ -17,6 +20,7 @@ export const DEST_ROOT = path.join(websiteRoot, 'src/content/docs');
 // Order matters: later roots win on path conflicts (overlay shadows ../docs).
 export const SOURCE_ROOTS = [
   path.resolve(websiteRoot, '../docs'),
+  path.join(websiteRoot, 'src/content/versioned-docs'),
   path.join(websiteRoot, 'src/content/overlay'),
 ];
 const OVERLAY_ROOT = SOURCE_ROOTS[SOURCE_ROOTS.length - 1];

@@ -5,6 +5,7 @@ import favicons from 'astro-favicons';
 import remarkGithubAdmonitionsToDirectives from 'remark-github-admonitions-to-directives';
 import rehypeAstroRelativeMarkdownLinks from 'astro-rehype-relative-markdown-links';
 import starlightLinksValidator from 'starlight-links-validator';
+import starlightVersions from 'starlight-versions';
 import chokidar from 'chokidar';
 import { syncDocs, applySourceChange, SOURCE_ROOTS } from './scripts/sync-docs.mjs';
 
@@ -73,7 +74,21 @@ export default defineConfig({
       // Build-time validation of internal links and heading anchors. Runs after
       // astro-rehype-relative-markdown-links has rewritten the GitHub-style .md
       // links to site routes, so it validates the final shipped routes.
-      plugins: [starlightLinksValidator()],
+      //
+      // starlight-versions archives older docs under /<slug>/. The current docs
+      // live in src/content/docs (synced from ../docs); each archived version is
+      // a frozen snapshot committed under src/content/versioned-docs/<slug>/ and
+      // copied into src/content/docs/<slug>/ by sync-docs, with its sidebar
+      // declared in src/content/versions/<slug>.json. Because every configured
+      // version already has its snapshot on disk, the plugin never auto-archives
+      // the current docs — see website/README.md for the "add a version" flow.
+      plugins: [
+        starlightLinksValidator(),
+        starlightVersions({
+          current: { label: 'main' },
+          versions: [{ slug: '2.2', label: 'v2.2' }],
+        }),
+      ],
       components: {
         SiteTitle: './src/components/SiteTitle.astro',
         Head: './src/components/Head.astro',
