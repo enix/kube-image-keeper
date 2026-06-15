@@ -8,6 +8,7 @@ import starlightLinksValidator from 'starlight-links-validator';
 import starlightVersions from 'starlight-versions';
 import chokidar from 'chokidar';
 import { syncDocs, applySourceChange, SOURCE_ROOTS } from './scripts/sync-docs.mjs';
+import { versions } from './versions.mjs';
 
 // Sync ../docs + overlay into src/content/docs before content collections load.
 // Runs for every astro command (build, dev, CI via withastro/action), so the
@@ -75,18 +76,19 @@ export default defineConfig({
       // astro-rehype-relative-markdown-links has rewritten the GitHub-style .md
       // links to site routes, so it validates the final shipped routes.
       //
-      // starlight-versions archives older docs under /<slug>/. The current docs
-      // live in src/content/docs (synced from ../docs); each archived version is
-      // a frozen snapshot committed under src/content/versioned-docs/<slug>/ and
-      // copied into src/content/docs/<slug>/ by sync-docs, with its sidebar
-      // declared in src/content/versions/<slug>.json. Because every configured
-      // version already has its snapshot on disk, the plugin never auto-archives
-      // the current docs — see website/README.md for the "add a version" flow.
+      // starlight-versions serves older docs under /<slug>/. The current docs
+      // live in src/content/docs (synced from ../docs); each archived version's
+      // docs are fetched from a git branch by sync-docs (see ../versions.mjs)
+      // into src/content/docs/<slug>/, with its sidebar from that branch's
+      // docs/version-config.json written to src/content/versions/<slug>.json.
+      // Because every configured version already has its docs on disk at build
+      // time, the plugin never auto-archives the current docs — see
+      // website/README.md for the "add a version" flow.
       plugins: [
         starlightLinksValidator(),
         starlightVersions({
           current: { label: 'main' },
-          versions: [{ slug: '2.2', label: 'v2.2' }],
+          versions: versions.map(({ slug, label }) => ({ slug, label })),
         }),
       ],
       components: {

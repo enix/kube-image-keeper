@@ -2,8 +2,10 @@
 dist/
 # generated types
 .astro/
-# generated docs collection (synced from ../docs + src/content/overlay)
+# generated docs collection (synced from ../docs + overlay + versioned git refs)
 src/content/docs/
+# generated per-version sidebar configs (from each version's docs/version-config.json)
+src/content/versions/
 
 # dependencies
 node_modules/

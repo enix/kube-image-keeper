@@ -18,16 +18,18 @@ The site requires **Node.js 24** (matching the CI `withastro/action` config); th
 
 ## Documentation versioning
 
-The site serves multiple documentation versions via the [`starlight-versions`](https://starlight-versions.vercel.app) plugin, wired up in [`astro.config.mjs`](./astro.config.mjs):
+The site serves multiple documentation versions via the [`starlight-versions`](https://starlight-versions.vercel.app) plugin. The set of versions is declared once in [`versions.mjs`](./versions.mjs) and consumed by both [`astro.config.mjs`](./astro.config.mjs) (which feeds `{ slug, label }` to the plugin) and [`scripts/sync-docs.mjs`](./scripts/sync-docs.mjs) (which sources each version's content).
 
-- The **current** version (labelled `main` in the version picker) is the live `../docs` tree, served at the site root (`/configuration/`, `/crds/`, …). Each **archived** version is served under its slug (`/2.2/configuration/`, …).
+- The **current** version (labelled `main` in the version picker) is the live `../docs` tree, served at the site root (`/configuration/`, `/crds/`, …).
+- Each **archived** version's docs live on a dedicated **git branch** (`ref` in `versions.mjs`, e.g. `docs/v2.2`) and are served under the version slug (`/2.2/configuration/`, …). There is **no committed copy** of the versioned docs in this branch.
 
-Because `src/content/docs/` is generated and gitignored (see [`scripts/sync-docs.mjs`](./scripts/sync-docs.mjs)), an archived version cannot just live there — it would be wiped on every build. Instead each version is a committed **frozen snapshot** that `sync-docs` copies into `src/content/docs/<slug>/` on every build, alongside the current docs:
+At build time, `sync-docs` generates the gitignored collection dirs:
 
-- `src/content/versioned-docs/<slug>/` — the version's markdown. Every page carries an explicit `slug:` frontmatter (`slug: 2.2/configuration`) so Astro serves it under `/<slug>/` verbatim — without it, Astro's slugifier strips the dot from `2.2` and the routes/sidebar links break.
-- `src/content/versions/<slug>.json` — the version's sidebar (the `versions` content collection, see [`src/content.config.ts`](./src/content.config.ts)). Slugs in it are relative to the version (`"configuration"`, not `"2.2/…"`); the plugin prepends the version slug.
+- For each version it runs `git archive <ref> docs` and lays the result under `src/content/docs/<slug>/`. The branch's docs are plain GitHub markdown with **no `slug:` frontmatter**; `sync-docs` injects `slug: <slug>/<path>` into each page on disk, because Astro's loader and the relative-link rewriter both github-slugify the path — which would turn `2.2` into `22` and break routes/links.
+- That branch also carries `docs/version-config.json` (the version's Starlight sidebar); `sync-docs` lifts it into `src/content/versions/<slug>.json` (the `versions` content collection, see [`src/content.config.ts`](./src/content.config.ts)) and does not render it as a page. Sidebar slugs in it are relative to the version (`"configuration"`, not `"2.2/…"`); the plugin prepends the version slug.
+- The website-only [`src/content/overlay/`](./src/content/overlay/) pages (currently the use-cases landing `use-cases/index.mdx`) are copied into **every** version, not just the current one (the homepage is a normal `../docs/index.md` page, so it is per-version automatically). Note the use-cases landing's `getCollection` is not version-scoped, so each version's `/…/use-cases/` index currently lists the **current** version's use cases — the per-version use-case pages themselves are correct and in the sidebar.
 
-Because every configured version already has its snapshot on disk, the plugin never triggers its built-in "archive the current docs" behaviour.
+Because every configured version already has its docs on disk at build time, the plugin never triggers its built-in "archive the current docs" behaviour. The build therefore needs git history for the version branches — CI's checkout uses `fetch-depth: 0` (see [`.github/workflows/website.yaml`](../.github/workflows/website.yaml)).
 
 ### Version messaging (main = in-development, archived slugs = stable)
 
@@ -56,20 +58,23 @@ results".
 
 ### Add a new archived version
 
-To freeze the current docs as version `X.Y` (e.g. when cutting a release):
+To publish version `X.Y` (e.g. when cutting a release):
 
-1. Snapshot the docs at the release tag into the source tree:
+1. Create a long-lived **`docs/vX.Y` branch** whose `docs/` directory holds that version's documentation, typically branched from the release tag:
+
    ```bash
-   mkdir -p website/src/content/versioned-docs/X.Y
-   git archive vX.Y.Z docs | tar -x -C website/src/content/versioned-docs/X.Y --strip-components=1
+   git switch -c docs/vX.Y vX.Y.Z
    ```
-2. Add a `slug:` frontmatter to every page (`slug: X.Y/<path-without-extension>`, and `slug: X.Y` for `index.md`). Fix any links the validator rejects — repo-root links like `/docs/crds.md#x` become relative (`../crds.md#x`).
-3. Create `website/src/content/versions/X.Y.json` with a sidebar matching that version's file layout (slugs relative to the version).
-4. Register the version in [`astro.config.mjs`](./astro.config.mjs):
+
+2. In that branch's `docs/`, add a **`version-config.json`** with the Starlight sidebar for the version (slugs relative to the version, e.g. `"configuration"`, not `"X.Y/…"`). Leave the markdown as plain GitHub docs — **no `slug:` frontmatter** (the build injects it). Fix any links the validator later rejects (repo-root links like `/docs/crds.md#x` become relative `../crds.md#x`), then commit and `git push -u origin docs/vX.Y`.
+
+3. Register the version in [`versions.mjs`](./versions.mjs):
+
    ```js
-   starlightVersions({
-     current: { label: 'main' },
-     versions: [{ slug: 'X.Y', label: 'vX.Y' }, { slug: '2.2', label: 'v2.2' }],
-   })
+   export const versions = [
+     { slug: 'X.Y', label: 'vX.Y', ref: 'docs/vX.Y' },
+     { slug: '2.2', label: 'v2.2', ref: 'docs/v2.2' },
+   ];
    ```
-5. `npm run build` — the link validator checks every version's pages.
+
+4. `npm run build` (with the branch fetched locally) — the link validator checks every version's pages. To update a published version later, commit to its branch and redeploy; no re-tagging needed.
