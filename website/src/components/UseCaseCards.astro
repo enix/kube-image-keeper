@@ -1,0 +1,24 @@
+---
+// Card grid for the use-cases landing page. That landing (an overlay page) is
+// copied into every documentation version, so this lists the use cases of the
+// version it is rendered in: the page id is `use-cases` (current) or
+// `<slug>/use-cases` (archived) — we derive the version prefix from it and match
+// the sibling use-case pages. `Astro` (and so `Astro.locals`) isn't available in
+// content-collection MDX, which is why this logic lives in a component.
+import { CardGrid, LinkCard } from '@astrojs/starlight/components';
+import { getCollection } from 'astro:content';
+
+const prefix = Astro.locals.starlightRoute.entry.id.replace(/use-cases$/, '');
+const base = `${prefix}use-cases/`;
+const useCases = (await getCollection('docs'))
+  .filter((doc) => doc.id.startsWith(base) && doc.id !== `${base}index`)
+  .sort((a, b) => a.data.title.localeCompare(b.data.title));
+---
+
+<CardGrid>
+  {
+    useCases.map((doc) => (
+      <LinkCard title={doc.data.title} description={doc.data.description} href={`/${doc.id}/`} />
+    ))
+  }
+</CardGrid>
