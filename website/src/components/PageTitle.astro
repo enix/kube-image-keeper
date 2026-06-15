@@ -1,0 +1,110 @@
+---
+// Custom PageTitle override — renders a version notice *under* the page title
+// (replacing the one starlight-versions adds via its own PageTitle override).
+//
+// The plugin assumes "current (root) = newest = best" and only annotates
+// archived versions. Our layout is the opposite: the site root is the
+// in-development `main` docs, and the archived slugs are the tagged releases.
+// So we classify each page into three levels:
+//
+//   next     — the in-development `main` docs (root)      → blue "info" note
+//   current  — the latest stable release (newest archive) → no note
+//   previous — an older archived release                  → orange "warning" note
+//
+// Overriding PageTitle makes the plugin log a one-line "already defined" warning
+// at build and skip its own notice — expected; we render the notice ourselves.
+import Default from '@astrojs/starlight/components/PageTitle.astro';
+import { Icon } from '@astrojs/starlight/components';
+import versionsConfig from 'virtual:starlight-versions-config';
+
+const { entry } = Astro.locals.starlightRoute;
+
+// versions[] is newest-first, so [0] is the latest stable release.
+const stable = versionsConfig.versions[0];
+const stableHref = stable ? `/${stable.slug}/` : '/';
+const stableLabel = stable ? (stable.label ?? stable.slug) : null;
+
+// Archived-version pages have an id prefixed by the version slug
+// (e.g. `2.2/configuration`); current (`main`) pages do not.
+const archived = versionsConfig.versions.find(
+  (v) => entry.id === v.slug || entry.id.startsWith(`${v.slug}/`),
+);
+
+// Landing pages (the homepage hero / splash / site root) stay clean.
+const isLanding =
+  entry.data.template === 'splash' || Boolean(entry.data.hero) || entry.id === '';
+
+let level = null; // 'next' | 'previous' | null (current stable)
+if (!stable) {
+  level = null;
+} else if (!archived) {
+  level = isLanding ? null : 'next';
+} else if (archived.slug !== stable.slug) {
+  level = 'previous';
+}
+---
+
+<Default>
+  <slot />
+</Default>
+
+{
+  level === 'next' && (
+    <p class="version-note version-note--info">
+      <Icon name="seti:clock" size="1em" />
+      <span>
+        This documents the in-development version.{' '}
+        {stableLabel && (
+          <Fragment>
+            Switch to <a href={stableHref}>{stableLabel}</a> for the latest stable release.
+          </Fragment>
+        )}
+      </span>
+    </p>
+  )
+}
+{
+  level === 'previous' && (
+    <p class="version-note version-note--warn">
+      <Icon name="seti:clock" size="1em" />
+      <span>
+        This documents {archived.label ?? archived.slug}, an older release.{' '}
+        Switch to <a href={stableHref}>{stableLabel}</a> for the latest stable release.
+      </span>
+    </p>
+  )
+}
+
+<style>
+  .version-note {
+    display: flex;
+    border: 1px solid;
+    padding: 0.75em 1em;
+    width: max-content;
+    max-width: 100%;
+    align-items: center;
+    gap: 0.75em;
+    font-size: var(--sl-text-sm);
+    line-height: var(--sl-line-height-headings);
+  }
+
+  .version-note :global(a) {
+    color: inherit;
+  }
+
+  .version-note :global(svg) {
+    flex-shrink: 0;
+  }
+
+  .version-note--info {
+    border-color: var(--sl-color-blue);
+    background-color: var(--sl-color-blue-low);
+    color: var(--sl-color-blue-high);
+  }
+
+  .version-note--warn {
+    border-color: var(--sl-color-orange);
+    background-color: var(--sl-color-orange-low);
+    color: var(--sl-color-orange-high);
+  }
+</style>

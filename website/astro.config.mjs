@@ -92,6 +92,13 @@ export default defineConfig({
       components: {
         SiteTitle: './src/components/SiteTitle.astro',
         Head: './src/components/Head.astro',
+        // Three-level version notice under the page title (see the component):
+        // the in-development `main` docs get a blue info note, the latest stable
+        // release gets nothing, and older releases get the orange "outdated" note.
+        PageTitle: './src/components/PageTitle.astro',
+        // Same three-level notice as a full-width banner on landing/splash pages
+        // (which PageTitle skips), and suppresses the plugin's splash banner.
+        Banner: './src/components/Banner.astro',
       },
       sidebar: [
         { label: 'Home', link: '/' },

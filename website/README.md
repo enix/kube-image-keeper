@@ -29,6 +29,31 @@ Because `src/content/docs/` is generated and gitignored (see [`scripts/sync-docs
 
 Because every configured version already has its snapshot on disk, the plugin never triggers its built-in "archive the current docs" behaviour.
 
+### Version messaging (main = in-development, archived slugs = stable)
+
+The site root is the **in-development** `main` docs; the archived slugs are the
+**stable releases**. That inverts the plugin's default assumption (current =
+newest = best — it only ever flags archived versions as "outdated"), so
+[`src/components/PageTitle.astro`](./src/components/PageTitle.astro) replaces the
+plugin's notice with a three-level one, shown under the page title:
+
+| Level | Pages | Notice |
+| --- | --- | --- |
+| **next** | the in-development `main` docs (site root) | blue _info_ note linking to the latest stable release |
+| **current** | the latest stable release (newest archived version, `versions[0]`) | none |
+| **previous** | any older archived release | orange _warning_ note linking to the latest stable release |
+
+The component classifies a page by matching its id against the configured
+version slugs, treats `versions[0]` as the current stable, and skips landing
+pages (the homepage hero). Overriding `PageTitle` makes the plugin log a one-line
+"already defined" warning at build — expected, since we render the notice
+ourselves instead of the plugin's `<VersionNotice />`.
+
+[`src/content/i18n/en.json`](./src/content/i18n/en.json) additionally rewords the
+plugin's **search**-modal version strings (still rendered by the plugin) so they
+don't tell stable-release readers to "switch to the latest version for up-to-date
+results".
+
 ### Add a new archived version
 
 To freeze the current docs as version `X.Y` (e.g. when cutting a release):
