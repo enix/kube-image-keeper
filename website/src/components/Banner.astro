@@ -1,0 +1,91 @@
+---
+// Custom Banner override — two jobs:
+//   1. Suppress starlight-versions' splash-page VersionBanner ("This content is
+//      for v2.2. Switch to the latest version for up-to-date documentation.") —
+//      wrong for our model, where archived slugs are the stable releases.
+//   2. On landing/splash pages — which PageTitle's under-title notice skips —
+//      show the same three-level version notice as a full-width banner:
+//        next     — in-development `main` docs   → blue "info"
+//        current  — latest stable release        → nothing
+//        previous — an older archived release     → orange "warning"
+//
+// The version logic is intentionally duplicated from PageTitle.astro (the two
+// overrides are kept self-contained rather than sharing a component). Starlight's
+// Default banner is still rendered so per-page `banner:` frontmatter keeps working.
+import Default from '@astrojs/starlight/components/Banner.astro';
+import { getCollection } from 'astro:content';
+import versionsConfig from 'virtual:starlight-versions-config';
+
+const { entry } = Astro.locals.starlightRoute;
+
+// Only landing pages get the banner here; content pages use PageTitle's notice.
+const isLanding =
+  entry.data.template === 'splash' || Boolean(entry.data.hero) || entry.id === '';
+
+// versions[] is newest-first, so [0] is the latest stable release.
+const stable = versionsConfig.versions[0];
+const stableLabel = stable ? (stable.label ?? stable.slug) : null;
+
+// Archived-version pages have an id prefixed by the version slug
+// (e.g. `2.2/configuration`); current (`main`) pages do not.
+const archived = versionsConfig.versions.find(
+  (v) => entry.id === v.slug || entry.id.startsWith(`${v.slug}/`),
+);
+
+let level = null; // 'next' | 'previous' | null (current stable / non-landing)
+if (isLanding && stable) {
+  if (!archived) level = 'next';
+  else if (archived.slug !== stable.slug) level = 'previous';
+}
+
+// Point the notice at the SAME page in the latest stable version, falling back
+// to the stable home when that page doesn't exist there.
+let stableHref = stable ? `/${stable.slug}/` : '/';
+if (level) {
+  const docIds = new Set((await getCollection('docs')).map((d) => d.id));
+  const barePath = archived ? entry.id.slice(archived.slug.length + 1) : entry.id;
+  const targetId = barePath ? `${stable.slug}/${barePath}` : stable.slug;
+  if (docIds.has(targetId)) stableHref = `/${targetId}/`;
+}
+---
+
+{
+  level === 'next' && (
+    <div class="version-banner version-banner--info">
+      This documents the in-development version. Switch to{' '}
+      <a href={stableHref}>{stableLabel}</a> for the latest stable release.
+    </div>
+  )
+}
+{
+  level === 'previous' && (
+    <div class="version-banner version-banner--warn">
+      This documents {archived.label ?? archived.slug}, an older release. Switch to{' '}
+      <a href={stableHref}>{stableLabel}</a> for the latest stable release.
+    </div>
+  )
+}
+<Default>
+  <slot />
+</Default>
+
+<style>
+  .version-banner {
+    box-shadow: var(--sl-shadow-sm);
+    line-height: var(--sl-line-height-headings);
+    padding: var(--sl-nav-pad-y) var(--sl-nav-pad-x);
+    text-align: center;
+    text-wrap: balance;
+  }
+  .version-banner :global(a) {
+    color: inherit;
+  }
+  .version-banner--info {
+    background-color: var(--sl-color-blue-low);
+    color: var(--sl-color-blue-high);
+  }
+  .version-banner--warn {
+    background-color: var(--sl-color-orange-low);
+    color: var(--sl-color-orange-high);
+  }
+</style>

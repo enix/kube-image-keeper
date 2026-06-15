@@ -1,0 +1,5 @@
+{
+  "starlightVersions.search.outdated.label": "Search limited to {{label}}.",
+  "starlightVersions.search.outdated.slug": "Search limited to the {{slug}} version.",
+  "starlightVersions.search.link.latest": "Search the <a href={{link}}>main version</a> for in-development docs."
+}
