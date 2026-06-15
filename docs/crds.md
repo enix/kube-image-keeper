@@ -7,7 +7,7 @@ Resource Types:
 * [ReplicatedImageSet](#clusterreplicatedimageset)
 * [ClusterReplicatedImageSet](#clusterreplicatedimageset)
 * [ImageSetMirror](#clusterimagesetmirror)
-* [ClusterReplicatedImageSet](#clusterimagesetmirror)
+* [ClusterImageSetMirror](#clusterimagesetmirror)
 * [ClusterImageSetAvailability](#clusterimagesetavailability)
 
 ## (Cluster)ReplicatedImageSet
