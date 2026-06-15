@@ -60,6 +60,8 @@ export default defineConfig({
     starlight({
       title: 'kube-image-keeper',
       description: 'Documentation for kube-image-keeper (kuik), the Kubernetes operator for container image routing, mirroring, and replication.',
+      // Widen the content column beyond Starlight's narrow default (45rem).
+      customCss: ['./src/styles/custom.css'],
       logo: {
         src: './src/assets/logo.svg',
         alt: 'kube-image-keeper logo',

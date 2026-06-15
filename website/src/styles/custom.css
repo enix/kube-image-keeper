@@ -1,0 +1,5 @@
+/* Widen the documentation content area. Starlight's default content width is
+   45rem, which leaves the prose column quite narrow on large screens. */
+:root {
+  --sl-content-width: 60rem;
+}
