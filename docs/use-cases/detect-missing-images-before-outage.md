@@ -1,3 +1,7 @@
+---
+description: Monitor image availability across registries and get alerted before ImagePullBackOff reaches production.
+---
+
 # Detect missing images before outage
 
 This documentation will help you configure Kuik in order to monitor image availability, enable supervision and alerting, and therefore avoid the typical `ImagePullBackoff` error.

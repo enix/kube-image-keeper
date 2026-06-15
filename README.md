@@ -63,7 +63,7 @@ While both Custom Resources generate alternatives, their behavior differs slight
 - You have plenty of images (outdated, prior versions, development version) but only a small fraction is being used in reality
 - You would like to push only a subset of useful images to your production registry
 
-&emsp;[Implementation guide](/docs/use-case/protect-images-from-garbage-collect.md)
+&emsp;[Implementation guide](/docs/use-case/protect-images-from-garbage-collection.md)
 
 ### ✅ Automatically route images to a proxy cache registry
 

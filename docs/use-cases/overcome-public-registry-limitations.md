@@ -1,3 +1,7 @@
+---
+description: Route around rate limits and outages by replicating or mirroring the images you depend on.
+---
+
 # Overcome public registry limitations
 
 This documentation wil help you configure Kuik in order to overcome public registry limitations.
