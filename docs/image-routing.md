@@ -1,4 +1,4 @@
-# Image Routing
+# Image routing
 
 When a Pod is created, kube-image-keeper's mutating webhook evaluates every container image against the declared `(Cluster)ImageSetMirror` and `(Cluster)ReplicatedImageSet` resources. It builds an ordered list of alternative images and rewrites the container to use the first available one.
 
