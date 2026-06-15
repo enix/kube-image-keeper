@@ -7,21 +7,8 @@ sidebar:
   hidden: true
 ---
 
-import { CardGrid, LinkCard } from '@astrojs/starlight/components';
-import { getCollection } from 'astro:content';
-
-export const useCases = (await getCollection('docs', ({ id }) => id.startsWith('use-cases/') && id !== 'use-cases/index'))
-  .sort((a, b) => a.data.title.localeCompare(b.data.title));
+import UseCaseCards from '@components/UseCaseCards.astro';
 
 Each guide below walks through a real problem kuik is designed to solve, with the CRD configuration to address it.
 
-<CardGrid>
-  {useCases.map((doc) => (
-    <LinkCard
-      key={doc.id}
-      title={doc.data.title}
-      description={doc.data.description}
-      href={`/${doc.id.replace(/\.(md|mdx)$/, '')}/`}
-    />
-  ))}
-</CardGrid>
+<UseCaseCards />

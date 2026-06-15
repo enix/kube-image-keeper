@@ -15,13 +15,13 @@
 // at build and skip its own notice — expected; we render the notice ourselves.
 import Default from '@astrojs/starlight/components/PageTitle.astro';
 import { Icon } from '@astrojs/starlight/components';
+import { getCollection } from 'astro:content';
 import versionsConfig from 'virtual:starlight-versions-config';
 
 const { entry } = Astro.locals.starlightRoute;
 
 // versions[] is newest-first, so [0] is the latest stable release.
 const stable = versionsConfig.versions[0];
-const stableHref = stable ? `/${stable.slug}/` : '/';
 const stableLabel = stable ? (stable.label ?? stable.slug) : null;
 
 // Archived-version pages have an id prefixed by the version slug
@@ -41,6 +41,17 @@ if (!stable) {
   level = isLanding ? null : 'next';
 } else if (archived.slug !== stable.slug) {
   level = 'previous';
+}
+
+// Point the notice at the SAME page in the latest stable version, falling back
+// to the stable home when that page doesn't exist there (older versions lack
+// some pages — e.g. v2.2 has no resource-filtering / guides/ pages).
+let stableHref = stable ? `/${stable.slug}/` : '/';
+if (level) {
+  const docIds = new Set((await getCollection('docs')).map((d) => d.id));
+  const barePath = archived ? entry.id.slice(archived.slug.length + 1) : entry.id;
+  const targetId = barePath ? `${stable.slug}/${barePath}` : stable.slug;
+  if (docIds.has(targetId)) stableHref = `/${targetId}/`;
 }
 ---
 
