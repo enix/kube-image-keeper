@@ -1,3 +1,7 @@
+---
+description: Mirror images to a registry close to your cluster to speed up pulls and reduce egress.
+---
+
 # Better performance with local registry
 
 This documentation will help you configure Kuik in order to reroute kubernetes image pull from a distant registry to a better placed (local to your kubernetes cluster) one (basically a registry caching).
