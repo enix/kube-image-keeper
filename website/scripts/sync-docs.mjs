@@ -91,6 +91,39 @@ function liftTitlesUnder(p) {
   if (lifted !== content) writeFileSync(p, lifted);
 }
 
+// Append a directory's index file to relative *directory* links (`](./foo/)`,
+// optionally with a `#anchor`), so they resolve and validate on the site. Such
+// links are authored bare so they also work on GitHub (folder view) — the
+// website-only landing pages they point at (e.g. use-cases/index.mdx) don't
+// exist in ../docs, so a `.mdx` link would 404 on GitHub. Runs after all copies,
+// when the target index files are present.
+function postfixDirIndexLinks(filePath) {
+  if (!/\.mdx?$/.test(filePath)) return;
+  const content = readFileSync(filePath, 'utf8');
+  const fileDir = path.dirname(filePath);
+  const rewritten = content.replace(
+    /(\]\()(\.\.?\/[^)\s#]*?\/)(#[^)]*)?(\))/g,
+    (match, open, rel, anchor = '', close) => {
+      const targetDir = path.resolve(fileDir, rel);
+      for (const index of ['index.mdx', 'index.md']) {
+        if (existsSync(path.join(targetDir, index))) return `${open}${rel}${index}${anchor}${close}`;
+      }
+      return match; // no index page in that directory — leave the link as-is
+    },
+  );
+  if (rewritten !== content) writeFileSync(filePath, rewritten);
+}
+
+// Apply postfixDirIndexLinks to every .md/.mdx file under p (file or directory).
+function postfixDirIndexLinksUnder(p) {
+  const st = statSync(p);
+  if (st.isDirectory()) {
+    for (const entry of readdirSync(p)) postfixDirIndexLinksUnder(path.join(p, entry));
+    return;
+  }
+  postfixDirIndexLinks(p);
+}
+
 // Inject `slug: <slug>` into a page's frontmatter unless it already defines one.
 function injectSlug(content, slug) {
   const lines = content.split('\n');
@@ -194,6 +227,7 @@ export function syncDocs() {
   const built = versions.map((v) => `${v.slug} (${syncVersion(v)})`);
 
   liftTitlesUnder(DEST_ROOT);
+  postfixDirIndexLinksUnder(DEST_ROOT);
   console.log(
     `[sync-docs] synced current docs + ${versions.length} version(s) [${built.join(', ')}] -> ${DEST_ROOT}`,
   );
@@ -228,6 +262,7 @@ export function applySourceChange(event, file) {
       if (existsSync(fallback)) {
         cpSync(fallback, m.dest, { recursive: true });
         liftTitlesUnder(m.dest);
+        postfixDirIndexLinksUnder(m.dest);
       }
     }
     return true;
@@ -241,6 +276,7 @@ export function applySourceChange(event, file) {
   mkdirSync(path.dirname(m.dest), { recursive: true });
   cpSync(file, m.dest, { recursive: true });
   liftTitlesUnder(m.dest);
+  postfixDirIndexLinksUnder(m.dest);
   return true;
 }
 
