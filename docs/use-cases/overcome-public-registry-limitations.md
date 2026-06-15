@@ -29,6 +29,7 @@ Your Kubernetes cluster will **seamlessly** pull images from another registry an
 ```yaml
 apiVersion: kuik.enix.io/v1alpha1
 kind: ReplicatedImageSet
+metadata:
   name: x509-certificate-exporter
   namespace: monitoring
 spec:
@@ -79,7 +80,7 @@ spec:
     - image: .* # mirror all images (used in your Kubernetes clusters) to myregistry
   mirrors:
   - registry: myregistry.mydomain
-    path: /mirгог
+    path: /mirror
     credentialSecret: # KuiK will sync the secret (used as imagePullSecrets) to any namespace necessary
       name: harbor-secret
       namespace: kuik-system

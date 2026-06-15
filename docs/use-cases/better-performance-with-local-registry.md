@@ -38,7 +38,7 @@ spec:
     - image: .* # will match all images
   mirrors:
   - registry: local.custom.domain # your local, already existing registry
-    path: /mirгог
+    path: /mirror
     credentialSecret:
       name: local-registry-secret
       namespace: default

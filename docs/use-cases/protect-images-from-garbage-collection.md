@@ -38,7 +38,7 @@ spec:
     - image: "myregistry.mydomain/myproject/myimage:.+" # protect these images from aggressive garbage collect on origin registry
   mirrors:
   - registry: backup.custom.domain # an already existing (destination) registry
-    path: /mirгог
+    path: /mirror
     credentialSecret:
       name: backup-registry-secret # the secret must be located in the same namespace
   cleanup:

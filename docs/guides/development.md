@@ -27,7 +27,7 @@ make run
 
 ## Local webhook for remote cluster
 
-There are several ways of developing a webhook for kubernetes and depending on your situation you may prefer one over another. One of them consist in running your webhook locally (using `make run` command) and expose it as a service in your kubernetes cluster using a tool like [github.com/omrikiei/ktunnel](https://github.com/omrikiei/ktunnel) for instance. Since `MutatingWebhookConfiguration` requires a certificate for authentication, you will need to create one using cert-manager.
+There are several ways of developing a webhook for kubernetes and depending on your situation you may prefer one over another. One of them consists of running your webhook locally (using `make run` command) and expose it as a service in your kubernetes cluster using a tool like [github.com/omrikiei/ktunnel](https://github.com/omrikiei/ktunnel) for instance. Since `MutatingWebhookConfiguration` requires a certificate for authentication, you will need to create one using cert-manager.
 
 You will need:
 
@@ -116,7 +116,7 @@ spec:
 
 ## Simulate unreachable registry with a CiliumNetworkPolicy
 
-If you have kube-image-keeper runnning in a cluster with Cilium as CNI, you can easilly simulate an unreachable registry with a CiliumNetworkPolicy targeting the kuik manager (which perform the active check to know if an image is available).
+If you have kube-image-keeper running in a cluster with Cilium as CNI, you can easily simulate an unreachable registry with a CiliumNetworkPolicy targeting the kuik manager (which perform the active check to know if an image is available).
 
 For example:
 
@@ -182,4 +182,4 @@ In this example we allow:
 - egress to apiserver
 - egress from some FQDN to allow specific registries
 
-Any registry (including it's redirections) not present in the `toFQDNs` list will not be rechable by kuik and will result in a `registry unreachable`. So you can play with this to quickly simulate unreachable registry without impacting you whole cluster.
+Any registry (including its redirections) not present in the `toFQDNs` list will not be reachable by kuik and will result in a `registry unreachable`. So you can play with this to quickly simulate unreachable registry without impacting your whole cluster.
