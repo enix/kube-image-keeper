@@ -27,7 +27,7 @@ make run
 
 ## Local webhook for remote cluster
 
-There are several ways of developing a webhook for kubernetes and depending on your situation you may prefer one over another. One of them consist in running your webhook locally (using `make run` command) and expose it as a service in your kubernetes cluster using a tool like [https://github.com/omrikiei/ktunnel](omrikiei/ktunnel) for instance. Since `MutatingWebhookConfiguration` requires a certificate for authentication, you will need to create one using cert-manager.
+There are several ways of developing a webhook for kubernetes and depending on your situation you may prefer one over another. One of them consist in running your webhook locally (using `make run` command) and expose it as a service in your kubernetes cluster using a tool like [ktunnel](https://github.com/omrikiei/ktunnel) for instance. Since `MutatingWebhookConfiguration` requires a certificate for authentication, you will need to create one using cert-manager.
 
 You will need:
 
