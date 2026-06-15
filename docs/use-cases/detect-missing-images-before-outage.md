@@ -17,7 +17,7 @@ You will be able to rebuild your registry in advance, and avoid `ImagePullBackof
 
 ### Kuik custom resource to use
 
-- [ClusterImageSetAvailability](/docs/crds.md#clusterimagesetavailability)
+- [ClusterImageSetAvailability](../crds.md#clusterimagesetavailability)
 
 ### Configuration example
 

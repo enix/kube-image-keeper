@@ -38,7 +38,7 @@ kubectl -n kuik-system create secret docker-registry my-registry-secret --docker
 
 - Either you will let kuik progressively populate your new registry as you re-deploy images or if you have image that no longer exist upstream, you can use a tool like [regsync](https://regclient.org/usage/regsync/) to copy images from kuik v1 registry to your new one
 - Uninstall KuiK v1 and install KuiK v2
-- Create a [*ClusterImageSetMirror*](/docs/crds.md#clusterimagesetmirror) which mirror all images and force rewrite in any case as in kuik v1:
+- Create a [*ClusterImageSetMirror*](./crds.md#clusterimagesetmirror) which mirror all images and force rewrite in any case as in kuik v1:
 
 ```yaml
 apiVersion: kuik.enix.io/v1alpha1

@@ -1,0 +1,33 @@
+{
+  "sidebar": [
+    {
+      "label": "Home",
+      "link": "/"
+    },
+    {
+      "label": "Configuration",
+      "items": [
+        "configuration",
+        "image-routing",
+        "crds"
+      ]
+    },
+    {
+      "label": "Use cases",
+      "items": [
+        {
+          "autogenerate": {
+            "directory": "use-cases"
+          }
+        }
+      ]
+    },
+    {
+      "label": "Guides",
+      "items": [
+        "development",
+        "v1-to-v2-migration-path"
+      ]
+    }
+  ]
+}
