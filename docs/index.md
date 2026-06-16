@@ -33,7 +33,7 @@ kuik operates as a lightweight _MutatingWebhook_ that automatically rewrites ima
 
 It relies on three core mechanisms:
 - [**Image routing**](/concepts/image-routing/): rewrites Pod image paths on the fly during their creation to redirect them to a functional registry.
-- **Image copy**: mirror images between registries to build a virtual, highly available registry.
+- **Image copy**: mirror images **used by the local cluster** accross registries, building a virtual, highly available registry.
 - **Image monitoring**: continuously tracks the availability of Pod images **used within the local cluster** across various registries.
 
 Developed by Enix, kube-image-keeper is a battle-tested solution currently running in production across multiple Kubernetes clusters.
