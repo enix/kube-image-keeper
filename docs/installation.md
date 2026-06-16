@@ -5,7 +5,7 @@ sidebar:
 
 # Installation
 
-We rely on [cert-manager Custom Resources](./helm/kube-image-keeper/templates/webhook-certificate.yaml) to manage the kuik mutating webhook certificate, so you need to [install it first](https://cert-manager.io/docs/installation/).
+We rely on [cert-manager Custom Resources](https://github.com/enix/kube-image-keeper/tree/main/helm/kube-image-keeper/templates/webhook-certificate.yaml) to manage the kuik mutating webhook certificate, so you need to [install it first](https://cert-manager.io/docs/installation/).
 
 ```bash
 VERSION=2.2.3
