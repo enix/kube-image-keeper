@@ -7,10 +7,10 @@ description: Container image routing, mirroring and replication for Kubernetes.
 template: doc
 pagefind: false
 hero:
-  tagline: kuik (pronounced "quick") keeps your container images available, routed and replicated across registries.
+  tagline: kuik (pronounced /kwɪk/, like "quick") is the shortname of kube-image-keeper.
   actions:
     - text: Get started
-      link: /configuration/
+      link: /installation/
       icon: right-arrow
       variant: primary
     - text: View on GitHub
@@ -23,13 +23,24 @@ hero:
 
 ## What is kuik?
 
-**kube-image-keeper** (kuik) is a Kubernetes operator providing container image routing, mirroring (caching) and replication. It intercepts Pod creation via a mutating webhook and rewrites container images to the first available alternative from a prioritized list defined via CRDs.
+✅ Its primary objective is to **maximize the availability of Pod images** within a Kubernetes cluster.
+
+✅ Its secondary goal is to ensure **bulletproof reliability** by keeping the manipulation of Kubernetes primitives to an absolute minimum.
+
+## Under the hood
+
+kuik operates as a lightweight webhook that automatically rewrites image paths whenever the source registry becomes unavailable.
+
+It relies on three core mechanisms:
+- [**Image routing**](/concepts/image-routing/): rewrites Pod image paths on the fly to redirect them to a functional registry.
+- **Image copy**: mirror images between registries to build a virtual, highly available registry.
+- **Image monitoring**: continuously tracks the availability of Pod images across various registries.
+
+Developed by Enix, kube-image-keeper is a battle-tested solution currently running in production across multiple Kubernetes clusters.
 
 ## Explore the docs
 
 - A detailed explanation of all [Kuik Custom Resources](./crds.md)
 - A reference for the [operator configuration file](./configuration.md) (routing, monitoring, metrics)
-- Kuik manages multiple alternatives of an image and selects the best-suited one. You might want to learn more about the [Priority mechanism](./image-routing.md)
-- A migration path from [Kuik v1 to Kuik v2](./guides/v1-to-v2-migration-path.md)
 - A collection of documented [use cases](./use-cases/)
 - A [development guide](./guides/development.md)

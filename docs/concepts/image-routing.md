@@ -195,4 +195,4 @@ To honor priorities for `Always` containers as well (for example, in clusters wh
 
 Containers with `imagePullPolicy: Never` are skipped entirely by default; this can be flipped with `routing.rewriteOnNeverImagePullPolicy: true`.
 
-See the full [operator configuration reference](./configuration.md) for the list of all supported fields, their defaults, and the precedence rules.
+See the full [operator configuration reference](/configuration/) for the list of all supported fields, their defaults, and the precedence rules.

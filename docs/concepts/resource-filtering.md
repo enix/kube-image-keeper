@@ -60,7 +60,7 @@ This makes the filter a faithful superset of the per-dimension filters it replac
 > [!WARNING]
 > **About annotation values:** equality matches (`key=value`) require values that conform to DNS-1123 label-value syntax (≤ 63 chars, alphanumeric, `-`, `_`, `.`). For free-form annotation values (URLs, JSON blobs, long strings) use presence (`key`) or absence (`!key`).
 
-The same selector syntax also drives the operator's cluster-wide skip list (`skipLabels` / `skipAnnotations` in the [operator configuration](./configuration.md#skiplabels--skipannotations)), which is exclude-only and applies before any CR is consulted, taking precedence over all per-CR filters.
+The same selector syntax also drives the operator's cluster-wide skip list (`skipLabels` / `skipAnnotations` in the [operator configuration](/configuration/#skiplabels--skipannotations)), which is exclude-only and applies before any CR is consulted, taking precedence over all per-CR filters.
 
 ## Per-upstream image filtering on `(Cluster)ReplicatedImageSet`
 

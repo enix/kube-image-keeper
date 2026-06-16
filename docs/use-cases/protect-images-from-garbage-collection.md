@@ -1,5 +1,7 @@
 ---
 description: Back up the images currently used by running Pods to a second registry before upstream garbage collection removes them.
+sidebar:
+  order: 3
 ---
 
 # Protect images from garbage collection

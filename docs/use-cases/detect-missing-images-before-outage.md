@@ -1,5 +1,7 @@
 ---
 description: Monitor image availability across registries and get alerted before ImagePullBackOff reaches production.
+sidebar:
+  order: 1
 ---
 
 # Detect missing images before outage
