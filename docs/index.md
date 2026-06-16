@@ -23,18 +23,18 @@ hero:
 
 ## What is kuik?
 
-✅ Its primary objective is to **maximize the availability of Pod images** within a Kubernetes cluster.
+✅ Its primary objective is to **maximize the availability of Pod images** strictly within the Kubernetes cluster it runs on.
 
 ✅ Its secondary goal is to ensure **bulletproof reliability** by keeping the manipulation of Kubernetes primitives to an absolute minimum.
 
 ## Under the hood
 
-kuik operates as a lightweight webhook that automatically rewrites image paths whenever the source registry becomes unavailable.
+kuik operates as a lightweight _MutatingWebhook_ that automatically rewrites image paths **exclusively at Pod creation** whenever the source registry becomes unavailable.
 
 It relies on three core mechanisms:
-- [**Image routing**](/concepts/image-routing/): rewrites Pod image paths on the fly to redirect them to a functional registry.
+- [**Image routing**](/concepts/image-routing/): rewrites Pod image paths on the fly during their creation to redirect them to a functional registry.
 - **Image copy**: mirror images between registries to build a virtual, highly available registry.
-- **Image monitoring**: continuously tracks the availability of Pod images across various registries.
+- **Image monitoring**: continuously tracks the availability of Pod images **used within the local cluster** across various registries.
 
 Developed by Enix, kube-image-keeper is a battle-tested solution currently running in production across multiple Kubernetes clusters.
 
