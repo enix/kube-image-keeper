@@ -76,7 +76,7 @@ Cluster-wide pod skip lists. Pods whose labels or annotations match any entry ar
 | `skipLabels` | []string | `[]` |
 | `skipAnnotations` | []string | `[]` |
 
-Both fields are skip-only (no include counterpart). The selector syntax is the same as the `label` / `annotation` items of `spec.filter` on individual CRDs — see [Label and annotation selector syntax](./resource-filtering.md#label-and-annotation-selector-syntax) in the resource-filtering guide for full syntax reference. A typo causes the operator to fail at startup (fail-fast).
+Both fields are skip-only (no include counterpart). The selector syntax is the same as the `label` / `annotation` items of `spec.filter` on individual CRDs — see [Label and annotation selector syntax](/concepts/resource-filtering/#label-and-annotation-selector-syntax) in the resource-filtering guide for full syntax reference. A typo causes the operator to fail at startup (fail-fast).
 
 ### Migrating from KuiK v1
 
