@@ -1,5 +1,7 @@
 ---
 description: Route around rate limits and outages by replicating or mirroring the images you depend on.
+sidebar:
+  order: 2
 ---
 
 # Overcome public registry limitations

@@ -109,11 +109,14 @@ export default defineConfig({
         {
           label: 'Configuration',
           items: [
-            'configuration',
-            'image-routing',
-            'resource-filtering',
+            'installation',
             'crds',
+            'configuration',
           ],
+        },
+        {
+          label: 'Concepts',
+          items: [{ autogenerate: { directory: 'concepts' } }],
         },
         {
           label: 'Use cases',
