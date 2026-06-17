@@ -21,7 +21,7 @@ The site requires **Node.js 24** (matching the CI `withastro/action` config); th
 The site serves multiple documentation versions via the [`starlight-versions`](https://starlight-versions.vercel.app) plugin. The set of versions is declared once in [`versions.mjs`](./versions.mjs) and consumed by both [`astro.config.mjs`](./astro.config.mjs) (which feeds `{ slug, label }` to the plugin) and [`scripts/sync-docs.mjs`](./scripts/sync-docs.mjs) (which sources each version's content).
 
 - The **current** version (labelled `main` in the version picker) is the live `../docs` tree, served at the site root (`/configuration/`, `/crds/`, …).
-- Each **archived** version's docs live on a dedicated **git branch** (`ref` in `versions.mjs`, e.g. `docs/v2.2`) and are served under the version slug (`/2.2/configuration/`, …). There is **no committed copy** of the versioned docs in this branch.
+- Each **archived** version's docs live on that version's **maintenance branch** (`ref` in `versions.mjs`, e.g. `2.2.x`) and are served under the version slug (`/2.2/configuration/`, …). There is **no committed copy** of the versioned docs in this branch. The maintenance branch also carries the release-line code, so a version has a single branch for both docs and code, and doc fixes are ordinary commits there.
 
 At build time, `sync-docs` generates the gitignored collection dirs:
 
@@ -29,7 +29,7 @@ At build time, `sync-docs` generates the gitignored collection dirs:
 - That branch also carries `docs/version-config.json` (the version's Starlight sidebar); `sync-docs` lifts it into `src/content/versions/<slug>.json` (the `versions` content collection, see [`src/content.config.ts`](./src/content.config.ts)) and does not render it as a page. Sidebar slugs in it are relative to the version (`"configuration"`, not `"2.2/…"`); the plugin prepends the version slug.
 - The website-only [`src/content/overlay/`](./src/content/overlay/) pages (currently the use-cases landing `use-cases/index.mdx`) are copied into **every** version, not just the current one (the homepage is a normal `../docs/index.md` page, so it is per-version automatically). Note the use-cases landing's `getCollection` is not version-scoped, so each version's `/…/use-cases/` index currently lists the **current** version's use cases — the per-version use-case pages themselves are correct and in the sidebar.
 
-Because every configured version already has its docs on disk at build time, the plugin never triggers its built-in "archive the current docs" behaviour. The build therefore needs git history for the version branches — CI's checkout uses `fetch-depth: 0` (see [`.github/workflows/website.yaml`](../.github/workflows/website.yaml)).
+Because every configured version already has its docs on disk at build time, the plugin never triggers its built-in "archive the current docs" behaviour. The build therefore needs git history for the maintenance branches — CI's checkout uses `fetch-depth: 0` (see [`.github/workflows/website.yaml`](../.github/workflows/website.yaml)).
 
 ### Version messaging (main = in-development, archived slugs = stable)
 
@@ -60,21 +60,21 @@ results".
 
 To publish version `X.Y` (e.g. when cutting a release):
 
-1. Create a long-lived **`docs/vX.Y` branch** whose `docs/` directory holds that version's documentation, typically branched from the release tag:
+1. Create the version's **maintenance branch `X.Y.x`** from the release tag (this is the same branch that semantic-release publishes maintenance releases from — see the `branches` glob in [`.releaserc.json`](../.releaserc.json)):
 
    ```bash
-   git switch -c docs/vX.Y vX.Y.Z
+   git switch -c X.Y.x vX.Y.Z
    ```
 
-2. In that branch's `docs/`, add a **`version-config.json`** with the Starlight sidebar for the version (slugs relative to the version, e.g. `"configuration"`, not `"X.Y/…"`). Leave the markdown as plain GitHub docs — **no `slug:` frontmatter** (the build injects it). Fix any links the validator later rejects (repo-root links like `/docs/crds.md#x` become relative `../crds.md#x`), then commit and `git push -u origin docs/vX.Y`.
+2. In that branch's `docs/`, add a **`version-config.json`** with the Starlight sidebar for the version (slugs relative to the version, e.g. `"configuration"`, not `"X.Y/…"`). Leave the markdown as plain GitHub docs — **no `slug:` frontmatter** (the build injects it). Fix any links the validator later rejects (repo-root links like `/docs/crds.md#x` become relative `../crds.md#x`), then commit and `git push -u origin X.Y.x`.
 
 3. Register the version in [`versions.mjs`](./versions.mjs):
 
    ```js
    export const versions = [
-     { slug: 'X.Y', label: 'vX.Y', ref: 'docs/vX.Y' },
-     { slug: '2.2', label: 'v2.2', ref: 'docs/v2.2' },
+     { slug: 'X.Y', label: 'vX.Y', ref: 'X.Y.x' },
+     { slug: '2.2', label: 'v2.2', ref: '2.2.x' },
    ];
    ```
 
-4. `npm run build` (with the branch fetched locally) — the link validator checks every version's pages. To update a published version later, commit to its branch and redeploy; no re-tagging needed.
+4. `npm run build` (with the branch fetched locally) — the link validator checks every version's pages. To update a published version later, commit the doc fix to its maintenance branch and redeploy; no re-tagging needed.
