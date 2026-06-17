@@ -75,7 +75,8 @@ jobs:
       REPO_IMAGE: ${{ vars.REPO_IMAGE }}
       REPO_CHART: ${{ vars.REPO_CHART }}
       VERSION: ${{ needs.semver.outputs.version }}
-      PRERELEASE: ${{ needs.semver.outputs.channel != '' }}
+      PRERELEASE: ${{ needs.semver.outputs.channel == 'beta' }}
+      IS_LATEST: ${{ needs.semver.outputs.channel == '' }}
     secrets:
       REPO_LOGIN: ${{ secrets.QUAY_USERNAME }}
       REPO_TOKEN: ${{ secrets.QUAY_ROBOT_TOKEN }}
