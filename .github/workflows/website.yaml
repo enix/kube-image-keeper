@@ -4,10 +4,13 @@ on:
   push:
     branches:
       - main
-      # Versioned-docs branches: pushing one redeploys the site so the archived
-      # version it backs is refreshed (see website/versions.mjs). The build
-      # always runs against main's website config (see the checkout ref below).
-      - "docs/v*"
+      # Maintenance branches (X.Y.x): pushing one redeploys the site so the
+      # archived version it backs is refreshed (see website/versions.mjs). The
+      # build always runs against main's website config (see the checkout ref
+      # below). The pattern mirrors the maintenance-branch glob in
+      # .releaserc.json; GitHub filter syntax can't express extglob, so this is
+      # its closest equivalent.
+      - "[0-9]*.x"
     paths:
       - "website/**"
       - "docs/**"
@@ -32,17 +35,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-        # fetch-depth: 0 fetches all branches/tags so the build can source each
-        # archived version's docs via `git archive <ref> docs` (see
-        # website/versions.mjs and website/scripts/sync-docs.mjs).
-        #
-        # On a docs/v* push, build from main: the site's structure (website
-        # config, versions list, current docs) always comes from main, while the
-        # pushed version branch is sourced via git archive. Other events use the
-        # default ref (empty string).
         with:
+          # fetch-depth: 0 fetches all branches/tags so the build can source each
+          # archived version's docs via `git archive <ref> docs` (see
+          # website/versions.mjs and website/scripts/sync-docs.mjs).
           fetch-depth: 0
-          ref: ${{ startsWith(github.ref, 'refs/heads/docs/v') && 'main' || '' }}
+          # On a maintenance-branch push, build from main: the site's structure
+          # (website config, versions list, current docs) always comes from main,
+          # while the pushed version branch is sourced via git archive. A push to
+          # any branch other than main is necessarily a maintenance branch (the
+          # push filter above only admits main + X.Y.x). Pull requests use the
+          # default ref (empty string).
+          ref: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' && 'main' || '' }}
 
       - name: Install, build, and upload your site
         uses: withastro/action@v6
@@ -56,9 +60,11 @@ jobs:
     permissions:
       pages: write
       id-token: write
-    # Deploy on pushes to main and to versioned-docs branches (docs/v*); pull
-    # requests get build-only validation.
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/docs/v'))
+    # Deploy on pushes to main and to maintenance branches (X.Y.x); pull
+    # requests get build-only validation. The push filter above already
+    # restricts pushes to those branches, so the event being a push is
+    # sufficient.
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
