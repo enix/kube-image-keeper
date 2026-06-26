@@ -423,12 +423,18 @@ func (r *ImageSetMirrorBaseReconciler) mirrorImage(ctx context.Context, namespac
 		return err
 	}
 
-	destSecrets := make([]corev1.Secret, 1)
-	if secret, err := r.getImageSecretFromMirrors(ctx, to.Image, namespace, mirrors); err != nil {
+	destSecret, err := r.getImageSecretFromMirrors(ctx, to.Image, namespace, mirrors)
+	if err != nil {
 		return err
-	} else if secret != nil {
-		destSecrets[0] = *secret
 	}
+
+	destSecrets := []corev1.Secret{}
+	if destSecret != nil {
+		destSecrets = append(destSecrets, *destSecret)
+	}
+
+	// destSecrets is now safe to pass to WithPullSecrets().
+	// If empty, ambient Workload Identity will take over for the push operation.
 
 	defer func() {
 		if err != nil {
@@ -467,16 +473,19 @@ func (r *ImageSetMirrorBaseReconciler) cleanupMirror(ctx context.Context, image,
 	if err != nil {
 		log.Error(err, "could not read secret for image deletion")
 		return false
-	} else if secret == nil {
-		log.V(1).Info("no secret is configured for deleting image, ignoring")
-		return true
+	}
+	// Prepare a slice for secrets. If nil, it stays empty,
+	// triggering our new ambient fallback in GetKeychains().
+	secrets := []corev1.Secret{}
+	if secret != nil {
+		secrets = append(secrets, *secret)
 	}
 
-	if err := registry.NewClient(nil, nil).WithPullSecrets([]corev1.Secret{*secret}).DeleteImage(ctx, image); err != nil {
+	// FIX: Use registry.NewClient(nil, nil) instead of r.RegistryClient
+	if err := registry.NewClient(nil, nil).WithPullSecrets(secrets).DeleteImage(ctx, image); err != nil {
 		log.Error(err, "could not delete image")
 		return false
 	}
-
 	return true
 }
 
