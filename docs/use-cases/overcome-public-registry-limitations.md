@@ -11,7 +11,7 @@ This documentation will help you configure Kuik in order to overcome public regi
 - You face an image pull rate limit
 - Your upstream registry is no longer available
 - Your images are already pushed to multiple registries
-  - or, you can replicate thanks to Kuik using a [ImageSetMirror](../crds.md#clusterimagesetmirror)
+  - or, you can replicate thanks to Kuik using an [ImageSetMirror](../crds.md#clusterimagesetmirror)
 
 ## Benefits
 
