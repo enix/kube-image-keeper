@@ -347,19 +347,18 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 		container.Image = alternativeImage.Reference
 
 		if alternativeImage.ImagePullSecret != nil {
-			if !dryRun {
-				if err := d.ensureSecret(ctx, pod.Namespace, alternativeImage); err != nil {
-					return err
-				}
+			target, err := d.ensureSecret(ctx, pod.Namespace, alternativeImage, !dryRun)
+			if err != nil {
+				return err
 			}
 
 			// Inject rerouted image pull secret if not already present in the pod
 			containsAlternativeSecret := slices.ContainsFunc(pod.Spec.ImagePullSecrets, func(localObjectReference corev1.LocalObjectReference) bool {
-				return localObjectReference.Name == alternativeImage.ImagePullSecret.Name
+				return localObjectReference.Name == target.Name
 			})
 			if !containsAlternativeSecret {
 				pod.Spec.ImagePullSecrets = append(pod.Spec.ImagePullSecrets, corev1.LocalObjectReference{
-					Name: alternativeImage.ImagePullSecret.Name,
+					Name: target.Name,
 				})
 			}
 		}
@@ -672,13 +671,17 @@ func (d *PodCustomDefaulter) patchMirror(ctx context.Context, obj client.Object,
 	return nil
 }
 
-func (d *PodCustomDefaulter) ensureSecret(ctx context.Context, namespace string, alternativeImage *AlternativeImage) error {
+// ensureSecret returns the secret whose name must be injected into the pod's
+// imagePullSecrets for the given namespace. When the source secret already lives
+// in the target namespace it is returned as-is. Otherwise a namespaced copy is
+// computed; when write is true the copy is created/updated in the cluster.
+func (d *PodCustomDefaulter) ensureSecret(ctx context.Context, namespace string, alternativeImage *AlternativeImage, write bool) (*corev1.Secret, error) {
 	secret := alternativeImage.ImagePullSecret
 	owner := alternativeImage.SecretOwner
 
 	// We don't need to recreate the secret if it is already in the right namespace
 	if namespace == secret.Namespace {
-		return nil
+		return secret, nil
 	}
 
 	ownerUID := string(owner.GetUID())
@@ -688,9 +691,13 @@ func (d *PodCustomDefaulter) ensureSecret(ctx context.Context, namespace string,
 		Namespace: namespace,
 	}}
 
+	if !write {
+		return target, nil
+	}
+
 	gvk, err := apiutil.GVKForObject(owner, d.Scheme())
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	_, err = controllerutil.CreateOrUpdate(ctx, d.Client, target, func() error {
@@ -705,10 +712,11 @@ func (d *PodCustomDefaulter) ensureSecret(ctx context.Context, namespace string,
 		}
 		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
 
-	alternativeImage.ImagePullSecret = target
-
-	return err
+	return target, nil
 }
 
 func (c *Container) addAlternative(reference string, credentialSecret *kuikv1alpha1.CredentialSecret, secretOwner client.Object) {

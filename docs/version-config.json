@@ -26,7 +26,8 @@
       "label": "Guides",
       "items": [
         "development",
-        "v1-to-v2-migration-path"
+        "v1-to-v2-migration-path",
+        "troubleshooting"
       ]
     }
   ]

@@ -33,3 +33,4 @@ hero:
 - A migration path from [Kuik v1 to Kuik v2](./v1-to-v2-migration-path.md)
 - A collection of documented [use cases](./use-cases/)
 - A [development guide](./development.md)
+- A [troubleshooting guide](./troubleshooting.md) for common operational issues

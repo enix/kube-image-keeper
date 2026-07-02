@@ -3,6 +3,7 @@ package v1
 import (
 	"context"
 	"slices"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -103,6 +104,54 @@ var _ = Describe("Pod Webhook", func() {
 			By("preserving the original-images annotation (proves the mirror guard did not fire)")
 			Expect(pod.Annotations).To(HaveKeyWithValue("kuik.enix.io/original-images", `{"app":"docker.io/library/nginx:1.27"}`))
 		})
+	})
+})
+
+var _ = Describe("ensureSecret", func() {
+	// Regression test for issue #604: the AlternativeImage is shared through
+	// alternativeCache across every pod and namespace. ensureSecret must never
+	// overwrite its ImagePullSecret with a namespaced copy, otherwise the next
+	// namespace re-copies that copy and prepends another "kuik-" prefix, growing
+	// the secret name unboundedly (kuik-kuik-kuik-...).
+	It("does not mutate the shared AlternativeImage across namespaces", func() {
+		defaulter := &PodCustomDefaulter{}
+		source := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "enix-harbor-global", Namespace: "kuik-system"},
+		}
+		owner := &kuikv1alpha1.ClusterImageSetMirror{
+			ObjectMeta: metav1.ObjectMeta{Name: "enix-harbor-global", UID: "some-uid"},
+		}
+		alt := &AlternativeImage{ImagePullSecret: source, SecretOwner: owner}
+
+		// First namespace: single "kuik-" prefix, source untouched.
+		target1, err := defaulter.ensureSecret(context.Background(), "ns-foo", alt, false)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(target1.Name).To(HavePrefix("kuik-enix-harbor-global-"))
+		Expect(strings.Count(target1.Name, "kuik-")).To(Equal(1))
+		Expect(alt.ImagePullSecret).To(BeIdenticalTo(source))
+
+		// Second namespace reuses the same (untouched) source, so the name stays
+		// single-prefixed and deterministic rather than becoming kuik-kuik-...
+		target2, err := defaulter.ensureSecret(context.Background(), "ns-bar", alt, false)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(strings.Count(target2.Name, "kuik-")).To(Equal(1))
+		Expect(target2.Name).To(Equal(target1.Name))
+		Expect(alt.ImagePullSecret).To(BeIdenticalTo(source))
+	})
+
+	It("returns the source secret unchanged when it already lives in the target namespace", func() {
+		defaulter := &PodCustomDefaulter{}
+		source := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "enix-harbor-global", Namespace: "kuik-system"},
+		}
+		alt := &AlternativeImage{
+			ImagePullSecret: source,
+			SecretOwner:     &kuikv1alpha1.ClusterImageSetMirror{ObjectMeta: metav1.ObjectMeta{UID: "some-uid"}},
+		}
+
+		target, err := defaulter.ensureSecret(context.Background(), "kuik-system", alt, false)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(target).To(BeIdenticalTo(source))
 	})
 })
 
