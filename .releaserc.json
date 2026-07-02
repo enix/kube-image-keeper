@@ -38,6 +38,10 @@
     },
     {
       "name": "release"
+    },
+    {
+      "name": "2.3.0-rc",
+      "prerelease": "rc"
     }
   ]
 }
