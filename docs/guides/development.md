@@ -1,5 +1,7 @@
 # Development
 
+kuik uses [cert-manager](https://cert-manager.io/docs/installation/) to issue and configure its webhook certificate, so you need it installed on your cluster first.
+
 ```bash
 # generate CRDs definitions from go code and install them on the cluster you're connected to
 make install

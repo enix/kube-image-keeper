@@ -33,7 +33,7 @@ kuik v2 is a **complete rewrite** of the project with a focus on **simplicity** 
 ### Concept : Container image alternative
 
 KuiK utilizes a **mutating webhook** to rewrite Pod container images when the primary ("original") source is not available.
-By leveraging [*ImageSetMirror* or *ReplicatedImageSet*](docs/crds.md) Custom Resources, Kuik generates a list of **alternative** image locations (including the **original** one). It then validates their availability to determine whether to stick with the **original** image or rewrite the manifest to a healthy alternative.
+By leveraging [*ImageSetMirror* or *ReplicatedImageSet*](./docs/crds.md) Custom Resources, Kuik generates a list of **alternative** image locations (including the **original** one). It then validates their availability to determine whether to stick with the **original** image or rewrite the manifest to a healthy alternative.
 
 While both Custom Resources generate alternatives, their behavior differs slightly:
 
@@ -47,7 +47,7 @@ While both Custom Resources generate alternatives, their behavior differs slight
 - You face an image pull rate limit
 - Your upstream registry is no longer available
 
-&emsp;[Implementation guide](/docs/use-case/overcome-public-registry-limitations.md)
+&emsp;[Implementation guide](./docs/use-cases/overcome-public-registry-limitations.md)
 
 ### ✅ Detect missing images before outage
 
@@ -55,7 +55,7 @@ While both Custom Resources generate alternatives, their behavior differs slight
 - You plan a Kubernetes upgrade
 - You have a lot of legacy images deployed on your cluster
 
-&emsp;[Implementation guide](/docs/use-case/detect-missing-images-before-outage.md)
+&emsp;[Implementation guide](./docs/use-cases/detect-missing-images-before-outage.md)
 
 ### ✅ Protect images from garbage collect
 
@@ -63,14 +63,14 @@ While both Custom Resources generate alternatives, their behavior differs slight
 - You have plenty of images (outdated, prior versions, development version) but only a small fraction is being used in reality
 - You would like to push only a subset of useful images to your production registry
 
-&emsp;[Implementation guide](/docs/use-case/protect-images-from-garbage-collection.md)
+&emsp;[Implementation guide](./docs/use-cases/protect-images-from-garbage-collection.md)
 
 ### ✅ Automatically route images to a proxy cache registry
 
 - You already have setup a proxy cache registry (like Harbor or Gitlab proxy cache) but do not know how to use it
 - You do not want to review all workloads deployments (and change their image path)
 
-&emsp;[Implementation guide](/docs/use-case/automatically-route-images-to-a-proxy-cache-registry.md)
+&emsp;[Implementation guide](./docs/use-cases/automatically-route-images-to-a-proxy-cache-registry.md)
 
 ### ✅ Better performance with local registry
 
@@ -79,16 +79,16 @@ While both Custom Resources generate alternatives, their behavior differs slight
 - Image pull from Kubernetes are too slow / long.
 - Your source registry is too far away (from a network / geographic / latency standpoint) from the Kubernetes cluster
 
-&emsp;[Implementation guide](/docs/use-case/better-performance-with-local-registry.md)
+&emsp;[Implementation guide](./docs/use-cases/better-performance-with-local-registry.md)
 
 ## 📘 Documentation
 
-- A detailed explanation of all [Kuik Custom Resources](docs/crds.md)
-- A reference for the [operator configuration file](docs/configuration.md) (routing, monitoring, metrics)
-- Kuik manages multiple alternatives of an image and selects the best-suited one. You might want to learn more about the [Priority mechanism](docs/image-routing.md)
-- A preliminary migration path from [Kuik v1 to Kuik v2](docs/v1-to-v2-migration-path.md)
+- A detailed explanation of all [Kuik Custom Resources](./docs/crds.md)
+- A reference for the [operator configuration file](./docs/configuration.md) (routing, monitoring, metrics)
+- Kuik manages multiple alternatives of an image and selects the best-suited one. You might want to learn more about the [Priority mechanism](./docs/image-routing.md)
+- A preliminary migration path from [Kuik v1 to Kuik v2](./docs/guides/v1-to-v2-migration-path.md)
 - A collection of documented [use cases](#when-to-use-kube-image-keeper)
-- A [development guide](docs/development.md)
+- A [development guide](./docs/guides/development.md)
 
 ## 📅 Releases & Roadmap
 

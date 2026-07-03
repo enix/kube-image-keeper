@@ -4,9 +4,9 @@ Thank you for considering contributing to kube-image-keeper! Before you start co
 
 ## Getting started
 
-### Installation
+### Run kuik locally
 
-Before contributing to kube-image-keeper, ensure you have all prerequisites installed. They are detailed in the [prerequisites](./README.md#prerequisites) section of the readme. You can then install kube-image-keeper following the [installation instructions](./README.md#installation).
+Before contributing to kube-image-keeper, you need a Kubernetes cluster with [cert-manager](https://cert-manager.io/docs/installation/) installed (kuik uses it to issue its webhook certificate). See the [development guide](./docs/guides/development.md) for how to run kube-image-keeper locally.
 
 ### Git hooks (lefthook)
 

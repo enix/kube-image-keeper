@@ -1,3 +1,10 @@
+# Don't lint generated/ignored content (e.g. website/src/content/docs, which is
+# synced from ../docs + the version branches and is gitignored).
+gitignore: true
+customRules:
+  - markdownlint-rule-search-replace
+  # Validates that relative links/images resolve to real files and heading anchors on disk.
+  - markdownlint-rule-relative-links
 config:
   MD013: false # Line length
   MD033: false # Inline HTML
@@ -5,3 +12,31 @@ config:
     siblings_only: true
   MD060:
     style: compact
+  relative-links: true
+  search-replace:
+    rules:
+      # Bare intra-repo links must be ./ or ../ prefixed; the bare form is ambiguous
+      # to marksman. Auto-fixable: prepending ./ is behaviour-preserving on GitHub.
+      # The lookahead skips URI schemes (http:, mailto:, tel: ...), root-absolute
+      # and already-relative paths, anchors and queries; root-absolute links are
+      # reported by no-root-absolute-links below.
+      - name: bare-links-need-dot-prefix
+        message: "Prefix intra-repo links with ./ or ../"
+        searchPattern: "/\\]\\(((?![a-zA-Z][a-zA-Z0-9+.-]*:|\\/|\\.\\.?\\/|#|\\?)[^)\\s]+)\\)/g"
+        replace: "](./$1)"
+      # No root-absolute intra-repo links of any kind (`/docs/x.md`, `/concepts/x/`,
+      # `/img/x.png`): the GitHub repo root and the Starlight site root differ, so a
+      # root-absolute link resolves to the wrong place in one context or the other.
+      # Report-only: the right relative path (./ vs ../) depends on the source file's
+      # location. The (?!/) guard leaves protocol-relative URLs (//cdn.example.com).
+      - name: no-root-absolute-links
+        message: "Use a relative ./ or ../ link, not a root-absolute /path (breaks across GitHub and the Starlight site)"
+        searchPattern: "/\\]\\(\\/(?!\\/)[^)]*\\)/g"
+      # No absolute github.com URLs into this repo's own files (blob/tree/raw): use a
+      # relative ./ or ../ link so it stays valid across forks/branches. Exception:
+      # links pinned to a specific version (a commit SHA or a vX.Y.Z / X.Y.Z tag)
+      # are stable permalinks and allowed; mutable refs (main, maintenance branches
+      # like 2.3.x) are rejected.
+      - name: no-unpinned-repo-urls
+        message: "Use a relative link, or pin to a commit/tag — no absolute repo URLs on a mutable ref like main"
+        searchPattern: "/\\]\\(https?:\\/\\/github\\.com\\/enix\\/kube-image-keeper\\/(blob|tree|raw)\\/(?!(v?\\d+\\.\\d+\\.\\d+[^/]*|[0-9a-f]{7,40})\\/)[^)]*\\)/gi"
