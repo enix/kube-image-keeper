@@ -30,7 +30,7 @@ hero:
 - A detailed explanation of all [Kuik Custom Resources](./crds.md)
 - A reference for the [operator configuration file](./configuration.md) (routing, monitoring, metrics)
 - Kuik manages multiple alternatives of an image and selects the best-suited one. You might want to learn more about the [Priority mechanism](./image-routing.md)
-- A migration path from [Kuik v1 to Kuik v2](./v1-to-v2-migration-path.md)
+- A migration path from [Kuik v1 to Kuik v2](./guides/v1-to-v2-migration-path.md)
 - A collection of documented [use cases](./use-cases/)
-- A [development guide](./development.md)
-- A [troubleshooting guide](./troubleshooting.md) for common operational issues
+- A [development guide](./guides/development.md)
+- A [troubleshooting guide](./guides/troubleshooting.md) for common operational issues
