@@ -13,16 +13,16 @@ pre-commit:
       glob: "**/*.go"
       stage_fixed: true
     - name: markdownlint
-      run: npx --yes markdownlint-cli2 --fix -- {staged_files}
+      run: npx --yes --package markdownlint-cli2 --package markdownlint-rule-search-replace --package markdownlint-rule-relative-links markdownlint-cli2 --fix -- {staged_files}
       glob: "**/*.md"
       stage_fixed: true
-      # markdownlint-cli2 requires Node.js >= 20. Skip when Node is
+      # markdownlint-rule-relative-links requires Node.js >= 22. Skip when Node is
       # missing or older — keeps the hook optional for contributors
       # who only touch Go code and don't have a Node toolchain.
       skip:
         - run: |
-            ! command -v node || 
-            [ $(node -v | cut -d'.' -f1 | tr -d 'v') -lt 20 ]
+            ! command -v node ||
+            [ $(node -v | cut -d'.' -f1 | tr -d 'v') -lt 22 ]
 
 pre-push:
   jobs:

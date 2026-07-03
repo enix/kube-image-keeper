@@ -11,19 +11,19 @@ kube-image-keeper (kuik) v2 is a Kubernetes operator providing container image r
 The Makefile is the source of truth — run `make help` for the full list. A few non-obvious things:
 
 - `go test ./internal/controller/kuik -run TestName -v` — run a single unit test
-- `make test-e2e` needs a running Kind cluster (see [`docs/guides/development.md`](docs/guides/development.md))
+- `make test-e2e` needs a running Kind cluster (see [`docs/guides/development.md`](./docs/guides/development.md))
 
-For the documentation site (Astro / Starlight), commands live in [`website/`](website/) — see its [README](website/README.md). Local preview: `cd website && npm install && npm run dev`.
+For the documentation site (Astro / Starlight), commands live in [`website/`](./website/) — see its [README](./website/README.md). Local preview: `cd website && npm install && npm run dev`.
 
 ## Documentation
 
-User-facing documentation lives under [`docs/`](docs/) at the repository root and is published at **[kuik.enix.io](https://kuik.enix.io)**. The markdown files are the single source of truth (read them alongside the code when working on the corresponding areas):
+User-facing documentation lives under [`docs/`](./docs/) at the repository root and is published at **[kuik.enix.io](https://kuik.enix.io)**. The markdown files are the single source of truth (read them alongside the code when working on the corresponding areas):
 
-- [`docs/crds.md`](docs/crds.md): CRD reference with all fields and semantics
-- [`docs/image-routing.md`](docs/image-routing.md): deep dive into the priority system and webhook routing logic
-- [`docs/configuration.md`](docs/configuration.md): all config fields with defaults and examples
-- [`docs/resource-filtering.md`](docs/resource-filtering.md): image / namespace / pod filtering semantics
-- [`docs/guides/development.md`](docs/guides/development.md): local development setup and workflow
+- [`docs/crds.md`](./docs/crds.md): CRD reference with all fields and semantics
+- [`docs/concepts/image-routing.md`](./docs/concepts/image-routing.md): deep dive into the priority system and webhook routing logic
+- [`docs/configuration.md`](./docs/configuration.md): all config fields with defaults and examples
+- [`docs/concepts/resource-filtering.md`](./docs/concepts/resource-filtering.md): image / namespace / pod filtering semantics
+- [`docs/guides/development.md`](./docs/guides/development.md): local development setup and workflow
 
 The same files render both on GitHub (browse `docs/`) and on the Astro Starlight site. Author them in GitHub-flavored markdown; the website build converts the GitHub-specific bits to Starlight at build time (see [How the docs site is built](#how-the-docs-site-is-built)).
 
@@ -38,9 +38,9 @@ Write for GitHub first; the build adapts. When editing or adding docs under `doc
 
 ### How the docs site is built
 
-The site (in [`website/`](website/), Astro Starlight) does not read `docs/` directly. A `sync-docs` integration in [`website/astro.config.mjs`](website/astro.config.mjs) copies `docs/` and [`website/src/content/overlay/`](website/src/content/overlay/) into `website/src/content/docs/` (gitignored, generated) before content collections load, and also generates each archived version's pages there (see versioning below). The overlay holds website-only pages that must not live in `docs/` (currently the use-cases landing `use-cases/index.mdx`); it is copied last (so it wins on path conflicts) into the current version **and** into every archived version. While copying, `sync-docs` also lifts each page's leading `# H1` into the frontmatter `title:` Starlight requires (and removes it from the body), so docs can carry their title as a GitHub-friendly H1; pages that already define a frontmatter `title:` are left as-is.
+The site (in [`website/`](./website/), Astro Starlight) does not read `docs/` directly. A `sync-docs` integration in [`website/astro.config.mjs`](./website/astro.config.mjs) copies `docs/` and [`website/src/content/overlay/`](./website/src/content/overlay/) into `website/src/content/docs/` (gitignored, generated) before content collections load, and also generates each archived version's pages there (see versioning below). The overlay holds website-only pages that must not live in `docs/` (currently the use-cases landing `use-cases/index.mdx`); it is copied last (so it wins on path conflicts) into the current version **and** into every archived version. While copying, `sync-docs` also lifts each page's leading `# H1` into the frontmatter `title:` Starlight requires (and removes it from the body), so docs can carry their title as a GitHub-friendly H1; pages that already define a frontmatter `title:` are left as-is.
 
-The docs are **versioned** with the [`starlight-versions`](https://starlight-versions.vercel.app) plugin: the current `docs/` tree is served at the site root (labelled `main`), and each archived version (declared in [`website/versions.mjs`](website/versions.mjs)) is served at `/<slug>/`. A version's docs are **not committed in this branch** — they live on that version's **maintenance branch** (e.g. `2.2.x`, the same branch semantic-release publishes maintenance releases from, per the `branches` glob in [`.releaserc.json`](.releaserc.json)) whose `docs/` tree holds the markdown plus a `version-config.json` sidebar; at build time `sync-docs` runs `git archive <ref> docs` to source them, injecting the per-page `slug:` frontmatter on the fly (so `2.2` is not github-slugified to `22`). Keeping docs on the maintenance branch means a release line has one branch for both docs and code, and doc fixes to an archived version are ordinary commits there. The full "add a new version" workflow lives in [`website/README.md`](website/README.md#documentation-versioning).
+The docs are **versioned** with the [`starlight-versions`](https://starlight-versions.vercel.app) plugin: the current `docs/` tree is served at the site root (labelled `main`), and each archived version (declared in [`website/versions.mjs`](./website/versions.mjs)) is served at `/<slug>/`. A version's docs are **not committed in this branch** — they live on that version's **maintenance branch** (e.g. `2.2.x`, the same branch semantic-release publishes maintenance releases from, per the `branches` glob in [`.releaserc.json`](./.releaserc.json)) whose `docs/` tree holds the markdown plus a `version-config.json` sidebar; at build time `sync-docs` runs `git archive <ref> docs` to source them, injecting the per-page `slug:` frontmatter on the fly (so `2.2` is not github-slugified to `22`). Keeping docs on the maintenance branch means a release line has one branch for both docs and code, and doc fixes to an archived version are ordinary commits there. The full "add a new version" workflow lives in [`website/README.md`](./website/README.md#documentation-versioning).
 
 This indirection exists because Starlight's sidebar `autogenerate`, asides, and routing all assume the conventional `src/content/docs` collection directory; loading `docs/` directly (via a custom loader or a symlink) breaks them. Two markdown plugins then bridge GitHub and Starlight syntax: `remark-github-admonitions-to-directives` (alerts to asides) and `astro-rehype-relative-markdown-links` (relative `.md` links to routes).
 
@@ -56,7 +56,7 @@ In dev (`npm run dev` in `website/`), a chokidar watcher in the integration mirr
 | **ClusterReplicatedImageSet / ReplicatedImageSet** | Cluster / Namespaced | Routes images to alternative upstream registries (checks availability, doesn't copy) |
 | **ClusterImageSetAvailability** | Cluster | Monitors image availability across the cluster, tracks per-image status |
 
-Every resource is scoped by a unified `spec.filter` (image / label / annotation selectors; cluster-scoped variants add a `namespace` dimension). It replaces the removed `spec.podFilter` / `spec.namespaceFilter` fields and supersedes the deprecated `spec.imageFilter`. `(Cluster)ReplicatedImageSet` ignores the filter's `image` dimension (image selection is per-upstream via `spec.upstreams[].imageFilter`). See [`docs/resource-filtering.md`](docs/resource-filtering.md).
+Every resource is scoped by a unified `spec.filter` (image / label / annotation selectors; cluster-scoped variants add a `namespace` dimension). It replaces the removed `spec.podFilter` / `spec.namespaceFilter` fields and supersedes the deprecated `spec.imageFilter`. `(Cluster)ReplicatedImageSet` ignores the filter's `image` dimension (image selection is per-upstream via `spec.upstreams[].imageFilter`). See [`docs/concepts/resource-filtering.md`](./docs/concepts/resource-filtering.md).
 
 ### Entry Point
 
@@ -80,7 +80,7 @@ New work touching reconciler setup, webhook config, manager flags, or TLS plumbi
 5. **Availability checking** — uses `parallel.FirstSuccessful()` with singleflight deduplication and two 1-second TTL caches: `checkCache` (per-image availability boolean) and `alternativeCache` (the resolved alternative for a given original image, which short-circuits re-routing of the same image within the TTL)
 6. **Rewriting** — patches Pod containers; stores original images in `kuik.enix.io/original-images` annotation (JSON) to prevent re-processing
 
-### Two-Level Priority System _(see [`docs/image-routing.md`](docs/image-routing.md))_
+### Two-Level Priority System _(see [`docs/concepts/image-routing.md`](./docs/concepts/image-routing.md))_
 
 **Level 1 — CR priority (`spec.priority`, signed int, default 0):**
 
@@ -107,7 +107,7 @@ Default type order when priorities are equal: Original → CISM → ISM → CRIS
 
 - **`internal/parallel/`** — `FirstSuccessful[P,R]()`: runs `f` concurrently on all params, returns the first successful result in original param order along with prior errors.
 
-- **`internal/config/`** — koanf config from `/etc/kube-image-keeper/config.yaml`. Key fields: `SkipLabels`, `SkipAnnotations`, `Routing.ActiveCheck.Timeout`, `Routing.RewriteOnNeverImagePullPolicy`, `Mirroring.Platforms`, `Monitoring.Registries`. Full reference: [`docs/configuration.md`](docs/configuration.md).
+- **`internal/config/`** — koanf config from `/etc/kube-image-keeper/config.yaml`. Key fields: `SkipLabels`, `SkipAnnotations`, `Routing.ActiveCheck.Timeout`, `Routing.RewriteOnNeverImagePullPolicy`, `Mirroring.Platforms`, `Monitoring.Registries`. Full reference: [`docs/configuration.md`](./docs/configuration.md).
 
 - **`internal/controller/kuik/`** — reconcilers:
   - `ImageSetMirrorReconciler` and `ClusterImageSetMirrorReconciler` — namespaced and cluster-scoped peers, both extending `ImageSetMirrorBaseReconciler` (`commonimagesetmirror.go`) which holds the shared image-copying and stale-mirror-cleanup logic
@@ -129,8 +129,8 @@ Default type order when priorities are equal: Original → CISM → ISM → CRIS
 Any code change that adds, modifies, or removes behaviour must be accompanied by:
 
 - **Tests** — update or add unit/E2E tests covering the affected behaviour
-- **Documentation** — update the relevant page under `docs/` and, if applicable, Helm chart values docs or README / AGENTS.md sections. The documentation site (published at [kuik.enix.io](https://kuik.enix.io)) auto-deploys from `main` via [`.github/workflows/website.yaml`](.github/workflows/website.yaml).
+- **Documentation** — update the relevant page under `docs/` and, if applicable, Helm chart values docs or README / AGENTS.md sections. The documentation site (published at [kuik.enix.io](https://kuik.enix.io)) auto-deploys from `main` via [`.github/workflows/website.yaml`](./.github/workflows/website.yaml).
 
 ## Git Hooks
 
-Lefthook runs `make manifests generate lint-fix` and `markdownlint-cli2` (the latter skipped unless Node.js ≥ 20 is available) on pre-commit, and `make test` on pre-push; conventional commits are enforced. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
+Lefthook runs `make manifests generate lint-fix` and `markdownlint-cli2` (the latter skipped unless Node.js ≥ 20 is available) on pre-commit, and `make test` on pre-push; conventional commits are enforced. See [`CONTRIBUTING.md`](./CONTRIBUTING.md).

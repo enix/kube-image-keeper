@@ -31,4 +31,4 @@ jobs:
         run: make lint
 
       - name: Run markdownlint
-        run: npx --yes markdownlint-cli2 "**/*.md"
+        run: npx --yes --package markdownlint-cli2 --package markdownlint-rule-search-replace --package markdownlint-rule-relative-links markdownlint-cli2 "**/*.md"

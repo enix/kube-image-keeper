@@ -4,9 +4,9 @@ Thank you for considering contributing to kube-image-keeper! Before you start co
 
 ## Getting started
 
-### Installation
+### Run kuik locally
 
-Before contributing to kube-image-keeper, ensure you have all prerequisites installed. They are detailed in the [prerequisites](./README.md#prerequisites) section of the readme. You can then install kube-image-keeper following the [installation instructions](./README.md#installation).
+Before contributing to kube-image-keeper, you need a Kubernetes cluster with [cert-manager](https://cert-manager.io/docs/installation/) installed (kuik uses it to issue its webhook certificate). See the [development guide](./docs/guides/development.md) for how to run kube-image-keeper locally.
 
 ### Git hooks (lefthook)
 
@@ -20,7 +20,7 @@ go install github.com/evilmartians/lefthook@latest
 lefthook install
 ```
 
-The Markdown lint step runs [`markdownlint-cli2`](https://github.com/DavidAnson/markdownlint-cli2) via `npx` and requires **Node.js ≥ 20**. If Node.js is missing or older, the step is automatically skipped — contributors who don't touch any `.md` files don't need a Node toolchain.
+The Markdown lint step runs [`markdownlint-cli2`](https://github.com/DavidAnson/markdownlint-cli2) via `npx` and requires **Node.js ≥ 22** (the `markdownlint-rule-relative-links` rule needs it). If Node.js is missing or older, the step is automatically skipped — contributors who don't touch any `.md` files don't need a Node toolchain.
 
 ## Contributing guidelines
 
