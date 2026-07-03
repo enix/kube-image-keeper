@@ -34,3 +34,19 @@ kubectl get secrets -A -l kuik.enix.io/owner-name \
       kubectl -n "$ns" delete secret "$name"
     done
 ```
+
+Pods that were mutated to reference one of the deleted secrets keep the stale `imagePullSecrets` entry until they are recreated. List the affected pods (namespace, pod, and the referenced kuik secrets):
+
+```bash
+kubectl get pods -A -o json \
+    | jq -r '.items[]
+        | .metadata.namespace as $ns
+        | .metadata.name as $pod
+        | [ (.spec.imagePullSecrets // [])[].name
+            | select(startswith("kuik-kuik-")) ] as $secrets
+        | select($secrets | length > 0)
+        | "\($ns)\t\($pod)\t\($secrets | join(","))"' \
+    | sort -u | column -t
+```
+
+Recreate the listed pods (for example by rolling out their owning Deployment/StatefulSet/DaemonSet) so the webhook re-mutates them with the correct `kuik-...` secret.
