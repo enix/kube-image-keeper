@@ -27,8 +27,6 @@ In v2, the model shifts to **ImageSets**. Each CR defines a group of images buil
 
 ## Migration path
 
-👷 Work in progress... (`excludeLabels` will be implemented in v2.3)
-
 - Setup a registry to replace the one deployed by kuik v1 and configure periodic garbage collect on it
 - Create a token to pull, push and delete on the registry and configure as secret with:
 
@@ -52,8 +50,6 @@ spec:
       - ".*" # Match every images
     exclude:
     - localhost[^/]*/.+ # Exclude kuik v1 rewritten images we couldn't mirror
-    excludeLabels: # WIP: will be in kuik v2.3
-      - kube-image-keeper.enix.io/image-caching-policy=ignore # mirror exclude label from kuik v1
   cleanup: # Cleanup image no longer referenced in cluster after a retention period
     enabled: true
     retention: 168h # 7d
