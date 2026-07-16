@@ -24,4 +24,19 @@ spec:
 ############
 # plaffitt #
 ############
+# Monitoring is folded into router status (D7): no standalone monitor kind.
+# "Monitor all" is a catch-all router that routes nowhere (single empty-prefix alternative) and
+# loses every routing overlap (priority 9999) but still records availability in .status.
+# unusedImageExpiry: 168h maps to the status GC; the mirror-namespace exclude maps 1:1 to D9.
+apiVersion: kuik.enix.io/v1alpha1
+kind: ClusterImageRouter
+metadata:
+  name: monitor-all
+spec:
+  priority: 9999      # never wins routing; exists only to observe
+  filter:
+    exclude:
+    - image: registry.example.com/mirror/.+   # 1:1 with the v2 imageFilter.exclude (D9)
+  alternatives:
+  - ""                # empty prefix = every image, at its original location
 

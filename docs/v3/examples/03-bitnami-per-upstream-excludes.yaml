@@ -41,3 +41,14 @@ spec:
 ############
 # plaffitt #
 ############
+# The per-upstream excludes disappear: under first-available routing, an alternative that
+# doesn't hold an image simply isn't available, so routing skips it (no exclude needed).
+apiVersion: kuik.enix.io/v1alpha1
+kind: ClusterImageRouter
+metadata:
+  name: bitnami
+spec:
+  alternatives:
+  - public.ecr.aws/bitnami/    # priority 10 → first
+  - docker.io/bitnamilegacy/   # priority 20
+  - docker.io/bitnami/         # priority 9999 → last
