@@ -37,3 +37,12 @@ spec:
 ############
 # plaffitt #
 ############
+apiVersion: kuik.enix.io/v1alpha1
+kind: ClusterImageRouter
+metadata:
+  name: docker-library
+spec:
+  alternatives:
+  - public.ecr.aws/docker/library/   # priority 10 → first
+  - mirror.gcr.io/library/           # priority 20
+  - docker.io/library/               # priority 30

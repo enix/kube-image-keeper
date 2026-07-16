@@ -50,3 +50,20 @@ spec:
 ############
 # plaffitt #
 ############
+apiVersion: kuik.enix.io/v1alpha1
+kind: ClusterImageRouter
+metadata:
+  name: thanos
+spec:
+  alternatives:
+  - quay.io/thanos/thanos       # whole-repository prefix — captured suffix is just ":tag"
+  - docker.io/thanosio/thanos
+---
+apiVersion: kuik.enix.io/v1alpha1
+kind: ClusterImageRouter
+metadata:
+  name: prometheus
+spec:
+  alternatives:
+  - quay.io/prometheus/   # org-level prefix — suffix is "<repo>:tag"
+  - docker.io/prom/

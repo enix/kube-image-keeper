@@ -82,9 +82,20 @@ Typical flow:
 - **Cross-CR interleaving at equal priority is not a supported use case.** You cannot express
   "A's entry 1 > B's entry 1 > A's entry 2". If you need interleaving, the entries belong in one
   Router. Different intents ⇒ different priorities.
-- When two equal-priority Routers match the same image, resolution is a **deterministic tie-break**
-  (proposed: `(kind, name)` lexical order) plus a status condition / event warning about the
-  overlap. Deterministic, not user-controllable.
+- When two equal-priority Routers match the same image, the router whose **matching prefix is more
+  specific wins** — the **longest matching `alternatives` prefix by character length**, the same
+  longest-prefix rule the Copier uses for overlapping destination prefixes (Q4). This is the common,
+  *intended* overlap: a broad router (e.g. `docker.io/`) and a narrower one (`docker.io/library/`)
+  both match, and the narrower one is meant to win — no priority juggling required. It is resolution
+  by construction, not a warning-worthy conflict.
+  - Rationale: precision is a natural, user-visible signal of intent ("I wrote a more specific rule
+    *because* I want it to take precedence here"), and reusing the Copier's rule keeps one overlap
+    model across both kinds.
+  - **Only when the matching prefix is *identical*** (same priority *and* same matching prefix — e.g.
+    two routers that both carry `docker.io/library/`) is the overlap a genuine **conflict**. Then fall
+    back to a **deterministic tie-break** (proposed: `(kind, name)` lexical order) plus a
+    `ConflictingRouter` status condition / event. This is the only case that warns; different-specificity
+    overlaps are silent because they are resolved by design.
 
 ### D4 — Image matching: prefix swap ✅
 
@@ -99,6 +110,8 @@ Superseded the earlier glob idea (regex → glob → **plain prefix**; see Q6). 
   - **Tag / digest is always preserved** — we never remap tags across mirrors.
 - Prefix match is on **path-segment boundaries** (so `docker.io/jp` does not match
   `docker.io/jpetazzo/...`), consistent with the Copier prefix rule (Q4).
+- The prefix selects candidacy and captures the swap suffix; an **image-dimension filter can further
+  refine** which matched images the Router governs (exclusions) — see D9.
 
 Example — Pod requests `docker.io/jpetazzo/foo:v1`:
 
@@ -150,6 +163,35 @@ alternatives:
   cluster-admin-over-routing.
 - A **namespaced routing kind is reserved for later**, when a real multi-tenant ask lands — it is the
   *sound* way to get per-namespace RBAC (see open question Q6).
+
+### D9 — Image-dimension filter: post-prefix refinement 🟡
+
+The docs-first migration exercise ([migration examples](./spec/migration-examples.md))
+surfaced a real gap: with prefixes as the *only* image-scoping mechanism, there was no way to say
+"mirror everything **except** cloudnative-pg" or "monitor everything **except** the mirror namespace"
+— exclusions that v2 expressed with `imageFilter`. So:
+
+- **The Router *does* use `spec.filter`'s image dimension** (reverses the earlier "image dimension is
+  not used for routers"). It is **not a new field** — the unified `Filter` already carries an image
+  dimension (`Filter.BuildImageFilter()`); v3 simply stops disabling it for routers.
+- **It applies *after* prefix match, as a refinement, not the primary matcher.** A prefix still does
+  the two structural jobs — decide candidacy and capture the swap suffix. Once a prefix matches, the
+  **original image reference** is tested against the filter's image `include`/`exclude` (regex,
+  default-allow when `include` is empty). Both must pass for the router to apply; otherwise the image
+  falls through to the next router / keeps its original image.
+- **Clean division of labour:** the **prefix is topology** ("where the same image lives" + the
+  destination template); the **image filter is scope** ("which images this policy governs"). They are
+  different axes, so having both is not redundant — it is the reason a single global-mirror Router can
+  now carve out exceptions without a shadow Router.
+- **Per-Router, not per-alternative.** This handles *whole-Router* exclusions (drop an image from the
+  policy entirely). It deliberately does **not** resurrect v2's *per-upstream* `imageFilter`: excluding
+  an image from *one* alternative but not others is unnecessary under first-available routing — a
+  missing image at one alternative simply isn't available and routing skips it (the same reasoning
+  that retired `inactive`, Q2, and made the bitnami per-upstream excludes vanish in the migration
+  exercise). One image-scope axis per Router; intra-Router selectivity stays the availability check's
+  job.
+- Resolves migration-exercise gap **G3**; the global mirror (case 5) and monitor-all (case 6) now
+  translate almost 1:1 from their v2 `imageFilter.exclude`.
 
 ## Open questions
 
