@@ -1,0 +1,52 @@
+############
+# v2       #
+############
+apiVersion: kuik.enix.io/v1alpha1
+kind: ClusterReplicatedImageSet
+metadata:
+  name: thanos
+spec:
+  upstreams:
+    - imageFilter:
+        include:
+          - /thanos/thanos:.+
+      path: /thanos/thanos
+      priority: 10
+      registry: quay.io
+    - imageFilter:
+        include:
+          - /thanosio/thanos:.+
+      path: /thanosio/thanos
+      priority: 20
+      registry: docker.io
+---
+apiVersion: kuik.enix.io/v1alpha1
+kind: ClusterReplicatedImageSet
+metadata:
+  name: prometheus
+spec:
+  upstreams:
+    - imageFilter:
+        include:
+          - /prometheus/.*
+      path: /prometheus/
+      priority: 10
+      registry: quay.io
+    - imageFilter:
+        include:
+          - /prom/.+
+      path: /prom/
+      priority: 20
+      registry: docker.io
+---
+############
+# adunand  #
+############
+---
+############
+# jpetazzo #
+############
+---
+############
+# plaffitt #
+############

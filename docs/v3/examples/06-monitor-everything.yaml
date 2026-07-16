@@ -1,0 +1,27 @@
+############
+# v2       #
+############
+apiVersion: kuik.enix.io/v1alpha1
+kind: ClusterImageSetAvailability
+metadata:
+  name: all
+spec:
+  imageFilter:
+    exclude:
+      - registry.example.com/mirror/.+
+    include:
+      - .+
+  unusedImageExpiry: 168h
+---
+############
+# adunand  #
+############
+---
+############
+# jpetazzo #
+############
+---
+############
+# plaffitt #
+############
+
