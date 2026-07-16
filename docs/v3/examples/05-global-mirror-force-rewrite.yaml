@@ -1,0 +1,36 @@
+############
+# v2       #
+############
+apiVersion: kuik.enix.io/v1alpha1
+kind: ClusterImageSetMirror
+metadata:
+  name: registry-global
+spec:
+  cleanup:
+    enabled: true
+    retention: 168h
+  imageFilter:
+    exclude:
+      - .+/cloudnative-pg/(postgresql|cloudnative-pg):.+
+    include:
+      - .*
+  mirrors:
+    - credentialSecret:
+        name: registry-global
+        namespace: kuik-system
+      path: /mirror
+      registry: registry.example.com
+  priority: -10
+---
+############
+# adunand  #
+############
+---
+############
+# jpetazzo #
+############
+---
+############
+# plaffitt #
+############
+
