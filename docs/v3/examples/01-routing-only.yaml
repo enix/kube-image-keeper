@@ -26,9 +26,31 @@ spec:
       priority: 30
       registry: docker.io
 ---
-############
-# adunand  #
-############
+#################
+# adunand rev2  #
+#################
+apiVersion: kuik.enix.io/v2alpha1
+kind: ClusterImageRouter
+metadata:
+  name: docker-library
+spec:
+  alternatives:
+  - prefix: public.ecr.aws/docker/library/
+  - prefix: mirror.gcr.io/library/
+  - prefix: docker.io/library/
+---
+#################
+# adunand rev3  #
+#################
+apiVersion: kuik.enix.io/v2alpha1
+kind: ImageAlternative
+metadata:
+  name: docker-library
+spec:
+  alternatives:
+  - public.ecr.aws/docker/library/
+  - mirror.gcr.io/library/
+  - docker.io/library/
 ---
 ############
 # jpetazzo #

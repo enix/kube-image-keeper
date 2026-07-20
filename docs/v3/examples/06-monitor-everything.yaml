@@ -13,9 +13,32 @@ spec:
       - .+
   unusedImageExpiry: 168h
 ---
-############
-# adunand  #
-############
+#################
+# adunand rev2  #
+#################
+kind: ClusterImageMonitor
+metadata:
+  name: all
+spec:
+  podSelector:
+    matchExpressions:
+      - key: kuik-monitor-ignore
+        operator: DoesNotExist
+  unusedImageExpiry: 168h
+---
+#################
+# adunand rev3  #
+#################
+apiVersion: kuik.enix.io/v2alpha1
+kind: ImageMonitor
+metadata:
+  name: all
+spec:
+  podSelector:
+    matchExpressions:
+      - key: kuik-monitor-ignore
+        operator: DoesNotExist
+  unusedImageExpiry: 168h
 ---
 ############
 # jpetazzo #

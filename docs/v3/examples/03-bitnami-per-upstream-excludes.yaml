@@ -8,7 +8,7 @@ metadata:
 spec:
   upstreams:
     - registry: docker.io
-      priority: 9999
+      priority: 9999 # no longer available
       imageFilter:
         include:
           - "/bitnami/.+"
@@ -24,15 +24,54 @@ spec:
           - "/bitnamilegacy/minideb:.+"
       path: "/bitnamilegacy/"
     - registry: public.ecr.aws
-      priority: 10
+      priority: 9999 # no longer available
       imageFilter:
         include:
           - "/bitnami/.+"
       path: "/bitnami/"
 ---
-############
-# adunand  #
-############
+#################
+# adunand rev2  #
+#################
+apiVersion: kuik.enix.io/v2alpha1
+kind: ClusterImageRouter
+metadata:
+  name: bitnami
+spec:
+  alternatives:
+  - prefix: docker.io/bitnamilegacy/
+  - prefix: docker.io/bitnami/
+    unavailable: true
+  - prefix: public.ecr.aws/bitnami/
+    unavailable: true
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: NotIn
+        values: ["sealed-secrets"]
+---
+#################
+# adunand rev3  #
+#################
+apiVersion: kuik.enix.io/v2alpha1
+kind: ImageAlternative
+metadata:
+  name: bitnami
+spec:
+  alternatives:
+  - docker.io/bitnamilegacy/
+  - docker.io/bitnami/
+  - public.ecr.aws/bitnami/
+  config:
+    "docker.io/bitnami/":
+      unavailable: true
+    "public.ecr.aws/bitnami/":
+      unavailable: true
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: NotIn
+        values: ["sealed-secrets"]
 ---
 ############
 # jpetazzo #
