@@ -11,6 +11,7 @@ spec:
     retention: 168h
   imageFilter:
     exclude:
+      # Exclude images used by CNPG pods as this conflict with cnpg-operator
       - .+/cloudnative-pg/(postgresql|cloudnative-pg):.+
     include:
       - .*
@@ -22,9 +23,67 @@ spec:
       registry: registry.example.com
   priority: -10
 ---
-############
-# adunand  #
-############
+#################
+# adunand rev2  #
+#################
+apiVersion: kuik.enix.io/v2alpha1
+kind: ClusterImageCopier
+metadata:
+  name: registry-global
+spec:
+  podSelector:
+    matchExpressions:
+      - key: cnpg.io/cluster
+        operator: DoesNotExist
+  destination:
+    registry: registry.example.com
+    pathPrefix: /mirror
+    auth:
+      secretRef:
+        name: registry-global
+  cleanup:
+    enabled: true
+    retention: 168h
+---
+apiVersion: kuik.enix.io/v2alpha1
+kind: ClusterImageRouter
+metadata:
+  name: registry-global
+spec:
+  rewritePolicy: Force
+  alternatives:
+    - copierRef: registry-global
+      auth:
+        secretRef:
+          name: registry-pull-creds
+---
+#################
+# adunand rev3  #
+#################
+apiVersion: kuik.enix.io/v2alpha1
+kind: ImageMirror
+metadata:
+  name: registry-global
+spec:
+  rewritePolicy: Force
+  podSelector:
+    matchExpressions:
+      - key: cnpg.io/cluster
+        operator: DoesNotExist
+  destination:
+    registry: registry.example.com
+    pathPrefix: /mirror
+    push:
+      auth:
+        secretRef:
+          name: registry-global
+    pull:
+      auth:
+        secretRef:
+          name: registry-pull-creds
+  cleanup:
+    enabled: true
+    retention: 168h
 ---
 ############
 # jpetazzo #
