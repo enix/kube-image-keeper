@@ -12,11 +12,11 @@ spec:
   namespaceSelector: {}
 
   # Image rewrite policy used in mutating webhook
-  #   Fallback: Default. Keep using original image if available, else use first available
+  #   OnFailure: Default. Keep using original image if available, else use first available
   #             image in `alternatives` list
-  #   Force: Always rewrite image to first available in `alternatives` list
+  #   Always: Always rewrite image to first available in `alternatives` list
   #          (bypass quota, latency, network cost, …)
-  rewritePolicy: Fallback    # Fallback | Force
+  rewritePolicy: OnFailure    # OnFailure | Always
 
   # Ordered list of equivalent image prefix that could be used if one is unavailable
   alternatives:
@@ -62,12 +62,12 @@ spec:
   namespaceSelector: {}
 
   # Image rewrite policy used in mutating webhook
-  #   Fallback: Default. Keep using original image if available, else use first available
+  #   OnFailure: Default. Keep using original image if available, else use first available
   #             image in `alternatives` list
-  #   Force: Always rewrite image to first available in `alternatives` list
+  #   Always: Always rewrite image to first available in `alternatives` list
   #          (bypass quota, latency, network cost, …)
   #   None: Only copy image on mirror, don't use it as image alternative (archiving, compliance, security scan, …)
-  rewritePolicy: Fallback    # Fallback (default) | Force | None
+  rewritePolicy: OnFailure    # OnFailure (default) | Always | None
 
   destination:
     path: registry.tld/mirror/
@@ -86,10 +86,10 @@ spec:
 
 
   # Detect and reconcile image tag drift (digest change), e.g. tag `latest`
-  #   SyncOnce: Image is copied once on destination registry and not updated if upstream tag digest change
-  #   KeepSynced: Periodically check if tag digest is still the same and resync image in destination if different
-  driftDetection:
-    mode: SyncOnce             # SyncOnce (default) | KeepSynced
+  #   Ignore: Image is copied once on destination registry and not updated if upstream tag digest change
+  #   Warn: FIXME
+  #   Sync: Periodically check if tag digest is still the same and resync image in destination if different
+  driftPolicy: Ignore          # Ignore (default) | Warn | Sync
 
   # Multi-arch support
   #   Auto: Copy images for arch retrieved from node labels
