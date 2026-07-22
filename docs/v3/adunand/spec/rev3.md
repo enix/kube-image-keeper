@@ -70,10 +70,9 @@ spec:
   rewritePolicy: Fallback    # Fallback (default) | Force | None
 
   destination:
-    registry: registry.tld
-    pathPrefix: /mirror/
+    path: registry.tld/mirror/
     insecure: false            # Default: false - Allow HTTP registry
-    push                       # Credentials for controller to push images and delete unused tags
+    push:                       # Credentials for controller to push images and delete unused tags
       secretRef:
         name: mirror-write-credentials
     pull:                      # Credentials to pull image that will be synced in namespaces
@@ -89,7 +88,7 @@ spec:
   # Detect and reconcile image tag drift (digest change), e.g. tag `latest`
   #   SyncOnce: Image is copied once on destination registry and not updated if upstream tag digest change
   #   KeepSynced: Periodically check if tag digest is still the same and resync image in destination if different
-  driftDetection
+  driftDetection:
     mode: SyncOnce             # SyncOnce (default) | KeepSynced
 
   # Multi-arch support
