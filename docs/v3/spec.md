@@ -92,7 +92,7 @@ spec:
 
   # Detect and reconcile image tag drift (digest change), e.g. tag `latest`
   #   Ignore: Image is copied once on destination registry and not updated if upstream tag digest change
-  #   Warn: FIXME
+  #   Warn: Periodically check if tag digest is still the same and warn if different
   #   Sync: Periodically check if tag digest is still the same and resync image in destination if different
   driftPolicy: Ignore          # Ignore (default) | Warn | Sync
 
