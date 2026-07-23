@@ -62,6 +62,8 @@ spec:
   # Empty/Nothing match all pod
   podSelector: {}
   namespaceSelector: {}
+  # List of image prefix to explicitly exclude from mirroring (e.g. huge images)
+  imageExclude: []
 
   # Image rewrite policy used in mutating webhook
   #   OnFailure: Default. Keep using original image if available, else use the mirrored
