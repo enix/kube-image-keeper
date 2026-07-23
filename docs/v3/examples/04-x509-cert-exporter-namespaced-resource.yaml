@@ -27,51 +27,15 @@ spec:
       priority: 30
       registry: docker.io
 ---
-#################
-# adunand rev2  #
-#################
-apiVersion: kuik.enix.io/v2alpha1
-kind: ClusterImageRouter
-metadata:
-  name: x509-certificate-exporter
-spec:
-  alternatives:
-  - prefix: quay.io/enix/x509-certificate-exporter
-  - prefix: ghcr.io/enix/x509-certificate-exporter
-  - prefix: docker.io/enix/x509-certificate-exporter
----
-#################
-# adunand rev3  #
-#################
+############
+# v3       #
+############
 apiVersion: kuik.enix.io/v2alpha1
 kind: ImageAlternative
 metadata:
   name: x509-certificate-exporter
 spec:
   alternatives:
-  - quay.io/enix/x509-certificate-exporter
-  - ghcr.io/enix/x509-certificate-exporter
-  - docker.io/enix/x509-certificate-exporter
----
-############
-# jpetazzo #
-############
----
-############
-# plaffitt #
-############
-# v3.0 ships cluster-scoped kinds only; the namespaced ReplicatedImageSet is reproduced with a
-# ClusterImageRouter scoped by spec.filter to the namespace (RBAC moves to the platform team).
-apiVersion: kuik.enix.io/v1alpha1
-kind: ClusterImageRouter
-metadata:
-  name: x509-certificate-exporter
-spec:
-  filter:
-    include:
-    - namespace: monitoring
-  alternatives:
-  - quay.io/enix/x509-certificate-exporter     # full-repo prefix: pins this one image, not all of /enix/
-  - ghcr.io/enix/x509-certificate-exporter
-  - docker.io/enix/x509-certificate-exporter
-
+    - quay.io/enix/x509-certificate-exporter
+    - ghcr.io/enix/x509-certificate-exporter
+    - docker.io/enix/x509-certificate-exporter

@@ -39,38 +39,17 @@ spec:
       priority: 20
       registry: docker.io
 ---
-#################
-# adunand rev2  #
-#################
-apiVersion: kuik.enix.io/v2alpha1
-kind: ClusterImageRouter
-metadata:
-  name: thanos
-spec:
-  alternatives:
-  - prefix: quay.io/thanos/thanos
-  - prefix: docker.io/thanosio/thanos
----
-apiVersion: kuik.enix.io/v2alpha1
-kind: ClusterImageRouter
-metadata:
-  name: prometheus
-spec:
-  alternatives:
-  - prefix: quay.io/prometheus/
-  - prefix: docker.io/prom/
----
-#################
-# adunand rev3  #
-#################
+############
+# v3       #
+############
 apiVersion: kuik.enix.io/v2alpha1
 kind: ImageAlternative
 metadata:
   name: thanos
 spec:
   alternatives:
-  - quay.io/thanos/thanos
-  - docker.io/thanosio/thanos
+    - quay.io/thanos/thanos
+    - docker.io/thanosio/thanos
 ---
 apiVersion: kuik.enix.io/v2alpha1
 kind: ImageAlternative
@@ -78,30 +57,5 @@ metadata:
   name: prometheus
 spec:
   alternatives:
-  - quay.io/prometheus/
-  - docker.io/prom/
----
-############
-# jpetazzo #
-############
----
-############
-# plaffitt #
-############
-apiVersion: kuik.enix.io/v1alpha1
-kind: ClusterImageRouter
-metadata:
-  name: thanos
-spec:
-  alternatives:
-  - quay.io/thanos/thanos       # whole-repository prefix — captured suffix is just ":tag"
-  - docker.io/thanosio/thanos
----
-apiVersion: kuik.enix.io/v1alpha1
-kind: ClusterImageRouter
-metadata:
-  name: prometheus
-spec:
-  alternatives:
-  - quay.io/prometheus/   # org-level prefix — suffix is "<repo>:tag"
-  - docker.io/prom/
+    - quay.io/prometheus/
+    - docker.io/prom/

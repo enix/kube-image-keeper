@@ -30,38 +30,18 @@ spec:
           - "/bitnami/.+"
       path: "/bitnami/"
 ---
-#################
-# adunand rev2  #
-#################
-apiVersion: kuik.enix.io/v2alpha1
-kind: ClusterImageRouter
-metadata:
-  name: bitnami
-spec:
-  alternatives:
-  - prefix: docker.io/bitnamilegacy/
-  - prefix: docker.io/bitnami/
-    unavailable: true
-  - prefix: public.ecr.aws/bitnami/
-    unavailable: true
-  podSelector:
-    matchExpressions:
-      - key: app.kubernetes.io/name
-        operator: NotIn
-        values: ["sealed-secrets"]
----
-#################
-# adunand rev3  #
-#################
+############
+# v3       #
+############
 apiVersion: kuik.enix.io/v2alpha1
 kind: ImageAlternative
 metadata:
   name: bitnami
 spec:
   alternatives:
-  - docker.io/bitnamilegacy/
-  - docker.io/bitnami/
-  - public.ecr.aws/bitnami/
+    - docker.io/bitnamilegacy/
+    - docker.io/bitnami/
+    - public.ecr.aws/bitnami/
   config:
     "docker.io/bitnami/":
       unavailable: true
@@ -72,22 +52,3 @@ spec:
       - key: app.kubernetes.io/name
         operator: NotIn
         values: ["sealed-secrets"]
----
-############
-# jpetazzo #
-############
----
-############
-# plaffitt #
-############
-# The per-upstream excludes disappear: under first-available routing, an alternative that
-# doesn't hold an image simply isn't available, so routing skips it (no exclude needed).
-apiVersion: kuik.enix.io/v1alpha1
-kind: ClusterImageRouter
-metadata:
-  name: bitnami
-spec:
-  alternatives:
-  - public.ecr.aws/bitnami/    # priority 10 → first
-  - docker.io/bitnamilegacy/   # priority 20
-  - docker.io/bitnami/         # priority 9999 → last
