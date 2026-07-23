@@ -23,43 +23,9 @@ spec:
       registry: registry.example.com
   priority: -10
 ---
-#################
-# adunand rev2  #
-#################
-apiVersion: kuik.enix.io/v2alpha1
-kind: ClusterImageCopier
-metadata:
-  name: registry-global
-spec:
-  podSelector:
-    matchExpressions:
-      - key: cnpg.io/cluster
-        operator: DoesNotExist
-  destination:
-    registry: registry.example.com
-    pathPrefix: /mirror
-    auth:
-      secretRef:
-        name: registry-global
-  cleanup:
-    enabled: true
-    retention: 168h
----
-apiVersion: kuik.enix.io/v2alpha1
-kind: ClusterImageRouter
-metadata:
-  name: registry-global
-spec:
-  rewritePolicy: Force
-  alternatives:
-    - copierRef: registry-global
-      auth:
-        secretRef:
-          name: registry-pull-creds
----
-#################
-# adunand rev3  #
-#################
+############
+# v3       #
+############
 apiVersion: kuik.enix.io/v2alpha1
 kind: ImageMirror
 metadata:
@@ -84,38 +50,3 @@ spec:
   cleanup:
     enabled: true
     retention: 168h
----
-############
-# jpetazzo #
-############
----
-############
-# plaffitt #
-############
-# A ClusterImageSetMirror is routing + copying, so it becomes two v3 objects.
-# priority: -10 ("prefer the mirror over the original") maps to list order: mirror first, original last.
-# The cloudnative-pg exclude maps 1:1 to the image-dimension filter (D9).
-# Note: the empty-prefix catch-all ("") and folding the source host into the destination path are
-# still open spec gaps (G1/G2); cleanup.retention: 168h maps to the copier / status GC (Q5, no field yet).
-apiVersion: kuik.enix.io/v1alpha1
-kind: ClusterImageRouter
-metadata:
-  name: registry-global
-spec:
-  filter:
-    exclude:
-    - image: .+/cloudnative-pg/(postgresql|cloudnative-pg):.+   # 1:1 with the v2 imageFilter.exclude
-  alternatives:
-  - registry.example.com/mirror/   # preferred; suffix = the WHOLE original ref, host included
-  - ""                             # empty prefix = matches any image, at its original location
----
-apiVersion: kuik.enix.io/v1alpha1
-kind: ClusterImageCopier
-metadata:
-  name: registry-global
-spec:
-  destinationPrefix: registry.example.com/mirror/
-  pushSecret:
-    name: registry-global
-    namespace: kuik-system
-

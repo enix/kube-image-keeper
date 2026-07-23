@@ -1,4 +1,6 @@
-# ImageAlternative
+# spec v3
+
+## ImageAlternative
 
 ```yaml
 kind: ImageAlternative
@@ -48,7 +50,7 @@ spec:
                                    # so kubelet could pull the image from the registry
 ```
 
-# ImageMirror
+## ImageMirror
 
 ```yaml
 kind: ImageMirror
@@ -100,7 +102,7 @@ spec:
     #list: []                  # Only used with `mode: List`
 ```
 
-# ImageMonitor
+## ImageMonitor
 
 ```yaml
 kind: ImageMonitor
