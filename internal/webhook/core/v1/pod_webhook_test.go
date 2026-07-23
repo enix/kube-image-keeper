@@ -418,6 +418,23 @@ var _ = Describe("buildAlternativesList", func() {
 		}
 	}
 
+	createSecret := func(name string, namespace string) {
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: namespace,
+			},
+			Type: corev1.SecretTypeDockerConfigJson,
+			Data: map[string][]byte{
+				".dockerconfigjson": []byte(`{"auths":{"harbor.example.com":{"username":"user","password":"pass"}}}`),
+			},
+		}
+		Expect(k8sClient.Create(ctx, secret)).To(Succeed())
+		DeferCleanup(func() {
+			_ = k8sClient.Delete(ctx, secret)
+		})
+	}
+
 	cismWithMirror := func(priority int, registry, mirrorPath string) kuikv1alpha1.ImageSetMirror {
 		return kuikv1alpha1.ImageSetMirror{
 			ObjectMeta: metav1.ObjectMeta{Name: "global"},
@@ -684,6 +701,47 @@ var _ = Describe("buildAlternativesList", func() {
 				"harbor.example.com/mirror/library/nginx:1.29",
 				"docker.io/library/nginx:1.29",
 			}))
+		})
+
+		It("uses the credentialSecret when no pullCredentialSecret is present", func() {
+			c := makeContainer("docker.io/library/nginx:1.29", corev1.PullIfNotPresent)
+			cism := cismWithMirror(-1, "harbor.example.com", "/mirror")
+			createSecret("harbor-cred", "default")
+			cism.Spec.Mirrors[0].CredentialSecret = &kuikv1alpha1.CredentialSecret{
+				Name:      "harbor-cred",
+				Namespace: "default",
+			}
+			err := d.buildAlternativesList(
+				ctx,
+				[]kuikv1alpha1.ImageSetMirror{cism},
+				nil,
+				c,
+			)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(c.Images[0].CredentialSecret.Name).To(Equal("harbor-cred"))
+		})
+
+		It("uses the pullCredentialSecret when present", func() {
+			c := makeContainer("docker.io/library/nginx:1.29", corev1.PullIfNotPresent)
+			cism := cismWithMirror(-1, "harbor.example.com", "/mirror")
+			createSecret("harbor-cred", "default")
+			cism.Spec.Mirrors[0].CredentialSecret = &kuikv1alpha1.CredentialSecret{
+				Name:      "harbor-cred",
+				Namespace: "default",
+			}
+			createSecret("harbor-pull-cred", "default")
+			cism.Spec.Mirrors[0].PullCredentialSecret = &kuikv1alpha1.CredentialSecret{
+				Name:      "harbor-pull-cred",
+				Namespace: "default",
+			}
+			err := d.buildAlternativesList(
+				ctx,
+				[]kuikv1alpha1.ImageSetMirror{cism},
+				nil,
+				c,
+			)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(c.Images[0].CredentialSecret.Name).To(Equal("harbor-pull-cred"))
 		})
 	})
 })

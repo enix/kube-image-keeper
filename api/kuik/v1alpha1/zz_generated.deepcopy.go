@@ -629,6 +629,11 @@ func (in *Mirror) DeepCopyInto(out *Mirror) {
 		*out = new(CredentialSecret)
 		**out = **in
 	}
+	if in.PullCredentialSecret != nil {
+		in, out := &in.PullCredentialSecret, &out.PullCredentialSecret
+		*out = new(CredentialSecret)
+		**out = **in
+	}
 	if in.Cleanup != nil {
 		in, out := &in.Cleanup, &out.Cleanup
 		*out = new(Cleanup)

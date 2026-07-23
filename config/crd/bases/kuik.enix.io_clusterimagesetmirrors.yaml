@@ -183,6 +183,21 @@ spec:
                         0 means no specific ordering (YAML declaration order is preserved).
                         Positive values are sorted ascending: lower value = higher priority.
                       type: integer
+                    pullCredentialSecret:
+                      description: |-
+                        PullCredentialSecret will be the secret used by Pods to pull images from this mirror.
+                        If not set, it will default to using CredentialSecret instead.
+                        This is used to prevent the creation/deletion secret from being compromised by being copied to other Namespaces.
+                      properties:
+                        name:
+                          description: Name is the name of the secret
+                          type: string
+                        namespace:
+                          description: |-
+                            Namespace is the namespace where the secret is located.
+                            This value is ignored for namespaced resources and the namespace of the parent object is used instead.
+                          type: string
+                      type: object
                     registry:
                       type: string
                   type: object

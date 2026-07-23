@@ -84,7 +84,11 @@ type Mirror struct {
 	Registry         string            `json:"registry,omitempty"`
 	Path             string            `json:"path,omitempty"`
 	CredentialSecret *CredentialSecret `json:"credentialSecret,omitempty"`
-	Cleanup          *Cleanup          `json:"cleanup,omitempty"`
+	// PullCredentialSecret will be the secret used by Pods to pull images from this mirror.
+	// If not set, it will default to using CredentialSecret instead.
+	// This is used to prevent the creation/deletion secret from being compromised by being copied to other Namespaces.
+	PullCredentialSecret *CredentialSecret `json:"pullCredentialSecret,omitempty"`
+	Cleanup              *Cleanup          `json:"cleanup,omitempty"`
 }
 
 type Mirrors []Mirror

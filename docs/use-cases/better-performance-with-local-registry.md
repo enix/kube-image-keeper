@@ -42,4 +42,7 @@ spec:
     credentialSecret:
       name: local-registry-secret
       namespace: default
+    pullCredentialSecret:
+      name: local-registry-pull-secret
+      namespace: default
 ```

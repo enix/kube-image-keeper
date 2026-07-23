@@ -108,6 +108,9 @@ The `ImageSetMirror` and `ClusterImageSetMirror` resources define the actual mir
 | `spec.mirrors[].credentialSecret` | | Reference to a Secret used to push images to this mirror. |
 | `spec.mirrors[].credentialSecret.name` | | Name of the Secret. |
 | `spec.mirrors[].credentialSecret.namespace` | | Namespace of the Secret. Ignored for namespaced `ImageSetMirror` (uses the parent namespace instead). |
+| `spec.mirrors[].pullCredentialSecret` | | Reference to a Secret used to pull images from this mirror. If not set, will use credentialSecret instead. |
+| `spec.mirrors[].pullCredentialSecret.name` | | Name of the Secret. |
+| `spec.mirrors[].pullCredentialSecret.namespace` | | Namespace of the Secret. Ignored for namespaced `ImageSetMirror` (uses the parent namespace instead). |
 | `spec.mirrors[].cleanup` | | Per-mirror cleanup strategy override. Same fields as `spec.cleanup`. |
 
 ### Example
@@ -129,6 +132,9 @@ spec:
     credentialSecret:
       name: registry-secret
       namespace: kuik-system
+    pullCredentialSecret:
+      name: registry-pull-secret
+      namespace: kuik-system
   cleanup:
     enabled: true
     retention: 24h
@@ -142,7 +148,7 @@ kubectl -n kuik-system create secret docker-registry registry-secret --docker-se
 
 When cleanup is enabled, kuik only delete mirror image reference once an image is no longer running in the cluster since more than `retention` time (useful to deal with image used by CronJobs). You still have to configure garbage collection on your registry to actually reclaim space.
 
-If an image is rewritten to use our mirror, kuik will copy the secret to the pod's namespace and add it to pod `imagePullSecrets`.
+If an image is rewritten to use our mirror, kuik will copy the pullCredentialSecret to the pod's namespace and add it to pod `imagePullSecrets`.
 
 ## ClusterImageSetAvailability
 

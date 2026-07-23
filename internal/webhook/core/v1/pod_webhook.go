@@ -302,6 +302,9 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 			if mirror.CredentialSecret != nil {
 				mirror.CredentialSecret.Namespace = ism.Namespace
 			}
+			if mirror.PullCredentialSecret != nil {
+				mirror.PullCredentialSecret.Namespace = ism.Namespace
+			}
 		}
 		imageSetMirrors = append(imageSetMirrors, ism)
 	}
@@ -551,9 +554,14 @@ func (d *PodCustomDefaulter) buildAlternativesList(ctx context.Context, imageSet
 			}
 
 			for declarationIdx, mirror := range ism.Spec.Mirrors {
+				pullSecret := mirror.CredentialSecret
+				if mirror.PullCredentialSecret != nil {
+					pullSecret = mirror.PullCredentialSecret
+				}
+
 				alternatives = append(alternatives, prioritizedAlternative{
 					reference:        path.Join(mirror.Registry, mirror.Path, imgPath),
-					credentialSecret: mirror.CredentialSecret,
+					credentialSecret: pullSecret,
 					secretOwner:      ism,
 					crPriority:       ism.Spec.Priority,
 					intraPriority:    mirror.Priority,
