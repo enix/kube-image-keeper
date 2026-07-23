@@ -127,3 +127,87 @@ spec:
   monitorAlternatives: false   # Default: false - Also monitor alternatives images instead of only original ones
 
 ```
+
+## Annotations
+
+Annotations added to pod by mutating webhook:
+
+```yaml
+metadata:
+  annotations:
+    # Same as KuiK v2, keep original images name referenced when we rewrite pod spec
+    kuik.enix.io/original-images: |
+      {"config-reloader":"quay.io/prometheus-operator/prometheus-config-reloader:v0.91.0","prometheus":"quay.io/prometheus/prometheus:v3.13.1-distroless","thanos-sidecar":"quay.io/thanos/thanos:v0.42.2"}'
+    # CR that rewritten the image
+    kuik.enix.io/rewritten-by: |
+      {"config-reloader":"ImageMirror/prod-mirror","prometheus":"ImageAlternative/prometheus","thanos":"ImageAlternative/thanos"}
+    # Reason of KuiK action (image rewrite) or inaction if original image isn't available
+    #   OnFailure: Original image wasn't available, rewritten to first available alternative
+    #   Always: Rewrite to first available alternative requested by rewritePolicy
+    #   NoAlternatives: Could not find an available alternative for the image
+    kuik.enix.io/reason:
+      {"config-reloader":"NoAlternatives","prometheus":"Always","thanos":"OnFailure"}
+```
+
+## Global config
+
+```yaml
+webhook:
+  availabilityCheck:
+    timeout: 2s              # max time before considering a registry as unavailble
+    # Cache per controller replica to avoid querying registry multiple time on burst
+    # A single image used by 50 pods scheduled in a short period should result in 1 check, not 50
+    activeCheckCache:
+      ttl: 10s
+    # Use image negative check result from ImageMirror and ImageMonitor to tests
+    # other alternatives first to optimize
+    skipHints:
+      enabled: true
+      maxAge: 30m
+registries:
+  default:
+    check:
+      method: HEAD   # HEAD (default) | GET
+      interval: 10m
+      maxPerInterval: 20
+      timeout: 10s
+    copy:
+      interval: 1h
+      maxPerInterval: 20
+      timeout: 10s
+
+  private-registry.tld:
+    copy:
+      interval: 10m
+    # Auth used by KuiK ImageMonitor (and eventually ImageAlternative if not provided)
+    # to check image availability if we don't have access to image pull secret
+    # (if KuiK is configured without cluster-wide secret access for security)
+    perPrefixFallbackAuth:
+    - prefix: /project1
+      secretRef:
+        name: project1-creds
+    - prefix: /project2
+      secretRef:
+        name: project2-creds
+
+  123456.dkr.ecr.eu-west-3.amazonaws.com:
+    perPrefixFallbackAuth:
+    - prefix: /acme
+      provider:
+        name: aws
+        serviceAccountRef:
+          name: kuik-ecr-access
+
+  docker.io:
+    copy:
+      interval: 1h
+      maxPerInterval: 6
+    perPrefixFallbackAuth:
+    - prefix: /
+      secretRef:
+        name: dockerhub-creds
+
+  public.ecr.aws:
+    check:
+      interval: 30m
+```
