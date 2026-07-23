@@ -64,21 +64,22 @@ spec:
   namespaceSelector: {}
 
   # Image rewrite policy used in mutating webhook
-  #   OnFailure: Default. Keep using original image if available, else use first available
-  #             image in `alternatives` list
-  #   Always: Always rewrite image to first available in `alternatives` list
+  #   OnFailure: Default. Keep using original image if available, else use the mirrored
+  #             image in `destination`
+  #   Always: Always rewrite image to the mirrored image in `destination`
   #          (bypass quota, latency, network cost, …)
-  #   None: Only copy image on mirror, don't use it as image alternative (archiving, compliance, security scan, …)
+  #   None: Only copy image to mirror, don't use it as an image alternative (archiving, compliance, security scan, …)
   rewritePolicy: OnFailure    # OnFailure (default) | Always | None
 
   destination:
     path: registry.tld/mirror/
     insecure: false            # Default: false - Allow HTTP registry
-    push:                       # Credentials for controller to push images and delete unused tags
-      secretRef:
-        name: mirror-write-credentials
+    push:                      # Credentials for controller to push images and delete unused tags
+      auth:
+        secretRef:
+          name: mirror-write-credentials
     pull:                      # Credentials to pull image that will be synced in namespaces
-      auth:                    # whith rewriten image to use destination registry
+      auth:                    # with rewritten image to use destination registry
         secretRef:
           name: mirror-read-credentials
 

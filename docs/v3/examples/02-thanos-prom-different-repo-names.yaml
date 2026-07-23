@@ -42,7 +42,7 @@ spec:
 ############
 # v3       #
 ############
-apiVersion: kuik.enix.io/v2alpha1
+apiVersion: kuik.enix.io/v1alpha1
 kind: ImageAlternative
 metadata:
   name: thanos
@@ -51,7 +51,7 @@ spec:
     - quay.io/thanos/thanos
     - docker.io/thanosio/thanos
 ---
-apiVersion: kuik.enix.io/v2alpha1
+apiVersion: kuik.enix.io/v1alpha1
 kind: ImageAlternative
 metadata:
   name: prometheus
