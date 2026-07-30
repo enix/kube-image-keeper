@@ -35,6 +35,6 @@ metadata:
   name: docker-library
 spec:
   alternatives:
-    - public.ecr.aws/docker/library/
-    - mirror.gcr.io/library/
-    - docker.io/library/
+    - imagePrefix: public.ecr.aws/docker/library/
+    - imagePrefix: mirror.gcr.io/library/
+    - imagePrefix: docker.io/library/
