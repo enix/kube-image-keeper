@@ -20,7 +20,8 @@ spec:
   #          (bypass quota, latency, network cost, …)
   rewritePolicy: OnFailure    # OnFailure | Always
 
-  # Ordered list of equivalent image prefix that could be used if one is unavailable
+  # Ordered list of equivalent images (or image subpaths) that could be used if one is
+  # unavailable. All entries of a list must use the same form, see "Alternatives matching"
   alternatives:
   - quay.io/acme/foo
   - docker.io/acme-org/foo
@@ -50,6 +51,96 @@ spec:
                                    # so kubelet could pull the image from the registry
 ```
 
+### Alternatives matching
+
+Entries of `alternatives` are **not** globs: there is no implicit wildcard, and no glob
+marker is supported. An entry is either a **single image** or a **subpath**, and the form is
+given by the trailing character:
+
+| Form | Written as | Matches |
+| ---- | ---------- | ------- |
+| Single image | no trailing separator (`quay.io/acme/foo`) | that exact repository only, whatever the tag or digest |
+| Subpath | significant trailing `/` (`quay.io/acme/foo/`) | repositories located **directly** under that path (one level only), like a trailing slash for rsync directories |
+
+When an image matches, the tag or digest is always preserved, and for the subpath form the
+matched remainder (the single path segment below the subpath) is preserved too.
+
+#### Single image form
+
+```yaml
+alternatives:
+- quay.io/acme/foo
+- docker.io/acme-org/foo
+```
+
+| Image | Result |
+| ----- | ------ |
+| `quay.io/acme/foo:latest` | matches, rewritten to `docker.io/acme-org/foo:latest` |
+| `quay.io/acme/foo-bar:latest` | doesn't match (no prefix matching on a segment) |
+| `quay.io/acme/foo/bar:latest` | doesn't match (deeper than the entry) |
+| `quay.io/acme/foo/bar/oni:latest` | doesn't match |
+
+#### Subpath form
+
+```yaml
+alternatives:
+- quay.io/acme/foo/
+- docker.io/acme-org/foo/
+```
+
+| Image | Result |
+| ----- | ------ |
+| `quay.io/acme/foo:latest` | doesn't match (the subpath itself is not an image) |
+| `quay.io/acme/foo-bar:latest` | doesn't match |
+| `quay.io/acme/foo/bar:latest` | matches, rewritten to `docker.io/acme-org/foo/bar:latest` |
+| `quay.io/acme/foo/bar/oni:latest` | doesn't match (only one level below the subpath) |
+
+#### Invalid `alternatives`
+
+Rejected at admission (validation webhook or CEL rules):
+
+- an entry ending with `:` (it looks like a "any tag of this image" marker, but the single
+  image form already covers it):
+
+  ```yaml
+  alternatives:
+  - "quay.io/acme/foo:"        # invalid
+  - "docker.io/acme-org/foo:"  # invalid
+  ```
+
+- an entry carrying a tag or a digest (`quay.io/acme/foo:v1`, `quay.io/acme/foo@sha256:…`):
+  alternatives describe repositories, the tag or digest comes from the pod
+- mixing the two forms in the same list, since the two sides would not describe the same
+  set of images:
+
+  ```yaml
+  alternatives:
+  - "quay.io/acme/foo:"       # invalid (trailing `:`) and mixed forms
+  - docker.io/acme-org/foo/
+  ```
+
+  ```yaml
+  alternatives:
+  - quay.io/acme/foo          # single image form
+  - docker.io/acme-org/foo/   # subpath form => invalid
+  ```
+
+Keeping the two forms explicit and non mixable keeps the CR readable and avoids rewriting an
+image to an unrelated one because two repository names happen to share a prefix.
+
+#### Overlapping alternatives across several CRs
+
+Several `ImageAlternative` may match the same image, for instance one declaring
+`quay.io/acme/` and another declaring `quay.io/acme/foo`. The **most specific** entry wins,
+which is the longest matching prefix, so a single image entry
+always wins over a subpath entry that would also match it. Only that CR provides the
+alternatives list for the image, lists are not concatenated.
+
+If two CRs match with the same specificity (typically the very same entry declared twice),
+the conflict is resolved deterministically (lexicographic order of the CR name) and both CRs
+report it in their status, so the ambiguity is visible instead of silently depending on
+reconcile order.
+
 ## ImageMirror
 
 ```yaml
@@ -63,7 +154,8 @@ spec:
   podSelector: {}
   namespaceSelector: {}
   # List of image prefix to explicitly exclude from mirroring (e.g. huge images)
-  imageExclude: []
+  excludeImagePrefixes:
+  - ghcr.io/foo-bar/
 
   # Image rewrite policy used in mutating webhook
   #   OnFailure: Default. Keep using original image if available, else use the mirrored
@@ -121,8 +213,7 @@ spec:
   unusedImageExpiry: 24h       # keep monitoring for a given time after no longer used in cluster
                                # useful for cronjob
 
-  driftDetection:
-    enabled: true              # Default: true - Detect if an image tag digest differ from pod running in cluster
+  driftDetection: true         # Default: true - Detect if an image tag digest differ from pod running in cluster
 
   monitorAlternatives: false   # Default: false - Also monitor alternatives images instead of only original ones
 

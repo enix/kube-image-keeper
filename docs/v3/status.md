@@ -95,7 +95,7 @@ status:
     available: 3226
     unavailable: 4
     unknown: 11
-    drifted: 2                  # image tag have digest different than the upstream one (only with driftDetection.enabled=true)
+    drifted: 2                  # image tag have digest different than the upstream one (only with driftDetection=true)
   # Images from alternatives matching a running pod (only with monitorAlternatives=true)
   alternatives:
     tracked: 214
