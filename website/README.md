@@ -20,7 +20,7 @@ The site requires **Node.js 24** (matching the CI `withastro/action` config); th
 
 The site serves multiple documentation versions via the [`starlight-versions`](https://starlight-versions.vercel.app) plugin. The set of versions is declared once in [`versions.mjs`](./versions.mjs) and consumed by both [`astro.config.mjs`](./astro.config.mjs) (which feeds `{ slug, label }` to the plugin) and [`scripts/sync-docs.mjs`](./scripts/sync-docs.mjs) (which sources each version's content).
 
-- The **current** version (labelled `main` in the version picker) is the live `../docs` tree, served at the site root (`/configuration/`, `/crds/`, …).
+- The **current** version (labelled `dev` in the version picker) is the live `../docs` tree, served at the site root (`/configuration/`, `/crds/`, …).
 - Each **archived** version's docs live on that version's **maintenance branch** (`ref` in `versions.mjs`, e.g. `2.3.x`) and are served under the version slug (`/2.3/configuration/`, …). There is **no committed copy** of the versioned docs in this branch. The maintenance branch also carries the release-line code, so a version has a single branch for both docs and code, and doc fixes are ordinary commits there.
 
 At build time, `sync-docs` generates the gitignored collection dirs:
@@ -31,9 +31,9 @@ At build time, `sync-docs` generates the gitignored collection dirs:
 
 Because every configured version already has its docs on disk at build time, the plugin never triggers its built-in "archive the current docs" behaviour. The build therefore needs git history for the maintenance branches — CI's checkout uses `fetch-depth: 0` (see [`.github/workflows/website.yaml`](../.github/workflows/website.yaml)).
 
-### Version messaging (main = in-development, archived slugs = stable)
+### Version messaging (dev = in-development, archived slugs = stable)
 
-The site root is the **in-development** `main` docs; the archived slugs are the
+The site root is the **in-development** `dev` docs; the archived slugs are the
 **stable releases**. That inverts the plugin's default assumption (current =
 newest = best — it only ever flags archived versions as "outdated"), so
 [`src/components/PageTitle.astro`](./src/components/PageTitle.astro) replaces the
@@ -41,7 +41,7 @@ plugin's notice with a three-level one, shown under the page title:
 
 | Level | Pages | Notice |
 | --- | --- | --- |
-| **next** | the in-development `main` docs (site root) | blue _info_ note linking to the latest stable release |
+| **next** | the in-development `dev` docs (site root) | blue _info_ note linking to the latest stable release |
 | **current** | the latest stable release (newest archived version, `versions[0]`) | none |
 | **previous** | any older archived release | orange _warning_ note linking to the latest stable release |
 

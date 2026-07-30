@@ -1,7 +1,7 @@
 // Single source of truth for the documentation versions the site serves.
 //
 // The current/in-development docs live in the repo-root ../docs tree (served at
-// the site root, labelled `main`). Each archived version's docs — and its
+// the site root, labelled `dev`). Each archived version's docs — and its
 // Starlight sidebar in docs/version-config.json — live on that version's
 // maintenance branch (`ref`, e.g. `2.3.x`); the website build sources them with
 // `git archive <ref> docs` at build time (see scripts/sync-docs.mjs), so there

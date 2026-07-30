@@ -5,7 +5,7 @@
 //      wrong for our model, where archived slugs are the stable releases.
 //   2. On landing/splash pages — which PageTitle's under-title notice skips —
 //      show the same three-level version notice as a full-width banner:
-//        next     — in-development `main` docs   → blue "info"
+//        next     — in-development `dev` docs    → blue "info"
 //        current  — latest stable release        → nothing
 //        previous — an older archived release     → orange "warning"
 //
@@ -27,7 +27,7 @@ const stable = versionsConfig.versions[0];
 const stableLabel = stable ? (stable.label ?? stable.slug) : null;
 
 // Archived-version pages have an id prefixed by the version slug
-// (e.g. `x.y/configuration`); current (`main`) pages do not.
+// (e.g. `x.y/configuration`); current (`dev`) pages do not.
 const archived = versionsConfig.versions.find(
   (v) => entry.id === v.slug || entry.id.startsWith(`${v.slug}/`),
 );

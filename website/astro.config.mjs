@@ -89,7 +89,7 @@ export default defineConfig({
       plugins: [
         starlightLinksValidator(),
         starlightVersions({
-          current: { label: 'main' },
+          current: { label: 'dev' },
           versions: versions.map(({ slug, label }) => ({ slug, label })),
         }),
       ],
@@ -97,7 +97,7 @@ export default defineConfig({
         SiteTitle: './src/components/SiteTitle.astro',
         Head: './src/components/Head.astro',
         // Three-level version notice under the page title (see the component):
-        // the in-development `main` docs get a blue info note, the latest stable
+        // the in-development `dev` docs get a blue info note, the latest stable
         // release gets nothing, and older releases get the orange "outdated" note.
         PageTitle: './src/components/PageTitle.astro',
         // Same three-level notice as a full-width banner on landing/splash pages

@@ -12,7 +12,7 @@ import { docsVersionsLoader } from 'starlight-versions/loader';
 // The `i18n` collection (src/content/i18n/*.json, committed) overrides Starlight
 // UI strings — here, the starlight-versions notice wording, so an archived
 // version reads as a tagged release rather than "outdated" (the site root is the
-// in-development `main` docs, and archived slugs are the stable releases).
+// in-development `dev` docs, and archived slugs are the stable releases).
 export const collections = {
 	docs: defineCollection({ loader: docsLoader(), schema: docsSchema() }),
 	versions: defineCollection({ loader: docsVersionsLoader() }),

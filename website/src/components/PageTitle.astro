@@ -4,10 +4,10 @@
 //
 // The plugin assumes "current (root) = newest = best" and only annotates
 // archived versions. Our layout is the opposite: the site root is the
-// in-development `main` docs, and the archived slugs are the tagged releases.
+// in-development `dev` docs, and the archived slugs are the tagged releases.
 // So we classify each page into three levels:
 //
-//   next     — the in-development `main` docs (root)      → blue "info" note
+//   next     — the in-development `dev` docs (root)       → blue "info" note
 //   current  — the latest stable release (newest archive) → no note
 //   previous — an older archived release                  → orange "warning" note
 //
@@ -25,7 +25,7 @@ const stable = versionsConfig.versions[0];
 const stableLabel = stable ? (stable.label ?? stable.slug) : null;
 
 // Archived-version pages have an id prefixed by the version slug
-// (e.g. `x.y/configuration`); current (`main`) pages do not.
+// (e.g. `x.y/configuration`); current (`dev`) pages do not.
 const archived = versionsConfig.versions.find(
   (v) => entry.id === v.slug || entry.id.startsWith(`${v.slug}/`),
 );
