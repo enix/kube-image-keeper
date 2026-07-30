@@ -10,10 +10,10 @@ Status is only computed via informer on leader elected controller, nothing is up
 status:
   # Gauge on living pods computed with informers
   pods:
-    tracked 123       # Number of pods this CR could apply to
-    rewritten: 12      # Number of pods effectivly rewritten (either by `Fallback` or `Force` policy)
+    tracked: 123       # Number of pods this CR could apply to
+    rewritten: 12      # Number of pods effectivly rewritten (either by `OnFailure` or `Always` policy)
     noAlternatives: 2  # Number of pods left untouched as no alternatives image was available
-  # Store the list of fallback images (only with `rewritePolicy: Fallback`)
+  # Store the list of fallback images (only with `rewritePolicy: OnFailure`)
   activeFallbacks:
   - image: quay.io/thanos/thanos:v0.42.2
     routedTo: registry.tld/mirror/quay.io/thanos/thanos:v0.42.2
@@ -45,7 +45,7 @@ status:
     desired: 312               # images used in running pod + retained
     copied: 309                # images effectivly copied to destination registry
     retained: 1                # image pending deletion (if cleanup.retention > 0)
-    drifted: 0                 # with driftDetection.mode=KeepSynced - image tag with new digest that will be resynced
+    drifted: 0                 # with driftPolicy=Sync - image tag with new digest that will be resynced
     platformsMissing: 8        # copied but image miss a platform (multi-arch)
     missingSource: 1           # no source available to copy image to destination (if not already copied)
   failedImagesCopy:
@@ -94,7 +94,6 @@ status:
     retained: 61                # images no longer running but still monitored for `unusedImageRetention`
     available: 3226
     unavailable: 4
-    unknown: 11
     drifted: 2                  # image tag have digest different than the upstream one (only with driftDetection=true)
   # Images from alternatives matching a running pod (only with monitorAlternatives=true)
   alternatives:
