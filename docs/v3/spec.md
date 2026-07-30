@@ -46,7 +46,7 @@ spec:
       auth:                        # credentials to pull images from the registry
         secretRef:
           name: local-registry
-          injectPullSecret: true   # Default: true (for secretRef)
+        injectPullSecret: true     # Default: true (for secretRef)
                                    # inject secret in pod namespace if this image is used as alternative
                                    # so kubelet could pull the image from the registry
 ```
@@ -169,13 +169,19 @@ spec:
     path: registry.tld/mirror/
     insecure: false            # Default: false - Allow HTTP registry
     push:                      # Credentials for controller to push images and delete unused tags
-      auth:
+      auth:                    # Same schema as `ImageAlternative` `spec.config.<prefix>.auth`,
+                               # except `injectPullSecret` which is ignored here: push credentials
+                               # are only used by the controller, never injected in namespaces
         secretRef:
           name: mirror-write-credentials
     pull:                      # Credentials to pull image that will be synced in namespaces
       auth:                    # with rewritten image to use destination registry
+                               # Same schema as `ImageAlternative` `spec.config.<prefix>.auth`
         secretRef:
           name: mirror-read-credentials
+        injectPullSecret: true # Default: true (for secretRef), false for `provider`
+                               # inject secret in pod namespace when an image is rewritten to this
+                               # mirror, so kubelet could pull it from the destination registry
 
   cleanup:
     enabled: true              # Default: true - Delete image tag no longer referenced by any pod
