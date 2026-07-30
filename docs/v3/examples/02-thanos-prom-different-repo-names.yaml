@@ -48,8 +48,8 @@ metadata:
   name: thanos
 spec:
   alternatives:
-    - quay.io/thanos/thanos
-    - docker.io/thanosio/thanos
+    - imagePrefix: quay.io/thanos/thanos
+    - imagePrefix: docker.io/thanosio/thanos
 ---
 apiVersion: kuik.enix.io/v1alpha1
 kind: ImageAlternative
@@ -57,5 +57,5 @@ metadata:
   name: prometheus
 spec:
   alternatives:
-    - quay.io/prometheus/
-    - docker.io/prom/
+    - imagePrefix: quay.io/prometheus/
+    - imagePrefix: docker.io/prom/

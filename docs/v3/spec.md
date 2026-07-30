@@ -22,45 +22,45 @@ spec:
 
   # Ordered list of equivalent images (or image subpaths) that could be used if one is
   # unavailable. All entries of a list must use the same form, see "Alternatives matching"
+  # Every field besides `imagePrefix` is optional, and with public registries only
+  # `imagePrefix` is usually needed
   alternatives:
-  - quay.io/acme/foo
-  - docker.io/acme-org/foo
-  - 123456.dkr.ecr.eu-west-3.amazonaws.com/repo/acme/foo
-  - registry.local:5000/mirror/acme/foo
-
-  # Optional, in most use case with public registry this will be empty
-  # Use a prefix from `alternatives` field as key to provide extra config
-  config:
-    123456.dkr.ecr.eu-west-3.amazonaws.com/repo/acme/foo:
-      auth:
-        provider:                  # Provider specific auth, like AWS IRSA, same logic as
-          name: aws                # https://fluxcd.io/flux/components/source/ocirepositories/#provider
-          serviceAccountRef:
-            name: kuik-ecr-access
-        injectPullSecret: false    # Default: false (for provider) - kubelet already have permission
+  - imagePrefix: quay.io/acme/foo
+  - imagePrefix: docker.io/acme-org/foo
+  - imagePrefix: 123456.dkr.ecr.eu-west-3.amazonaws.com/repo/acme/foo
+    auth:
+      provider:                    # Provider specific auth, like AWS IRSA, same logic as
+        name: aws                  # https://fluxcd.io/flux/components/source/ocirepositories/#provider
+        serviceAccountRef:
+          name: kuik-ecr-access
+      injectPullSecret: false      # Default: false (for provider) - kubelet already have permission
                                    # to pull from provider registry without additional secret
-    "registry.local:5000/mirror/acme/foo":
-      insecure: true               # HTTP registry
-      unavailable: true            # Image no longer available in this repository but if a pod
+  - imagePrefix: "registry.local:5000/mirror/acme/foo"
+    insecure: true                 # HTTP registry
+    unavailable: true              # Image no longer available in this repository but if a pod
                                    # use this image, we'll try to substitute an alternative
-      auth:                        # credentials to pull images from the registry
-        secretRef:
-          name: local-registry
-        injectPullSecret: true     # Default: true (for secretRef)
+    auth:                          # credentials to pull images from the registry
+      secretRef:
+        name: local-registry
+      injectPullSecret: true       # Default: true (for secretRef)
                                    # inject secret in pod namespace if this image is used as alternative
                                    # so kubelet could pull the image from the registry
 ```
 
 ### Alternatives matching
 
-Entries of `alternatives` are **not** globs: there is no implicit wildcard, and no glob
-marker is supported. An entry is either a **single image** or a **subpath**, and the form is
-given by the trailing character:
+The `imagePrefix` of an entry is **not** a glob: there is no implicit wildcard, and no glob
+marker is supported. It is either a **single image** or a **subpath**, and the form is given
+by the trailing character:
 
 | Form | Written as | Matches |
 | ---- | ---------- | ------- |
 | Single image | no trailing separator (`quay.io/acme/foo`) | that exact repository only, whatever the tag or digest |
 | Subpath | significant trailing `/` (`quay.io/acme/foo/`) | repositories located **directly** under that path (one level only), like a trailing slash for rsync directories |
+
+An `imagePrefix` is a prefix of the image reference at path segment granularity, not a free
+form string prefix: `quay.io/acme/foo` matches `quay.io/acme/foo:v1` but never
+`quay.io/acme/foo-bar:v1`.
 
 When an image matches, the tag or digest is always preserved, and for the subpath form the
 matched remainder (the single path segment below the subpath) is preserved too.
@@ -69,8 +69,8 @@ matched remainder (the single path segment below the subpath) is preserved too.
 
 ```yaml
 alternatives:
-- quay.io/acme/foo
-- docker.io/acme-org/foo
+- imagePrefix: quay.io/acme/foo
+- imagePrefix: docker.io/acme-org/foo
 ```
 
 | Image | Result |
@@ -84,8 +84,8 @@ alternatives:
 
 ```yaml
 alternatives:
-- quay.io/acme/foo/
-- docker.io/acme-org/foo/
+- imagePrefix: quay.io/acme/foo/
+- imagePrefix: docker.io/acme-org/foo/
 ```
 
 | Image | Result |
@@ -99,30 +99,31 @@ alternatives:
 
 Rejected at admission (validation webhook or CEL rules):
 
-- an entry ending with `:` (it looks like a "any tag of this image" marker, but the single
-  image form already covers it):
+- an `imagePrefix` ending with `:` (it looks like a "any tag of this image" marker, but the
+  single image form already covers it):
 
   ```yaml
   alternatives:
-  - "quay.io/acme/foo:"        # invalid
-  - "docker.io/acme-org/foo:"  # invalid
+  - imagePrefix: "quay.io/acme/foo:"        # invalid
+  - imagePrefix: "docker.io/acme-org/foo:"  # invalid
   ```
 
-- an entry carrying a tag or a digest (`quay.io/acme/foo:v1`, `quay.io/acme/foo@sha256:…`):
-  alternatives describe repositories, the tag or digest comes from the pod
+- an `imagePrefix` carrying a tag or a digest (`quay.io/acme/foo:v1`,
+  `quay.io/acme/foo@sha256:…`): alternatives describe repositories, the tag or digest comes
+  from the pod
 - mixing the two forms in the same list, since the two sides would not describe the same
   set of images:
 
   ```yaml
   alternatives:
-  - "quay.io/acme/foo:"       # invalid (trailing `:`) and mixed forms
-  - docker.io/acme-org/foo/
+  - imagePrefix: "quay.io/acme/foo:"       # invalid (trailing `:`) and mixed forms
+  - imagePrefix: docker.io/acme-org/foo/
   ```
 
   ```yaml
   alternatives:
-  - quay.io/acme/foo          # single image form
-  - docker.io/acme-org/foo/   # subpath form => invalid
+  - imagePrefix: quay.io/acme/foo          # single image form
+  - imagePrefix: docker.io/acme-org/foo/   # subpath form => invalid
   ```
 
 Keeping the two forms explicit and non mixable keeps the CR readable and avoids rewriting an
@@ -169,14 +170,14 @@ spec:
     path: registry.tld/mirror/
     insecure: false            # Default: false - Allow HTTP registry
     push:                      # Credentials for controller to push images and delete unused tags
-      auth:                    # Same schema as `ImageAlternative` `spec.config.<prefix>.auth`,
+      auth:                    # Same schema as `ImageAlternative` `spec.alternatives[].auth`,
                                # except `injectPullSecret` which is ignored here: push credentials
                                # are only used by the controller, never injected in namespaces
         secretRef:
           name: mirror-write-credentials
     pull:                      # Credentials to pull image that will be synced in namespaces
       auth:                    # with rewritten image to use destination registry
-                               # Same schema as `ImageAlternative` `spec.config.<prefix>.auth`
+                               # Same schema as `ImageAlternative` `spec.alternatives[].auth`
         secretRef:
           name: mirror-read-credentials
         injectPullSecret: true # Default: true (for secretRef), false for `provider`

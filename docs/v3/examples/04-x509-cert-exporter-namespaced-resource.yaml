@@ -36,6 +36,6 @@ metadata:
   name: x509-certificate-exporter
 spec:
   alternatives:
-    - quay.io/enix/x509-certificate-exporter
-    - ghcr.io/enix/x509-certificate-exporter
-    - docker.io/enix/x509-certificate-exporter
+    - imagePrefix: quay.io/enix/x509-certificate-exporter
+    - imagePrefix: ghcr.io/enix/x509-certificate-exporter
+    - imagePrefix: docker.io/enix/x509-certificate-exporter
