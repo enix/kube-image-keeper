@@ -37,11 +37,14 @@ spec:
       - key: cnpg.io/cluster
         operator: DoesNotExist
   destination:
-    path: registry.example.com/mirror
+    path: registry.example.com/mirror/
     push:
       auth:
         secretRef:
           name: registry-global
+    # v3 splits push and pull credentials, so the mirror can be pushed to with a write enabled
+    # account while namespaces only get a read only one injected. v2 had a single
+    # `credentialSecret` used for both, reusing `registry-global` here would also be valid.
     pull:
       auth:
         secretRef:

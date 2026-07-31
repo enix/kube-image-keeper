@@ -35,6 +35,11 @@ kind: ImageAlternative
 metadata:
   name: x509-certificate-exporter
 spec:
+  # v3 CRDs are cluster-scoped only, the v2 `metadata.namespace` scoping is expressed with
+  # a namespaceSelector
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: monitoring
   alternatives:
     - imagePrefix: quay.io/enix/x509-certificate-exporter
     - imagePrefix: ghcr.io/enix/x509-certificate-exporter

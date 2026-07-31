@@ -1,5 +1,24 @@
 # spec v3
 
+## Scope and filtering
+
+The three custom resources (`ImageAlternative`, `ImageMirror`, `ImageMonitor`) are all
+**cluster-scoped**. There is no namespaced variant: in v2 the mirror and replication kinds each
+had a namespaced peer (`ImageSetMirror`, `ReplicatedImageSet`), v3 drops them. Restricting a
+resource to a subset of the cluster is done with `namespaceSelector`, not by creating the object
+in a given namespace:
+
+```yaml
+namespaceSelector:
+  matchLabels:
+    kubernetes.io/metadata.name: monitoring
+```
+
+Filtering is expressed on **workloads**, not on images: `podSelector` and `namespaceSelector`
+select the pods a resource applies to, and an empty selector matches everything. The single
+exception is `ImageMirror`'s `spec.excludeImagePrefixes`, which keeps specific images out of a
+mirror (e.g. huge images) without changing which pods the mirror applies to.
+
 ## ImageAlternative
 
 ```yaml
