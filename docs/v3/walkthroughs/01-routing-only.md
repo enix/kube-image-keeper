@@ -289,6 +289,11 @@ original is genuinely outside the list there.
 > first, or interleaved? The only tool v3 offers today is `excludeImagePrefixes` on the mirror,
 > which is a manual carve-out (the operator has to remember to exclude `docker.io/library/` from
 > the global mirror) rather than a defined ordering.
+>
+> [Example 07](../examples/07-alternative-and-mirror-composition.yaml) installs both resources
+> side by side: it derives the order v2 produced for that pod, and lists the three questions v3
+> has to answer (candidate order, which images the mirror copies, and which CR is credited in the
+> annotations and statuses).
 
 A smaller adjacent question, not exercised by this example since it has no auth: now that all kinds
 are cluster-scoped, `auth.secretRef` carries no namespace. In v2 a namespaced CR resolved it against
