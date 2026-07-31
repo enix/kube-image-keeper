@@ -21,6 +21,8 @@ kind: ImageMonitor
 metadata:
   name: all
 spec:
+  # v3 excludes workloads rather than images: instead of the v2 imageFilter excluding
+  # `registry.example.com/mirror/.+`, pods opt out of monitoring with a label
   podSelector:
     matchExpressions:
       - key: kuik-monitor-ignore
