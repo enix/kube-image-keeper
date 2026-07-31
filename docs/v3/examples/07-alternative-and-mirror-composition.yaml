@@ -1,0 +1,166 @@
+# Unlike the other files here, this one is not a migration example: both sides are simply
+# example 01 and example 05 installed in the same cluster, which is a realistic combination
+# (a set of upstream alternatives for Docker Hub library images, plus a catch-all mirror).
+#
+# A pod with `image: nginx:1.27` (normalised to `docker.io/library/nginx:1.27`) matches both
+# resources. v2 gives that pod a fully determined candidate order; v3 does not define one, so
+# this file exists to make the missing rule concrete.
+
+############
+# v2       #
+############
+apiVersion: kuik.enix.io/v1alpha1
+kind: ClusterReplicatedImageSet
+metadata:
+  name: docker-library
+spec:
+  upstreams:
+    - imageFilter:
+        include:
+          - /docker/library/.+
+      path: /docker/library/
+      priority: 10
+      registry: public.ecr.aws
+    - imageFilter:
+        include:
+          - /library/[^/]+
+      path: /library/
+      priority: 20
+      registry: mirror.gcr.io
+    - imageFilter:
+        include:
+          - /library/[^/]+
+      path: /library/
+      priority: 30
+      registry: docker.io
+---
+apiVersion: kuik.enix.io/v1alpha1
+kind: ClusterImageSetMirror
+metadata:
+  name: registry-global
+spec:
+  cleanup:
+    enabled: true
+    retention: 168h
+  imageFilter:
+    exclude:
+      - .+/cloudnative-pg/(postgresql|cloudnative-pg):.+
+    include:
+      - .*
+  mirrors:
+    - credentialSecret:
+        name: registry-global
+        namespace: kuik-system
+      path: /mirror
+      registry: registry.example.com
+  priority: -10
+#
+# v2 answer, mechanically derived from the two level priority system:
+#
+#   1. registry.example.com/mirror/docker/library/nginx:1.27   (CISM, priority -10)
+#   2. registry.example.com/mirror/library/nginx:1.27          (CISM, priority -10)
+#   3. docker.io/library/nginx:1.27                            (original, priority 0)
+#   4. public.ecr.aws/docker/library/nginx:1.27                (CRIS, priority 0, upstream 10)
+#   5. mirror.gcr.io/library/nginx:1.27                        (CRIS, priority 0, upstream 20)
+#
+# Three v2 behaviours produce that list, and each one is a decision v3 has to make again:
+#
+#   a. the CISM is a *transform over the candidate set*, not a single extra candidate: the mirror
+#      is applied to every alternative already collected, so the ECR alternative contributes
+#      `mirror/docker/library/...` and the Docker Hub ones contribute `mirror/library/...`.
+#      That is where the two distinct entries 1 and 2 come from.
+#   b. `priority: -10` on the CISM puts both mirror entries ahead of the original, and the CRIS
+#      at priority 0 keeps its upstreams behind it.
+#   c. entries are deduplicated by reference after sorting, which is why the Docker Hub upstream
+#      (priority 30) disappears: it is the same reference as the original at entry 3.
+#
+# Note that entry 1 is a destination path that only exists if the mirror controller copied the
+# image *from ECR*, which it decides on its own; the webhook probes it regardless.
+---
+############
+# v3       #
+############
+apiVersion: kuik.enix.io/v1alpha1
+kind: ImageAlternative
+metadata:
+  name: docker-library
+spec:
+  alternatives:
+    - imagePrefix: public.ecr.aws/docker/library/
+    - imagePrefix: mirror.gcr.io/library/
+    - imagePrefix: docker.io/library/
+---
+apiVersion: kuik.enix.io/v1alpha1
+kind: ImageMirror
+metadata:
+  name: registry-global
+spec:
+  rewritePolicy: Always
+  podSelector:
+    matchExpressions:
+      - key: cnpg.io/cluster
+        operator: DoesNotExist
+  destination:
+    path: registry.example.com/mirror/
+    push:
+      auth:
+        secretRef:
+          name: registry-global
+    pull:
+      auth:
+        secretRef:
+          name: registry-pull-creds
+  cleanup:
+    enabled: true
+    retention: 168h
+#
+# v3 has no answer, because `priority` is gone and the specificity rule (longest matching
+# prefix, then CR name) is only defined *within* `ImageAlternative`. Three questions, in
+# increasing order of consequence:
+#
+# Q1. What is the candidate order for `docker.io/library/nginx:1.27`?
+#
+#   The `ImageAlternative` says "prefer the original, fall back to the two upstreams"
+#   (`rewritePolicy` defaults to `OnFailure`), the `ImageMirror` says "always use the mirror"
+#   (`rewritePolicy: Always`). Both statements are about the same pod and they disagree.
+#   Candidate readings:
+#
+#     (i)   mirror first, alternatives after
+#           => registry.example.com/mirror/…, docker.io/…, public.ecr.aws/…, mirror.gcr.io/…
+#           `Always` on the mirror is read as the stronger intent, closest to v2's `priority: -10`
+#     (ii)  alternatives first, mirror as last resort
+#           => docker.io/…, public.ecr.aws/…, mirror.gcr.io/…, registry.example.com/mirror/…
+#           the ImageAlternative is the more specific resource (it names these repositories,
+#           the mirror matches everything), so specificity wins
+#     (iii) mirror as a transform over the candidate set, v2 style
+#           => a mirror entry per alternative, which is the only reading that lets the mirror
+#           serve a copy pulled from ECR when both Docker Hub and ECR are down
+#     (iv)  undefined and rejected: require the operator to disambiguate with
+#           `excludeImagePrefixes: [docker.io/library/]` on the mirror, and report a conflict in
+#           both statuses until they do
+#
+#   Note that (i) and (iii) differ even when everything is healthy, because (iii) probes several
+#   destination paths.
+#
+# Q2. Which images does the mirror actually copy?
+#
+#   Only the original `docker.io/library/nginx:1.27`, or also the alternatives that the
+#   `ImageAlternative` may route to? v3's destination paths embed the source registry (see
+#   `status.repositories` in status.md), so the two are distinct destination repositories:
+#
+#     registry.example.com/mirror/docker.io/library/nginx:1.27
+#     registry.example.com/mirror/public.ecr.aws/docker/library/nginx:1.27
+#
+#   Mirroring both doubles the storage for one image. Mirroring only the original means the
+#   mirror is useless in the exact scenario the alternatives exist for (Docker Hub unreachable
+#   at copy time). Note that this is a decision for the ImageMirror *controller*, not just the
+#   webhook, and it drives `status.images.desired`, `status.repositories` and the cleanup GC.
+#
+# Q3. Who gets the credit in the annotations and in the statuses?
+#
+#   `kuik.enix.io/rewritten-by` holds one CR per container, but under reading (iii) both CRs
+#   contributed to the chosen reference (the ImageAlternative selected the source, the
+#   ImageMirror selected the destination). Whichever way Q1 is settled, the two status
+#   controllers must agree on who counts the pod, otherwise the same pod is reported both as an
+#   ImageAlternative `activeFallbacks` entry and as an ImageMirror rewrite, and the two `pods`
+#   gauges double count.
