@@ -1,5 +1,40 @@
 # Troubleshooting
 
+## Stale tag caches on pull-through proxies
+
+**Symptom:** kuik reports an image as available (and keeps routing pods to it), but pods pulling it fail with `manifest unknown` or `not found` on every node that does not already have the image in its local store.
+
+By default, the availability check does what a plain `docker pull` of a tag starts with: one `HEAD` (or `GET`) on the tag. Container runtimes do more, they resolve the tag to a manifest digest, then fetch the manifest *by that digest*. Some registries answer the two requests inconsistently:
+
+- a pull-through proxy whose upstream image was deleted or garbage-collected keeps serving the cached tag while the manifest behind it is gone;
+- a scanner-gated registry (Artifactory with Xray, for instance) can block a specific manifest by digest while the tag lookup still succeeds.
+
+In both cases the tag request returns `200`, kuik marks the image `Available`, and the pull fails anyway. Setting `resolveDigest: true` makes kuik follow the same two-step path as the runtime. A `404` on the digest request is reported as `NotFound` with a `tag/digest inconsistency` message, which triggers the usual fallback to the next alternative and the re-mirror path.
+
+The check is opt-in because it **doubles the number of registry requests** for every checked tag. Two things must be kept in mind when enabling it:
+
+- **`routing.activeCheck.timeout`** — the timeout applies to each request individually, so a check can take up to `2 × timeout` of wall time before the webhook falls back to the next alternative. Lower it if admission latency matters more than probe reliability.
+- **`monitoring.registries.*.maxPerInterval`** — this counts *images checked*, not requests sent. With `resolveDigest`, each image costs two requests, so halve the value on rate-constrained registries (Docker Hub anonymous pulls, for example) to keep the same request budget.
+
+```yaml
+routing:
+  activeCheck:
+    resolveDigest: true # each of the two requests gets the full activeCheck timeout
+
+monitoring:
+  registries:
+    items:
+      docker.io:
+        resolveDigest: true
+        interval: 1h
+        maxPerInterval: 3 # halved from 6, each check now costs two requests
+```
+
+`routing.activeCheck.resolveDigest` (webhook) and `monitoring.registries.*.resolveDigest` (`ClusterImageSetAvailability` probes) are independent, enable whichever surface you need. The per-registry value is a three-state boolean: unset inherits `monitoring.registries.default`, `false` opts a single registry out of an enabled default.
+
+> [!NOTE]
+> Registries that answer `405` or `501` to a manifest-by-digest request are treated as available. They support tag lookup but not the digest path for that HTTP method, and serve the image fine to container runtimes.
+
 ## Duplicated credential secrets (`kuik-kuik-...`)
 
 When a `(Cluster)ImageSetMirror` or `(Cluster)ReplicatedImageSet` declares a `credentialSecret`, kuik copies it into every namespace where a matching image is rerouted, naming the copy `kuik-<secret-name>-<hash>`.
