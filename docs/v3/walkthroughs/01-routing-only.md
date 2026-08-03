@@ -110,18 +110,18 @@ allows a **segment trie** instead:
   trie, with no per-namespace variant: `docker.io` -> `library` -> subpath node, owner
   `docker-library`, entry index 2
 - lookup splits `docker.io/library/nginx` into `[docker.io, library, nginx]` and walks down,
-  remembering the deepest node that matches. A **subpath node** matches only when exactly one
+  collecting every node that matches along the way. A **subpath node** matches only when exactly one
   segment remains below it, an **exact node** only when zero remain. That is what enforces the "one
   level only" rule from the spec (`quay.io/acme/foo/bar/oni` does not match `quay.io/acme/foo/`)
-- **longest match wins**, so an exact `docker.io/library/nginx` entry in another CR beats this CR's
-  `docker.io/library/`. Equal specificity in two CRs is broken by lexicographic CR name (a single
-  flat name space now that there are no namespaced kinds), and both CRs report the conflict in their
-  status
+- specificity picks which *entry* of a CR matches, and therefore the remainder to carry over, but it
+  does **not** elect a single owning CR: an exact `docker.io/library/nginx` entry in another CR does
+  not shadow this CR's `docker.io/library/`, both contribute their alternatives and the lists are
+  merged (see [Candidate ordering](../spec.md#the-total-order))
 - lookup is O(number of segments), independent of the number of CRs. That matters precisely because
   this CR carries no selector, so every pod in the cluster goes through it
 
-The winner is a **single CR** (lists are never concatenated), so the candidate set is exactly that
-CR's three entries with the matched remainder (`nginx`) and the tag (`1.27`) reapplied:
+Only this CR matches here, so the candidate set is exactly its three entries with the matched
+remainder (`nginx`) and the tag (`1.27`) reapplied:
 
 ```text
 0. public.ecr.aws/docker/library/nginx:1.27
@@ -137,15 +137,15 @@ construction (matching happens against those very entries), so it always remains
 
 | Policy | Probe order | Effect |
 | ------ | ----------- | ------ |
-| `OnFailure` (default) | docker.io, then public.ecr.aws, then mirror.gcr.io | the original is hoisted to the head. Docker Hub first, mirrors are pure fallback. Same behaviour as the v2 CR at priority 0 with upstream priorities 10/20/30 |
-| `Always` | public.ecr.aws, then mirror.gcr.io, then docker.io | the list is used exactly as written. Prefer the ECR pull-through unconditionally, the "never hit Docker Hub rate limits" posture |
+| `OnFailure` (default) | docker.io, then public.ecr.aws, then mirror.gcr.io | the original sits at the head, the other entries follow in declared order. Docker Hub first, mirrors are pure fallback. Same behaviour as the v2 CR at priority 0 with upstream priorities 10/20/30 |
+| `Always` | public.ecr.aws, then mirror.gcr.io, then docker.io | the other entries move ahead of the original, in declared order. Prefer the ECR pull-through unconditionally, the "never hit Docker Hub rate limits" posture |
 
-> [!IMPORTANT]
-> Under `Always`, the **declared position of the original** in `alternatives` is significant. In
-> this example the original comes last, so `Always` prefers the mirrors, which is the intent. Write
-> the same CR with `docker.io/library/` **first** and `Always` becomes a no-op: the original is
-> probed first, it answers, and nothing is ever rewritten. Put the registry you want preferred at
-> the top of the list.
+> [!NOTE]
+> The original always sits at the **pivot** of the candidate list, whatever its declared position in
+> `alternatives` — the two policies decide which side of it the remaining entries go, not where the
+> original itself lands. So `Always` is never a no-op, even with `docker.io/library/` declared first:
+> the two other entries still move ahead of it. Only the relative order *among* those entries follows
+> the declaration.
 
 ### Step F: availability probing
 
@@ -180,9 +180,10 @@ If the original is healthy, the pod is left untouched. If all three candidates a
 is no mutation either, `reason` is `NoAlternatives`, and the pod still starts when the image happens
 to be in the node's cache.
 
-One good property of the "one CR owns the list" rule: a pod that directly references
-`public.ecr.aws/docker/library/nginx:1.27` matches entry 0 of the *same* CR and gets the *same*
-three candidates. Rerouting is idempotent and cannot chain across CRs into a loop.
+A pod that directly references `public.ecr.aws/docker/library/nginx:1.27` matches entry 0 of this same
+CR and gets the same three candidates, with ECR now at the pivot. Rerouting cannot chain into a loop
+in any case: the webhook mutates once and the `original-images` annotation makes the pod
+ineligible afterwards.
 
 ## 3. ImageAlternative status controller
 
@@ -237,7 +238,8 @@ no `selfCheck` ring, no push credentials, no secret injected into user namespace
 
 The interesting part is what happens when an `ImageMirror` also matches these pods, which
 [example 05](../examples/05-global-mirror-force-rewrite.yaml) does cluster-wide. See
-[the open point](#open-point-composing-imagealternative-and-imagemirror) at the end of this page.
+[composing the two kinds](#settled-composing-imagealternative-and-imagemirror) at the end of this
+page.
 
 ## 5. ImageMonitor controller
 
@@ -248,8 +250,8 @@ The interesting part is what happens when an `ImageMirror` also matches these po
 | Stage | Algorithm | Status |
 | ----- | --------- | ------ |
 | CR admission | CEL form / tag / uniformity checks | new |
-| Pod webhook match | segment trie, longest-prefix-wins, lexicographic tie-break | new, replaces regex filters |
-| Candidate build | remainder and tag reapplication, policy-driven original placement | reworked, replaces the two-level priority system |
+| Pod webhook match | segment trie, collect every matching CR | new, replaces regex filters |
+| Candidate build | remainder and tag reapplication, merge by policy band then CR name, original at the pivot, dedup | reworked, replaces the two-level priority system |
 | Probing | `FirstSuccessful` + singleflight + two TTL caches + skip hints | exists, retuned |
 | Status | informer-only aggregation over webhook annotations, sticky `since` | new, v2 wrote status from the webhook |
 
@@ -261,10 +263,10 @@ image to first available in `alternatives` list" could be read as excluding the 
 candidates. It does **not**. The decided semantics are the ones documented in step E:
 
 - the original is never excluded, it stays a candidate under both policies
-- `OnFailure` hoists it to the head of the probe order, `Always` leaves the list exactly as written,
-  so the original keeps its declared position
-- consequently, under `Always`, where the operator declares their own registry in the list is
-  meaningful, and declaring it first makes the policy a no-op
+- it sits at the **pivot** of the candidate list, whatever its declared position: `OnFailure` puts the
+  CR's remaining entries after it, `Always` puts them before it
+- the declared order therefore governs only the relative order *among* those entries, so `Always` is
+  never a no-op
 
 `ImageMirror` is not affected by the same ambiguity: its `destination` is a separate field, so the
 original is genuinely outside the list there.
@@ -272,28 +274,32 @@ original is genuinely outside the list there.
 > [!NOTE]
 > The policy names are being reconsidered (`PreferFirst` / `PreferOriginal` instead of `Always` /
 > `OnFailure`), because they describe this ordering behaviour directly: `PreferOriginal` says the
-> original is probed first, `PreferFirst` says the first list entry wins, which makes the
-> significance of the declared order self-evident. This walkthrough follows the current spec and
-> keeps `OnFailure` / `Always` until that change lands.
+> original is probed first, `PreferFirst` says the declared entries win. This walkthrough follows the
+> current spec and keeps `OnFailure` / `Always` until that change lands.
 
-## Open point: composing `ImageAlternative` and `ImageMirror`
+## Settled: composing `ImageAlternative` and `ImageMirror`
 
-> [!IMPORTANT]
-> **How do `ImageAlternative` and `ImageMirror` candidates compose when both match a pod?**
->
-> v2 had an explicit answer: signed `spec.priority` plus the default type order
-> (Original, CISM, ISM, CRIS, RIS). v3 drops `priority` entirely, and the specificity rule
-> (longest prefix, then CR name) is defined only *within* `ImageAlternative`. Combining example 01
-> with the cluster-wide mirror of example 05 is therefore undefined: for a
-> `docker.io/library/nginx:1.27` pod, is the candidate order the mirror first, the alternatives
-> first, or interleaved? The only tool v3 offers today is `excludeImagePrefixes` on the mirror,
-> which is a manual carve-out (the operator has to remember to exclude `docker.io/library/` from
-> the global mirror) rather than a defined ordering.
->
-> [Example 07](../examples/07-alternative-and-mirror-composition.yaml) installs both resources
-> side by side: it derives the order v2 produced for that pod, and lists the three questions v3
-> has to answer (candidate order, which images the mirror copies, and which CR is credited in the
-> annotations and statuses).
+Raising this example also surfaced the question of what happens when an `ImageMirror` matches the
+same pods, which v2 answered with signed `spec.priority` plus a default kind order and which v3 had
+left undefined once `priority` was dropped. It is now specified in
+[Candidate ordering across resources](../spec.md#candidate-ordering-across-resources), and worked
+through on the combination of this example with the cluster-wide mirror of example 05 in
+[example 07](../examples/07-alternative-and-mirror-composition.yaml):
+
+- candidates from every matching CR are merged into one list, ordered `Always` mirrors, `Always`
+  alternatives, the original, `OnFailure` alternatives, `OnFailure` mirrors — lexicographic by CR name
+  within each band. So this example's three entries keep the step E order, and a mirror lands either
+  ahead of everything (`Always`, for latency and quota) or behind everything (`OnFailure`, as the
+  ultimate safety net behind the fresher upstream alternatives)
+- each mirror candidate is built from the **original** reference, so a mirror is one candidate rather
+  than v2's transform over the whole candidate set, and one source image maps to one destination
+  repository
+- the CR that supplied the retained reference is the one named in `rewritten-by` and the only one
+  counting the pod, which keeps the gauges disjoint across CRs and kinds
+
+Only competing `Always` CRs need operator attention (`AmbiguousRewrite` warning); an `OnFailure`
+alternative plus an `OnFailure` mirror is the intended composition, so `excludeImagePrefixes` on the
+mirror stays an optimisation rather than a required carve-out.
 
 A smaller adjacent question, not exercised by this example since it has no auth: now that all kinds
 are cluster-scoped, `auth.secretRef` carries no namespace. In v2 a namespaced CR resolved it against
