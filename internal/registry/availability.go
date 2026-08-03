@@ -86,7 +86,7 @@ func checkDigestPath(client *Client, method string, reference string, desc *v1.D
 	if err != nil {
 		switch TransportStatusCode(err) {
 		case http.StatusNotFound:
-			return kuikv1alpha1.ImageAvailabilityNotFound, fmt.Errorf("tag/digest inconsistency: %q resolves to digest %s but the registry does not serve that manifest by digest, pulls from this registry will fail on any node that does not already have the image: %w", reference, desc.Digest.String(), err)
+			return kuikv1alpha1.ImageAvailabilityNotFound, fmt.Errorf("tag/digest inconsistency: %q resolves to digest %s but the registry does not serve that manifest: %w", reference, desc.Digest.String(), err)
 		case http.StatusMethodNotAllowed, http.StatusNotImplemented:
 			// The registry supports tag lookup but not manifest-by-digest for this
 			// HTTP method; the tag check already passed so the image is pullable.
