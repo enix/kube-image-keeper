@@ -44,7 +44,7 @@ func (b *brokenDigestRegistry) ServeHTTP(w http.ResponseWriter, r *http.Request)
 			case digestResponseNotFound:
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, `{"errors":[{"code":"MANIFEST_UNKNOWN","message":"manifest unknown"}]}`)
+				_, _ = fmt.Fprint(w, `{"errors":[{"code":"MANIFEST_UNKNOWN","message":"manifest unknown"}]}`)
 				return
 			case digestResponseRateLimit:
 				w.Header().Set("RateLimit-Remaining", "0;w=21600")
@@ -53,7 +53,7 @@ func (b *brokenDigestRegistry) ServeHTTP(w http.ResponseWriter, r *http.Request)
 			case digestResponseUnauthorized:
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusUnauthorized)
-				fmt.Fprint(w, `{"errors":[{"code":"UNAUTHORIZED","message":"authentication required"}]}`)
+				_, _ = fmt.Fprint(w, `{"errors":[{"code":"UNAUTHORIZED","message":"authentication required"}]}`)
 				return
 			case digestResponseMethodNotAllowed:
 				w.WriteHeader(http.StatusMethodNotAllowed)
