@@ -150,16 +150,17 @@ image to an unrelated one because two repository names happen to share a prefix.
 
 #### Overlapping alternatives across several CRs
 
-Several `ImageAlternative` may match the same image, for instance one declaring
-`quay.io/acme/` and another declaring `quay.io/acme/foo`. The **most specific** entry wins,
-which is the longest matching prefix, so a single image entry
-always wins over a subpath entry that would also match it. Only that CR provides the
-alternatives list for the image, lists are not concatenated.
+Several `ImageAlternative` may match the same image, for instance one declaring `quay.io/acme/` and
+another declaring `quay.io/acme/foo`. They are **not** mutually exclusive: every matching CR
+contributes its alternatives, and the resulting lists are merged into a single candidate list by
+[the total order](#the-total-order) — by `rewritePolicy` first, then lexicographic CR name within a
+policy. Specificity decides which *entry* of a CR matches (and therefore the remainder to carry
+over), not which CR owns the image.
 
-If two CRs match with the same specificity (typically the very same entry declared twice),
-the conflict is resolved deterministically (lexicographic order of the CR name) and both CRs
-report it in their status, so the ambiguity is visible instead of silently depending on
-reconcile order.
+Merging rather than electing a single owner means overlapping CRs add fallbacks instead of shadowing
+each other, and the only case reported as a conflict is the one where two CRs actually disagree about
+what to put ahead of the original: see
+[Duplicate and conflicting candidates](#duplicate-and-conflicting-candidates).
 
 ## ImageMirror
 
@@ -244,6 +245,133 @@ spec:
   monitorAlternatives: false   # Default: false - Also monitor alternatives images instead of only original ones
 
 ```
+
+## Candidate ordering across resources
+
+An image may be covered by several `ImageAlternative` **and** by one or more `ImageMirror` (whose
+routing scope is defined by their selectors). `ImageMonitor` never contributes a candidate. v2 ordered
+these with a signed `spec.priority` plus a default kind order (Original, CISM, ISM, CRIS, RIS); v3 has
+no `priority` field and derives the whole order from `rewritePolicy` plus a fixed kind order.
+
+### The total order
+
+> **`Always` `ImageMirror`** (lexicographic among them) → **`Always` `ImageAlternative`** (lex) →
+> **original image** → **`OnFailure` `ImageAlternative`** (lex) → **`OnFailure` `ImageMirror`** (lex)
+
+- the **original appears exactly once, at the pivot**, whatever its declared position in any
+  `alternatives` list. All the other entries of a CR go to that CR's band, keeping their declared order
+- each matching `ImageMirror` contributes **one** candidate, built from the **original** reference —
+  not from whatever an `ImageAlternative` would resolve to — by joining `destination.path` with the
+  full original reference, registry host included:
+
+  ```text
+  destination.path              registry.example.com/mirror/
+  original image                docker.io/library/nginx:1.27
+  mirror candidate              registry.example.com/mirror/docker.io/library/nginx:1.27
+  ```
+
+- `rewritePolicy: None` on an `ImageMirror` contributes no candidate at all: the image is copied to
+  the destination but never used for routing. A mirror also contributes nothing for images matching
+  its `excludeImagePrefixes`
+- candidates are then **deduplicated keeping the first occurrence**, by resulting reference *including
+  its resolved config* (see [Duplicate and conflicting candidates](#duplicate-and-conflicting-candidates))
+
+Rationale for that order: an `Always` mirror exists precisely for latency and quota reasons, so it must
+beat a distant upstream alternative. Under `OnFailure` the upstream alternatives are fresh and
+canonical, so they come before the local copy and the mirror remains the **ultimate safety net**.
+
+> [!TIP]
+> **In the common case there is nothing to think about**: `ImageAlternative` resources that do not
+> overlap each other, plus a single `ImageMirror`, produce the order you would naturally expect —
+> original, then the declared alternatives, then the mirror as a last resort (or the mirror first
+> under `Always`). Sorting by name only matters when several CRs *of the same kind and the same
+> policy* cover the same image.
+
+Lexicographic order rather than `creationTimestamp` (the tie-break Gateway API uses for its
+conflicts): a timestamp is not stable under GitOps, where deleting and recreating an object silently
+changes precedence, whereas the name is. `kubectl get imagealternatives` then displays the
+within-kind order for free.
+
+Worked example, an `ImageMirror` and the `ImageAlternative` of
+[example 07](./examples/07-alternative-and-mirror-composition.yaml) both matching a `nginx:1.27` pod.
+The alternatives are declared `public.ecr.aws/docker/library/`, `mirror.gcr.io/library/`,
+`docker.io/library/` — so the original is one of them — and `M` is the mirror candidate above:
+
+| `ImageMirror` | `ImageAlternative` | Candidate order |
+| ------------- | ------------------ | --------------- |
+| `OnFailure` | `OnFailure` | `docker.io` → `public.ecr.aws` → `mirror.gcr.io` → **M** |
+| `OnFailure` | `Always` | `public.ecr.aws` → `mirror.gcr.io` → `docker.io` → **M** |
+| `Always` | `OnFailure` | **M** → `docker.io` → `public.ecr.aws` → `mirror.gcr.io` |
+| `Always` | `Always` | **M** → `public.ecr.aws` → `mirror.gcr.io` → `docker.io` |
+
+Since the original sits at the pivot regardless of where it is declared, `Always` on an
+`ImageAlternative` is never a no-op: entries declared after the original still land ahead of it.
+
+### Duplicate and conflicting candidates
+
+The only genuine conflict is **two `Always` CRs, of either kind, wanting to place a different
+candidate ahead of the original for the same image**. The total order still breaks the tie
+deterministically, and both CRs get a `Warning` event `AmbiguousRewrite` — on the CRs, not on the
+pods, since the pods are not where the ambiguity was configured.
+
+A specific `OnFailure` `ImageAlternative` together with an `OnFailure` `ImageMirror` is **not** a
+conflict: that is the intended composition, and it is why `excludeImagePrefixes` on the mirror stays
+an optimisation (keeping a global mirror off repositories that already have upstream alternatives)
+rather than a correctness requirement.
+
+Deduplication is keyed on the resulting reference **and its resolved config**, so two CRs producing
+the same reference with different `auth` are not collapsed into one candidate. That case gets its own
+`Warning`, since it is almost always a configuration error.
+
+### What an `ImageMirror` copies
+
+The destination repository is keyed on the **original** reference, so one source image is one
+destination repository whatever the alternatives say. A mirror matching a pod copies the image the
+pod declared, not the alternatives it might be routed to: mirroring every alternative would multiply
+the storage for a single image, and would make `status.repositories` and the cleanup GC depend on
+routing decisions taken in the webhook.
+
+When the original is unreachable at copy time and was never copied, the controller may pull the bytes
+from any entry of an `ImageAlternative` covering that image and push them to that same destination —
+the destination path stays keyed on the original either way. This keeps a mirror useful in the exact
+scenario the alternatives exist for, at bounded storage cost. If no source answers at all, nothing is
+copied and the image is counted in `status.images.missingSource`.
+
+> [!IMPORTANT]
+> Alternatives are asserted equivalent by the operator, not verified to be byte-identical. A
+> destination populated from an alternative can therefore hold a digest that differs from the
+> original upstream tag, and `driftPolicy: Warn` / `Sync` will report or resync it once the original
+> registry is reachable again. `Sync` converges on the original upstream, which is an argument for
+> revisiting the `driftPolicy` default.
+
+### Who gets the credit
+
+Exactly one CR is credited per container: the one that supplied the **winning** reference.
+
+- `kuik.enix.io/rewritten-by` names that CR, and carries an entry only for containers that were
+  actually rewritten
+- `kuik.enix.io/reason` is `Always` or `OnFailure` according to that CR's own `rewritePolicy`, and
+  `NoAlternatives` when every candidate failed
+
+Status counters follow the same rule: a pod is counted **only by the winning CR**, the one that
+provided the retained reference. Gauges are therefore disjoint between CRs and between kinds, so they
+sum consistently instead of reporting the same pod several times.
+
+- `pods.rewritten`, and the `activeFallbacks` entry that goes with it, are counted only by the CR
+  named in `rewritten-by`
+- `pods.noAlternatives` is counted by every resource that contributed at least one candidate, since
+  all of them failed to help and there is no winner to attribute the pod to
+
+> [!NOTE]
+> Unsettled: [status v3](./status.md) defines `pods.tracked` as "number of pods this CR could apply
+> to", which by construction overlaps between resources and so cannot be disjoint. Either `tracked`
+> is exempt from the disjointness rule (it answers "would this CR apply?", useful for reviewing a
+> selector before it ever wins), or it is redefined as "pods this CR owns" and the overlap becomes
+> invisible. The other gauges are unaffected either way.
+
+The status controllers read the original reference from `kuik.enix.io/original-images` when present
+and from the live container image otherwise (a pod left untouched carries no annotation), so a
+resource sees the same reference whether or not a rewrite happened.
 
 ## Annotations
 

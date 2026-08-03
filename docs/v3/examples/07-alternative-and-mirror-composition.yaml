@@ -3,8 +3,9 @@
 # (a set of upstream alternatives for Docker Hub library images, plus a catch-all mirror).
 #
 # A pod with `image: nginx:1.27` (normalised to `docker.io/library/nginx:1.27`) matches both
-# resources. v2 gives that pod a fully determined candidate order; v3 does not define one, so
-# this file exists to make the missing rule concrete.
+# resources, so this file is the concrete case behind the "Candidate ordering across resources"
+# section of spec.md: it derives the order v2 produced, then the order v3 produces and how the two
+# differ.
 
 ############
 # v2       #
@@ -114,53 +115,55 @@ spec:
     enabled: true
     retention: 168h
 #
-# v3 has no answer, because `priority` is gone and the specificity rule (longest matching
-# prefix, then CR name) is only defined *within* `ImageAlternative`. Three questions, in
-# increasing order of consequence:
+# v3 answer, derived from "Candidate ordering across resources" in spec.md. `priority` is gone;
+# the order comes from `rewritePolicy` plus a fixed kind order.
 #
-# Q1. What is the candidate order for `docker.io/library/nginx:1.27`?
+# A1. Candidate order for `docker.io/library/nginx:1.27`
 #
-#   The `ImageAlternative` says "prefer the original, fall back to the two upstreams"
-#   (`rewritePolicy` defaults to `OnFailure`), the `ImageMirror` says "always use the mirror"
-#   (`rewritePolicy: Always`). Both statements are about the same pod and they disagree.
-#   Candidate readings:
+#   Total order: Always mirrors, Always alternatives, the original, OnFailure alternatives,
+#   OnFailure mirrors — lexicographic by CR name within a band. Here the mirror says `Always` so
+#   it leads, and the ImageAlternative defaults to `OnFailure` so its entries follow the original:
 #
-#     (i)   mirror first, alternatives after
-#           => registry.example.com/mirror/…, docker.io/…, public.ecr.aws/…, mirror.gcr.io/…
-#           `Always` on the mirror is read as the stronger intent, closest to v2's `priority: -10`
-#     (ii)  alternatives first, mirror as last resort
-#           => docker.io/…, public.ecr.aws/…, mirror.gcr.io/…, registry.example.com/mirror/…
-#           the ImageAlternative is the more specific resource (it names these repositories,
-#           the mirror matches everything), so specificity wins
-#     (iii) mirror as a transform over the candidate set, v2 style
-#           => a mirror entry per alternative, which is the only reading that lets the mirror
-#           serve a copy pulled from ECR when both Docker Hub and ECR are down
-#     (iv)  undefined and rejected: require the operator to disambiguate with
-#           `excludeImagePrefixes: [docker.io/library/]` on the mirror, and report a conflict in
-#           both statuses until they do
+#     1. registry.example.com/mirror/docker.io/library/nginx:1.27   ImageMirror, Always
+#     2. docker.io/library/nginx:1.27                               the original, at the pivot
+#     3. public.ecr.aws/docker/library/nginx:1.27                   OnFailure band, declared order
+#     4. mirror.gcr.io/library/nginx:1.27
 #
-#   Note that (i) and (iii) differ even when everything is healthy, because (iii) probes several
-#   destination paths.
+#   spec.md tabulates the four `rewritePolicy` combinations for these same two resources. With
+#   `OnFailure` on the mirror it would sit last instead of first: the upstream alternatives are
+#   canonical and fresh, so they are probed before the local copy, which stays the safety net.
 #
-# Q2. Which images does the mirror actually copy?
+#   Four candidates where v2 produced five: the mirror is *one* candidate built from the original
+#   reference, not a transform applied to every alternative, so v2's second mirror entry
+#   (`mirror/docker/library/…`, the mirror of the ECR alternative) has no v3 equivalent. That is
+#   the deliberate cost of the simpler rule — see A2 for why it does not actually lose the
+#   "Docker Hub is down at copy time" case.
 #
-#   Only the original `docker.io/library/nginx:1.27`, or also the alternatives that the
-#   `ImageAlternative` may route to? v3's destination paths embed the source registry (see
-#   `status.repositories` in status.md), so the two are distinct destination repositories:
+#   No disambiguation is required: only two *competing `Always`* CRs raise `AmbiguousRewrite`, and
+#   there is a single `Always` CR here. `excludeImagePrefixes: [docker.io/library/]` on the mirror
+#   remains a reasonable optimisation (this repository already has upstream alternatives, so
+#   mirroring it buys little), but it is a choice, not a fix for an ambiguity.
+#
+# A2. Which images the mirror copies
+#
+#   Only the original, and the destination repository is keyed on the original reference:
 #
 #     registry.example.com/mirror/docker.io/library/nginx:1.27
-#     registry.example.com/mirror/public.ecr.aws/docker/library/nginx:1.27
 #
-#   Mirroring both doubles the storage for one image. Mirroring only the original means the
-#   mirror is useless in the exact scenario the alternatives exist for (Docker Hub unreachable
-#   at copy time). Note that this is a decision for the ImageMirror *controller*, not just the
-#   webhook, and it drives `status.images.desired`, `status.repositories` and the cleanup GC.
+#   Never a second repository for the ECR alternative, so one source image is one destination
+#   repository and `status.repositories` / the cleanup GC stay independent of webhook routing
+#   decisions. If Docker Hub is unreachable at copy time and the image was never copied, the
+#   controller may pull the bytes from any entry of a matching ImageAlternative and push them to that
+#   same destination path — bounded storage, and the mirror still fills up during the outage.
+#   Caveat: the copy can then hold a digest that differs from the Docker Hub tag, which
+#   `driftPolicy: Warn`/`Sync` surfaces once Docker Hub is reachable again.
 #
-# Q3. Who gets the credit in the annotations and in the statuses?
+# A3. Credit in the annotations and statuses
 #
-#   `kuik.enix.io/rewritten-by` holds one CR per container, but under reading (iii) both CRs
-#   contributed to the chosen reference (the ImageAlternative selected the source, the
-#   ImageMirror selected the destination). Whichever way Q1 is settled, the two status
-#   controllers must agree on who counts the pod, otherwise the same pod is reported both as an
-#   ImageAlternative `activeFallbacks` entry and as an ImageMirror rewrite, and the two `pods`
-#   gauges double count.
+#   Whichever candidate is retained names its own CR in `kuik.enix.io/rewritten-by`, and only that
+#   CR counts the pod (in `pods.rewritten`, and in `activeFallbacks` for an ImageAlternative), so
+#   the gauges stay disjoint between CRs and between kinds and sum consistently.
+#   So if the mirror serves the pod: `rewritten-by: {"nginx":"ImageMirror/registry-global"}`,
+#   `reason: {"nginx":"Always"}`, and the ImageAlternative does not count it.
+#   Left to settle: whether `pods.tracked` ("pods this CR could apply to", which overlaps by
+#   construction) is exempt from that disjointness or gets redefined — see the note in spec.md.
