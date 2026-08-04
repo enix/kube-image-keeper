@@ -32,11 +32,9 @@ spec:
   podSelector: {}
   namespaceSelector: {}
 
-  # Image rewrite policy used in mutating webhook
-  #   OnFailure: Default. Keep using original image if available, else use first available
-  #             image in `alternatives` list
-  #   Always: Always rewrite image to first available in `alternatives` list
-  #          (bypass quota, latency, network cost, …)
+  # Where this CR's entries sit relative to the original image, see "Candidate ordering"
+  #   OnFailure: Default. Original first, these entries are fallbacks
+  #   Always: These entries first (bypass quota, latency, network cost, …)
   rewritePolicy: OnFailure    # OnFailure | Always
 
   # Ordered list of equivalent images (or image subpaths) that could be used if one is
@@ -65,6 +63,11 @@ spec:
                                    # inject secret in pod namespace if this image is used as alternative
                                    # so kubelet could pull the image from the registry
 ```
+
+> [!NOTE]
+> Unsettled: all v3 kinds being cluster-scoped, `auth.secretRef` carries no namespace, where a v2
+> namespaced CR resolved it against its own. It presumably resolves against the operator's namespace,
+> with `injectPullSecret` copying from there into the pod namespace, but that needs to be stated.
 
 ### Alternatives matching
 
@@ -151,16 +154,13 @@ image to an unrelated one because two repository names happen to share a prefix.
 #### Overlapping alternatives across several CRs
 
 Several `ImageAlternative` may match the same image, for instance one declaring `quay.io/acme/` and
-another declaring `quay.io/acme/foo`. They are **not** mutually exclusive: every matching CR
-contributes its alternatives, and the resulting lists are merged into a single candidate list by
-[the total order](#the-total-order) — by `rewritePolicy` first, then lexicographic CR name within a
-policy. Specificity decides which *entry* of a CR matches (and therefore the remainder to carry
-over), not which CR owns the image.
+another declaring `quay.io/acme/foo`. They are **not** mutually exclusive: overlapping CRs add
+fallbacks instead of shadowing each other, and their lists are merged as described in
+[Candidate ordering](#candidate-ordering). Specificity picks which *entry* of a CR matches, and
+therefore the remainder to carry over — not which CR owns the image.
 
-Merging rather than electing a single owner means overlapping CRs add fallbacks instead of shadowing
-each other, and the only case reported as a conflict is the one where two CRs actually disagree about
-what to put ahead of the original: see
-[Duplicate and conflicting candidates](#duplicate-and-conflicting-candidates).
+Because the semantics are structural rather than regex based, a lookup can walk a trie of path
+segments and cost O(segments) whatever the number of CRs.
 
 ## ImageMirror
 
@@ -178,12 +178,10 @@ spec:
   excludeImagePrefixes:
   - ghcr.io/foo-bar/
 
-  # Image rewrite policy used in mutating webhook
-  #   OnFailure: Default. Keep using original image if available, else use the mirrored
-  #             image in `destination`
-  #   Always: Always rewrite image to the mirrored image in `destination`
-  #          (bypass quota, latency, network cost, …)
-  #   None: Only copy image to mirror, don't use it as an image alternative (archiving, compliance, security scan, …)
+  # Where the mirrored image sits relative to the original, see "Candidate ordering"
+  #   OnFailure: Default. Last resort, behind the original and any alternatives
+  #   Always: Ahead of everything (bypass quota, latency, network cost, …)
+  #   None: Only copy image to mirror, never use it for routing (archiving, compliance, security scan, …)
   rewritePolicy: OnFailure    # OnFailure (default) | Always | None
 
   destination:
@@ -246,132 +244,91 @@ spec:
 
 ```
 
-## Candidate ordering across resources
+## Candidate ordering
 
-An image may be covered by several `ImageAlternative` **and** by one or more `ImageMirror` (whose
-routing scope is defined by their selectors). `ImageMonitor` never contributes a candidate. v2 ordered
-these with a signed `spec.priority` plus a default kind order (Original, CISM, ISM, CRIS, RIS); v3 has
-no `priority` field and derives the whole order from `rewritePolicy` plus a fixed kind order.
+An image may be covered by several `ImageAlternative` **and** by one or more `ImageMirror`;
+`ImageMonitor` never contributes a candidate. v2 ordered them with a signed `spec.priority` plus a
+kind order (Original, CISM, ISM, CRIS, RIS). v3 has no `priority` and merges every match into one
+list:
 
-### The total order
+> **`Always` `ImageMirror`** → **`Always` `ImageAlternative`** → **original image** →
+> **`OnFailure` `ImageAlternative`** → **`OnFailure` `ImageMirror`**, CRs sorted by name within each
+> band
 
-> **`Always` `ImageMirror`** (lexicographic among them) → **`Always` `ImageAlternative`** (lex) →
-> **original image** → **`OnFailure` `ImageAlternative`** (lex) → **`OnFailure` `ImageMirror`** (lex)
+- the original appears **exactly once, at the pivot**, whatever its declared position in an
+  `alternatives` list; a CR's other entries go to that CR's band in declared order. So `Always` on an
+  `ImageAlternative` is never a no-op
+- an `ImageMirror` contributes **one** candidate, `destination.path` joined with the full original
+  reference (`registry.example.com/mirror/` + `docker.io/library/nginx:1.27`), and none at all under
+  `rewritePolicy: None` or for an image matching its `excludeImagePrefixes`
+- candidates are **deduplicated on (reference, resolved config), keeping the first occurrence**
+- sorting by name, not by `creationTimestamp` (the tie-break Gateway API uses): a timestamp is not
+  stable under GitOps, where deleting and recreating an object silently changes precedence, and
+  `kubectl get imagealternatives` displays the name order for free
 
-- the **original appears exactly once, at the pivot**, whatever its declared position in any
-  `alternatives` list. All the other entries of a CR go to that CR's band, keeping their declared order
-- each matching `ImageMirror` contributes **one** candidate, built from the **original** reference —
-  not from whatever an `ImageAlternative` would resolve to — by joining `destination.path` with the
-  full original reference, registry host included:
+`Always` exists for latency and quota reasons, so an `Always` mirror has to beat a distant upstream
+alternative; under `OnFailure` the upstreams are canonical and fresh, so the local copy sits behind
+them as the ultimate safety net. Sorting by name only ever matters when two CRs of the same kind and
+the same policy cover one image.
 
-  ```text
-  destination.path              registry.example.com/mirror/
-  original image                docker.io/library/nginx:1.27
-  mirror candidate              registry.example.com/mirror/docker.io/library/nginx:1.27
-  ```
-
-- `rewritePolicy: None` on an `ImageMirror` contributes no candidate at all: the image is copied to
-  the destination but never used for routing. A mirror also contributes nothing for images matching
-  its `excludeImagePrefixes`
-- candidates are then **deduplicated keeping the first occurrence**, by resulting reference *including
-  its resolved config* (see [Duplicate and conflicting candidates](#duplicate-and-conflicting-candidates))
-
-Rationale for that order: an `Always` mirror exists precisely for latency and quota reasons, so it must
-beat a distant upstream alternative. Under `OnFailure` the upstream alternatives are fresh and
-canonical, so they come before the local copy and the mirror remains the **ultimate safety net**.
-
-> [!TIP]
-> **In the common case there is nothing to think about**: `ImageAlternative` resources that do not
-> overlap each other, plus a single `ImageMirror`, produce the order you would naturally expect —
-> original, then the declared alternatives, then the mirror as a last resort (or the mirror first
-> under `Always`). Sorting by name only matters when several CRs *of the same kind and the same
-> policy* cover the same image.
-
-Lexicographic order rather than `creationTimestamp` (the tie-break Gateway API uses for its
-conflicts): a timestamp is not stable under GitOps, where deleting and recreating an object silently
-changes precedence, whereas the name is. `kubectl get imagealternatives` then displays the
-within-kind order for free.
-
-Worked example, an `ImageMirror` and the `ImageAlternative` of
-[example 07](./examples/07-alternative-and-mirror-composition.yaml) both matching a `nginx:1.27` pod.
-The alternatives are declared `public.ecr.aws/docker/library/`, `mirror.gcr.io/library/`,
-`docker.io/library/` — so the original is one of them — and `M` is the mirror candidate above:
+The four policy combinations, for one mirror candidate `M` and alternatives declared `ecr`, `gcr`,
+`docker.io` where `docker.io` is the pod's original ([example 07](./examples/07-alternative-and-mirror-composition.yaml)):
 
 | `ImageMirror` | `ImageAlternative` | Candidate order |
 | ------------- | ------------------ | --------------- |
-| `OnFailure` | `OnFailure` | `docker.io` → `public.ecr.aws` → `mirror.gcr.io` → **M** |
-| `OnFailure` | `Always` | `public.ecr.aws` → `mirror.gcr.io` → `docker.io` → **M** |
-| `Always` | `OnFailure` | **M** → `docker.io` → `public.ecr.aws` → `mirror.gcr.io` |
-| `Always` | `Always` | **M** → `public.ecr.aws` → `mirror.gcr.io` → `docker.io` |
+| `OnFailure` | `OnFailure` | `docker.io` → `ecr` → `gcr` → `M` |
+| `OnFailure` | `Always` | `ecr` → `gcr` → `docker.io` → `M` |
+| `Always` | `OnFailure` | `M` → `docker.io` → `ecr` → `gcr` |
+| `Always` | `Always` | `M` → `ecr` → `gcr` → `docker.io` |
 
-Since the original sits at the pivot regardless of where it is declared, `Always` on an
-`ImageAlternative` is never a no-op: entries declared after the original still land ahead of it.
+### Availability probing
 
-### Duplicate and conflicting candidates
+Candidates are probed in list order with a manifest `HEAD` (or `GET`, per
+[`registries.<host>.check.method`](#global-config)), concurrently but resolving to the **first
+success in list order**, so worst case latency is one `availabilityCheck.timeout` rather than their
+sum and a fast mirror never beats a healthy higher-priority entry. A probe returns a typed status
+(`Available`, `NotFound`, `Unreachable`, `InvalidAuth`, `QuotaExceeded`).
 
-The only genuine conflict is **two `Always` CRs, of either kind, wanting to place a different
-candidate ahead of the original for the same image**. The total order still breaks the tie
-deterministically, and both CRs get a `Warning` event `AmbiguousRewrite` — on the CRs, not on the
-pods, since the pods are not where the ambiguity was configured.
+Concurrent admissions for the same image collapse into a single registry call, and
+`activeCheckCache` short-circuits the whole resolution for its TTL, so a 50 replica rollout costs
+one resolution. `skipHints` additionally deprioritises candidates that `ImageMonitor` or
+`ImageMirror` recorded unavailable less than `maxAge` ago.
 
-A specific `OnFailure` `ImageAlternative` together with an `OnFailure` `ImageMirror` is **not** a
-conflict: that is the intended composition, and it is why `excludeImagePrefixes` on the mirror stays
-an optimisation (keeping a global mirror off repositories that already have upstream alternatives)
-rather than a correctness requirement.
-
-Deduplication is keyed on the resulting reference **and its resolved config**, so two CRs producing
-the same reference with different `auth` are not collapsed into one candidate. That case gets its own
-`Warning`, since it is almost always a configuration error.
+The first candidate to answer `Available` is the retained reference. When none answers, the pod is
+left untouched (it still starts if the image is in the node's cache).
 
 ### What an `ImageMirror` copies
 
-The destination repository is keyed on the **original** reference, so one source image is one
-destination repository whatever the alternatives say. A mirror matching a pod copies the image the
-pod declared, not the alternatives it might be routed to: mirroring every alternative would multiply
-the storage for a single image, and would make `status.repositories` and the cleanup GC depend on
-routing decisions taken in the webhook.
+A mirror copies the image the pod declared, to the single destination computed above — never one
+destination per alternative, which make `status.repositories` and the cleanup GC depend on routing
+decisions taken in the webhook.
 
 When the original is unreachable at copy time and was never copied, the controller may pull the bytes
-from any entry of an `ImageAlternative` covering that image and push them to that same destination —
-the destination path stays keyed on the original either way. This keeps a mirror useful in the exact
-scenario the alternatives exist for, at bounded storage cost. If no source answers at all, nothing is
-copied and the image is counted in `status.images.missingSource`.
+from any `ImageAlternative` entry covering that image and push them to that same destination, which
+keeps a mirror useful in the exact scenario the alternatives exist for. If no source answers, nothing
+is copied and the image is counted in `status.images.missingSource`.
 
 > [!IMPORTANT]
-> Alternatives are asserted equivalent by the operator, not verified to be byte-identical. A
-> destination populated from an alternative can therefore hold a digest that differs from the
-> original upstream tag, and `driftPolicy: Warn` / `Sync` will report or resync it once the original
-> registry is reachable again. `Sync` converges on the original upstream, which is an argument for
-> revisiting the `driftPolicy` default.
+> Alternatives are asserted equivalent by the operator, not verified to be byte-identical, so a
+> destination populated from an alternative can hold a digest that differs from the original upstream
+> tag. `driftPolicy: Warn` / `Sync` surfaces it once the original registry is reachable again, and
+> `Sync` converges on the original upstream — an argument for revisiting the `driftPolicy` default.
 
-### Who gets the credit
+### Attribution
 
-Exactly one CR is credited per container: the one that supplied the **winning** reference.
+The CR that supplied the retained reference is the one named in
+[`kuik.enix.io/rewritten-by`](#annotations), and the only one to count the pod in its status, so the
+`pods` gauges are disjoint between CRs and between kinds and sum consistently. `pods.noAlternatives`
+is the exception: no candidate won, so every CR that contributed one counts the pod.
 
-- `kuik.enix.io/rewritten-by` names that CR, and carries an entry only for containers that were
-  actually rewritten
-- `kuik.enix.io/reason` is `Always` or `OnFailure` according to that CR's own `rewritePolicy`, and
-  `NoAlternatives` when every candidate failed
-
-Status counters follow the same rule: a pod is counted **only by the winning CR**, the one that
-provided the retained reference. Gauges are therefore disjoint between CRs and between kinds, so they
-sum consistently instead of reporting the same pod several times.
-
-- `pods.rewritten`, and the `activeFallbacks` entry that goes with it, are counted only by the CR
-  named in `rewritten-by`
-- `pods.noAlternatives` is counted by every resource that contributed at least one candidate, since
-  all of them failed to help and there is no winner to attribute the pod to
+Status controllers read the original reference from `kuik.enix.io/original-images`, falling back to
+the live container image for pods that were never rewritten and therefore carry no annotation.
 
 > [!NOTE]
-> Unsettled: [status v3](./status.md) defines `pods.tracked` as "number of pods this CR could apply
-> to", which by construction overlaps between resources and so cannot be disjoint. Either `tracked`
-> is exempt from the disjointness rule (it answers "would this CR apply?", useful for reviewing a
-> selector before it ever wins), or it is redefined as "pods this CR owns" and the overlap becomes
-> invisible. The other gauges are unaffected either way.
-
-The status controllers read the original reference from `kuik.enix.io/original-images` when present
-and from the live container image otherwise (a pod left untouched carries no annotation), so a
-resource sees the same reference whether or not a rewrite happened.
+> Unsettled: [status v3](./status.md) defines `pods.tracked` as "pods this CR could apply to", which
+> overlaps between resources by construction and so cannot be disjoint. Either it is exempt from the
+> rule above (it answers "would this CR apply?", useful for reviewing a selector before it ever
+> wins), or it is redefined as "pods this CR owns". The other gauges are unaffected either way.
 
 ## Annotations
 
