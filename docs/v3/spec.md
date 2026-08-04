@@ -45,29 +45,20 @@ spec:
   - imagePrefix: quay.io/acme/foo
   - imagePrefix: docker.io/acme-org/foo
   - imagePrefix: 123456.dkr.ecr.eu-west-3.amazonaws.com/repo/acme/foo
-    auth:
-      provider:                    # Provider specific auth, like AWS IRSA, same logic as
-        name: aws                  # https://fluxcd.io/flux/components/source/ocirepositories/#provider
+    auth:                          # credentials to pull images from the registry, see "Authentication"
+      provider:
+        name: aws
         serviceAccountRef:
           name: kuik-ecr-access
-      injectPullSecret: false      # Default: false (for provider) - kubelet already have permission
-                                   # to pull from provider registry without additional secret
   - imagePrefix: "registry.local:5000/mirror/acme/foo"
     insecure: true                 # HTTP registry
     unavailable: true              # Image no longer available in this repository but if a pod
                                    # use this image, we'll try to substitute an alternative
-    auth:                          # credentials to pull images from the registry
+    auth:
       secretRef:
         name: local-registry
-      injectPullSecret: true       # Default: true (for secretRef)
-                                   # inject secret in pod namespace if this image is used as alternative
-                                   # so kubelet could pull the image from the registry
+      injectPullSecret: true       # Default: true (for secretRef), false for `provider`
 ```
-
-> [!NOTE]
-> Unsettled: all v3 kinds being cluster-scoped, `auth.secretRef` carries no namespace, where a v2
-> namespaced CR resolved it against its own. It presumably resolves against the operator's namespace,
-> with `injectPullSecret` copying from there into the pod namespace, but that needs to be stated.
 
 ### Alternatives matching
 
@@ -187,20 +178,15 @@ spec:
   destination:
     path: registry.tld/mirror/
     insecure: false            # Default: false - Allow HTTP registry
-    push:                      # Credentials for controller to push images and delete unused tags
-      auth:                    # Same schema as `ImageAlternative` `spec.alternatives[].auth`,
-                               # except `injectPullSecret` which is ignored here: push credentials
-                               # are only used by the controller, never injected in namespaces
+    push:                      # Controller credentials to push images and delete unused tags
+      auth:                    # see "Authentication" (`injectPullSecret` is ignored here)
         secretRef:
           name: mirror-write-credentials
-    pull:                      # Credentials to pull image that will be synced in namespaces
-      auth:                    # with rewritten image to use destination registry
-                               # Same schema as `ImageAlternative` `spec.alternatives[].auth`
+    pull:                      # Credentials to pull the mirrored image, injected in namespaces
+      auth:                    # see "Authentication"
         secretRef:
           name: mirror-read-credentials
-        injectPullSecret: true # Default: true (for secretRef), false for `provider`
-                               # inject secret in pod namespace when an image is rewritten to this
-                               # mirror, so kubelet could pull it from the destination registry
+        injectPullSecret: true
 
   cleanup:
     enabled: true              # Default: true - Delete image tag no longer referenced by any pod
@@ -243,6 +229,83 @@ spec:
   monitorAlternatives: false   # Default: false - Also monitor alternatives images instead of only original ones
 
 ```
+
+## Authentication
+
+`auth` is a discriminated union — exactly one of `secretRef` or `provider`, enforced at admission —
+and the same schema everywhere credentials appear: `ImageAlternative` entries, `ImageMirror`
+`destination.push` / `destination.pull`, and `registries.<host>.perPrefixFallbackAuth`.
+
+```yaml
+auth:
+  secretRef:                # classic docker-registry secret, no namespace
+    name: quay-pull
+  injectPullSecret: true    # Default: true (for secretRef)
+# --- or ---
+auth:
+  provider:                 # ambient cloud identity, same idea as Flux's `provider`
+    name: aws               # https://fluxcd.io/flux/components/source/ocirepositories/#provider
+    serviceAccountRef:      # optional
+      name: mirror-pusher
+  injectPullSecret: false   # Default: false (for provider)
+```
+
+### Secrets resolve in a single namespace
+
+`secretRef` carries **no namespace**: it always resolves in kuik's install namespace (the *cluster
+resource namespace*, configurable by an operator flag), exactly as cert-manager resolves a
+`ClusterIssuer`'s secrets through `--cluster-resource-namespace`. Two reasons, the first decisive:
+
+- **it closes a confused deputy hole.** The kinds are cluster-scoped, so with a free namespace anyone
+  able to create one could name another team's secret (`namespace: team-b`) with
+  `injectPullSecret: true` and have kuik copy it into a namespace they control — kuik would be a
+  secret exfiltration channel. Resolving in one namespace means referencing a secret requires being
+  able to write it in `kuik-system`, which closes the trust loop
+- **uniform read RBAC**: every component needs only a `Role` in `kuik-system`, and nothing anywhere
+  needs a cluster-wide `get secrets`
+
+### `provider`
+
+The enum is **closed** (`aws`, `gcp`, `azure`), with deliberately no `exec:` credential helper:
+running arbitrary binaries from a minimal image is a security surface kuik does not want. Region and
+project are derived from the registry hostname.
+
+`serviceAccountRef` is optional and requests a token for that ServiceAccount, so a CR can carry its
+own IAM role instead of borrowing the controller's global identity.
+
+### `injectPullSecret`
+
+Whether kuik copies a pull secret into the pod namespace, so the kubelet can pull the image this
+`auth` protects. The defaults are asymmetric on purpose:
+
+| `auth` form | Default | Why |
+| ----------- | ------- | --- |
+| `secretRef` | `true` | with a static secret, if the controller needs it to check the image then the kubelet needs it to pull |
+| `provider` | `false` | the majority case is same-cloud, where the kubelet is already authorized natively |
+
+Set to `true` with a `provider`, kuik materializes, **renews** and injects a docker-registry secret —
+the cross-cloud case, and what makes 12h ECR tokens usable.
+
+`ImageMirror`'s `destination.push` ignores the field entirely: push credentials are only ever used by
+the controller.
+
+### One credential per read, two for the mirror
+
+An `ImageAlternative` entry has a single `auth` and no separate pull credential, because the
+controller's availability check and the kubelet's pull are both **read** operations against the same
+registry: one credential fits both and only whether to inject it differs, hence the boolean.
+`ImageMirror` splits `push` and `pull` because there the two are privileges different in nature.
+
+### No `auth` at all
+
+kuik does nothing: no injection — the pod is expected to carry its own `imagePullSecrets`, or the
+kubelet's credential provider handles it — **and checks are anonymous**.
+
+> [!WARNING]
+> A private image with neither `auth` nor a matching
+> [`perPrefixFallbackAuth`](#global-config) therefore looks perpetually unavailable, even though the
+> kubelet can pull it. A persistent anonymous 401/403 raises a `Warning` event pointing at that
+> likely oversight.
 
 ## Candidate ordering
 
@@ -381,9 +444,10 @@ registries:
   private-registry.tld:
     copy:
       interval: 10m
-    # Auth used by KuiK ImageMonitor (and eventually ImageAlternative if not provided)
-    # to check image availability if we don't have access to image pull secret
-    # (if KuiK is configured without cluster-wide secret access for security)
+    # Auth used to check image availability when the CR provides none, by ImageMonitor and
+    # ImageAlternative alike. KuiK never reads a pod's imagePullSecrets (no cluster-wide secret
+    # access, see "Authentication"), so this is how it gets credentials for a private registry
+    # nobody declared `auth` for. Same schema as `auth`, per image prefix
     perPrefixFallbackAuth:
     - prefix: /project1
       secretRef:
