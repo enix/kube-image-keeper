@@ -15,9 +15,10 @@ namespaceSelector:
 ```
 
 Filtering is expressed on **workloads**, not on images: `podSelector` and `namespaceSelector`
-select the pods a resource applies to, and an empty selector matches everything. The single
-exception is `ImageMirror`'s `spec.excludeImagePrefixes`, which keeps specific images out of a
-mirror (e.g. huge images) without changing which pods the mirror applies to.
+select the pods a resource applies to, and an empty selector matches everything. Two
+exception are: `ImageMirror`'s `spec.excludeImagePrefixes`, which keeps specific images out of a
+mirror (e.g. huge images) without changing which pods the mirror applies to, and every mirror
+destination which are implicitly excluded from every mirror (see [Mirror loop prevention](#mirror-loop-prevention)).
 
 ## ImageAlternative
 
@@ -166,6 +167,8 @@ spec:
   podSelector: {}
   namespaceSelector: {}
   # List of image prefix to explicitly exclude from mirroring (e.g. huge images)
+  # The `destination.path` of every ImageMirror is always excluded on top of this list,
+  # see "Mirror loop prevention"
   excludeImagePrefixes:
   - ghcr.io/foo-bar/
 
@@ -207,6 +210,33 @@ spec:
     mode: Auto                 # Auto (default) | All | List
     #list: []                  # Only used with `mode: List`
 ```
+
+### Mirror loop prevention
+
+A mirror never mirrors itself, and never mirrors another mirror: the `destination.path` of **every**
+`ImageMirror` in the cluster is implicitly excluded from **every** `ImageMirror`, on top of each
+mirror's own `excludeImagePrefixes`. The exclusion set is the union of those paths, recomputed as
+mirrors are created and deleted, and it ignores selectors and `rewritePolicy` (a `None` mirror still
+populates a destination, so its path still counts).
+
+Two failure modes it closes:
+
+- **self mirroring**: a pod referencing `registry.tld/mirror/docker.io/library/nginx:1.27` (a GitOps
+  repository that committed back a rewritten image, or a hand written manifest) would get that image
+  copied to `registry.tld/mirror/registry.tld/mirror/docker.io/library/nginx:1.27`, which is in turn
+  a pod image the next round copies one level deeper, without bound
+- **cross mirroring**: with two mirrors `A` and `B` matching the same pods, `A` copies what `B`
+  produced and `B` copies what `A` produced, each copy handing the other a new, deeper reference to
+  copy. Two mirrors are enough to fill both registries
+
+Consequences worth stating:
+
+- **cascading mirrors are not supported.** A deliberate "upstream → mirror A → mirror B" chain is
+  indistinguishable from the loop above
+- creating a mirror is retroactive: images another mirror had already copied below the new
+  `destination.path` become excluded, hence no longer desired, and that other mirror's `cleanup` GC
+  removes them after its `retention`
+  mirror copies, never where it is allowed to write
 
 ## ImageMonitor
 
@@ -323,7 +353,8 @@ list:
   `ImageAlternative` is never a no-op
 - an `ImageMirror` contributes **one** candidate, `destination.path` joined with the full original
   reference (`registry.example.com/mirror/` + `docker.io/library/nginx:1.27`), and none at all under
-  `rewritePolicy: None` or for an image matching its `excludeImagePrefixes`
+  `rewritePolicy: None`, for an image matching its `excludeImagePrefixes`, or for an image already
+  under some mirror's `destination.path` ([Mirror loop prevention](#mirror-loop-prevention))
 - candidates are **deduplicated on (reference, resolved config), keeping the first occurrence**
 - sorting by name, not by `creationTimestamp` (the tie-break Gateway API uses): a timestamp is not
   stable under GitOps, where deleting and recreating an object silently changes precedence, and
@@ -364,7 +395,8 @@ left untouched (it still starts if the image is in the node's cache).
 
 A mirror copies the image the pod declared, to the single destination computed above — never one
 destination per alternative, which make `status.repositories` and the cleanup GC depend on routing
-decisions taken in the webhook.
+decisions taken in the webhook. Images the pod declared that already live under a mirror destination
+are not copied at all ([Mirror loop prevention](#mirror-loop-prevention)).
 
 When the original is unreachable at copy time and was never copied, the controller may pull the bytes
 from any `ImageAlternative` entry covering that image and push them to that same destination, which
