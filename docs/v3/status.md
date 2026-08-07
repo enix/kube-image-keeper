@@ -65,7 +65,9 @@ status:
     # repositories * interval: how often each repository of the destination comes back
     cycleDuration: 40m           # 4 repositories, default check `interval: 10m`
   # Persist the list of repositories tracked by this CR as it cannot be recomputed if controller restart,
-  # it's written before first push and removed when no tag tracked by this CR
+  # it's written before first push and removed when no tag tracked by this CR remains *for this cluster*:
+  # when several clusters share a destination each one keeps its own local view, and the GC only ever
+  # considers tags carrying its own `clusterID` suffix (see multi-cluster in spec.md)
   # It's used for GC, the same way as for Flux Kustomization status.inventory: https://fluxcd.io/flux/components/kustomize/kustomizations/#inventory
   # Each tag could be retrieved by `GET /v2/<repository>/tags/list` (from OCI Distribution spec)
   # so no need to store each of them
