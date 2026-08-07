@@ -58,13 +58,12 @@ status:
   - ref: ghcr.io/acme/report-job:v42
     unusedSince: "2026-07-10T02:00:00Z"
   selfCheck:
-    # last checked repository, so we could continue from same position in repository backlog ring on controller restart
+    # last checked repository, so the ring resumes at the same position on controller restart
     cursor: registry.tld/mirror/quay.io/thanos/thanos
     # datetime of last cycle start (new ring iteration)
     cycleStarted: "2026-07-10T06:00:00Z"
-    # Time required to check all images related to this registry with current check config
-    # This is the frequency of check of each image, a value too high is a signal to adjust config
-    cycleDuration: 55m
+    # repositories * interval: how often each repository of the destination comes back
+    cycleDuration: 40m           # 4 repositories, default check `interval: 10m`
   # Persist the list of repositories tracked by this CR as it cannot be recomputed if controller restart,
   # it's written before first push and removed when no tag tracked by this CR
   # It's used for GC, the same way as for Flux Kustomization status.inventory: https://fluxcd.io/flux/components/kustomize/kustomizations/#inventory
@@ -121,21 +120,22 @@ status:
     runningDigest: sha256:aaaa…
     upstreamDigest: sha256:bbbb…
     referencedBy: 7
-  # Health status related to global check config (interval/maxPerInterval)
+  # Health of the check schedule: one image checked per aligned `interval` window, per registry
+  # (see "Scheduling" in spec.md)
   checks:
     registries:
     - registry: docker.io
-      # last checked image, so we could continue from same position in images backlog ring on controller restart
+      # last checked image, so the ring resumes at the same position on controller restart
       cursor: docker.io/library/nginx
       # datetime of last cycle start (new ring iteration)
       cycleStarted: "2026-07-10T04:00:00Z"
-      # Time required to check all images related to this registry with current check config
-      # This is the frequency of check of each image, a value too high is a signal to adjust config
-      cycleDuration: 4h10m
+      # tracked * interval: how often each image of this registry comes back
+      # a value too high is a signal to lower the registry `interval`
+      cycleDuration: 1426h40m              # 2140 images, docker.io `interval: 40m`
     - registry: quay.io
       cursor: quay.io/thanos/thanos
       cycleStarted: "2026-07-10T03:20:00Z"
-      cycleDuration: 1h45m
+      cycleDuration: 183h30m               # 1101 images, default `interval: 10m`
   conditions:
   - {type: AllImagesAvailable, status: "False"}        # a tracked image is unavailable
   - {type: AllAlternativesAvailable, status: "False"}  # an alternative of tracked image is unavailable

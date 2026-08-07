@@ -260,6 +260,33 @@ spec:
 
 ```
 
+## Scheduling
+
+Checks and copies run on **windows** aligned on the Unix epoch in UTC, at a rate of at most one
+image per window. With `interval: 5m` the windows open at 13:30, 13:35, 13:40 and so on, and
+each opening takes one image (`7m` aligns on the epoch the same way, rather than on the hour),
+so a controller starting at 13:32 acts at 13:35, holding the pace the previous one held.
+
+**Checks** are paced by [`registries.<host>.check.interval`](#global-config). The tracked images of a
+host form a ring and every window takes the next one, so an image comes back once per turn,
+`tracked * interval`, reported as `cycleDuration` in [status](./status.md#imagemonitor). A host with
+60 tracked images and `interval: 10m` turns in 10 hours; lowering `interval` re-checks
+each image sooner and sends that host more requests. Drift detection (`driftDetection: true`) reads
+the same manifest on the same windows, and an `ImageMirror` self checks its destination on that
+host's check windows, one repository at a time.
+
+**Copies** are paced by [`registries.<host>.copy.interval`](#global-config), on windows of their own.
+Where checks cycle a ring, copies drain a queue: the images the mirrors still owe (`images.desired`
+minus `images.copied` in status, plus what `driftPolicy: Sync` queues again once a check reports
+drift). Only the source side is throttled, as that is where quotas and rate limits sit; the
+destination takes the pushes as they come, and a source kept slow lengthens the drain rather
+than bursting.
+
+Windows belong to the registry host rather than to a CR: an image tracked by several `ImageMonitor`
+holds one place in the ring and costs one window, and every `ImageMirror` pulling from the same host
+shares its copy pace. A check ring resumes at the `cursor` its status carries; a copy queue needs no
+position, it is whatever the mirrors still owe, in deterministic order.
+
 ## Authentication
 
 `auth` is a discriminated union — exactly one of `secretRef` or `provider`, enforced at admission —
@@ -461,21 +488,22 @@ webhook:
     skipHints:
       enabled: true
       maxAge: 30m
+# Checks and copies run on windows aligned on multiples of their `interval` from the Unix epoch
+# (UTC), one image per window, so with `interval: 5m` a controller restarting at 13:32 takes its
+# next image at 13:35. See "Scheduling"
 registries:
   default:
     check:
-      method: HEAD   # HEAD (default) | GET
-      interval: 10m
-      maxPerInterval: 20
+      method: HEAD            # HEAD (default) | GET
+      interval: 30s           # one image of this host checked every 30 seconds
       timeout: 10s
     copy:
-      interval: 1h
-      maxPerInterval: 20
+      interval: 3m            # one image pulled from this host every 3 minutes, on its own windows
       timeout: 10s
 
   private-registry.tld:
     copy:
-      interval: 10m
+      interval: 30s           # local registry, no quota to spare it from
     # Auth used to check image availability when the CR provides none, by ImageMonitor and
     # ImageAlternative alike. KuiK never reads a pod's imagePullSecrets (no cluster-wide secret
     # access, see "Authentication"), so this is how it gets credentials for a private registry
@@ -497,9 +525,9 @@ registries:
           name: kuik-ecr-access
 
   docker.io:
+    # Rate limited source: check less often than default
     copy:
-      interval: 1h
-      maxPerInterval: 6
+      interval: 10m
     perPrefixFallbackAuth:
     - prefix: /
       secretRef:
