@@ -238,6 +238,105 @@ Consequences worth stating:
   removes them after its `retention`
   mirror copies, never where it is allowed to write
 
+### Multi-cluster: shared destination, one tag per cluster
+
+Several clusters mirroring to one registry want two things that pull in opposite directions: they
+want to **share bytes** (the first cluster pays the transfer, the others do not), and they want to
+stay **autonomous** (whatever one cluster deletes, the others keep running). Giving each cluster its
+own `destination.path` buys autonomy and loses sharing; sharing the *tag* as well as the path loses
+autonomy, because cluster A's `cleanup` then deletes a tag cluster B is actively routing to.
+
+v3 keeps both by sharing the repository and splitting the tag. Every cluster writes to the same
+repository, derived from `destination.path` exactly as in the mono-cluster case, and appends its own
+identity to the tag:
+
+```text
+registry.tld/mirror/quay.io/thanos/thanos:v0.42.2_cluster-a   # written by cluster A
+registry.tld/mirror/quay.io/thanos/thanos:v0.42.2_cluster-b   # written by cluster B
+```
+
+Both tags point at the **same manifest**, so the blobs exist once. There is deliberately no shared
+canonical tag, so nobody has to own or repair one.
+
+The identity comes from the operator's [`clusterID`](#global-config), never from the CR, so the
+`ImageMirror` object stays byte identical on every cluster: no templating, no per-cluster overlay,
+no dimension of the spec that only exists in multi-cluster setups.
+
+**Copying is a manifest existence check first.** Before transferring anything, the controller
+`HEAD`s the manifest **by digest** in the target repository. Present already (another cluster pushed
+it) means the copy is a single tag `PUT`, a few kilobytes, zero blob transferred; absent means a
+normal copy. Blobs are linked per repository in OCI Distribution, which is precisely why sharing the
+*repository* (rather than only the registry) makes a plain existence check sufficient: no
+cross-repository blob mount, hence no `blobMountFrom` field and no need for kuik to know which
+cluster copied what.
+
+Which digest is checked follows `platforms.mode`, and it is worth being explicit because it decides
+how much is actually shared:
+
+| `platforms.mode` | Manifest digest | Shared between clusters |
+| ---------------- | --------------- | ----------------------- |
+| `All` | upstream's, the copy is verbatim | always |
+| `Auto` / `List` | the filtered index is rewritten, so a new digest | only between clusters with the same platform set |
+
+In both cases the digest is known **before** anything is transferred: it is either read from the
+upstream index or computed from the descriptors it contains, all of which are manifest sized reads.
+
+Blobs and per-platform child manifests are shared in every case, so the worst case for two clusters
+with different node pools is one extra index push (a few kilobytes), never a re-transfer. This is
+also why a shared canonical tag could not work: with `platforms.mode: Auto`, A's index legitimately
+lacks the `arm64` B needs, and one tag cannot hold both.
+
+**Each cluster owns its tags and nothing else.** It creates them, verifies them (its loop `HEAD`s
+*its* tags and re-`PUT`s any that went missing, again with no blob transfer) and deletes them. There
+is no shared mutable state, so no cross-cluster race and no coordination protocol. A cluster that
+dies blocks nothing: its tags keep its manifests alive without stopping anyone else from managing
+theirs, which is a retention choice rather than a deadlock.
+
+**Cleanup filters on the suffix before diffing.** For each repository of `status.repositories`, the
+GC lists `GET /v2/<repo>/tags/list` (a read on that repository alone, never `_catalog`), **keeps only
+the tags ending in `_<clusterID>`**, and diffs that against its desired state. Other clusters' tags
+are invisible to the diff, so they cannot be deleted by accident. A repository leaves the inventory
+when it holds no more tags *of this cluster*, which makes the inventory a local view: it can stay
+listed on A while B has already emptied it.
+
+**Reclaiming space is delegated to the registry.** As long as any cluster tag points at a manifest,
+that manifest is uncollectable; when the last one disappears it becomes untagged, and the registry's
+native untagged GC (distribution, Harbor's "delete untagged") reclaims the space. kuik does not
+attempt a cross-cluster refcount.
+
+**Digest-pinned references are unaffected on the routing side.** A `@sha256:` reference is content
+addressed, so the mirror candidate keeps the digest verbatim and is identical on every cluster; only
+a tag kuik pushes to keep such a manifest out of the registry's GC carries the suffix.
+
+#### Tag naming constraints
+
+- OCI tags are limited to **128 characters**, and to `[a-zA-Z0-9._-]` after the first character.
+  `clusterID` is validated against that alphabet and is expected to be short. A reference whose
+  suffixed tag would exceed 128 characters is truncated deterministically, with a hash of the full
+  tag appended, so the mapping stays injective for the endless tags CI systems produce
+- the separator is `_`, and stripping exactly **one** trailing `_<clusterID>` recovers the upstream
+  tag. That stays true for an upstream tag literally ending in `_cluster-a`, which cluster A copies
+  to `…_cluster-a_cluster-a`. The residual hazard is a *foreign* writer pushing a tag ending in
+  `_<clusterID>` under `destination.path`, which cleanup would take for its own: a mirror destination
+  is expected to be kuik's alone
+
+#### Sharing a destination requires `clusterID` everywhere
+
+`clusterID` is optional, and unset means unsuffixed tags, which is the right thing for a single
+cluster: references stay readable and nothing pays for a feature it does not use.
+
+> [!WARNING]
+> Sharing one `destination.path` between clusters requires `clusterID` to be set on **every** one of
+> them. A cluster without a `clusterID` owns the unsuffixed tags, and it cannot tell another
+> cluster's `v0.42.2_cluster-b` from an upstream tag it mirrored itself, so its `cleanup` deletes it.
+> kuik cannot see the other clusters, so this is a documented prerequisite and not something
+> admission can enforce.
+
+Turning `clusterID` on afterwards is cheap and needs no migration tooling: the suffixed tags are
+manifest `PUT`s against blobs already in place, and the unsuffixed ones drop out of the desired
+state, so the mirror's own `cleanup` removes them after `retention`. Mono-cluster is then the same
+code path with an empty suffix.
+
 ## ImageMonitor
 
 ```yaml
@@ -379,7 +478,9 @@ list:
   `alternatives` list; a CR's other entries go to that CR's band in declared order. So `Always` on an
   `ImageAlternative` is never a no-op
 - an `ImageMirror` contributes **one** candidate, `destination.path` joined with the full original
-  reference (`registry.example.com/mirror/` + `docker.io/library/nginx:1.27`), and none at all under
+  reference, the tag carrying this cluster's identity
+  (`registry.example.com/mirror/` + `docker.io/library/nginx:1.27` + `_cluster-a`, see
+  [Multi-cluster](#multi-cluster-shared-destination-one-tag-per-cluster)), and none at all under
   `rewritePolicy: None`, for an image matching its `excludeImagePrefixes`, or for an image already
   under some mirror's `destination.path` ([Mirror loop prevention](#mirror-loop-prevention))
 - candidates are **deduplicated on (reference, resolved config), keeping the first occurrence**
@@ -476,6 +577,13 @@ metadata:
 ## Global config
 
 ```yaml
+# Identity of this cluster, appended to every tag an ImageMirror writes so that several clusters
+# can share one `destination.path` and deduplicate blobs, see "Multi-cluster: shared destination,
+# one tag per cluster". Optional; unset (the default) means unsuffixed tags, which is correct for a
+# single cluster and unsafe as soon as a destination is shared. Short, and limited to
+# `[a-zA-Z0-9._-]` (OCI tag alphabet)
+clusterID: cluster-a
+
 webhook:
   availabilityCheck:
     timeout: 2s              # max time before considering a registry as unavailble
