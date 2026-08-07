@@ -206,6 +206,7 @@ spec:
   #   Auto: Copy images for arch retrieved from node labels
   #   All: Copy all arch referenced for an image
   #   List: Explicit list of arch we need to copy images
+  # Ignored (treated as `All`) for digest-pinned images, see "Digest-pinned images"
   platforms:
     mode: Auto                 # Auto (default) | All | List
     #list: []                  # Only used with `mode: List`
@@ -306,7 +307,10 @@ attempt a cross-cluster refcount.
 
 **Digest-pinned references are unaffected on the routing side.** A `@sha256:` reference is content
 addressed, so the mirror candidate keeps the digest verbatim and is identical on every cluster; only
-a tag kuik pushes to keep such a manifest out of the registry's GC carries the suffix.
+a tag kuik pushes to keep such a manifest out of the registry's GC carries the suffix (the keeper tag
+of [Digest-pinned images](#digest-pinned-images)). Note that this is what forces such a copy to be
+verbatim, hence `platforms.mode: All` semantics and full sharing between clusters whatever their node
+pools.
 
 #### Tag naming constraints
 
@@ -519,6 +523,44 @@ one resolution. `skipHints` additionally deprioritises candidates that `ImageMon
 The first candidate to answer `Available` is the retained reference. When none answers, the pod is
 left untouched (it still starts if the image is in the node's cache).
 
+### Digest-pinned images
+
+v2's mutating webhook skipped any container pinned by digest (`nginx@sha256:…`) outright. **v3
+routes them like any other image**: matching, ordering and probing are unchanged, and the digest is
+carried over to the candidate exactly as a tag is
+([Alternatives matching](#alternatives-matching)).
+
+What makes this safe is that a digest is content-addressed and repository-independent: it is
+computed over the manifest bytes, not over the reference, so copying an image to another registry
+preserves it. `registry.tld/mirror/docker.io/library/nginx@sha256:ab…` is therefore either the exact
+same bytes as `docker.io/library/nginx@sha256:ab…`, or it does not exist at all. A candidate holding
+a *different* image simply does not have that digest, the probe answers `NotFound` and the candidate
+is dropped. Unlike a tag, there is no way for a pinned reference to silently resolve to different
+content.
+
+Two consequences on the mirror side:
+
+- a digest-pinned image is copied as the **complete manifest index**, whatever `platforms.mode` says.
+  `Auto` and `List` rebuild a filtered index, and a filtered index has a different digest, so the
+  copy would be unreachable by the very reference the pod declared. Platform selection and digest
+  pinning are mutually exclusive on a given image, and pinning wins
+- when the original is unreachable and the controller sources the bytes from an `ImageAlternative`
+  entry instead ([What an `ImageMirror` copies](#what-an-imagemirror-copies)), a digest-pinned image
+  is the one case where "equivalent" is *verified* rather than asserted: fetching by digest either
+  returns those exact bytes or fails, so the caveat below about a destination diverging from the
+  original does not apply
+
+`driftPolicy` and `ImageMonitor`'s `driftDetection` are tag concepts and ignore pinned references: a
+digest cannot drift, so such images are never counted in `drifted`.
+
+A copy made from a pinned reference would otherwise land **untagged** in the destination, where the
+registry's native untagged-manifest GC would eventually reclaim it out from under the pods routing to
+it. So the mirror pushes a **keeper tag** derived from the digest alongside it. That tag is never a
+routing reference (the pinned digest is), it exists only to make the manifest uncollectable, and it
+is what the mirror's [`cleanup`](#imagemirror) deletes when no pod references the image any more —
+which is also what makes it carry the `_<clusterID>` suffix in a shared destination
+([Multi-cluster](#multi-cluster-shared-destination-one-tag-per-cluster)).
+
 ### What an `ImageMirror` copies
 
 A mirror copies the image the pod declared, to the single destination computed above — never one
@@ -536,6 +578,8 @@ is copied and the image is counted in `status.images.missingSource`.
 > destination populated from an alternative can hold a digest that differs from the original upstream
 > tag. `driftPolicy: Warn` / `Sync` surfaces it once the original registry is reachable again, and
 > `Sync` converges on the original upstream — an argument for revisiting the `driftPolicy` default.
+> This only concerns tags: a [digest-pinned image](#digest-pinned-images) fetched from an alternative
+> is byte-identical by construction.
 
 ### Attribution
 

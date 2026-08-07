@@ -44,8 +44,9 @@ admission outcomes depend on apply order. Overlap is resolved at lookup time ins
 ## 2. Pod admission, mutating webhook
 
 1. **pod-level gates** — skip mirror pods, pods matching the global `skipLabels` / `skipAnnotations`,
-   containers already listed in `kuik.enix.io/original-images`, digest-pinned images and
-   `imagePullPolicy: Never`. Unchanged from v2
+   containers already listed in `kuik.enix.io/original-images`, and `imagePullPolicy: Never`. Same as
+   v2 minus one gate: digest-pinned containers are no longer skipped, they route like any other image
+   ([digest-pinned images](../spec.md#digest-pinned-images))
 2. **normalization** — `nginx:1.27` becomes `docker.io/library/nginx:1.27`, which is what matching,
    cache keys and status keys all use. It matters here: only after normalization does the pod's image
    match the third entry
