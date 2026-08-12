@@ -157,21 +157,30 @@ Cleanup runs only when `cleanup.enabled` is set, and every step below is biased 
 
 ### C.1 Detect that a reference became unused
 
-When the **last** live pod referencing an origin ref disappears, the controller records the ref in `status.pendingDeletion` with `unusedSince = now`.
+Two paths feed `status.pendingDeletion`:
 
-This write is mandatory and cannot be recomputed later: once the pod is gone, nothing in the cluster testifies that this image was ever used. If the controller restarts and this entry was lost, the retention window is lost with it.
+1. **Pod events** — when the **last** live pod referencing an origin ref disappears, the controller records the destination tag it computed for it, with `unusedSince = now`.
+2. **The tag sweep** — every reconcile begins by listing the tags of each repository in `status.repositories` (C.3), keeps this cluster's tags, and records any of them that falls outside the expected set of the desired state.
 
-If a pod referencing the image comes back (a CronJob's next run), the entry is removed from `pendingDeletion` and the image returns to the plain desired state.
+The sweep is the garbage collector, and it is what makes `pendingDeletion` recomputable: it reads the destination rather than remembering what was running, so a tag that fell out of use while the controller was down is picked up at the first reconcile after startup. Losing the entries costs a restarted retention clock, never a leaked tag.
 
-**Crash-recovery is conservative by construction:** if the reference disappears while the controller is down, `unusedSince` is stamped at the first reconcile that notices — slightly later than reality, which *lengthens* the retention. The error always falls on the safe side.
+Entries are keyed by the **destination tag** — the thing that eventually gets deleted — with the origin ref alongside it when a pod event supplied one. Nothing is un-computed from a tag: A.6 is one-way, so a swept tag is compared against expected tags computed forward, and a swept entry carries no origin.
+
+`unusedSince` is stamped once, when the entry appears. A reconcile that finds the entry already there leaves its clock untouched, otherwise the retention would never elapse.
+
+If a pod referencing the image comes back (a CronJob's next run), the desired state yields that same destination tag again, the entry leaves `pendingDeletion` and the image returns to the plain desired state.
+
+**Crash-recovery is conservative by construction:** a reference that disappears while the controller is down is stamped at the first reconcile that notices it — later than reality, which *lengthens* the retention. The error always falls on the safe side.
 
 ### C.2 Wait out the retention
 
-During `cleanup.retention`, the image is still:
+During `cleanup.retention`, an entry carrying an origin ref is still:
 
 - part of the desired state,
 - verified by the self-check loop,
 - **re-copyable** if it disappears from the destination.
+
+A swept entry has no origin, so it is only held and then deleted: no pod in the cluster asks for that image, and nothing tries to re-copy it.
 
 This is what lets a CronJob whose period is shorter than the retention keep its image mirrored between runs, and what prevents a destination-registry outage from being interpreted as "these images are gone, purge the state". Only an **effective deletion performed by this controller** removes an entry from the desired state — never an observed absence.
 
@@ -181,7 +190,7 @@ Because there is no way to ask the registry "what did I put here?", the sweep is
 
 1. `GET /v2/<repo>/tags/list` — the one discovery primitive the OCI spec guarantees.
 2. **Filter to this cluster's tags** (`_<clusterID>` suffix). Tags belonging to other clusters are not ours to reason about, and must never be touched.
-3. **Diff forward against the desired state.** For each desired ref, compute the destination tag it should have; any of our tags outside that expected set, and past its retention, is a deletion candidate.
+3. **Diff forward against the desired state.** For each desired ref, compute the destination tag it should have; any of our tags outside that expected set enters `pendingDeletion` (C.1) if it is not listed there already, and is deleted once its `unusedSince` is older than `retention`.
 
    The expected tags of an entry are computed exactly as at copy time (A.6): the origin-derived tag for a tag reference, the `sha256-<D>_<clusterID>` anchor for a digest reference, both when the image is referenced both ways. Since that mapping is unconditional, nothing has to be remembered about what was pushed earlier. When an entry leaves the desired state and its retention elapses, its tags leave the expected set together and are deleted, after which the manifest becomes untagged and normal registry GC applies (C.5).
 4. **Delete by tag** — using the OCI 1.1 tag-deletion API where the registry supports it. Never delete blindly by digest: deleting a manifest by digest removes *every* tag pointing at it, which on a shared repository would destroy other clusters' references, and even on a single cluster would take down `v1` when you meant `latest`.
@@ -203,9 +212,9 @@ Deleting the last tag pointing at a manifest leaves it **untagged**: it disappea
 Worth keeping in mind while implementing any of the three loops:
 
 - **Persist before acting.** Repository recorded before the first push; `unusedSince` recorded before the retention clock is trusted. In both cases a crash then wastes work, instead of losing safety.
-- **Not everything in the status weighs the same.** Two entries cannot be recomputed and losing them does real damage: `pendingDeletion` (once the pod is gone, nothing in the cluster says the image was ever used) and `repositories` (the registry cannot be asked which repositories we populated). Two more are kept for continuity, and losing them only costs redundant work or a gap in reporting: the `selfCheck` cursor (a restart just resumes the ring elsewhere) and `failedImagesCopy` (rebuilt at the next attempt). Everything else in the status — the `images` aggregates, the conditions — is derived and recomputed on every reconcile, as are the things that never reach etcd at all: what is in use, what is copied, check verdicts, the copy queue, the copy budget.
+- **Not everything in the status weighs the same.** One entry cannot be recomputed and losing it does real damage: `repositories` (the registry cannot be asked which repositories we populated, and a repository nobody sweeps is a permanent leak). Three more are kept for continuity, and losing them only costs redundant work, a restarted clock or a gap in reporting: `pendingDeletion` (the tag sweep of C.1 finds the unused tags again, retention restarting from that moment), the `selfCheck` cursor (a restart just resumes the ring elsewhere) and `failedImagesCopy` (rebuilt at the next attempt). Everything else in the status — the `images` aggregates, the conditions — is derived and recomputed on every reconcile, as are the things that never reach etcd at all: what is in use, what is copied, check verdicts, the copy queue, the copy budget.
 - **Every computation runs forward**, from the desired state toward the destination. The destination layout is one-way; no loop reads a mirror ref backwards, so tag truncation is harmless.
 - **The origin ref comes from the pod annotation**, never from un-computing a mirror ref.
-- **The destination is the source of truth for "what is copied"**, never an internal list.
+- **The destination is the source of truth** for what is copied and for what is left to delete, never an internal list.
 - **Deletion is always narrower than it looks**: by tag, only our tags, only after retention, only performed by us.
 - **Every loop degrades gracefully**: no budget → slower; registry down → retries; controller restarted → resumes at a cursor. No loop has to complete a full pass to remain correct.
