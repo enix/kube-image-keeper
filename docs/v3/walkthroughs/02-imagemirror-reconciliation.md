@@ -28,7 +28,7 @@ The same image pulled from two different registries by two different pods produc
 
 Two filters:
 
-1. **`excludeImagePrefixes`** — explicit prefixes the operator does not want mirrored (huge images, images already close to the nodes).
+1. **`excludeImages`** — globs matching what the operator does not want mirrored (huge images, images already close to the nodes). Matched against the normalized reference, as in [the spec](../spec.md#excluding-images-from-a-mirror).
 2. **Own destination** — any ref already prefixed by this CR's `destination.path` is **not a copy candidate**. Non-configurable, non-overridable: this is what makes `mirror/mirror/…` structurally impossible, even if an annotation was lost.
 
 A mirror ref appears in a pod because the webhook put it there. A mirror ref written by hand into a manifest is excluded like any other — hence not counted, and the cleanup may eventually remove the tag it relies on.
