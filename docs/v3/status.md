@@ -52,11 +52,18 @@ status:
   - ref: quay.io/acme/tool:1.4
     reason: SourceUnavailable  # SourceUnavailable | QuotaExceeded | AuthFailed | PushFailed
     lastAttempt: "2026-07-10T06:12:00Z"
-  # persist image no longer referenced for `cleanup.retention` before
-  # removing them (if cleanup enabled)
+  # Destination tags no longer referenced by any pod, held for `cleanup.retention` before being
+  # deleted (if cleanup enabled). Fed both by pod events and by the tag listing every reconcile
+  # starts with, so tags that stopped being used while the controller was down are collected at
+  # startup. `unusedSince` is stamped when the entry appears and never refreshed afterwards.
+  # `origin` is the reference the image was copied from, known when a pod event created the entry
+  # and absent for a tag found by listing (the destination layout is one-way, see walkthrough 02)
   pendingDeletion:
-  - ref: ghcr.io/acme/report-job:v42
+  - ref: registry.tld/mirror/ghcr.io/acme/report-job:v42_cluster-a
+    origin: ghcr.io/acme/report-job:v42
     unusedSince: "2026-07-10T02:00:00Z"
+  - ref: registry.tld/mirror/quay.io/acme/tool:1.3_cluster-a
+    unusedSince: "2026-07-11T09:30:00Z"
   selfCheck:
     # last checked repository, so the ring resumes at the same position on controller restart
     cursor: registry.tld/mirror/quay.io/thanos/thanos
