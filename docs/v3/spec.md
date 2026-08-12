@@ -436,7 +436,9 @@ host form a ring and every window takes the next one, so an image comes back onc
 60 tracked images and `interval: 10m` turns in 10 hours; lowering `interval` re-checks
 each image sooner and sends that host more requests. Drift detection (`driftDetection: true`) reads
 the same manifest on the same windows, and an `ImageMirror` self checks its destination on that
-host's check windows, one repository at a time.
+host's check windows, **one tag per window** like everything else on that ring: a window is one
+manifest `HEAD`, so a destination repository holding a dozen desired tags comes back a dozen windows
+at a time rather than in one.
 
 **Copies** are paced by [`registries.<host>.copy.interval`](#global-config), on windows of their own.
 Where checks cycle a ring, copies drain a queue: the images the mirrors still owe (`images.desired`
