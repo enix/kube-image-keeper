@@ -15,10 +15,11 @@ namespaceSelector:
 ```
 
 Filtering is expressed on **workloads**, not on images: `podSelector` and `namespaceSelector`
-select the pods a resource applies to, and an empty selector matches everything. Two
-exception are: `ImageMirror`'s `spec.excludeImagePrefixes`, which keeps specific images out of a
-mirror (e.g. huge images) without changing which pods the mirror applies to, and every mirror
-destination which are implicitly excluded from every mirror (see [Mirror loop prevention](#mirror-loop-prevention)).
+select the pods a resource applies to, and an empty selector matches everything. There are two
+exceptions, both on `ImageMirror`: [`spec.excludeImages`](#excluding-images-from-a-mirror), which
+keeps specific images out of a mirror (e.g. huge images) without changing which pods the mirror
+applies to, and every mirror destination, implicitly excluded from every mirror (see
+[Mirror loop prevention](#mirror-loop-prevention)).
 
 ## ImageAlternative
 
@@ -166,11 +167,11 @@ spec:
   # Empty/Nothing match all pod
   podSelector: {}
   namespaceSelector: {}
-  # List of image prefix to explicitly exclude from mirroring (e.g. huge images)
-  # The `destination.path` of every ImageMirror is always excluded on top of this list,
+  # Globs matching images to keep out of this mirror (e.g. huge images), see "Excluding images
+  # from a mirror". The `destination.path` of every ImageMirror is excluded on top of this list,
   # see "Mirror loop prevention"
-  excludeImagePrefixes:
-  - ghcr.io/foo-bar/
+  excludeImages:
+  - ghcr.io/foo-bar/**
 
   # Where the mirrored image sits relative to the original, see "Candidate ordering"
   #   OnFailure: Default. Last resort, behind the original and any alternatives
@@ -214,6 +215,35 @@ spec:
     #list: []                  # Only used with `mode: List`
 ```
 
+### Excluding images from a mirror
+
+Each entry of `excludeImages` is a **glob** matched against the normalized reference
+(`nginx:1.27` is matched as `docker.io/library/nginx:1.27`), and matching any entry keeps the image
+out of the mirror: no copy, no candidate, no tag in the destination.
+
+| In a pattern | Matches |
+| ------------ | ------- |
+| `*` | any characters inside one path segment |
+| `**` | any characters, path separators included |
+| no `:` | the repositories selected, whatever the tag or digest |
+| a `:tag` part | those repositories, and only the tags the part matches |
+
+The whole reference has to match, so a pattern is a description of the images it excludes rather
+than a prefix of them:
+
+| Pattern | Excludes |
+| ------- | -------- |
+| `ghcr.io/foo-bar/**` | everything under `ghcr.io/foo-bar/`, at any depth |
+| `ghcr.io/foo-bar/*` | one level under it, `ghcr.io/foo-bar/app` but not `ghcr.io/foo-bar/team/app` |
+| `docker.io/library/nginx` | that repository, whatever the tag or digest |
+| `quay.io/acme/*-debug` | `quay.io/acme/foo-debug`, `quay.io/acme/bar-debug` |
+| `**:latest` | every mutable `latest`, whatever the registry |
+
+Globs are the right tool here where [`imagePrefix`](#alternatives-matching) is structural: an
+exclusion answers "do I mirror this?" and never has to produce another reference, so it can be
+expressive without deciding where an image gets rewritten to. A digest-pinned reference is matched on
+its repository, a digest being nothing a pattern can usefully describe.
+
 ### Collecting unused tags
 
 Every reconcile of an `ImageMirror` starts by listing the tags of each repository of
@@ -235,7 +265,7 @@ deletion rules.
 
 A mirror never mirrors itself, and never mirrors another mirror: the `destination.path` of **every**
 `ImageMirror` in the cluster is implicitly excluded from **every** `ImageMirror`, on top of each
-mirror's own `excludeImagePrefixes`. The exclusion set is the union of those paths, recomputed as
+mirror's own `excludeImages`. The exclusion set is the union of those paths, recomputed as
 mirrors are created and deleted, and it ignores selectors and `rewritePolicy` (a `None` mirror still
 populates a destination, so its path still counts).
 
@@ -539,7 +569,7 @@ list:
   reference, the tag carrying this cluster's identity
   (`registry.example.com/mirror/` + `docker.io/library/nginx:1.27` + `_cluster-a`, see
   [Multi-cluster](#multi-cluster-shared-destination-one-tag-per-cluster)), and none at all under
-  `rewritePolicy: None`, for an image matching its `excludeImagePrefixes`, or for an image already
+  `rewritePolicy: None`, for an image matching its `excludeImages`, or for an image already
   under some mirror's `destination.path` ([Mirror loop prevention](#mirror-loop-prevention))
 - candidates are **deduplicated on (reference, resolved config), keeping the first occurrence**
 - sorting by name, not by `creationTimestamp` (the tie-break Gateway API uses): a timestamp is not
