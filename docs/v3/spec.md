@@ -386,10 +386,13 @@ spec:
 
 ## Scheduling
 
-Checks and copies run on **windows** aligned on the Unix epoch in UTC, at a rate of at most one
-image per window. With `interval: 5m` the windows open at 13:30, 13:35, 13:40 and so on, and
-each opening takes one image (`7m` aligns on the epoch the same way, rather than on the hour),
-so a controller starting at 13:32 acts at 13:35, holding the pace the previous one held.
+Checks and copies run on **windows** counted from the start of the controller process, at a rate of
+at most one image per window. With `interval: 5m` a controller started at 13:32 opens its windows at
+13:37, 13:42, 13:47 and so on, each opening taking one image.
+
+Counting from the process start keeps the guarantee where it belongs: what a registry sees is a rate,
+one image per `interval`, whatever the phase. The first window of a process is a full `interval`
+away, so a crash-looping controller paces its registries exactly like a healthy one.
 
 **Checks** are paced by [`registries.<host>.check.interval`](#global-config). The tracked images of a
 host form a ring and every window takes the next one, so an image comes back once per turn,
@@ -661,9 +664,9 @@ webhook:
     skipHints:
       enabled: true
       maxAge: 30m
-# Checks and copies run on windows aligned on multiples of their `interval` from the Unix epoch
-# (UTC), one image per window, so with `interval: 5m` a controller restarting at 13:32 takes its
-# next image at 13:35. See "Scheduling"
+# Checks and copies run on windows counted from the start of the controller process, one image per
+# window, so with `interval: 5m` a controller started at 13:32 takes its first image at 13:37.
+# See "Scheduling"
 registries:
   default:
     check:

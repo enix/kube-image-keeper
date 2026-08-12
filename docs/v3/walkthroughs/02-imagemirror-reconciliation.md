@@ -78,7 +78,7 @@ Copying is **a work queue per source registry, drained** — not a ring to spin.
 
 - The queue lives **in memory**, fed by pod events and by the desired-state recomputation. No cursor, no persistence, nothing to resume.
 - Entries already known to be handled — repositories listed in `status.repositories`, or refs found present at the destination — are not enqueued.
-- Consumption is paced by the registry's **fixed-window copy budget** (`interval` / `maxPerInterval` from the global config). Held in memory as well: a restart resets the window, which at worst allows one extra window's worth of copies. Bounded, self-correcting, and far cheaper than an etcd write per copy.
+- Consumption is paced by the source registry's **copy windows** (`copy.interval` in the global config), counted from the start of the process and held in memory too. A restart re-phases them and the first copy waits a full `interval`, so the source sees the same rate whatever the controller's lifetime. Nothing to persist, and far cheaper than an etcd write per copy.
 - **Re-copies come first.** A manifest that disappeared from the destination is an active availability hole — pods may be routed to it right now — whereas an initial copy is a background task.
 
 ### A.8 Record the repository, then push
@@ -120,7 +120,7 @@ For pinned images the check is done **by digest**, which is an exact check: if t
 
 ### B.3 Pace the traversal: a ring with a cursor
 
-Unlike the copy queue, checking never terminates — so it is a **ring with a persisted cursor** over the desired state, consuming the **check** budget of the destination registry (HEADs are cheap and rarely rate-limited, unlike copies). The cursor is what lets a restart resume at the successor of the last checked ref instead of starting the lap over. The status exposes, per registry, the `cursor` (where to resume), `cycleStarted`, and `cycleDuration` — the time it takes to check every image once, i.e. the effective verification frequency of each image. A `cycleDuration` that grows too large is the signal to widen the budget: past a point, the freshness of the verdicts becomes fictitious.
+Unlike the copy queue, checking never terminates — so it is a **ring with a persisted cursor** over the desired state, consuming the **check windows** of the destination registry (HEADs are cheap and rarely rate-limited, unlike copies). The cursor is what lets a restart resume at the successor of the last checked ref instead of starting the lap over. The status exposes, per registry, the `cursor` (where to resume), `cycleStarted`, and `cycleDuration` — the time it takes to check every image once, i.e. the effective verification frequency of each image. A `cycleDuration` that grows too large is the signal to shorten that registry's `check.interval`: past a point, the freshness of the verdicts becomes fictitious.
 
 ### B.4 Handle each divergence
 
@@ -212,9 +212,9 @@ Deleting the last tag pointing at a manifest leaves it **untagged**: it disappea
 Worth keeping in mind while implementing any of the three loops:
 
 - **Persist before acting.** Repository recorded before the first push; `unusedSince` recorded before the retention clock is trusted. In both cases a crash then wastes work, instead of losing safety.
-- **Not everything in the status weighs the same.** One entry cannot be recomputed and losing it does real damage: `repositories` (the registry cannot be asked which repositories we populated, and a repository nobody sweeps is a permanent leak). Three more are kept for continuity, and losing them only costs redundant work, a restarted clock or a gap in reporting: `pendingDeletion` (the tag sweep of C.1 finds the unused tags again, retention restarting from that moment), the `selfCheck` cursor (a restart just resumes the ring elsewhere) and `failedImagesCopy` (rebuilt at the next attempt). Everything else in the status — the `images` aggregates, the conditions — is derived and recomputed on every reconcile, as are the things that never reach etcd at all: what is in use, what is copied, check verdicts, the copy queue, the copy budget.
+- **Not everything in the status weighs the same.** One entry cannot be recomputed and losing it does real damage: `repositories` (the registry cannot be asked which repositories we populated, and a repository nobody sweeps is a permanent leak). Three more are kept for continuity, and losing them only costs redundant work, a restarted clock or a gap in reporting: `pendingDeletion` (the tag sweep of C.1 finds the unused tags again, retention restarting from that moment), the `selfCheck` cursor (a restart just resumes the ring elsewhere) and `failedImagesCopy` (rebuilt at the next attempt). Everything else in the status — the `images` aggregates, the conditions — is derived and recomputed on every reconcile, as are the things that never reach etcd at all: what is in use, what is copied, check verdicts, the copy queue, the window each registry is paced by.
 - **Every computation runs forward**, from the desired state toward the destination. The destination layout is one-way; no loop reads a mirror ref backwards, so tag truncation is harmless.
 - **The origin ref comes from the pod annotation**, never from un-computing a mirror ref.
 - **The destination is the source of truth** for what is copied and for what is left to delete, never an internal list.
 - **Deletion is always narrower than it looks**: by tag, only our tags, only after retention, only performed by us.
-- **Every loop degrades gracefully**: no budget → slower; registry down → retries; controller restarted → resumes at a cursor. No loop has to complete a full pass to remain correct.
+- **Every loop degrades gracefully**: longer intervals → slower; registry down → retries; controller restarted → resumes at a cursor. No loop has to complete a full pass to remain correct.
