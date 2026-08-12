@@ -221,15 +221,20 @@ Each entry of `excludeImages` is a **glob** matched against the normalized refer
 (`nginx:1.27` is matched as `docker.io/library/nginx:1.27`), and matching any entry keeps the image
 out of the mirror: no copy, no candidate, no tag in the destination.
 
-| In a pattern | Matches |
-| ------------ | ------- |
+A pattern splits on its last `:` when that `:` comes after its last `/`: what follows is a **tag
+part**, what precedes is the **repository part**. A `:` sitting before the last `/` is a host port, so
+`registry.local:5000/mirror/**` is a repository part alone. Each part is matched whole, against the
+corresponding part of the reference:
+
+| In a part | Matches |
+| --------- | ------- |
 | `*` | any characters inside one path segment |
 | `**` | any characters, path separators included |
-| no `:` | the repositories selected, whatever the tag or digest |
-| a `:tag` part | those repositories, and only the tags the part matches |
 
-The whole reference has to match, so a pattern is a description of the images it excludes rather
-than a prefix of them:
+A pattern made of a repository part alone covers every tag and digest of the repositories it matches;
+a tag part narrows it to the tags that part matches, and a digest-pinned reference is matched on its
+repository part alone. Matching whole parts makes a pattern a description of the images it excludes
+rather than a prefix of them:
 
 | Pattern | Excludes |
 | ------- | -------- |
@@ -239,17 +244,15 @@ than a prefix of them:
 | `quay.io/acme/*-debug` | `quay.io/acme/foo-debug`, `quay.io/acme/bar-debug` |
 | `**:latest` | every mutable `latest`, whatever the registry |
 
-Globs are the right tool here where [`imagePrefix`](#alternatives-matching) is structural: an
-exclusion answers "do I mirror this?" and never has to produce another reference, so it can be
-expressive without deciding where an image gets rewritten to. A digest-pinned reference is matched on
-its repository, a digest being nothing a pattern can usefully describe.
+Where [`imagePrefix`](#alternatives-matching) is structural, an exclusion only answers "do I mirror
+this?", so it stays a pattern and produces no reference.
 
 ### Collecting unused tags
 
-Every reconcile of an `ImageMirror` starts by listing the tags of each repository of
-`status.repositories` (`GET /v2/<repo>/tags/list`), keeps those carrying this cluster's identity, and
-diffs them forward against the tags the desired state expects. A tag outside that set is recorded in
-`status.pendingDeletion`, with `unusedSince` stamped at that moment, and deleted once
+With `cleanup.enabled`, every reconcile of an `ImageMirror` starts by listing the tags of each
+repository of `status.repositories` (`GET /v2/<repo>/tags/list`), keeps those carrying this cluster's
+identity, and diffs them forward against the tags the desired state expects. A tag outside that set is
+recorded in `status.pendingDeletion`, with `unusedSince` stamped at that moment, and deleted once
 `cleanup.retention` has elapsed.
 
 Reading the destination is what makes the collection self-healing: images that stop being used while
@@ -425,8 +428,9 @@ at most one image per window. With `interval: 5m` a controller started at 13:32 
 13:37, 13:42, 13:47 and so on, each opening taking one image.
 
 Counting from the process start keeps the guarantee where it belongs: what a registry sees is a rate,
-one image per `interval`, whatever the phase. The first window of a process is a full `interval`
-away, so a crash-looping controller paces its registries exactly like a healthy one.
+one image per `interval`, whatever the phase. The first window of a process is a full `interval` away,
+which makes that rate an upper bound across restarts — a controller whose lifetime stays under
+`interval` sends nothing at all, so a crash loop shows up as a ring that stops turning.
 
 **Checks** are paced by [`registries.<host>.check.interval`](#global-config). The tracked images of a
 host form a ring and every window takes the next one, so an image comes back once per turn,
@@ -456,9 +460,8 @@ pull limit is the canonical example. So the two are counted on different things 
 clusters use the same credential against the same host: each one paces itself to one request per
 `interval`, and the account sees the sum.
 
-Windows are counted per process ([Scheduling](#scheduling)), so nothing interleaves them across
-clusters either: three clusters on `interval: 10m` can perfectly well hit the host within the same
-second, three times per 10 minutes.
+Windows are counted per process ([Scheduling](#scheduling)), so they stay independent across clusters:
+three clusters on `interval: 10m` may hit the host within the same second, three times per 10 minutes.
 
 > [!WARNING]
 > Sizing `check.interval` and `copy.interval` for a single cluster and then sharing the credential
@@ -469,10 +472,10 @@ second, three times per 10 minutes.
 The symptoms are worth recognising, because one of them is misleading: a `QuotaExceeded` on a
 **check** looks like an unavailable image, and an `ImageAlternative` reacts to it by routing pods
 away from a healthy registry; on a **copy** it lands in `status.failedImagesCopy` with reason
-`QuotaExceeded`, which is explicit. A shared destination is unaffected — the pushes go to a registry
-that is usually the operator's own, and the deduplication of
-[Multi-cluster](#multi-cluster-shared-destination-one-tag-per-cluster) means the second cluster
-transfers nothing anyway.
+`QuotaExceeded`, which is explicit. A shared destination pays no extra **bytes**, the deduplication of
+[Multi-cluster](#multi-cluster-shared-destination-one-tag-per-cluster) leaving the second cluster
+nothing to transfer, and it does receive each cluster's self-check `HEAD`s and cleanup tag listings, so
+its `check.interval` sizes exactly like a source's on a destination that enforces a quota.
 
 ## Authentication
 
@@ -763,7 +766,7 @@ registries:
           name: kuik-ecr-access
 
   docker.io:
-    # Rate limited source: check less often than default
+    # Rate limited source: copy less often than default
     copy:
       interval: 10m
     perPrefixFallbackAuth:
