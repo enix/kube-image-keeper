@@ -435,10 +435,8 @@ host form a ring and every window takes the next one, so an image comes back onc
 `tracked * interval`, reported as `cycleDuration` in [status](./status.md#imagemonitor). A host with
 60 tracked images and `interval: 10m` turns in 10 hours; lowering `interval` re-checks
 each image sooner and sends that host more requests. Drift detection (`driftDetection: true`) reads
-the same manifest on the same windows, and an `ImageMirror` self checks its destination on that
-host's check windows, **one tag per window** like everything else on that ring: a window is one
-manifest `HEAD`, so a destination repository holding a dozen desired tags comes back a dozen windows
-at a time rather than in one.
+the same manifest on the same windows. An `ImageMirror` takes a window of its **source** host when
+`driftPolicy` is `Warn` or `Sync`, to re-read the upstream tag.
 
 **Copies** are paced by [`registries.<host>.copy.interval`](#global-config), on windows of their own.
 Where checks cycle a ring, copies drain a queue: the images the mirrors still owe (`images.desired`
@@ -446,6 +444,13 @@ minus `images.copied` in status, plus what `driftPolicy: Sync` queues again once
 drift). Only the source side is throttled, as that is where quotas and rate limits sit; the
 destination takes the pushes as they come, and a source kept slow lengthens the drain rather
 than bursting.
+
+Windows pace what kuik **pulls from**, and nothing else. A quota is what an upstream enforces on
+reads, while a mirror destination is the operator's own registry: neither the pushes nor the
+self-check `HEAD`s that verify them wait for a window, and an `ImageMirror` holds no place in any ring
+for its destination ([walkthrough 02, B.3](./walkthroughs/02-imagemirror-reconciliation.md)). Its
+destination is compared to its desired state on every reconcile, with nothing to resume and no cycle
+to report.
 
 Windows belong to the registry host rather than to a CR: an image tracked by several `ImageMonitor`
 holds one place in the ring and costs one window, and every `ImageMirror` pulling from the same host
@@ -472,10 +477,10 @@ three clusters on `interval: 10m` may hit the host within the same second, three
 The symptoms are worth recognising, because one of them is misleading: a `QuotaExceeded` on a
 **check** looks like an unavailable image, and an `ImageAlternative` reacts to it by routing pods
 away from a healthy registry; on a **copy** it lands in `status.failedImagesCopy` with reason
-`QuotaExceeded`, which is explicit. A shared destination pays no extra **bytes**, the deduplication of
-[Multi-cluster](#multi-cluster-shared-destination-one-tag-per-cluster) leaving the second cluster
-nothing to transfer, and it does receive each cluster's self-check `HEAD`s and cleanup tag listings, so
-its `check.interval` sizes exactly like a source's on a destination that enforces a quota.
+`QuotaExceeded`, which is explicit. Only sources are concerned: a shared destination is paced by
+nothing, and the deduplication of
+[Multi-cluster](#multi-cluster-shared-destination-one-tag-per-cluster) leaves the second cluster
+nothing to transfer either.
 
 ## Authentication
 

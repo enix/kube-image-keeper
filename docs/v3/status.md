@@ -65,14 +65,9 @@ status:
     unusedSince: "2026-07-10T02:00:00Z"
   - ref: registry.tld/mirror/quay.io/acme/tool:1.3_cluster-a
     unusedSince: "2026-07-11T09:30:00Z"
-  selfCheck:
-    # last checked reference, so the ring resumes at the same position on controller restart
-    # one tag is checked per window, so the cursor is a tag and not a repository
-    cursor: registry.tld/mirror/quay.io/thanos/thanos:v0.42.2_cluster-a
-    # datetime of last cycle start (new ring iteration)
-    cycleStarted: "2026-07-10T06:00:00Z"
-    # desired tags * interval: how often each tag of the destination comes back
-    cycleDuration: 52h           # 312 desired tags, this host's check `interval: 10m`
+  # The destination is written by KuiK and carries no quota to spare, so its self-check runs
+  # unpaced on every reconcile: no cursor and no cycle to persist (see walkthrough 02, B.3)
+  selfChecked: "2026-07-10T06:12:00Z"   # end of the last full comparison against the destination
   # Persist the list of repositories tracked by this CR as it cannot be recomputed if controller restart,
   # it's written before first push and removed when no tag tracked by this CR remains *for this cluster*:
   # when several clusters share a destination each one keeps its own local view, and the GC only ever

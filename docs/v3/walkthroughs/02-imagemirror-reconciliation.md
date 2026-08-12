@@ -118,9 +118,11 @@ The OCI Distribution spec guarantees only `GET /v2/<name>/tags/list` per reposit
 
 For pinned images the check is done **by digest**, which is an exact check: if the digest is present, the content is provably identical.
 
-### B.3 Pace the traversal: a ring with a cursor
+### B.3 Traverse the whole desired state, unpaced
 
-Unlike the copy queue, checking never terminates — so it is a **ring with a persisted cursor** over the desired state, consuming the **check windows** of the destination registry (HEADs are cheap and rarely rate-limited, unlike copies). Each window takes **one desired reference**, i.e. one manifest HEAD, so a repository holding a dozen desired tags spreads over a dozen windows and the cursor is a reference rather than a repository. The cursor is what lets a restart resume at the successor of the last checked ref instead of starting the lap over. The status exposes, per registry, the `cursor` (where to resume), `cycleStarted`, and `cycleDuration` — the time it takes to check every image once, i.e. the effective verification frequency of each image. A `cycleDuration` that grows too large is the signal to shorten that registry's `check.interval`: past a point, the freshness of the verdicts becomes fictitious.
+Intervals exist to stay inside the quotas of the registries kuik **pulls from** ([Scheduling](../spec.md#scheduling)). A destination is written by kuik and belongs to the operator, so nothing about it is paced: the self-check waits for no window, holds no cursor and reports no cycle. Every reconcile compares the whole desired state, and the freshness of a verdict is the reconcile cadence rather than a lap time.
+
+What bounds the cost is the size of the desired state, one `HEAD` per desired reference (B.2), against a registry that is usually on the same network as the cluster. There is nothing to resume after a restart: the first reconcile checks everything, which is also what covers the crash window of A.8.
 
 ### B.4 Handle each divergence
 
@@ -138,7 +140,7 @@ When a re-copy is needed, the source is the origin ref recorded in the desired s
 `driftPolicy` decides what the mirror does when the *upstream tag* moves under it (typical of mutable tags like `latest`):
 
 - **`Ignore`** (default) — nothing. The mirror is a snapshot of what was running; upstream mutations, accidental or malicious, do not propagate.
-- **`Warn`** — periodically re-check the source tag's digest and compare it against the copied manifest's digest (a straight equality, since copies are verbatim). Surface the divergence (`ImageTagDrifted`, `status.images.drifted`) without touching the copy. Detection without mutation.
+- **`Warn`** — re-check the source tag's digest on the **source** host's check windows (this is a read of an upstream, so it is paced like any other) and compare it against the copied manifest's digest (a straight equality, since copies are verbatim). Surface the divergence (`ImageTagDrifted`, `status.images.drifted`) without touching the copy. Detection without mutation.
 - **`Sync`** — same detection, plus a re-push so the destination tag follows upstream. Emits `ImageResynced` (normal — this is Sync's steady state, not to be confused with `ImageRecopied`).
 
 **`Sync` needs to know nothing about pinning.** Repointing `v1.15.1_cluster-a` from D to D′ cannot orphan D, because a pinned digest never depended on that tag: it carries its own anchor tag from copy time (A.6). So the resync path is simply "push D′, repoint the tag" — no check, no ordering constraint, no special case.
@@ -212,9 +214,9 @@ Deleting the last tag pointing at a manifest leaves it **untagged**: it disappea
 Worth keeping in mind while implementing any of the three loops:
 
 - **Persist before acting.** Repository recorded before the first push; `unusedSince` recorded before the retention clock is trusted. In both cases a crash then wastes work, instead of losing safety.
-- **Not everything in the status weighs the same.** One entry cannot be recomputed and losing it does real damage: `repositories` (the registry cannot be asked which repositories we populated, and a repository nobody sweeps is a permanent leak). Three more are kept for continuity, and losing them only costs redundant work, a restarted clock or a gap in reporting: `pendingDeletion` (the tag sweep of C.1 finds the unused tags again, retention restarting from that moment), the `selfCheck` cursor (a restart just resumes the ring elsewhere) and `failedImagesCopy` (rebuilt at the next attempt). Everything else in the status — the `images` aggregates, the conditions — is derived and recomputed on every reconcile, as are the things that never reach etcd at all: what is in use, what is copied, check verdicts, the copy queue, the window each registry is paced by.
+- **Not everything in the status weighs the same.** One entry cannot be recomputed and losing it does real damage: `repositories` (the registry cannot be asked which repositories we populated, and a repository nobody sweeps is a permanent leak). Two more are kept for continuity, and losing them only costs redundant work, a restarted clock or a gap in reporting: `pendingDeletion` (the tag sweep of C.1 finds the unused tags again, retention restarting from that moment) and `failedImagesCopy` (rebuilt at the next attempt). Everything else in the status — the `images` aggregates, the conditions — is derived and recomputed on every reconcile, as are the things that never reach etcd at all: what is in use, what is copied, check verdicts, the copy queue, the window each registry is paced by.
 - **Every computation runs forward**, from the desired state toward the destination. The destination layout is one-way; no loop reads a mirror ref backwards, so tag truncation is harmless.
 - **The origin ref comes from the pod annotation**, never from un-computing a mirror ref.
 - **The destination is the source of truth** for what is copied and for what is left to delete, never an internal list.
 - **Deletion is always narrower than it looks**: by tag, only our tags, only after retention, only performed by us.
-- **Every loop degrades gracefully**: longer intervals → slower; registry down → retries; controller restarted → resumes at a cursor. No loop has to complete a full pass to remain correct.
+- **Every loop degrades gracefully**: longer intervals → slower; registry down → retries; controller restarted → recomputes from the desired state. No loop has to complete a full pass to remain correct.
