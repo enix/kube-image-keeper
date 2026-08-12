@@ -129,7 +129,7 @@ status:
     runningDigest: sha256:aaaa…
     upstreamDigest: sha256:bbbb…
     referencedBy: 7
-  # Health of the check schedule: one image checked per aligned `interval` window, per registry
+  # Health of the check schedule: one image checked per `interval` window, per registry
   # (see "Scheduling" in spec.md)
   checks:
     registries:
