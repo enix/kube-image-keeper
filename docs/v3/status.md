@@ -42,9 +42,10 @@ With rewritePolicy != None, we also have the same status as ImageAlternative in 
 ```yaml
 status:
   images:
-    desired: 312               # images used in running pod + retained
+    desired: 312               # images used in running pod + retained ones carrying an `origin`
     copied: 309                # images effectivly copied to destination registry
-    retained: 1                # image pending deletion (if cleanup.retention > 0)
+    retained: 2                # tags pending deletion (if cleanup.retention > 0), origin-less ones
+                               # among them are held then deleted, never copied again
     drifted: 0                 # with driftPolicy=Sync - image tag with new digest that will be resynced
     platformsMissing: 8        # copied but image miss a platform (multi-arch)
     missingSource: 1           # no source available to copy image to destination (if not already copied)
@@ -70,7 +71,7 @@ status:
     # datetime of last cycle start (new ring iteration)
     cycleStarted: "2026-07-10T06:00:00Z"
     # repositories * interval: how often each repository of the destination comes back
-    cycleDuration: 40m           # 4 repositories, default check `interval: 10m`
+    cycleDuration: 40m           # 4 repositories, this host's check `interval: 10m`
   # Persist the list of repositories tracked by this CR as it cannot be recomputed if controller restart,
   # it's written before first push and removed when no tag tracked by this CR remains *for this cluster*:
   # when several clusters share a destination each one keeps its own local view, and the GC only ever
@@ -144,7 +145,7 @@ status:
     - registry: quay.io
       cursor: quay.io/thanos/thanos
       cycleStarted: "2026-07-10T03:20:00Z"
-      cycleDuration: 183h30m               # 1101 images, default `interval: 10m`
+      cycleDuration: 183h30m               # 1101 images, quay.io `interval: 10m`
   conditions:
   - {type: AllImagesAvailable, status: "False"}        # a tracked image is unavailable
   - {type: AllAlternativesAvailable, status: "False"}  # an alternative of tracked image is unavailable

@@ -37,10 +37,10 @@ A mirror ref appears in a pod because the webhook put it there. A mirror ref wri
 
 ```
 desired = { origin refs of in-scope live pods }
-        ∪ { refs still inside the retention window }
+        ∪ { refs inside the retention window that carry an origin }
 ```
 
-The second term is what keeps a CronJob's image mirrored between two runs (see C.1). The set is recomputed from informers and persisted state — never accumulated incrementally.
+The second term is what keeps a CronJob's image mirrored between two runs (see C.1). A tag the sweep found carries no origin, so it stays out of this set: it is held for its retention, then deleted (C.2). The set is recomputed from informers and persisted state — never accumulated incrementally.
 
 **Everything is copied, for every architecture**: a verbatim copy of the full index and all its children. A verbatim copy **preserves the digest**, which is what keeps the rest simple — pinned refs resolve identically on the mirror, drift comparison is a straight digest equality, and the cross-cluster fast path (A.8) can recognise an already-pushed manifest.
 
@@ -78,7 +78,7 @@ Copying is **a work queue per source registry, drained** — not a ring to spin.
 
 - The queue lives **in memory**, fed by pod events and by the desired-state recomputation. No cursor, no persistence, nothing to resume.
 - Entries already known to be handled — repositories listed in `status.repositories`, or refs found present at the destination — are not enqueued.
-- Consumption is paced by the source registry's **copy windows** (`copy.interval` in the global config), counted from the start of the process and held in memory too. A restart re-phases them and the first copy waits a full `interval`, so the source sees the same rate whatever the controller's lifetime. Nothing to persist, and far cheaper than an etcd write per copy.
+- Consumption is paced by the source registry's **copy windows** (`copy.interval` in the global config), counted from the start of the process and held in memory too. A restart re-phases them and the first copy waits a full `interval`, so the source sees at most one image per `interval` however often the controller restarts. Nothing to persist, and far cheaper than an etcd write per copy.
 - **Re-copies come first.** A manifest that disappeared from the destination is an active availability hole — pods may be routed to it right now — whereas an initial copy is a background task.
 
 ### A.8 Record the repository, then push
@@ -107,7 +107,7 @@ The destination registry is the source of truth for "what is copied". The self-c
 
 ### B.1 What it compares
 
-- **Desired**: the same set as A.5 (origin refs of in-scope pods ∪ retained).
+- **Desired**: the same set as A.5 (origin refs of in-scope pods ∪ retained refs carrying an origin).
 - **Observed**: the destination, interrogated **one precise reference at a time**.
 
 The comparison always runs **forward**: for each desired ref, compute the destination ref (A.6) and ask about *that*. No destination ref is ever parsed backwards, so hashed/truncated tags are handled like any other.
@@ -180,7 +180,7 @@ During `cleanup.retention`, an entry carrying an origin ref is still:
 - verified by the self-check loop,
 - **re-copyable** if it disappears from the destination.
 
-A swept entry has no origin, so it is only held and then deleted: no pod in the cluster asks for that image, and nothing tries to re-copy it.
+A swept entry carries no origin, so it is held, then deleted: its image sits outside the desired state, hence outside the self-check and the copy queue.
 
 This is what lets a CronJob whose period is shorter than the retention keep its image mirrored between runs, and what prevents a destination-registry outage from being interpreted as "these images are gone, purge the state". Only an **effective deletion performed by this controller** removes an entry from the desired state — never an observed absence.
 
