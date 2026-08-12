@@ -331,6 +331,10 @@ of [Digest-pinned images](#digest-pinned-images)). Note that this is what forces
 verbatim, hence `platforms.mode: All` semantics and full sharing between clusters whatever their node
 pools.
 
+**Upstream quotas are what clusters share involuntarily.** Every cluster paces its own reads of the
+source registries, so a pull credential used on several of them hands that account the sum of their
+rates, see [Quotas count per credential](#quotas-count-per-credential-clusters-pace-independently).
+
 #### Tag naming constraints
 
 - OCI tags are limited to **128 characters**, and to `[a-zA-Z0-9._-]` after the first character.
@@ -411,6 +415,32 @@ Windows belong to the registry host rather than to a CR: an image tracked by sev
 holds one place in the ring and costs one window, and every `ImageMirror` pulling from the same host
 shares its copy pace. A check ring resumes at the `cursor` its status carries; a copy queue needs no
 position, it is whatever the mirrors still owe, in deterministic order.
+
+### Quotas count per credential, clusters pace independently
+
+An `interval` bounds what **one** controller sends to a host. A registry quota is attached to the
+account the credential belongs to (or to the source IP, for anonymous requests), and Docker Hub's
+pull limit is the canonical example. So the two are counted on different things as soon as several
+clusters use the same credential against the same host: each one paces itself to one request per
+`interval`, and the account sees the sum.
+
+Windows are counted per process ([Scheduling](#scheduling)), so nothing interleaves them across
+clusters either: three clusters on `interval: 10m` can perfectly well hit the host within the same
+second, three times per 10 minutes.
+
+> [!WARNING]
+> Sizing `check.interval` and `copy.interval` for a single cluster and then sharing the credential
+> across `N` clusters consumes `N` times the intended rate. Either multiply the intervals of that
+> host by `N`, or give each cluster its own credential so each gets its own quota. kuik sees one
+> cluster only and cannot detect the aggregate, so this is a configuration prerequisite.
+
+The symptoms are worth recognising, because one of them is misleading: a `QuotaExceeded` on a
+**check** looks like an unavailable image, and an `ImageAlternative` reacts to it by routing pods
+away from a healthy registry; on a **copy** it lands in `status.failedImagesCopy` with reason
+`QuotaExceeded`, which is explicit. A shared destination is unaffected — the pushes go to a registry
+that is usually the operator's own, and the deduplication of
+[Multi-cluster](#multi-cluster-shared-destination-one-tag-per-cluster) means the second cluster
+transfers nothing anyway.
 
 ## Authentication
 
