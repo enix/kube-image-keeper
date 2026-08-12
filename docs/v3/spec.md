@@ -194,6 +194,8 @@ spec:
   cleanup:
     enabled: true              # Default: true - Delete image tag no longer referenced by any pod
     retention: 24h             # Image tag hold duration before deleting them, to deal with cronjob for instance
+                               # Tags waiting out their retention are listed in
+                               # `status.pendingDeletion`, see "Collecting unused tags"
 
 
   # Detect and reconcile image tag drift (digest change), e.g. tag `latest`
@@ -211,6 +213,23 @@ spec:
     mode: Auto                 # Auto (default) | All | List
     #list: []                  # Only used with `mode: List`
 ```
+
+### Collecting unused tags
+
+Every reconcile of an `ImageMirror` starts by listing the tags of each repository of
+`status.repositories` (`GET /v2/<repo>/tags/list`), keeps those carrying this cluster's identity, and
+diffs them forward against the tags the desired state expects. A tag outside that set is recorded in
+`status.pendingDeletion`, with `unusedSince` stamped at that moment, and deleted once
+`cleanup.retention` has elapsed.
+
+Reading the destination is what makes the collection self-healing: images that stop being used while
+the controller is down are collected at the first reconcile after startup, and a
+`status.pendingDeletion` lost with the object is rebuilt, each retention clock restarting from then.
+Pod events feed the same list, so a reference losing its last pod while the controller runs is
+noticed right away rather than at the next listing.
+
+Part C of the [ImageMirror walkthrough](./walkthroughs/02-imagemirror-reconciliation.md) details the
+deletion rules.
 
 ### Mirror loop prevention
 
