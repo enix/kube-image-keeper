@@ -18,7 +18,7 @@ Filtering is expressed on **workloads**, not on images: `podSelector` and `names
 select the pods a resource applies to, and an empty selector matches everything. There are two
 exceptions, both on `ImageMirror`: [`spec.excludeImages`](#excluding-images-from-a-mirror), which
 keeps specific images out of a mirror (e.g. huge images) without changing which pods the mirror
-applies to, and every mirror destination, implicitly excluded from every mirror (see
+applies to, and a mirror's own destination, implicitly excluded from it (see
 [Mirror loop prevention](#mirror-loop-prevention)).
 
 ## ImageAlternative
@@ -168,7 +168,7 @@ spec:
   podSelector: {}
   namespaceSelector: {}
   # Globs matching images to keep out of this mirror (e.g. huge images), see "Excluding images
-  # from a mirror". The `destination.path` of every ImageMirror is excluded on top of this list,
+  # from a mirror". This mirror's own `destination.path` is excluded on top of this list,
   # see "Mirror loop prevention"
   excludeImages:
   - ghcr.io/foo-bar/**
@@ -266,30 +266,25 @@ deletion rules: by tag, only this cluster's tags, only past retention.
 
 ### Mirror loop prevention
 
-A mirror never mirrors itself, and never mirrors another mirror: the `destination.path` of **every**
-`ImageMirror` in the cluster is implicitly excluded from **every** `ImageMirror`, on top of each
-mirror's own `excludeImages`. The exclusion set is the union of those paths, recomputed as
-mirrors are created and deleted, and it ignores selectors and `rewritePolicy` (a `None` mirror still
-populates a destination, so its path still counts).
+Two rules keep mirroring bounded, and both are unconditional:
 
-Two failure modes it closes:
+- a mirror copies the **origin** image, read from `kuik.enix.io/original-images` or, absent the
+  annotation, from the pod spec — never a reference another mirror produced
+- a mirror excludes its **own** `destination.path`, on top of its `excludeImages` and whatever its
+  selectors say
 
-- **self mirroring**: a pod referencing `registry.tld/mirror/docker.io/library/nginx:1.27` (a GitOps
-  repository that committed back a rewritten image, or a hand written manifest) would get that image
-  copied to `registry.tld/mirror/registry.tld/mirror/docker.io/library/nginx:1.27`, which is in turn
-  a pod image the next round copies one level deeper, without bound
-- **cross mirroring**: with two mirrors `A` and `B` matching the same pods, `A` copies what `B`
-  produced and `B` copies what `A` produced, each copy handing the other a new, deeper reference to
-  copy. Two mirrors are enough to fill both registries
+The first rule is what makes two mirrors unable to feed each other: matching the same pods, `A` and
+`B` both copy the origin image, so neither one ever sees the other's output as an input. The second
+closes the only remaining case — a pod referencing this mirror's own output, from a GitOps repository
+that committed back a rewritten image or from a hand-written manifest — which would otherwise be
+copied one level deeper into itself, and again on the next round.
 
-Consequences worth stating:
+A pod referencing *another* mirror's destination is not supported (it confuses which reference is the
+origin), and it terminates all the same: that mirror copies the reference it was given, one level deep,
+and the mirror that produced it keeps working from the origin. Nothing recurses.
 
-- **cascading mirrors are not supported.** A deliberate "upstream → mirror A → mirror B" chain is
-  indistinguishable from the loop above
-- creating a mirror is retroactive: images another mirror had already copied below the new
-  `destination.path` become excluded, hence no longer desired, and that other mirror's `cleanup` GC
-  removes them after its `retention`
-  mirror copies, never where it is allowed to write
+**Cascading mirrors are not expressible**, for the same reason: a deliberate "upstream → mirror A →
+mirror B" chain would require `B` to source `A`'s copy, and every mirror sources the origin.
 
 ### Multi-cluster: shared destination, one tag per cluster
 
@@ -603,7 +598,7 @@ list:
   (`registry.example.com/mirror/` + `docker.io/library/nginx:1.27` + `_cluster-a`, see
   [Multi-cluster](#multi-cluster-shared-destination-one-tag-per-cluster)), and none at all under
   `rewritePolicy: None`, for an image matching its `excludeImages`, or for an image already
-  under some mirror's `destination.path` ([Mirror loop prevention](#mirror-loop-prevention))
+  under its own `destination.path` ([Mirror loop prevention](#mirror-loop-prevention))
 - candidates are **deduplicated on (reference, resolved config), keeping the first occurrence**
 - sorting by name, not by `creationTimestamp` (the tie-break Gateway API uses): a timestamp is not
   stable under GitOps, where deleting and recreating an object silently changes precedence, and
@@ -683,10 +678,11 @@ which is also what makes it carry the `_<clusterID>` suffix in a shared destinat
 
 ### What an `ImageMirror` copies
 
-A mirror copies the image the pod declared, to the single destination computed above — never one
-destination per alternative, which make `status.repositories` and the cleanup GC depend on routing
-decisions taken in the webhook. Images the pod declared that already live under a mirror destination
-are not copied at all ([Mirror loop prevention](#mirror-loop-prevention)).
+A mirror copies the **origin** image — `kuik.enix.io/original-images` when the pod carries it, the pod
+spec otherwise — to the single destination computed above, never one destination per alternative, which
+would make `status.repositories` and the cleanup GC depend on routing decisions taken in the webhook.
+An origin image already living under this mirror's own `destination.path` is not copied at all
+([Mirror loop prevention](#mirror-loop-prevention)).
 
 When the original is unreachable at copy time and was never copied, the controller may pull the bytes
 from any `ImageAlternative` entry covering that image and push them to that same destination, which
