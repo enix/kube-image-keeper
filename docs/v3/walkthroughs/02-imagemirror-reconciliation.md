@@ -80,8 +80,9 @@ Copying is **a work queue per source registry, drained** — not a ring to spin.
 - Entries already known to be handled — repositories listed in `status.repositories`, or refs found present at the destination — are not enqueued.
 - Consumption is paced by the source registry's **copy windows** (`copy.interval` in the global config), counted from the start of the process and held in memory too. Their phase is fixed, so a window that opens on an empty queue is lost rather than banked and a drained queue never earns a burst for later. A restart re-phases them and the first copy waits a full `interval`, so the source sees at most one image per `interval` however often the controller restarts. Nothing to persist, and far cheaper than an etcd write per copy.
 - **Re-copies come first.** A manifest that disappeared from the destination is an active availability hole — pods may be routed to it right now — whereas an initial copy is a background task.
+- **A fallback changes queue.** An image sits in the queue of its origin's host, and the source is only settled when its window opens (A.8): served by an alternative instead, it waits for a window of *that* host and spends it, since a window of a host is a read of that host. The origin's quota pays for nothing while its registry is down.
 
-### A.8 Record the repository, then push
+### A.8 Record the repository, choose the source, then push
 
 **Write the repository into `status.repositories` before the first push into it.** The registry offers no way to enumerate the repositories a client has populated (the OCI spec only guarantees per-repository tag listing), so this list is the only thing that will let the cleanup loop find this repository again. A crash after pushing but before recording would create a repository no loop ever visits — a permanent leak.
 
@@ -89,10 +90,14 @@ Copying is **a work queue per source registry, drained** — not a ring to spin.
 
 Then perform the copy:
 
-1. **Resolve source credentials**, in order: explicit `auth` on the entry → the pod's `imagePullSecrets` *if* the controller has been granted read access in that namespace → the registry's `perPrefixFallbackAuth` (longest matching prefix) → anonymous.
-2. **Multi-cluster fast path:** `HEAD` the manifest **by digest** in the destination repository. If another cluster already pushed it, the copy reduces to a `PUT` of this cluster's tag — a few KB, zero blob transferred. Blobs are linked per repository, so clusters sharing a repository share them natively.
-3. **Otherwise copy verbatim**: the index and all its children, digest preserved end to end.
-4. **Tag it** as computed in A.6, and record the origin on the pushed manifest as OCI annotations (`kuik.enix.io/source-ref`, `kuik.enix.io/source-digest`). These make the artifact self-describing for a human running `crane manifest`, whatever mangling the tag went through.
+1. **Choose the source.** The origin ref goes first: `HEAD` it, and copy from there if it answers. When it does not — registry down, tag deleted, credentials revoked — any `ImageAlternative` entry covering that image is an acceptable source, tried in the order that CR declares them and skipping the ones marked `unavailable: true`. The fallback applies to a first copy and to a re-copy alike, so an image whose origin registry disappeared for good stays re-copyable, which is the situation alternatives exist for. Nothing answering at all leaves the image in the desired state and counts it in `status.images.missingSource` (A.9).
+
+   **The destination does not move with the source.** It stays the ref computed in A.6, derived from the **origin** whatever the bytes came from — that is what keeps `status.repositories`, the self-check and the cleanup diff computable forward from the desired state. A destination derived from what was actually read would file a copy under a repository no loop ever visits, and would break the argument that a mirror only ever writes below the path derived from the origin (A.4).
+
+2. **Resolve credentials for the source retained above**, not for the origin: explicit `auth` on that entry → the pod's `imagePullSecrets` *if* the controller has been granted read access in that namespace → the registry's `perPrefixFallbackAuth` (longest matching prefix) → anonymous.
+3. **Multi-cluster fast path:** `HEAD` the manifest **by digest** in the destination repository, the digest being the one the retained source resolves to. If another cluster already pushed it, the copy reduces to a `PUT` of this cluster's tag — a few KB, zero blob transferred. Blobs are linked per repository, so clusters sharing a repository share them natively. Reading from an alternative, that digest may differ from the one the origin tag resolves to, in which case the fast path misses a manifest another cluster pushed from the origin: the copy then runs in full, which costs a transfer and stays correct.
+4. **Otherwise copy verbatim**: the index and all its children, digest preserved end to end.
+5. **Tag it** as computed in A.6, and record what was actually read as OCI annotations: `kuik.enix.io/source-ref` names the reference the bytes came from, `kuik.enix.io/source-digest` its digest. They make the artifact self-describing for a human running `crane manifest`, whatever mangling the tag went through, and `source-digest` is the digest `driftPolicy` compares against later (B.5) — so a copy served by an alternative is recognisable as such instead of passing for the origin's bytes.
 
 ### A.9 Report
 
