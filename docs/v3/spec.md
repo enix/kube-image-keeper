@@ -310,7 +310,7 @@ registry.tld/mirror/quay.io/thanos/thanos:v0.42.2_cluster-b   # written by clust
 Two properties follow, and together they are the point of the design:
 
 - **the second cluster uploads nothing.** A copy starts by `HEAD`ing the manifest **by digest** in the
-  target repository ([walkthrough A.8](./walkthroughs/02-imagemirror-reconciliation.md#a8-record-the-repository-then-push)):
+  target repository ([walkthrough A.8](./walkthroughs/02-imagemirror-reconciliation.md#a8-record-the-repository-choose-the-source-then-push)):
   present already means one tag `PUT` of a few kilobytes, absent means a normal copy, and kuik never
   has to know which cluster copied what
 - **the `ImageMirror` object is identical on every cluster.** The identity comes from the operator's
@@ -690,10 +690,13 @@ would make `status.repositories` and the cleanup GC depend on routing decisions 
 An origin image already living under this mirror's own `destination.path` is not copied at all
 ([Mirror loop prevention](#mirror-loop-prevention)).
 
-When the original is unreachable at copy time and was never copied, the controller may pull the bytes
-from any `ImageAlternative` entry covering that image and push them to that same destination, which
-keeps a mirror useful in the exact scenario the alternatives exist for. If no source answers, nothing
-is copied and the image is counted in `status.images.missingSource`.
+When the origin is unreachable at copy time, the controller may pull the bytes from any
+`ImageAlternative` entry covering that image, skipping the entries marked `unavailable: true`, and push
+them to that same destination — a first copy and a re-copy alike, so an image whose origin registry
+disappeared for good stays re-copyable, which is the scenario alternatives exist for. The destination is
+the one derived from the origin in every case, never from the source actually read
+([walkthrough A.8](./walkthroughs/02-imagemirror-reconciliation.md#a8-record-the-repository-choose-the-source-then-push)).
+If no source answers, nothing is copied and the image is counted in `status.images.missingSource`.
 
 > [!IMPORTANT]
 > Alternatives are asserted equivalent by the operator, not verified to be byte-identical, so a
