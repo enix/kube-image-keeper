@@ -241,11 +241,15 @@ Consequences worth stating:
 
 ### Multi-cluster: shared destination, one tag per cluster
 
-Several clusters mirroring to one registry want two things that pull in opposite directions: they
-want to **share bytes** (the first cluster pays the transfer, the others do not), and they want to
-stay **autonomous** (whatever one cluster deletes, the others keep running). Giving each cluster its
-own `destination.path` buys autonomy and loses sharing; sharing the *tag* as well as the path loses
-autonomy, because cluster A's `cleanup` then deletes a tag cluster B is actively routing to.
+Several clusters mirroring to one registry want two things that pull in opposite directions: they want
+to **share the transfer** (the first cluster to need an image pays for it, the others do not) and to
+stay **autonomous** (whatever one cluster deletes, the others keep running).
+
+Giving each cluster its own `destination.path` buys the autonomy and loses the sharing. A registry
+deduplicates the *storage* of identical blobs, so the disk cost stays close to a single copy, but every
+cluster still **uploads** every layer: blobs are linked per repository in OCI Distribution, so another
+repository means another upload. Sharing the *tag* along with the path loses the autonomy instead,
+since cluster A's `cleanup` then deletes a tag cluster B is actively routing to.
 
 v3 keeps both by sharing the repository and splitting the tag. Every cluster writes to the same
 repository, derived from `destination.path` exactly as in the mono-cluster case, and appends its own
@@ -256,20 +260,18 @@ registry.tld/mirror/quay.io/thanos/thanos:v0.42.2_cluster-a   # written by clust
 registry.tld/mirror/quay.io/thanos/thanos:v0.42.2_cluster-b   # written by cluster B
 ```
 
-Both tags point at the **same manifest**, so the blobs exist once. There is deliberately no shared
-canonical tag, so nobody has to own or repair one.
+Two properties follow, and together they are the point of the design:
 
-The identity comes from the operator's [`clusterID`](#global-config), never from the CR, so the
-`ImageMirror` object stays byte identical on every cluster: no templating, no per-cluster overlay,
-no dimension of the spec that only exists in multi-cluster setups.
+- **the second cluster uploads nothing.** A copy starts by `HEAD`ing the manifest **by digest** in the
+  target repository ([walkthrough A.8](./walkthroughs/02-imagemirror-reconciliation.md#a8-record-the-repository-then-push)):
+  present already means one tag `PUT` of a few kilobytes, absent means a normal copy, and kuik never
+  has to know which cluster copied what
+- **the `ImageMirror` object is identical on every cluster.** The identity comes from the operator's
+  [`clusterID`](#global-config) and never from the CR: no templating, no per-cluster overlay, no
+  dimension of the spec that exists only in multi-cluster setups
 
-**Copying is a manifest existence check first.** Before transferring anything, the controller
-`HEAD`s the manifest **by digest** in the target repository. Present already (another cluster pushed
-it) means the copy is a single tag `PUT`, a few kilobytes, zero blob transferred; absent means a
-normal copy. Blobs are linked per repository in OCI Distribution, which is precisely why sharing the
-*repository* (rather than only the registry) makes a plain existence check sufficient: no
-cross-repository blob mount, hence no `blobMountFrom` field and no need for kuik to know which
-cluster copied what.
+Both tags point at the **same manifest**, and there is deliberately no shared canonical tag, so nobody
+has to own or repair one.
 
 Which digest is checked follows `platforms.mode`, and it is worth being explicit because it decides
 how much is actually shared:
@@ -287,23 +289,23 @@ with different node pools is one extra index push (a few kilobytes), never a re-
 also why a shared canonical tag could not work: with `platforms.mode: Auto`, A's index legitimately
 lacks the `arm64` B needs, and one tag cannot hold both.
 
-**Each cluster owns its tags and nothing else.** It creates them, verifies them (its loop `HEAD`s
-*its* tags and re-`PUT`s any that went missing, again with no blob transfer) and deletes them. There
-is no shared mutable state, so no cross-cluster race and no coordination protocol. A cluster that
-dies blocks nothing: its tags keep its manifests alive without stopping anyone else from managing
-theirs, which is a retention choice rather than a deadlock.
-
-**Cleanup filters on the suffix before diffing.** For each repository of `status.repositories`, the
-GC lists `GET /v2/<repo>/tags/list` (a read on that repository alone, never `_catalog`), **keeps only
-the tags ending in `_<clusterID>`**, and diffs that against its desired state. Other clusters' tags
-are invisible to the diff, so they cannot be deleted by accident. A repository leaves the inventory
-when it holds no more tags *of this cluster*, which makes the inventory a local view: it can stay
-listed on A while B has already emptied it.
+**Each cluster owns its tags and nothing else.** Creating, verifying and deleting are all restricted to
+the tags carrying its own suffix: the self-check re-`PUT`s one of its tags that went missing, with no
+blob transferred
+([walkthrough B.4](./walkthroughs/02-imagemirror-reconciliation.md#b4-handle-each-divergence)), and the
+cleanup filters a repository's tag listing on the suffix before diffing, which makes another cluster's
+tags invisible to it
+([walkthrough C.3](./walkthroughs/02-imagemirror-reconciliation.md#c3-sweep-the-repositories)). There is
+no shared mutable state, hence no cross-cluster race and no coordination protocol. A cluster that dies
+blocks nothing: its tags keep its manifests alive without stopping anyone else from managing theirs,
+which is a retention choice rather than a deadlock, and `status.repositories` stays a local view — a
+repository can be listed on A while B has already emptied it.
 
 **Reclaiming space is delegated to the registry.** As long as any cluster tag points at a manifest,
 that manifest is uncollectable; when the last one disappears it becomes untagged, and the registry's
-native untagged GC (distribution, Harbor's "delete untagged") reclaims the space. kuik does not
-attempt a cross-cluster refcount.
+native untagged GC reclaims the space
+([walkthrough C.5](./walkthroughs/02-imagemirror-reconciliation.md#c5-leave-the-last-mile-to-the-registry)).
+kuik does not attempt a cross-cluster refcount.
 
 **Digest-pinned references are unaffected on the routing side.** A `@sha256:` reference is content
 addressed, so the mirror candidate keeps the digest verbatim and is identical on every cluster; only
