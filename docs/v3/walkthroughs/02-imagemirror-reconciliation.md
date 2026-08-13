@@ -78,7 +78,7 @@ Copying is **a work queue per source registry, drained** — not a ring to spin.
 
 - The queue lives **in memory**, fed by pod events and by the desired-state recomputation. No cursor, no persistence, nothing to resume.
 - Entries already known to be handled — repositories listed in `status.repositories`, or refs found present at the destination — are not enqueued.
-- Consumption is paced by the source registry's **copy windows** (`copy.interval` in the global config), counted from the start of the process and held in memory too. A restart re-phases them and the first copy waits a full `interval`, so the source sees at most one image per `interval` however often the controller restarts. Nothing to persist, and far cheaper than an etcd write per copy.
+- Consumption is paced by the source registry's **copy windows** (`copy.interval` in the global config), counted from the start of the process and held in memory too. Their phase is fixed, so a window that opens on an empty queue is lost rather than banked and a drained queue never earns a burst for later. A restart re-phases them and the first copy waits a full `interval`, so the source sees at most one image per `interval` however often the controller restarts. Nothing to persist, and far cheaper than an etcd write per copy.
 - **Re-copies come first.** A manifest that disappeared from the destination is an active availability hole — pods may be routed to it right now — whereas an initial copy is a background task.
 
 ### A.8 Record the repository, then push

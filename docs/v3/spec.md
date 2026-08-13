@@ -418,14 +418,21 @@ spec:
 
 ## Scheduling
 
-Checks and copies run on **windows** counted from the start of the controller process, at a rate of
-at most one image per window. With `interval: 5m` a controller started at 13:32 opens its windows at
-13:37, 13:42, 13:47 and so on, each opening taking one image.
+Checks and copies run on **windows** counted from the start of the controller process, at a rate of at
+most one image per window. A process started at 13:32 with `interval: 5m` opens its windows at 13:37,
+13:42, 13:47 and so on, and each opening takes one image: the next of a monitoring ring, or the next of
+a mirror's copy queue.
 
-Counting from the process start keeps the guarantee where it belongs: what a registry sees is a rate,
-one image per `interval`, whatever the phase. The first window of a process is a full `interval` away,
-which makes that rate an upper bound across restarts — a controller whose lifetime stays under
-`interval` sends nothing at all, so a crash loop shows up as a ring that stops turning.
+The phase is **fixed** for the lifetime of the process — a window opens when `now` reaches
+`start + k × interval` — so the work done inside a window never moves the following ones. An opening
+that finds nothing to do, or that comes while the previous image is still being transferred, is lost
+rather than banked, which makes the rate a ceiling: a host is asked for at most one image per
+`interval`, whatever happens. Re-arming the clock on each image instead would make the real period
+`interval` plus the time that image took, stretching a ring's lap by the latency of every image in it.
+
+The first window of a process is a full `interval` away, and that extends the ceiling across restarts: a
+controller whose lifetime stays under `interval` sends nothing at all, so a crash loop shows up as a
+ring that stops turning.
 
 **Checks** are paced by [`registries.<host>.check.interval`](#global-config). Every `ImageMonitor`
 holds a ring of the images it tracks on a host, in lexicographic order, and each window of that host
