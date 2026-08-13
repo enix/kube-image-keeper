@@ -126,22 +126,26 @@ status:
     runningDigest: sha256:aaaa…
     upstreamDigest: sha256:bbbb…
     referencedBy: 7
-  # Health of the check schedule: one image checked per `interval` window, per registry
-  # (see "Scheduling" in spec.md)
+  # Health of the check schedule: one image checked per `interval` window of a registry, taken from
+  # this resource's own ring of that registry (see "Scheduling" in spec.md)
   checks:
     registries:
     - registry: docker.io
-      # last checked image, so the ring resumes at the same position on controller restart
+      # last checked image, so the ring resumes at its successor on controller restart
       cursor: docker.io/library/nginx
-      # datetime of last cycle start (new ring iteration)
+      # datetime of the current lap start (cursor back to where it started)
       cycleStarted: "2026-07-10T04:00:00Z"
-      # tracked * interval: how often each image of this registry comes back
+      # measured duration of the last completed lap: how often each image of this registry comes
+      # back, and the freshness this CR guarantees. Absent until a first lap completes. Not derived
+      # from `tracked * interval`, as every ring of a registry shares its windows
       # a value too high is a signal to lower the registry `interval`
-      cycleDuration: 1426h40m              # 2140 images, docker.io `interval: 40m`
+      cycleDuration: 1426h40m              # 2140 images, docker.io `interval: 40m`, sole consumer
     - registry: quay.io
       cursor: quay.io/thanos/thanos
       cycleStarted: "2026-07-10T03:20:00Z"
-      cycleDuration: 183h30m               # 1101 images, quay.io `interval: 10m`
+      # measured well above the 183h30m this ring would lap in alone: another ImageMonitor tracks
+      # images of quay.io and takes some of its windows
+      cycleDuration: 240h                  # 1101 images, quay.io `interval: 10m`
   conditions:
   - {type: AllImagesAvailable, status: "False"}        # a tracked image is unavailable
   - {type: AllAlternativesAvailable, status: "False"}  # an alternative of tracked image is unavailable

@@ -430,13 +430,14 @@ one image per `interval`, whatever the phase. The first window of a process is a
 which makes that rate an upper bound across restarts — a controller whose lifetime stays under
 `interval` sends nothing at all, so a crash loop shows up as a ring that stops turning.
 
-**Checks** are paced by [`registries.<host>.check.interval`](#global-config). The tracked images of a
-host form a ring and every window takes the next one, so an image comes back once per turn,
-`tracked * interval`, reported as `cycleDuration` in [status](./status.md#imagemonitor). A host with
-60 tracked images and `interval: 10m` turns in 10 hours; lowering `interval` re-checks
-each image sooner and sends that host more requests. Drift detection (`driftDetection: true`) reads
-the same manifest on the same windows. An `ImageMirror` takes a window of its **source** host when
-`driftPolicy` is `Warn` or `Sync`, to re-read the upstream tag.
+**Checks** are paced by [`registries.<host>.check.interval`](#global-config). Every `ImageMonitor`
+holds a ring of the images it tracks on a host, in lexicographic order, and each window of that host
+takes the next image of one of them, so an image comes back once per lap — the `cycleDuration`
+reported in [status](./status.md#imagemonitor). A monitor alone on a host with 60 tracked images and
+`interval: 10m` laps in 10 hours; lowering `interval` re-checks each image sooner and sends that host
+more requests. Drift detection (`driftDetection: true`) reads the same manifest on the same windows,
+and an `ImageMirror` takes a window of its **source** host when `driftPolicy` is `Warn` or `Sync`, to
+re-read the upstream tag.
 
 **Copies** are paced by [`registries.<host>.copy.interval`](#global-config), on windows of their own.
 Where checks cycle a ring, copies drain a queue: the images the mirrors still owe (`images.desired`
@@ -452,10 +453,34 @@ for its destination ([walkthrough 02, B.3](./walkthroughs/02-imagemirror-reconci
 destination is compared to its desired state on every reconcile, with nothing to resume and no cycle
 to report.
 
-Windows belong to the registry host rather than to a CR: an image tracked by several `ImageMonitor`
-holds one place in the ring and costs one window, and every `ImageMirror` pulling from the same host
-shares its copy pace. A check ring resumes at the `cursor` its status carries; a copy queue needs no
-position, it is whatever the mirrors still owe, in deterministic order.
+### One budget per host, one ring per resource
+
+Windows belong to the **registry host**, since protecting its quota is what they are for: every
+`ImageMonitor` tracking images there draws from the same series of check windows, as does an
+`ImageMirror` re-reading an upstream tag under `driftPolicy: Warn` / `Sync`, and every mirror pulling
+from that host shares its copy windows.
+
+The **ring** and its `cursor` belong to a **(resource, host)** pair. A monitor tracking images on
+`docker.io` and `quay.io` holds one ring per host, two monitors on `docker.io` hold one each, and each
+cursor lives in the status of the resource that owns it. A cursor is the reference last checked, not a
+position, so a restart resumes at its successor in lexicographic order even when that reference is
+gone.
+
+An image tracked by two monitors sits in both rings, and the second ring to reach it **reuses the
+verdict the first one obtained** instead of spending a window. That cache is in memory and losing it
+costs one redundant `HEAD`, so overlapping monitors cost a host what their union costs rather than the
+sum of their rings.
+
+`cycleDuration` is therefore the lap **actually measured**, from `cycleStarted` to the cursor returning
+where it started, rather than a value derived from the ring's size: two monitors covering 1000 images
+each, disjoint, on `interval: 10m` lap in 2000 windows and not 1000, while the same two monitors
+covering the *same* 1000 images lap in 1000, the second one carried by the verdict cache. Ring size
+times the host's `interval` is the lap of a resource alone on its host, hence the best case. Measuring
+folds in the sharing, restarts and a growing ring alike, which is what makes the guarantee the status
+publishes — every tracked image checked once per `cycleDuration` — hold.
+
+A copy queue needs no position of any kind: it is whatever the mirrors still owe, in deterministic
+order.
 
 ### Quotas count per credential, clusters pace independently
 
