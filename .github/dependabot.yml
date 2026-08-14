@@ -97,7 +97,7 @@ updates:
   # security fixes, since alert-driven security updates only target the
   # default branch. The "fix" commit prefix makes semantic-release cut a
   # patch release on merge. Update target-branch when a new maintenance
-  # branch is cut (see website/README.md, "Add a new archived version").
+  # branch is cut (see CONTRIBUTING.md, "Cutting a maintenance branch").
   - package-ecosystem: "gomod"
     open-pull-requests-limit: 1
     directory: "/"
