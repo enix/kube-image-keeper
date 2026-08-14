@@ -355,11 +355,10 @@ native untagged GC (distribution, Harbor's "delete untagged") reclaims the space
 attempt a cross-cluster refcount.
 
 **Digest-pinned references are unaffected on the routing side.** A `@sha256:` reference is content
-addressed, so the mirror candidate keeps the digest verbatim and is identical on every cluster; only
-a tag kuik pushes to keep such a manifest out of the registry's GC carries the suffix (the keeper tag
-of [Digest-pinned images](#digest-pinned-images)). Note that this is what forces such a copy to be
-verbatim, hence `platforms.mode: All` semantics and full sharing between clusters whatever their node
-pools.
+addressed, so the mirror candidate keeps the digest verbatim and is identical on every cluster; the
+suffix is carried by the tags kuik pushes alongside it, the origin-derived one and the anchor of
+[Digest-pinned images](#the-anchor-tag). Note that this is what forces such a copy to be verbatim,
+hence `platforms.mode: All` semantics and full sharing between clusters whatever their node pools.
 
 **Upstream quotas are what clusters share involuntarily.** Every cluster paces its own reads of the
 source registries, so a pull credential used on several of them hands that account the sum of their
@@ -675,15 +674,36 @@ Two consequences on the mirror side:
   original does not apply
 
 `driftPolicy` and `ImageMonitor`'s `driftDetection` are tag concepts and ignore pinned references: a
-digest cannot drift, so such images are never counted in `drifted`.
+digest cannot drift, so such images are never counted in `drifted`. A pinned reference is a
+desired-state entry **keyed by its digest**, with a retention clock of its own, independent of what any
+tag points at.
 
-A copy made from a pinned reference would otherwise land **untagged** in the destination, where the
-registry's native untagged-manifest GC would eventually reclaim it out from under the pods routing to
-it. So the mirror pushes a **keeper tag** derived from the digest alongside it. That tag is never a
-routing reference (the pinned digest is), it exists only to make the manifest uncollectable, and it
-is what the mirror's [`cleanup`](#imagemirror) deletes when no pod references the image any more —
-which is also what makes it carry the `_<clusterID>` suffix in a shared destination
-([Multi-cluster](#multi-cluster-shared-destination-one-tag-per-cluster)).
+#### The anchor tag
+
+A copy is always tagged, a pinned reference included, and the tag comes from the origin exactly as for
+any other image: `registry.tld/mirror/docker.io/library/nginx:1.27_cluster-a@sha256:ab…` is a valid
+reference, the runtime resolves it by digest and treats the tag as informational. That tag is what makes
+the manifest reachable to a human and what the desired state expects, and the pod keeps pulling exactly
+the bytes it pinned.
+
+On top of it, a pinned reference gets an **anchor tag** derived from its digest,
+`sha256-<digest>_<clusterID>` (the cosign convention), pushed at copy time. It is never a routing
+reference — the pinned digest is — and it exists to keep that **digest** tagged whatever happens to the
+other tag:
+
+- `driftPolicy: Sync` repoints the origin-derived tag onto the upstream's new digest. Without an anchor,
+  the digest a pod is pinning right now becomes untagged, and the registry's untagged-manifest GC
+  reclaims it out from under that pod — kuik would not be deleting the safety net, the registry would,
+  silently
+- a reference pinned with no tag at all (`repo@sha256:D`) has nothing else to carry it
+
+Nothing about it is conditional — not on `driftPolicy`, not on history, not on what a tag currently
+points at — so the copy path has no state to consult and no ordering to get right. The mirror's
+[`cleanup`](#imagemirror) deletes an anchor when its digest leaves the desired state and its retention
+elapses, which is also what makes it carry the `_<clusterID>` suffix in a shared destination
+([Multi-cluster](#multi-cluster-shared-destination-one-tag-per-cluster)). The exact mapping from a
+reference to the tags pushed for it lives in
+[walkthrough A.6](./walkthroughs/02-imagemirror-reconciliation.md#a6-compute-the-destination-reference).
 
 ### What an `ImageMirror` copies
 
