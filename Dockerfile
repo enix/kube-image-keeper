@@ -38,7 +38,7 @@ RUN --mount=type=cache,target="/root/.cache/go-build" \
   go build -ldflags="$LD_FLAGS" -o manager cmd/main.go
 
 # For development/debug purposes, we can run the manager in an Alpine container in order to have access to a shell and other tools
-FROM alpine:3.22 AS alpine
+FROM alpine:3.24 AS alpine
 
 COPY --from=builder /workspace/manager /usr/local/bin/
 USER 65532:65532
