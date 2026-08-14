@@ -60,17 +60,19 @@ Three rules:
 - **Characters illegal in a repository path are normalized** deterministically: a port `:` becomes `_` (`localhost:5000/foo` → `localhost_5000/foo`), short forms are expanded (`nginx` → `docker.io/library/nginx`).
 - **The tag carries the cluster identity**, not the path: clusters sharing a registry write into the *same* repository and own only their own tags, which is what [multi-cluster](../spec.md#multi-cluster-shared-destination-one-tag-per-cluster) buys and specifies. The **128-character tag limit** and the deterministic truncation that keeps long CI-style tags within it are specified there as well — and that truncation is exactly why nothing may depend on reading a destination tag backwards.
 
-**Digest-pinned refs usually need no special tag.** Since copies are verbatim, the destination manifest has the *same digest* as the source. The rewritten ref is therefore simply `…/repo:v1.15.1_cluster-a@sha256:594cee…`: the `name:tag@digest` form is valid in the reference grammar and accepted by runtimes, which resolve by digest and treat the tag as informational. The **digest** guarantees exact content; the **tag** keeps the manifest tagged and out of reach of the registry's untagged-manifest GC.
+**A digest-pinned ref is tagged like any other, plus an anchor.** Since copies are verbatim, the destination manifest has the *same digest* as the source, so the rewritten ref is simply `…/repo:v1.15.1_cluster-a@sha256:594cee…`: the `name:tag@digest` form is valid in the reference grammar and accepted by runtimes, which resolve by digest and treat the tag as informational. The **digest** guarantees exact content; the **tag** is what the desired state expects and what makes the manifest reachable to a human reading the registry.
 
-That last part is the invariant to hold onto: **a referenced digest must always carry at least one of our tags** — otherwise the registry's untagged-manifest GC is free to reclaim it. The rule that guarantees it is unconditional, and depends only on *how the image is referenced in the cluster*:
+The invariant to hold onto is that **a referenced digest must always carry at least one of our tags**, otherwise the registry's untagged-manifest GC is free to reclaim it. The rule that guarantees it is unconditional and depends only on the form of the reference:
 
-| Reference in the cluster | Destination tag(s) pushed |
+| Reference | Destination tag(s) pushed |
 | --- | --- |
-| by tag (`repo:v1.15.1`) | the origin-derived tag (`v1.15.1_<clusterID>`) |
-| by digest (`repo:v1.15.1@sha256:D` or `repo@sha256:D`) | an **anchor tag** `sha256-<D>_<clusterID>`, pushed alongside the manifest at copy time |
-| both | both |
+| `repo:v1.15.1` | the origin-derived tag, `v1.15.1_<clusterID>` |
+| `repo:v1.15.1@sha256:D` | that same origin-derived tag **and** an **anchor tag** `sha256-D_<clusterID>` |
+| `repo@sha256:D` | the anchor tag alone, there being no upstream tag to derive one from |
 
-Nothing is conditional on history, on `driftPolicy`, or on what a tag currently points to — so there is no "check before acting" and no ordering constraint to get right. A ref pinned with no tag at all falls out of the same rule rather than being a special case. The cost is one extra tag per pinned image in use, which is also a convenience when inspecting the registry: an `sha256-…_cluster-a` tag shows at a glance which digest that cluster pins.
+An image referenced both ways by different pods is two entries of the desired state, so it gets the union of their tags.
+
+The anchor is what keeps the **digest** tagged independently of the other tag, and `driftPolicy: Sync` is the case that makes it indispensable: `Sync` repoints `v1.15.1_cluster-a` onto the upstream's new digest, and the digest a pod is pinning right now would be left untagged, collectable, with no action from kuik. Nothing about the rule is conditional on history, on `driftPolicy`, or on what a tag currently points to, so there is no "check before acting" and no ordering constraint to get right. The cost is one extra tag per pinned image in use, which doubles as a convenience when inspecting the registry: an `sha256-…_cluster-a` tag shows at a glance which digest that cluster pins.
 
 ### A.7 Queue the work and pace it
 
@@ -199,7 +201,7 @@ Because there is no way to ask the registry "what did I put here?", the sweep is
 2. **Filter to this cluster's tags** (`_<clusterID>` suffix). Tags belonging to other clusters are not ours to reason about, and must never be touched.
 3. **Diff forward against the desired state.** For each desired ref, compute the destination tag it should have; any of our tags outside that expected set enters `pendingDeletion` (C.1) if it is not listed there already, and is deleted once its `unusedSince` is older than `retention`.
 
-   The expected tags of an entry are computed exactly as at copy time (A.6): the origin-derived tag for a tag reference, the `sha256-<D>_<clusterID>` anchor for a digest reference, both when the image is referenced both ways. Since that mapping is unconditional, nothing has to be remembered about what was pushed earlier. When an entry leaves the desired state and its retention elapses, its tags leave the expected set together and are deleted, after which the manifest becomes untagged and normal registry GC applies (C.5).
+   The expected tags of an entry are computed exactly as at copy time (A.6): the origin-derived tag whenever the reference carries a tag, plus the `sha256-<D>_<clusterID>` anchor whenever it carries a digest. Since that mapping is unconditional, nothing has to be remembered about what was pushed earlier. When an entry leaves the desired state and its retention elapses, its tags leave the expected set together and are deleted, after which the manifest becomes untagged and normal registry GC applies (C.5).
 4. **Delete by tag** — using the OCI 1.1 tag-deletion API where the registry supports it. Never delete blindly by digest: deleting a manifest by digest removes *every* tag pointing at it, which on a shared repository would destroy other clusters' references, and even on a single cluster would take down `v1` when you meant `latest`.
 
 The repository grain is what makes this exact: listing a repository's tags re-enumerates everything, including refs whose last reference vanished while the controller was down. An inventory of individual refs would miss exactly those.
