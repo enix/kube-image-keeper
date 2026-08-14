@@ -78,3 +78,5 @@ To publish version `X.Y` (e.g. when cutting a release):
    ```
 
 4. `npm run build` (with the branch fetched locally) — the link validator checks every version's pages. To update a published version later, commit the doc fix to its maintenance branch and redeploy; no re-tagging needed.
+
+5. Point the maintenance-branch Dependabot entries at the new branch: in [`.github/dependabot.yml`](../.github/dependabot.yml) (on `main`), update the `target-branch` of the patch-only `gomod` and `docker` entries to `X.Y.x` (and drop entries for release lines that reached end of life).
