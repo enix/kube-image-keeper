@@ -67,3 +67,18 @@ The following rules apply:
 ### License
 
 kube-image-keeper is licensed under the [MIT License](./LICENSE). By contributing to this project, you agree to license your contributions under the same license.
+
+## Cutting a maintenance branch
+
+Each release line `X.Y` is maintained from a **maintenance branch `X.Y.x`**: semantic-release publishes maintenance releases from it (see the `branches` glob in [`.releaserc.json`](./.releaserc.json)), and it carries both the release-line code and its published documentation. When cutting a new line `X.Y`:
+
+1. Create the branch from the release tag and push it:
+
+   ```bash
+   git switch -c X.Y.x vX.Y.Z
+   git push -u origin X.Y.x
+   ```
+
+2. Retarget the maintenance-branch Dependabot entries: in [`.github/dependabot.yml`](./.github/dependabot.yml) (on `main`), update the `target-branch` of the patch-only `gomod` and `docker` entries to `X.Y.x`, and drop entries for release lines that reached end of life. These entries keep the release line's dependencies patched (security fixes almost always ship as patch releases), and their `fix` commit prefix makes semantic-release cut a patch release when they are merged.
+
+3. Publish the version's documentation on the website: see [Add a new archived version](./website/README.md#add-a-new-archived-version).

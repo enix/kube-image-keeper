@@ -60,13 +60,9 @@ results".
 
 To publish version `X.Y` (e.g. when cutting a release):
 
-1. Create the version's **maintenance branch `X.Y.x`** from the release tag (this is the same branch that semantic-release publishes maintenance releases from — see the `branches` glob in [`.releaserc.json`](../.releaserc.json)):
+1. Create the version's **maintenance branch `X.Y.x`** and retarget the Dependabot maintenance entries, as described in [Cutting a maintenance branch](../CONTRIBUTING.md#cutting-a-maintenance-branch).
 
-   ```bash
-   git switch -c X.Y.x vX.Y.Z
-   ```
-
-2. In that branch's `docs/`, add a **`version-config.json`** with the Starlight sidebar for the version (slugs relative to the version, e.g. `"configuration"`, not `"X.Y/…"`). Leave the markdown as plain GitHub docs — **no `slug:` frontmatter** (the build injects it). Fix any links the validator later rejects (repo-root links like `/docs/crds.md#x` become relative `../crds.md#x`), then commit and `git push -u origin X.Y.x`.
+2. In that branch's `docs/`, add a **`version-config.json`** with the Starlight sidebar for the version (slugs relative to the version, e.g. `"configuration"`, not `"X.Y/…"`). Leave the markdown as plain GitHub docs — **no `slug:` frontmatter** (the build injects it). Fix any links the validator later rejects (repo-root links like `/docs/crds.md#x` become relative `../crds.md#x`), then commit and push.
 
 3. Register the version in [`versions.mjs`](./versions.mjs):
 
@@ -78,5 +74,3 @@ To publish version `X.Y` (e.g. when cutting a release):
    ```
 
 4. `npm run build` (with the branch fetched locally) — the link validator checks every version's pages. To update a published version later, commit the doc fix to its maintenance branch and redeploy; no re-tagging needed.
-
-5. Point the maintenance-branch Dependabot entries at the new branch: in [`.github/dependabot.yml`](../.github/dependabot.yml) (on `main`), update the `target-branch` of the patch-only `gomod` and `docker` entries to `X.Y.x` (and drop entries for release lines that reached end of life).
