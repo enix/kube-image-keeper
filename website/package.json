@@ -12,8 +12,8 @@
     "astro": "astro"
   },
   "dependencies": {
-    "@astrojs/starlight": "^0.41.7",
-    "astro": "^6.3.1",
+    "@astrojs/starlight": "^0.40.0",
+    "astro": "^6.4.5",
     "astro-favicons": "^3.1.6",
     "sharp": "^0.35.3",
     "starlight-versions": "^0.9.1"
@@ -22,6 +22,6 @@
     "astro-rehype-relative-markdown-links": "^0.19.2",
     "chokidar": "^5.0.0",
     "remark-github-admonitions-to-directives": "^2.1.0",
-    "starlight-links-validator": "^0.25.2"
+    "starlight-links-validator": "^0.24.1"
   }
 }
