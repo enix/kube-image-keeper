@@ -24,6 +24,20 @@ import (
 
 type descriptorReader func(ref name.Reference, options ...remote.Option) (*v1.Descriptor, error)
 
+// retryStatusCodes overrides go-containerregistry's defaults, which retry 429
+// since v0.21.9. Rate limits must surface immediately as QuotaExceeded so the
+// monitoring scheduler backs off instead of spending more of the quota on
+// transport-level retries.
+var retryStatusCodes = []int{
+	http.StatusRequestTimeout,
+	http.StatusInternalServerError,
+	http.StatusBadGateway,
+	http.StatusServiceUnavailable,
+	http.StatusGatewayTimeout,
+	499, // nginx-specific, client closed request
+	522, // Cloudflare-specific, connection timeout
+}
+
 type Client struct {
 	insecureRegistries []string
 	rootCAs            *x509.CertPool
@@ -98,6 +112,7 @@ func (c *Client) Execute(ctx context.Context, imageName string, action func(ref 
 
 			opts := []remote.Option{
 				remote.WithAuthFromKeychain(keychain),
+				remote.WithRetryStatusCodes(retryStatusCodes...),
 				transportOption,
 				contextOption,
 			}
