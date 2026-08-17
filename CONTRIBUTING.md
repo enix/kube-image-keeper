@@ -2,6 +2,12 @@
 
 Thank you for considering contributing to kube-image-keeper! Before you start contributing, please read this guide to understand our contribution process.
 
+## Project status
+
+kube-image-keeper v2 has entered its **maintenance phase**: no new features will be added to v2, only bug fixes. Meanwhile, v3 is being specified; you can follow and join the discussion in the [v3 specification pull request](https://github.com/enix/kube-image-keeper/pull/629).
+
+Pull requests targeting v2 must be opened against the `2.3.x` branch.
+
 ## Getting started
 
 ### Run kuik locally
