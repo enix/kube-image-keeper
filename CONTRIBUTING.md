@@ -35,6 +35,7 @@ We welcome contributions through pull requests. For your pull request to be acce
 - Pass all tests (run `make test` locally before pushing).
 - Include tests covering any new behavior or bug fix.
 - Follow the [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/#summary) specification (enforced on every pull request).
+- Contain no merge commits. To bring your branch up to date with `main`, rebase it (`git rebase origin/main`) instead of merging `main` into it: merge commits break the commit message linting and clutter the history once the pull request is merged.
 
 ### Commit scopes
 
