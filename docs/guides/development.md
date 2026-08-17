@@ -5,6 +5,12 @@ sidebar:
 
 # Development
 
+<!-- CONTRIBUTING.md is not published on the website, so a relative link would break there. -->
+<!-- markdownlint-disable search-replace -->
+> [!IMPORTANT]
+> Before anything else, please read the [contributing guide](https://github.com/enix/kube-image-keeper/blob/main/CONTRIBUTING.md): it covers the project status, the contribution process and the requirements for pull requests to be accepted.
+<!-- markdownlint-enable search-replace -->
+
 kuik uses [cert-manager](https://cert-manager.io/docs/installation/) to issue and configure its webhook certificate, so you need it installed on your cluster first.
 
 ```bash
