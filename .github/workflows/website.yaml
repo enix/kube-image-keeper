@@ -31,6 +31,12 @@ concurrency:
 
 jobs:
   build:
+    # The site always builds from main's website/ directory, which does not
+    # exist on maintenance branches (X.Y.x). A pull request targeting a
+    # maintenance branch therefore has nothing meaningful to validate here
+    # (and the build would fail on the missing directory), so only validate
+    # pushes and pull requests targeting main.
+    if: github.event_name == 'push' || github.base_ref == 'main'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
