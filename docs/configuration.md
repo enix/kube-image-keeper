@@ -29,6 +29,7 @@ skipAnnotations: []
 routing:
   activeCheck:
     timeout: 1s
+    resolveDigest: false
     staleMirrorCleanup:
       maxConcurrent: 10
       timeout: 5s
@@ -45,6 +46,7 @@ monitoring:
       method: HEAD
       interval: 3h
       maxPerInterval: 25
+      resolveDigest: false
       # timeout: 0          (no per-check timeout)
       # fallbackCredentialSecret:
       #   namespace: ...
@@ -165,7 +167,7 @@ Controls the rate at which `ClusterImageSetAvailability` checks reach upstream r
 | --- | --- | --- | --- |
 | `method` | string | `HEAD` | HTTP method for the availability probe. `HEAD` or `GET`. |
 | `interval` | duration | `3h` | Time window over which `maxPerInterval` checks are spread for that registry. |
-| `maxPerInterval` | int | `25` | Maximum number of image checks per `interval` for the registry. When `resolveDigest` is enabled, each check makes two requests. |
+| `maxPerInterval` | int | `25` | Maximum number of image checks per `interval` for the registry. When `resolveDigest` is enabled, each tag-reference check makes two requests (digest references still make one). |
 | `timeout` | duration | `0` (no timeout) | Deadline per individual check. |
 | `resolveDigest` | bool | unset (disabled) | Same digest check as `routing.activeCheck.resolveDigest`, applied to monitoring probes. An `items` entry leaving it unset inherits the `default` value; setting it to `false` opts that registry out. See [Stale tag caches on pull-through proxies](./guides/troubleshooting.md#stale-tag-caches-on-pull-through-proxies). |
 | `fallbackCredentialSecret` | object | unset | Reference (`name`, `namespace`) to a `kubernetes.io/dockerconfigjson` Secret used when no Pod-level pull secret is available for the image. |
