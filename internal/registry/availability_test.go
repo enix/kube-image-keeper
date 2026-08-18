@@ -20,11 +20,12 @@ import (
 type digestResponseMode int
 
 const (
-	digestResponseNormal           digestResponseMode = iota // pass through to the real registry
-	digestResponseNotFound                                   // 404 — stale tag cache / blocked by policy
-	digestResponseRateLimit                                  // 429 with RateLimit-Remaining: 0 header
-	digestResponseUnauthorized                               // 401 — fine-grained auth on digest path
-	digestResponseMethodNotAllowed                           // 405 — proxy supports tags but not digest lookup
+	digestResponseNormal             digestResponseMode = iota // pass through to the real registry
+	digestResponseNotFound                                     // 404 — stale tag cache / blocked by policy
+	digestResponseRateLimit                                    // 429 with RateLimit-Remaining: 0 header
+	digestResponseUnauthorized                                 // 401 — fine-grained auth on digest path
+	digestResponseMethodNotAllowed                             // 405 — proxy supports tags but not digest lookup
+	digestResponseRateLimitNoHeaders                           // 429 without RateLimit-* headers
 )
 
 // brokenDigestRegistry wraps an in-memory registry and can intercept manifest-by-digest
@@ -57,6 +58,9 @@ func (b *brokenDigestRegistry) ServeHTTP(w http.ResponseWriter, r *http.Request)
 				return
 			case digestResponseMethodNotAllowed:
 				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			case digestResponseRateLimitNoHeaders:
+				w.WriteHeader(http.StatusTooManyRequests)
 				return
 			}
 		}
@@ -175,12 +179,32 @@ func TestCheckImageAvailabilityResolveDigest(t *testing.T) {
 			wantReads:     2,
 		},
 		{
-			name:          "digest method not allowed returns Available",
+			name:          "digest method not allowed over HEAD returns Available",
 			reference:     tagReference,
 			method:        http.MethodHead,
 			digestMode:    digestResponseMethodNotAllowed,
 			resolveDigest: true,
 			want:          kuikv1alpha1.ImageAvailabilityAvailable,
+			wantReads:     2,
+		},
+		{
+			name:          "digest method not allowed over GET is not pullable",
+			reference:     tagReference,
+			method:        http.MethodGet,
+			digestMode:    digestResponseMethodNotAllowed,
+			resolveDigest: true,
+			want:          kuikv1alpha1.ImageAvailabilityUnreachable,
+			wantErr:       "registry unreachable",
+			wantReads:     2,
+		},
+		{
+			name:          "headerless rate limit on digest path returns QuotaExceeded",
+			reference:     tagReference,
+			method:        http.MethodHead,
+			digestMode:    digestResponseRateLimitNoHeaders,
+			resolveDigest: true,
+			want:          kuikv1alpha1.ImageAvailabilityQuotaExceeded,
+			wantErr:       "rate limit exceeded",
 			wantReads:     2,
 		},
 	}
