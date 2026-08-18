@@ -11,10 +11,10 @@ By default, the availability check does what a plain `docker pull` of a tag star
 
 In both cases the tag request returns `200`, kuik marks the image `Available`, and the pull fails anyway. Setting `resolveDigest: true` makes kuik follow the same two-step path as the runtime. A `404` on the digest request is reported as `NotFound` with a `tag/digest inconsistency` message, which triggers the usual fallback to the next alternative and the re-mirror path.
 
-The check is opt-in because it **doubles the number of registry requests** for every checked tag. Two things must be kept in mind when enabling it:
+The check is opt-in because it **doubles the number of registry requests** for every checked tag reference (references already pinned to a digest still cost a single request). Two things must be kept in mind when enabling it:
 
-- **`routing.activeCheck.timeout`** — the timeout applies to each request individually, so a check can take up to `2 × timeout` of wall time before the webhook falls back to the next alternative. Lower it if admission latency matters more than probe reliability.
-- **`monitoring.registries.*.maxPerInterval`** — this counts *images checked*, not requests sent. With `resolveDigest`, each image costs two requests, so halve the value on rate-constrained registries (Docker Hub anonymous pulls, for example) to keep the same request budget.
+- **`routing.activeCheck.timeout`** — the timeout applies to each request individually, so a tag check can take up to `2 × timeout` of wall time before the webhook falls back to the next alternative. Lower it if admission latency matters more than probe reliability.
+- **`monitoring.registries.*.maxPerInterval`** — this counts *images checked*, not requests sent. With `resolveDigest`, each tag-referenced image costs two requests, so halve the value on rate-constrained registries (Docker Hub anonymous pulls, for example) to keep the same request budget.
 
 ```yaml
 routing:
@@ -27,13 +27,13 @@ monitoring:
       docker.io:
         resolveDigest: true
         interval: 1h
-        maxPerInterval: 3 # halved from 6, each check now costs two requests
+        maxPerInterval: 3 # halved from 6, each tag check now costs two requests
 ```
 
 `routing.activeCheck.resolveDigest` (webhook) and `monitoring.registries.*.resolveDigest` (`ClusterImageSetAvailability` probes) are independent, enable whichever surface you need. The per-registry value is a three-state boolean: unset inherits `monitoring.registries.default`, `false` opts a single registry out of an enabled default.
 
 > [!NOTE]
-> Registries that answer `405` or `501` to a manifest-by-digest request are treated as available. They support tag lookup but not the digest path for that HTTP method, and serve the image fine to container runtimes.
+> Registries that answer `405` or `501` to a **HEAD** manifest-by-digest request are treated as available: HEAD support on the digest path is optional for proxies, and they still serve the image fine to container runtimes. The same answer to a **GET** probe is reported as unreachable, since runtimes pull with GET.
 
 ## Duplicated credential secrets (`kuik-kuik-...`)
 
