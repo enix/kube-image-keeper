@@ -40,7 +40,7 @@
       "name": "release"
     },
     {
-      "name": "2.3.0-rc",
+      "name": "2.3.1-rc",
       "prerelease": "rc"
     }
   ]
