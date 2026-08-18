@@ -98,9 +98,14 @@ func checkDigestPath(ctx context.Context, client *Client, method string, referen
 		case http.StatusNotFound:
 			return kuikv1alpha1.ImageAvailabilityNotFound, fmt.Errorf("tag/digest inconsistency: %q resolves to digest %s but the registry does not serve that manifest: %w", reference, desc.Digest.String(), err)
 		case http.StatusMethodNotAllowed, http.StatusNotImplemented:
-			// The registry supports tag lookup but not manifest-by-digest for this
-			// HTTP method; the tag check already passed so the image is pullable.
-			return kuikv1alpha1.ImageAvailabilityAvailable, nil
+			// Some proxies support tag lookup but not manifest-by-digest over
+			// HEAD, while still serving GET-by-digest fine to container runtimes
+			// (HEAD support is optional in the distribution spec). Only give the
+			// benefit of the doubt to HEAD probes: runtimes pull with GET, so a
+			// registry rejecting GET-by-digest cannot serve the image.
+			if method == http.MethodHead {
+				return kuikv1alpha1.ImageAvailabilityAvailable, nil
+			}
 		}
 		return availabilityFromError(err)
 	}
@@ -112,6 +117,11 @@ func checkDigestPath(ctx context.Context, client *Client, method string, referen
 // status, wrapping the underlying cause.
 func availabilityFromError(err error) (kuikv1alpha1.ImageAvailabilityStatus, error) {
 	switch TransportStatusCode(err) {
+	case http.StatusTooManyRequests:
+		// Some registries send 429 without RateLimit-* headers, so IsRateLimited
+		// does not catch them; the status code alone must map to QuotaExceeded
+		// for the monitoring scheduler to apply its back-off.
+		return kuikv1alpha1.ImageAvailabilityQuotaExceeded, fmt.Errorf("rate limit exceeded: %w", err)
 	case http.StatusNotFound:
 		return kuikv1alpha1.ImageAvailabilityNotFound, fmt.Errorf("image not found: %w", err)
 	case http.StatusUnauthorized, http.StatusForbidden:
