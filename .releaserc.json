@@ -31,16 +31,11 @@
     ]
   ],
   "branches": [
-    "+([0-9])?(.{+([0-9]),x}).x",
     {
-      "name": "main",
-      "prerelease": "beta"
+      "name": "2.3.x-stable"
     },
     {
-      "name": "release"
-    },
-    {
-      "name": "2.3.0-rc",
+      "name": "2.3.x-rc",
       "prerelease": "rc"
     }
   ]
