@@ -56,6 +56,21 @@ jobs:
             print("Nothing should be published, skipping...")
             sys.exit(1)
 
+      # Maintenance-line branches (X.Y.x-stable, X.Y.x-rc) are regular release
+      # branches for semantic-release, so nothing caps their computed version
+      # natively; a stray feat or breaking-change commit on the line would
+      # otherwise escape it (e.g. publish a 2.4.0 from the 2.3 line).
+      - name: Enforce the maintenance line version range
+        if: contains(github.ref_name, '.x-')
+        env:
+          NEXT_VERSION: ${{ steps.dry-run.outputs.new_release_version }}
+        run: |
+          line="${GITHUB_REF_NAME%.x-*}"
+          if [[ "${NEXT_VERSION}" != "${line}."* ]]; then
+            echo "::error::Version ${NEXT_VERSION} escapes the ${line}.x maintenance line; check for feat or breaking-change commits on the branch."
+            exit 1
+          fi
+
   lint:
     name: Lint
     uses: ./.github/workflows/lint.yaml
