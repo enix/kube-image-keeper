@@ -22,8 +22,11 @@ manager:
   podSecurityContext: {}
   # -- Security context for containers of the manager pod
   securityContext: {}
-  # -- Node selector for the manager pod
-  nodeSelector: {}
+  # -- Node selector for the manager pod. Defaults to Linux nodes only, as the
+  # manager is shipped as a Linux-only image and must not be scheduled on Windows
+  # nodes of hybrid clusters.
+  nodeSelector:
+    kubernetes.io/os: linux
   # -- Toleration for the manager pod
   tolerations: []
   # -- Deployment strategy for the manager pod

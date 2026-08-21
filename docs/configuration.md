@@ -138,6 +138,8 @@ Each entry supports the following fields:
 
 The list must contain at least one entry with a non-empty `architecture`; the operator refuses to start otherwise.
 
+An empty `os` also means Windows manifests are mirrored by default; see [hybrid Linux/Windows clusters](./installation.md#hybrid-linuxwindows-clusters) before narrowing this list.
+
 > [!WARNING]
 > Changing this list after images have been mirrored does not re-mirror or delete previously copied manifests; the new platform set only applies to subsequent mirror operations.
 
