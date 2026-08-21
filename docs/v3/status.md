@@ -65,13 +65,9 @@ status:
     unusedSince: "2026-07-10T02:00:00Z"
   - ref: registry.tld/mirror/quay.io/acme/tool:1.3_cluster-a
     unusedSince: "2026-07-11T09:30:00Z"
-  selfCheck:
-    # last checked repository, so the ring resumes at the same position on controller restart
-    cursor: registry.tld/mirror/quay.io/thanos/thanos
-    # datetime of last cycle start (new ring iteration)
-    cycleStarted: "2026-07-10T06:00:00Z"
-    # repositories * interval: how often each repository of the destination comes back
-    cycleDuration: 40m           # 4 repositories, this host's check `interval: 10m`
+  # The destination is written by KuiK and carries no quota to spare, so its self-check runs
+  # unpaced on every reconcile: no cursor and no cycle to persist (see walkthrough 02, B.3)
+  selfChecked: "2026-07-10T06:12:00Z"   # end of the last full comparison against the destination
   # Persist the list of repositories tracked by this CR as it cannot be recomputed if controller restart,
   # it's written before first push and removed when no tag tracked by this CR remains *for this cluster*:
   # when several clusters share a destination each one keeps its own local view, and the GC only ever
@@ -130,22 +126,26 @@ status:
     runningDigest: sha256:aaaa…
     upstreamDigest: sha256:bbbb…
     referencedBy: 7
-  # Health of the check schedule: one image checked per `interval` window, per registry
-  # (see "Scheduling" in spec.md)
+  # Health of the check schedule: one image checked per `interval` window of a registry, taken from
+  # this resource's own ring of that registry (see "Scheduling" in spec.md)
   checks:
     registries:
     - registry: docker.io
-      # last checked image, so the ring resumes at the same position on controller restart
+      # last checked image, so the ring resumes at its successor on controller restart
       cursor: docker.io/library/nginx
-      # datetime of last cycle start (new ring iteration)
+      # datetime of the current lap start (cursor back to where it started)
       cycleStarted: "2026-07-10T04:00:00Z"
-      # tracked * interval: how often each image of this registry comes back
+      # measured duration of the last completed lap: how often each image of this registry comes
+      # back, and the freshness this CR guarantees. Absent until a first lap completes. Not derived
+      # from `tracked * interval`, as every ring of a registry shares its windows
       # a value too high is a signal to lower the registry `interval`
-      cycleDuration: 1426h40m              # 2140 images, docker.io `interval: 40m`
+      cycleDuration: 1426h40m              # 2140 images, docker.io `interval: 40m`, sole consumer
     - registry: quay.io
       cursor: quay.io/thanos/thanos
       cycleStarted: "2026-07-10T03:20:00Z"
-      cycleDuration: 183h30m               # 1101 images, quay.io `interval: 10m`
+      # measured well above the 183h30m this ring would lap in alone: another ImageMonitor tracks
+      # images of quay.io and takes some of its windows
+      cycleDuration: 240h                  # 1101 images, quay.io `interval: 10m`
   conditions:
   - {type: AllImagesAvailable, status: "False"}        # a tracked image is unavailable
   - {type: AllAlternativesAvailable, status: "False"}  # an alternative of tracked image is unavailable
