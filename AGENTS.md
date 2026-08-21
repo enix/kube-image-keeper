@@ -131,6 +131,16 @@ Any code change that adds, modifies, or removes behaviour must be accompanied by
 - **Tests** — update or add unit/E2E tests covering the affected behaviour
 - **Documentation** — update the relevant page under `docs/` and, if applicable, Helm chart values docs or README / AGENTS.md sections. The documentation site (published at [kuik.enix.io](https://kuik.enix.io)) auto-deploys from `main` via [`.github/workflows/website.yaml`](./.github/workflows/website.yaml).
 
+## v3 Decision Log
+
+All v3 design and process decisions are recorded in [`notes/`](./notes/), the engineering journal for the v3 effort (internal working documents, deliberately outside `docs/` so they are never published to the website). The goal is that anyone — humans and agents alike — can retrace how we got here and that team decisions are made against written context instead of memory. Non-negotiable rules:
+
+- **Every decision gets a note, at the moment it is made.** Whenever a v3 decision is taken in a conversation, a review, or while coding — architecture, API shape, package layout, spec interpretation, tooling, process — write it down in `notes/` **in the same session**, before or alongside the change that implements it. This includes decisions that end in "do nothing" or "defer": rejected options are part of the history.
+- **Follow the conventions of [`notes/README.md`](./notes/README.md)**: one topic per numbered file (`NNNN-short-slug.md`, next number = highest + 1), H1 title, `**Date:** / **Status:**` line, decision stated up front, then context and the alternatives that were rejected and why. Add every new note to the README index.
+- **Decisions are append-only.** A decision is changed by a new note that supersedes the old one (`Status: superseded by NNNN`), never by rewriting the original. Evolving analyses (`draft` / `active` notes) may be updated in place.
+- **Link, don't re-explain.** Commits and PRs that implement a decision reference its note; notes reference the spec ([PR #629](https://github.com/enix/kube-image-keeper/pull/629)), issues, and each other with relative links.
+- **When in doubt, write the note.** An unrecorded decision is the failure mode this log exists to prevent; a note that later proves redundant costs nothing.
+
 ## Git Hooks
 
 Lefthook runs `make manifests generate lint-fix` and `markdownlint-cli2` (the latter skipped unless Node.js ≥ 20 is available) on pre-commit, and `make test` on pre-push; conventional commits are enforced. See [`CONTRIBUTING.md`](./CONTRIBUTING.md).
