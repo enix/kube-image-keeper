@@ -1,0 +1,30 @@
+############
+# v2       #
+############
+apiVersion: kuik.enix.io/v1alpha1
+kind: ClusterImageSetAvailability
+metadata:
+  name: all
+spec:
+  imageFilter:
+    exclude:
+      - registry.example.com/mirror/.+
+    include:
+      - .+
+  unusedImageExpiry: 168h
+---
+############
+# v3       #
+############
+apiVersion: kuik.enix.io/v1alpha1
+kind: ImageMonitor
+metadata:
+  name: all
+spec:
+  # v3 excludes workloads rather than images: instead of the v2 imageFilter excluding
+  # `registry.example.com/mirror/.+`, pods opt out of monitoring with a label
+  podSelector:
+    matchExpressions:
+      - key: kuik-monitor-ignore
+        operator: DoesNotExist
+  unusedImageExpiry: 168h

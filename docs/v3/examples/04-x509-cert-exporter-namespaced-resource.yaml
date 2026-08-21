@@ -1,0 +1,46 @@
+############
+# v2       #
+############
+apiVersion: kuik.enix.io/v1alpha1
+kind: ReplicatedImageSet
+metadata:
+  name: x509-certificate-exporter
+  namespace: monitoring
+spec:
+  upstreams:
+    - imageFilter:
+        include:
+          - /enix/x509-certificate-exporter:.+
+      path: /enix/
+      priority: 10
+      registry: quay.io
+    - imageFilter:
+        include:
+          - /enix/x509-certificate-exporter:.+
+      path: /enix/
+      priority: 20
+      registry: ghcr.io
+    - imageFilter:
+        include:
+          - /enix/x509-certificate-exporter:.+
+      path: /enix/
+      priority: 30
+      registry: docker.io
+---
+############
+# v3       #
+############
+apiVersion: kuik.enix.io/v1alpha1
+kind: ImageAlternative
+metadata:
+  name: x509-certificate-exporter
+spec:
+  # v3 CRDs are cluster-scoped only, the v2 `metadata.namespace` scoping is expressed with
+  # a namespaceSelector
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: monitoring
+  alternatives:
+    - imagePrefix: quay.io/enix/x509-certificate-exporter
+    - imagePrefix: ghcr.io/enix/x509-certificate-exporter
+    - imagePrefix: docker.io/enix/x509-certificate-exporter

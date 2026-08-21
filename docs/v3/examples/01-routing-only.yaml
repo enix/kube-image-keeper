@@ -1,0 +1,40 @@
+############
+# v2       #
+############
+apiVersion: kuik.enix.io/v1alpha1
+kind: ClusterReplicatedImageSet
+metadata:
+  name: docker-library
+spec:
+  upstreams:
+    - imageFilter:
+        include:
+          - /docker/library/.+
+      path: /docker/library/
+      priority: 10
+      registry: public.ecr.aws
+    - imageFilter:
+        include:
+          - /library/[^/]+
+      path: /library/
+      priority: 20
+      registry: mirror.gcr.io
+    - imageFilter:
+        include:
+          - /library/[^/]+
+      path: /library/
+      priority: 30
+      registry: docker.io
+---
+############
+# v3       #
+############
+apiVersion: kuik.enix.io/v1alpha1
+kind: ImageAlternative
+metadata:
+  name: docker-library
+spec:
+  alternatives:
+    - imagePrefix: public.ecr.aws/docker/library/
+    - imagePrefix: mirror.gcr.io/library/
+    - imagePrefix: docker.io/library/

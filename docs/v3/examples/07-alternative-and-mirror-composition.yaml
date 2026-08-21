@@ -1,0 +1,113 @@
+# Not a migration example: both sides are example 01 and example 05 installed together, a
+# realistic combination (upstream alternatives for Docker Hub library images, plus a catch-all
+# mirror). A pod with `image: nginx:1.27` matches both resources, which is the case behind
+# "Candidate ordering" in spec.md.
+
+############
+# v2       #
+############
+apiVersion: kuik.enix.io/v1alpha1
+kind: ClusterReplicatedImageSet
+metadata:
+  name: docker-library
+spec:
+  upstreams:
+    - imageFilter:
+        include:
+          - /docker/library/.+
+      path: /docker/library/
+      priority: 10
+      registry: public.ecr.aws
+    - imageFilter:
+        include:
+          - /library/[^/]+
+      path: /library/
+      priority: 20
+      registry: mirror.gcr.io
+    - imageFilter:
+        include:
+          - /library/[^/]+
+      path: /library/
+      priority: 30
+      registry: docker.io
+---
+apiVersion: kuik.enix.io/v1alpha1
+kind: ClusterImageSetMirror
+metadata:
+  name: registry-global
+spec:
+  cleanup:
+    enabled: true
+    retention: 168h
+  imageFilter:
+    exclude:
+      - .+/cloudnative-pg/(postgresql|cloudnative-pg):.+
+    include:
+      - .*
+  mirrors:
+    - credentialSecret:
+        name: registry-global
+        namespace: kuik-system
+      path: /mirror
+      registry: registry.example.com
+  priority: -10
+#
+# v2 candidate order, from the two level priority system:
+#
+#   1. registry.example.com/mirror/docker/library/nginx:1.27   (CISM, priority -10)
+#   2. registry.example.com/mirror/library/nginx:1.27          (CISM, priority -10)
+#   3. docker.io/library/nginx:1.27                            (original, priority 0)
+#   4. public.ecr.aws/docker/library/nginx:1.27                (CRIS, priority 0, upstream 10)
+#   5. mirror.gcr.io/library/nginx:1.27                        (CRIS, priority 0, upstream 20)
+#
+# Entries 1 and 2 both exist because a CISM is a transform over the candidate set, applied to every
+# alternative already collected; the Docker Hub upstream at priority 30 disappears, deduplicated
+# against the original at entry 3.
+---
+############
+# v3       #
+############
+apiVersion: kuik.enix.io/v1alpha1
+kind: ImageAlternative
+metadata:
+  name: docker-library
+spec:
+  alternatives:
+    - imagePrefix: public.ecr.aws/docker/library/
+    - imagePrefix: mirror.gcr.io/library/
+    - imagePrefix: docker.io/library/
+---
+apiVersion: kuik.enix.io/v1alpha1
+kind: ImageMirror
+metadata:
+  name: registry-global
+spec:
+  rewritePolicy: Always
+  podSelector:
+    matchExpressions:
+      - key: cnpg.io/cluster
+        operator: DoesNotExist
+  destination:
+    path: registry.example.com/mirror/
+    push:
+      auth:
+        secretRef:
+          name: registry-global
+    pull:
+      auth:
+        secretRef:
+          name: registry-pull-creds
+  cleanup:
+    enabled: true
+    retention: 168h
+#
+# v3 candidate order, per spec.md: the mirror says `Always` so it leads, the ImageAlternative
+# defaults to `OnFailure` so its entries follow the original.
+#
+#   1. registry.example.com/mirror/docker.io/library/nginx:1.27
+#   2. docker.io/library/nginx:1.27
+#   3. public.ecr.aws/docker/library/nginx:1.27
+#   4. mirror.gcr.io/library/nginx:1.27
+#
+# Four candidates where v2 produced five: a mirror is one candidate built from the original
+# reference, not a transform over every alternative, so v2's entry 2 has no v3 equivalent.

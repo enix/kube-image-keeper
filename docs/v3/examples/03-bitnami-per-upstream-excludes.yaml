@@ -1,0 +1,51 @@
+############
+# v2       #
+############
+apiVersion: kuik.enix.io/v1alpha1
+kind: ClusterReplicatedImageSet
+metadata:
+  name: bitnami
+spec:
+  upstreams:
+    - registry: docker.io
+      priority: 9999 # no longer available
+      imageFilter:
+        include:
+          - "/bitnami/.+"
+      path: "/bitnami/"
+    - registry: docker.io
+      priority: 20
+      imageFilter:
+        include:
+          - "/bitnamilegacy/.+"
+        exclude:
+          - "/bitnamilegacy/sealed-secrets.*:.+"
+          - "/bitnamilegacy/charts-syncer:.+"
+          - "/bitnamilegacy/minideb:.+"
+      path: "/bitnamilegacy/"
+    - registry: public.ecr.aws
+      priority: 9999 # no longer available
+      imageFilter:
+        include:
+          - "/bitnami/.+"
+      path: "/bitnami/"
+---
+############
+# v3       #
+############
+apiVersion: kuik.enix.io/v1alpha1
+kind: ImageAlternative
+metadata:
+  name: bitnami
+spec:
+  alternatives:
+    - imagePrefix: docker.io/bitnamilegacy/
+    - imagePrefix: docker.io/bitnami/
+      unavailable: true
+    - imagePrefix: public.ecr.aws/bitnami/
+      unavailable: true
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: NotIn
+        values: ["sealed-secrets"]
