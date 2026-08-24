@@ -20,9 +20,9 @@ require (
 	go.uber.org/zap v1.27.1
 	go4.org v0.0.0-20260112195520-a5071408f32f
 	golang.org/x/time v0.15.0
-	k8s.io/api v0.35.7
-	k8s.io/apimachinery v0.35.7
-	k8s.io/client-go v0.35.7
+	k8s.io/api v0.35.8
+	k8s.io/apimachinery v0.35.8
+	k8s.io/client-go v0.35.8
 	k8s.io/klog/v2 v2.140.0
 	sigs.k8s.io/controller-runtime v0.23.3
 )
