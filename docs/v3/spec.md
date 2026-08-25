@@ -194,14 +194,14 @@ spec:
   #   Sync: Periodically check if tag digest is still the same and resync image in destination if different
   driftPolicy: Ignore          # Ignore (default) | Warn | Sync
 
-  # Multi-arch support
-  #   Auto: Copy images for arch retrieved from node labels
-  #   All: Copy all arch referenced for an image
-  #   List: Explicit list of arch we need to copy images
-  # Ignored (treated as `All`) for digest-pinned images, see "Digest-pinned images"
-  platforms:
-    mode: Auto                 # Auto (default) | All | List
-    #list: []                  # Only used with `mode: List`
+  # v3.0 always copies every platform of a multi-platform image (the complete manifest index),
+  # with no way to select a subset. Per-platform selection is deferred to a later version:
+  #
+  # platforms:
+  #   mode: Auto                 # Auto (default): copy platforms retrieved from node labels
+  #                              # All: copy every platform referenced for an image
+  #                              # List: explicit list of platforms to copy
+  #   #list: []                  # Only used with `mode: List`
 ```
 
 ### Excluding images from a mirror
@@ -309,21 +309,19 @@ Two properties follow, and together they are the point of the design:
 Both tags point at the **same manifest**, and there is deliberately no shared canonical tag, so nobody
 has to own or repair one.
 
-Which digest is checked follows `platforms.mode`, and it is worth being explicit because it decides
-how much is actually shared:
+v3.0 copies every platform of a multi-platform image whole (see the note in
+[ImageMirror](#imagemirror)), so the pushed manifest is always the upstream's own index, verbatim,
+and its digest is known **before** anything is transferred — it is the digest already published
+upstream, not one kuik computes. The copy is therefore always shared between clusters, whatever
+their node pools.
 
-| `platforms.mode` | Manifest digest | Shared between clusters |
-| ---------------- | --------------- | ----------------------- |
-| `All` | upstream's, the copy is verbatim | always |
-| `Auto` / `List` | the filtered index is rewritten, so a new digest | only between clusters with the same platform set |
+Blobs and per-platform child manifests are shared in every case, so the second cluster's `HEAD`
+finds the manifest already at the target repository, and its own tag costs one `PUT` of a few
+kilobytes, never a re-transfer.
 
-In both cases the digest is known **before** anything is transferred: it is either read from the
-upstream index or computed from the descriptors it contains, all of which are manifest sized reads.
-
-Blobs and per-platform child manifests are shared in every case, so the worst case for two clusters
-with different node pools is one extra index push (a few kilobytes), never a re-transfer. This is
-also why a shared canonical tag could not work: with `platforms.mode: Auto`, A's index legitimately
-lacks the `arm64` B needs, and one tag cannot hold both.
+When we'll implement per-platform selection in future, this will change a bit: a filtered index
+has a digest of its own, so two clusters with different node pools could end up pushing different
+indices under the same repository.
 
 **Each cluster owns its tags and nothing else.** Creating, verifying and deleting are all restricted to
 the tags carrying its own suffix: the self-check re-`PUT`s one of its tags that went missing, with no
@@ -346,8 +344,7 @@ kuik does not attempt a cross-cluster refcount.
 **Digest-pinned references are unaffected on the routing side.** A `@sha256:` reference is content
 addressed, so the mirror candidate keeps the digest verbatim and is identical on every cluster; the
 suffix is carried by the tags kuik pushes alongside it, the origin-derived one and the anchor of
-[Digest-pinned images](#the-anchor-tag). Note that this is what forces such a copy to be verbatim,
-hence `platforms.mode: All` semantics and full sharing between clusters whatever their node pools.
+[Digest-pinned images](#the-anchor-tag).
 
 **Upstream quotas are what clusters share involuntarily.** Every cluster paces its own reads of the
 source registries, so whatever the registry uses to identify the caller (a shared credential, or a
@@ -662,10 +659,10 @@ content.
 
 Two consequences on the mirror side:
 
-- a digest-pinned image is copied as the **complete manifest index**, whatever `platforms.mode` says.
-  `Auto` and `List` rebuild a filtered index, and a filtered index has a different digest, so the
-  copy would be unreachable by the very reference the pod declared. Platform selection and digest
-  pinning are mutually exclusive on a given image, and pinning wins
+- a digest-pinned image is copied as the **complete manifest index**. This will remain when we'll
+  implement per-platform selection as a filtered index has a digest of its own, so the copy would
+  be unreachable by the very reference the pod declared. Platform selection and digest pinning will
+  be mutually exclusive on a given image, and pinning wins
 - when the original is unreachable and the controller sources the bytes from an `ImageAlternative`
   entry instead ([What an `ImageMirror` copies](#what-an-imagemirror-copies)), a digest-pinned image
   is the one case where "equivalent" is *verified* rather than asserted: fetching by digest either

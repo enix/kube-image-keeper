@@ -47,7 +47,10 @@ status:
     retained: 2                # tags pending deletion (if cleanup.retention > 0), origin-less ones
                                # among them are held then deleted, never copied again
     drifted: 0                 # with driftPolicy=Sync - image tag with new digest that will be resynced
-    platformsMissing: 8        # copied but image miss a platform (multi-arch)
+    # platformsMissing: 8      # Meaningless in v3.0: every platform of a multi-platform image is
+                                # always copied (see the note on `platforms` in ImageMirror). Comes
+                                # back once per-platform selection ships, to report a copy that
+                                # missed a platform it should have had
     missingSource: 1           # no source available to copy image to destination (if not already copied)
   failedImagesCopy:
   - ref: quay.io/acme/tool:1.4
