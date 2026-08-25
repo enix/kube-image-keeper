@@ -13,13 +13,13 @@ metadata:
   name: docker-library
 spec:
   alternatives:
-    - imagePrefix: public.ecr.aws/docker/library/
-    - imagePrefix: mirror.gcr.io/library/
-    - imagePrefix: docker.io/library/
+    - repositoryGroup: public.ecr.aws/docker/library
+    - repositoryGroup: mirror.gcr.io/library
+    - repositoryGroup: docker.io/library
 ```
 
 Everything here is a default: no `podSelector` and no `namespaceSelector` (it applies to every pod in
-the cluster), no `rewritePolicy` (so `OnFailure`), three entries in subpath form, three public
+the cluster), no `rewritePolicy` (so `OnFailure`), three entries in `repositoryGroup` form, three public
 registries. Nothing is ever copied to a registry: this is pure routing, the v3 equivalent of a v2
 `ClusterReplicatedImageSet`. The pod is created with `image: nginx:1.27`.
 
@@ -29,12 +29,13 @@ The relevant [global config](../spec.md#global-config): `availabilityCheck.timeo
 
 ## 1. `kubectl apply`, validating webhook
 
-Runs once, before any controller sees the object, and checks only what is local to the CR:
-`imagePrefix` form, no tag or digest, no trailing `:`, no mixing of the two forms
-([invalid `alternatives`](../spec.md#invalid-alternatives)). Form uniformity is CEL-expressible:
+Runs once, before any controller sees the object, and checks only what is local to the CR: exactly
+one of `repository`/`repositoryGroup` per entry, no tag or digest, no mixing of the two forms
+([invalid `alternatives`](../spec.md#invalid-alternatives)). Both are CEL-expressible:
 
 ```text
-self.alternatives.all(a, a.imagePrefix.endsWith('/')) || self.alternatives.all(a, !a.imagePrefix.endsWith('/'))
+self.alternatives.all(a, has(a.repository) != has(a.repositoryGroup))
+self.alternatives.all(a, has(a.repository)) || self.alternatives.all(a, has(a.repositoryGroup))
 ```
 
 Cross-CR overlap is deliberately *not* checked here: it needs a cluster-wide view and would make
@@ -54,7 +55,7 @@ admission outcomes depend on apply order. Overlap is resolved at lookup time ins
    kinds plus two namespaced ones listed per pod namespace), then `podSelector` and
    `namespaceSelector`. Both are empty here, so the CR always applies
 4. **matching** — [alternatives matching](../spec.md#alternatives-matching) selects entry 3, the
-   subpath `docker.io/library/`, with remainder `nginx` and tag `1.27`
+   `repositoryGroup` `docker.io/library`, with remainder `nginx` and tag `1.27`
 5. **ordering** — [candidate ordering](../spec.md#candidate-ordering). Only this CR matches and it is
    `OnFailure`, so the original stays at the pivot and the other two entries follow it:
 

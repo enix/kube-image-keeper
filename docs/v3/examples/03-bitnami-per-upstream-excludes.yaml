@@ -39,10 +39,10 @@ metadata:
   name: bitnami
 spec:
   alternatives:
-    - imagePrefix: docker.io/bitnamilegacy/
-    - imagePrefix: docker.io/bitnami/
+    - repositoryGroup: docker.io/bitnamilegacy
+    - repositoryGroup: docker.io/bitnami
       unavailable: true
-    - imagePrefix: public.ecr.aws/bitnami/
+    - repositoryGroup: public.ecr.aws/bitnami
       unavailable: true
   podSelector:
     matchExpressions:

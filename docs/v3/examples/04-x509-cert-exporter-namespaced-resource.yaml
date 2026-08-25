@@ -41,6 +41,6 @@ spec:
     matchLabels:
       kubernetes.io/metadata.name: monitoring
   alternatives:
-    - imagePrefix: quay.io/enix/x509-certificate-exporter
-    - imagePrefix: ghcr.io/enix/x509-certificate-exporter
-    - imagePrefix: docker.io/enix/x509-certificate-exporter
+    - repository: quay.io/enix/x509-certificate-exporter
+    - repository: ghcr.io/enix/x509-certificate-exporter
+    - repository: docker.io/enix/x509-certificate-exporter

@@ -39,20 +39,20 @@ spec:
   #   Always: These entries first (bypass quota, latency, network cost, …)
   rewritePolicy: OnFailure    # OnFailure | Always
 
-  # Ordered list of equivalent images (or image subpaths) that could be used if one is
+  # Ordered list of equivalent repository (or repository groups) that could be used if one is
   # unavailable. All entries of a list must use the same form, see "Alternatives matching"
-  # Every field besides `imagePrefix` is optional, and with public registries only
-  # `imagePrefix` is usually needed
+  # Every field besides `repository`/`repositoryGroup` is optional, and with public registries
+  # only that one is usually needed
   alternatives:
-  - imagePrefix: quay.io/acme/foo
-  - imagePrefix: docker.io/acme-org/foo
-  - imagePrefix: 123456.dkr.ecr.eu-west-3.amazonaws.com/repo/acme/foo
+  - repository: quay.io/acme/foo
+  - repository: docker.io/acme-org/foo
+  - repository: 123456.dkr.ecr.eu-west-3.amazonaws.com/repo/acme/foo
     auth:                          # credentials to pull images from the registry, see "Authentication"
       provider:
         name: aws
         serviceAccountRef:
           name: kuik-ecr-access
-  - imagePrefix: "registry.local:5000/mirror/acme/foo"
+  - repository: "registry.local:5000/mirror/acme/foo"
     insecure: true                 # HTTP registry
     unavailable: true              # Image no longer available in this repository but if a pod
                                    # use this image, we'll try to substitute an alternative
@@ -64,28 +64,29 @@ spec:
 
 ### Alternatives matching
 
-The `imagePrefix` of an entry is **not** a glob: there is no implicit wildcard, and no glob
-marker is supported. It is either a **single image** or a **subpath**, and the form is given
-by the trailing character:
+An entry matches either a **single repository** (`repository`) or every repository **located
+under a path, at any depth** (`repositoryGroup`). Exactly one of the two is set
+per entry and neither is a glob: there is no implicit wildcard, and no glob
+marker is supported.
 
-| Form | Written as | Matches |
-| ---- | ---------- | ------- |
-| Single image | no trailing separator (`quay.io/acme/foo`) | that exact repository only, whatever the tag or digest |
-| Subpath | significant trailing `/` (`quay.io/acme/foo/`) | repositories located **directly** under that path (one level only), like a trailing slash for rsync directories |
+| Field | Matches |
+| ---- | ------- |
+| `repository` | that exact repository only, whatever the tag or digest |
+| `repositoryGroup` | every repository located under that path, whatever its depth |
 
-An `imagePrefix` is a prefix of the image reference at path segment granularity, not a free
-form string prefix: `quay.io/acme/foo` matches `quay.io/acme/foo:v1` but never
-`quay.io/acme/foo-bar:v1`.
+A `repository` or `repositoryGroup` value is a prefix of the image reference at path segment
+granularity, not a free form string prefix: `quay.io/acme/foo` matches `quay.io/acme/foo:v1` but
+never `quay.io/acme/foo-bar:v1`.
 
-When an image matches, the tag or digest is always preserved, and for the subpath form the
-matched remainder (the single path segment below the subpath) is preserved too.
+When a `repository` matches, the tag or digest is always preserved, and for `repositoryGroup` the
+matched remainder (every path segment below the group) is preserved too.
 
-#### Single image form
+#### `repository`
 
 ```yaml
 alternatives:
-- imagePrefix: quay.io/acme/foo
-- imagePrefix: docker.io/acme-org/foo
+- repository: quay.io/acme/foo
+- repository: docker.io/acme-org/foo
 ```
 
 | Image | Result |
@@ -95,50 +96,37 @@ alternatives:
 | `quay.io/acme/foo/bar:latest` | doesn't match (deeper than the entry) |
 | `quay.io/acme/foo/bar/oni:latest` | doesn't match |
 
-#### Subpath form
+#### `repositoryGroup`
 
 ```yaml
 alternatives:
-- imagePrefix: quay.io/acme/foo/
-- imagePrefix: docker.io/acme-org/foo/
+- repositoryGroup: quay.io/acme/foo
+- repositoryGroup: docker.io/acme-org/foo
 ```
 
 | Image | Result |
 | ----- | ------ |
-| `quay.io/acme/foo:latest` | doesn't match (the subpath itself is not an image) |
+| `quay.io/acme/foo:latest` | doesn't match (the group itself is not a repository) |
 | `quay.io/acme/foo-bar:latest` | doesn't match |
 | `quay.io/acme/foo/bar:latest` | matches, rewritten to `docker.io/acme-org/foo/bar:latest` |
-| `quay.io/acme/foo/bar/oni:latest` | doesn't match (only one level below the subpath) |
+| `quay.io/acme/foo/bar/oni:latest` | matches, rewritten to `docker.io/acme-org/foo/bar/oni:latest` |
 
 #### Invalid `alternatives`
 
 Rejected at admission (validation webhook or CEL rules):
 
-- an `imagePrefix` ending with `:` (it looks like a "any tag of this image" marker, but the
-  single image form already covers it):
-
-  ```yaml
-  alternatives:
-  - imagePrefix: "quay.io/acme/foo:"        # invalid
-  - imagePrefix: "docker.io/acme-org/foo:"  # invalid
-  ```
-
-- an `imagePrefix` carrying a tag or a digest (`quay.io/acme/foo:v1`,
+- an entry carrying both `repository` and `repositoryGroup`, or neither: exactly one of the two
+  is required
+- a `repository` or `repositoryGroup` carrying a tag or a digest (`quay.io/acme/foo:v1`,
   `quay.io/acme/foo@sha256:…`): alternatives describe repositories, the tag or digest comes
   from the pod
-- mixing the two forms in the same list, since the two sides would not describe the same
-  set of images:
+- mixing `repository` and `repositoryGroup` entries in the same list, since the two sides would
+  not describe the same set of images:
 
   ```yaml
   alternatives:
-  - imagePrefix: "quay.io/acme/foo:"       # invalid (trailing `:`) and mixed forms
-  - imagePrefix: docker.io/acme-org/foo/
-  ```
-
-  ```yaml
-  alternatives:
-  - imagePrefix: quay.io/acme/foo          # single image form
-  - imagePrefix: docker.io/acme-org/foo/   # subpath form => invalid
+  - repository: quay.io/acme/foo
+  - repositoryGroup: docker.io/acme-org/foo   # invalid: mixed forms
   ```
 
 Keeping the two forms explicit and non mixable keeps the CR readable and avoids rewriting an
@@ -146,8 +134,9 @@ image to an unrelated one because two repository names happen to share a prefix.
 
 #### Overlapping alternatives across several CRs
 
-Several `ImageAlternative` may match the same image, for instance one declaring `quay.io/acme/` and
-another declaring `quay.io/acme/foo`. They are **not** mutually exclusive: overlapping CRs add
+Several `ImageAlternative` may match the same image, for instance one declaring
+`repositoryGroup: quay.io/acme` and another declaring `repository: quay.io/acme/foo`. They are
+**not** mutually exclusive: overlapping CRs add
 fallbacks instead of shadowing each other, and their lists are merged as described in
 [Candidate ordering](#candidate-ordering). Specificity picks which *entry* of a CR matches, and
 therefore the remainder to carry over — not which CR owns the image.
@@ -244,8 +233,8 @@ rather than a prefix of them:
 | `quay.io/acme/*-debug` | `quay.io/acme/foo-debug`, `quay.io/acme/bar-debug` |
 | `**:latest` | every mutable `latest`, whatever the registry |
 
-Where [`imagePrefix`](#alternatives-matching) is structural, an exclusion only answers "do I mirror
-this?", so it stays a pattern and produces no reference.
+Where [`repository`/`repositoryGroup`](#alternatives-matching) are structural, an exclusion only
+answers "do I mirror this?", so it stays a pattern and produces no reference.
 
 ### Collecting unused tags
 
