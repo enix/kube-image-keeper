@@ -350,8 +350,9 @@ suffix is carried by the tags kuik pushes alongside it, the origin-derived one a
 hence `platforms.mode: All` semantics and full sharing between clusters whatever their node pools.
 
 **Upstream quotas are what clusters share involuntarily.** Every cluster paces its own reads of the
-source registries, so a pull credential used on several of them hands that account the sum of their
-rates, see [Quotas count per credential](#quotas-count-per-credential-clusters-pace-independently).
+source registries, so whatever the registry uses to identify the caller (a shared credential, or a
+shared egress IP for anonymous pulls) hands that account or IP the sum of their rates, see
+[Quotas count per identity](#quotas-count-per-identity-clusters-pace-independently).
 
 #### Tag naming constraints
 
@@ -472,22 +473,34 @@ publishes — every tracked image checked once per `cycleDuration` — hold.
 A copy queue needs no position of any kind: drained rather than cycled, it holds no cursor and
 reports no lap.
 
-### Quotas count per credential, clusters pace independently
+### Quotas count per identity, clusters pace independently
 
-An `interval` bounds what **one** controller sends to a host. A registry quota is attached to the
-account the credential belongs to (or to the source IP, for anonymous requests), and Docker Hub's
-pull limit is the canonical example. So the two are counted on different things as soon as several
-clusters use the same credential against the same host: each one paces itself to one request per
-`interval`, and the account sees the sum.
+An `interval` bounds what **one** controller sends to a host. A registry quota is attached to
+whatever the registry uses to identify the caller, and which one applies depends on how the request
+is made:
+
+- **anonymous pulls** are usually counted against the **source IP**, and are the more common way
+  this bites: Docker Hub's pull limit is the canonical example, and any two clusters egressing
+  through the same NAT gateway, corporate proxy, or cloud NAT already share that quota, with no
+  credential involved at all
+- **authenticated pulls** are usually counted against the **account the credential belongs to**, so
+  the same collision happens the moment two clusters are configured to reuse the same `auth`
+  (`secretRef` or `provider`) against a host
+
+Either way, `interval` and the quota are counted on different things as soon as several clusters
+share the identity behind them: each cluster paces itself to one request per `interval`, and the
+account or IP sees the sum.
 
 Windows are counted per process ([Scheduling](#scheduling)), so they stay independent across clusters:
 three clusters on `interval: 10m` may hit the host within the same second, three times per 10 minutes.
 
 > [!WARNING]
-> Sizing `check.interval` and `copy.interval` for a single cluster and then sharing the credential
-> across `N` clusters consumes `N` times the intended rate. Either multiply the intervals of that
-> host by `N`, or give each cluster its own credential so each gets its own quota. kuik sees one
-> cluster only and cannot detect the aggregate, so this is a configuration prerequisite.
+> Sizing `check.interval` and `copy.interval` for a single cluster and then sharing the identity that
+> counts against the quota (the same credential and/or the same egress IP) across `N` clusters
+> consumes `N` times the intended rate. Either multiply the intervals of that host by `N`, or give
+> each cluster its own credential or egress path so each gets its own quota. kuik sees one cluster
+> only and cannot detect the aggregate, so this is a configuration prerequisite. For shared egress
+> IP this is anyway a known limitation with or without kuik.
 
 The symptoms are worth recognising, because one of them is misleading: a `QuotaExceeded` on a
 **check** looks like an unavailable image, and an `ImageAlternative` reacts to it by routing pods
