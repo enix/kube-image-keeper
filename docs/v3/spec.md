@@ -253,6 +253,48 @@ noticed right away rather than at the next listing.
 Part C of the [ImageMirror walkthrough](./walkthroughs/02-imagemirror-reconciliation.md) details the
 deletion rules.
 
+### Destination registry requirements
+
+A mirror destination is an OCI registry the operator points kuik at, and kuik assumes it holds up its
+end. Two requirements apply to every `ImageMirror`, cleanup or not:
+
+- **Conformance to the OCI Distribution spec** — `HEAD`/`GET` on manifests, `GET` on tag listings, `PUT`
+  to push: kuik calls nothing else, and assumes the spec's guarantees on each hold
+  (see [Availability probing](#availability-probing) and
+  [walkthrough B.2](./walkthroughs/02-imagemirror-reconciliation.md#b2-never-enumerate-always-ask-precisely)).
+- **Deep repository paths** — the destination reference is `destination.path` joined with the *full*
+  original reference, hostname included
+  ([walkthrough A.6](./walkthroughs/02-imagemirror-reconciliation.md#a6-compute-the-destination-reference)),
+  so the registry has to accept arbitrarily nested repository paths
+  (`registry.tld/mirror/quay.io/thanos/thanos`), not a flat or shallow namespace.
+
+With `cleanup.enabled: true`, two more requirements apply, because **kuik only ever deletes tags, never
+manifests or blobs**:
+
+- **Tag deletion** (`DELETE /v2/<name>/manifests/<tag>`, OCI 1.1) — what the cleanup sweep uses to
+  retire a tag ([walkthrough C.3](./walkthroughs/02-imagemirror-reconciliation.md#c3-sweep-the-repositories)).
+  kuik deletes **by tag only, never by digest**, and this is a deliberate choice, not a missing
+  optimization: a manifest can carry tags from several clusters on a
+  [shared destination](#multi-cluster-shared-destination-one-tag-per-cluster), and deleting it by digest
+  would remove every one of them at once — cluster A's cleanup taking down cluster B's live tag as a
+  side effect. Deleting by tag is the only form that stays confined to the tag a cluster actually owns,
+  whatever the cost in registries that only support the coarser operation.
+- **Registry-side garbage collection of untagged artifacts** — once a tag's last reference is deleted,
+  the manifest is untagged but keeps occupying storage until the registry's own GC reclaims it
+  ([walkthrough C.5](./walkthroughs/02-imagemirror-reconciliation.md#c5-leave-the-last-mile-to-the-registry)).
+  kuik never touches it: the registry is the only party with the global view needed to tell whether
+  another cluster, or a hand-pushed tag, still needs that content.
+
+Only the tag-deletion requirement is something kuik can check itself, and only by trying: the OCI spec
+has no capability negotiation for it, so a registry that rejects tag deletion is discovered the first
+time a reconcile issues one and gets back a status that says it can't (typically `405 Method Not
+Allowed`). When that happens, cleanup cannot make progress, and the `ImageMirror`'s `Ready` condition
+flips to `False` with a reason naming the problem (see [`status.md`](./status.md#imagemirror)) instead
+of retrying forever against a registry that will keep refusing. Registry-side GC of untagged artifacts
+has no equivalent check — no OCI endpoint answers "will you reclaim this" — so it stays a prerequisite
+the operator has to confirm against their registry's own documentation and configuration, not one kuik
+can verify or enforce.
+
 ### Mirror loop prevention
 
 Two rules keep mirroring bounded, and both are unconditional:

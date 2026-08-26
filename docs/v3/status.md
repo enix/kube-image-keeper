@@ -89,6 +89,9 @@ status:
     reason: MissingImages
   - type: Ready                # Conf valid and working credentials
     status: "True"
+    # status: "False", reason: RegistryDeleteUnsupported when cleanup.enabled and the destination
+    # registry rejects tag deletion (e.g. responds 405 to DELETE /v2/<name>/manifests/<tag>) — cleanup
+    # cannot make progress until this is fixed, see "Destination registry requirements" in spec.md
 ```
 
 ## ImageMonitor
