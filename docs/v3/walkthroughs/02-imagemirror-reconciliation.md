@@ -105,7 +105,7 @@ Then perform the copy:
 ### A.9 Report
 
 - **Success** → `ImageCopied` event on the CR; `status.images.copied` reflects the new count on the next status write.
-- **Failure** → an entry in `status.failedImagesCopy` with a stable reason (`SourceUnavailable`, `QuotaExceeded`, `AuthFailed`, `PushFailed`) and `lastAttempt`. The image stays in the desired state and will be retried; nothing is removed because a copy failed.
+- **Failure** → an entry in `status.failedImagesCopy` with a stable reason and `lastAttempt`. Each reason records what the request returned: `SourceNotFound` (404), `PushRejected`, `Unauthorized` (401/403), `QuotaExceeded` (429), and `SourceUnreachable` / `DestinationUnreachable` when the endpoint did not answer at all. The image stays in the desired state and will be retried; nothing is removed because a copy failed.
 - **No source available at all** → counted in `status.images.missingSource`. This is the "we cannot protect this image" signal.
 - Status writes happen **on transitions**, not per copy.
 
@@ -148,7 +148,7 @@ When a re-copy is needed, the source is the origin ref recorded in the desired s
 `driftPolicy` decides what the mirror does when the *upstream tag* moves under it (typical of mutable tags like `latest`):
 
 - **`Ignore`** (default) — nothing. The mirror is a snapshot of what was running; upstream mutations, accidental or malicious, do not propagate.
-- **`Warn`** — re-check the source tag's digest on the **source** host's check windows (this is a read of an upstream, so it is paced like any other) and compare it against the copied manifest's digest (a straight equality, since copies are verbatim). Surface the divergence (`ImageTagDrifted`, `status.images.drifted`) without touching the copy. Detection without mutation.
+- **`Warn`** — re-check the source tag's digest on the **source** host's check windows (this is a read of an upstream, so it is paced like any other) and compare it against the copied manifest's digest (a straight equality, since copies are verbatim). Surface the divergence (`CopyOutOfDate`, the `status.images.drifted` count and one `status.driftedImages` entry per ref, holding the upstream digest against the copied one) without touching the copy. Detection without mutation.
 - **`Sync`** — same detection, plus a re-push so the destination tag follows upstream. Emits `ImageResynced` (normal — this is Sync's steady state, not to be confused with `ImageRecopied`).
 
 **`Sync` needs to know nothing about pinning.** Repointing `v1.15.1_cluster-a` from D to D′ cannot orphan D, because a pinned digest never depended on that tag: it carries its own anchor tag from copy time (A.6). So the resync path is simply "push D′, repoint the tag" — no check, no ordering constraint, no special case.

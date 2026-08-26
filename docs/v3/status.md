@@ -2,7 +2,7 @@
 
 We only persist aggregates, anomalies and information that could not be recomputed from informer (or too costly). This way status is human readable and show only usable information (e.g. which image is unavailable). We don't need to persist a large number of information that could be rebuilt on pod restart.
 
-Status is only computed via informer on leader elected controller, nothing is updated directly in mutating webhook.
+Status is only computed via informer on leader elected controller, nothing is updated directly in mutating webhook. Which process writes what, and why the webhook writes nothing, is in [architecture v3](./architecture.md); the events and metrics that complete it are in [observability v3](./observability.md).
 
 ## ImageAlternative
 
@@ -32,7 +32,6 @@ status:
   - type: NoAlternatives      # True = KuiK could not find an available image in alternatives
     status: "True"            # Pod may start if image is cached on node, else it result in a pull error
     message: "1 image unavailable (2 pods)"
-
 ```
 
 ## ImageMirror
@@ -46,15 +45,34 @@ status:
     copied: 309                # images effectivly copied to destination registry
     retained: 2                # tags pending deletion (if cleanup.retention > 0), origin-less ones
                                # among them are held then deleted, never copied again
-    drifted: 0                 # with driftPolicy=Sync - image tag with new digest that will be resynced
+    drifted: 0                 # with driftPolicy=Warn or Sync - image tag whose upstream digest moved
+                               # away from the copied one. Sync queues them for a resync, Warn leaves
+                               # the copy as it is and only reports
     # platformsMissing: 8      # Meaningless in v3.0: every platform of a multi-platform image is
                                 # always copied (see the note on `platforms` in ImageMirror). Comes
                                 # back once per-platform selection ships, to report a copy that
                                 # missed a platform it should have had
     missingSource: 1           # no source available to copy image to destination (if not already copied)
+  # Tags whose upstream digest moved away from the copy held at the destination (`Warn` and `Sync`,
+  # never `Ignore`). The bounded list behind `kuik_image_drifted`, and the counterpart of
+  # `driftedImages` on ImageMonitor — that one compares the upstream against what the *cluster* runs,
+  # this one against what the *destination* holds. `ref` is the origin reference in both, so the two
+  # join without translation. Under `Sync` an entry is transient (the resync clears it); one that
+  # persists means the resync is failing, not that a tag moved
+  driftedImages:
+  - ref: docker.io/acme/app:prod
+    upstreamDigest: sha256:bbbb…
+    copiedDigest: sha256:aaaa…
+    since: "2026-07-11T04:15:00Z"
   failedImagesCopy:
   - ref: quay.io/acme/tool:1.4
-    reason: SourceUnavailable  # SourceUnavailable | QuotaExceeded | AuthFailed | PushFailed
+    # What was observed on that one request:
+    # SourceNotFound (404),
+    # PushRejected (the destination refused this manifest)
+    # Unauthorized (401/403)
+    # QuotaExceeded (429)
+    # SourceUnreachable / DestinationUnreachable (the endpoint did not answer at all)
+    reason: SourceNotFound
     lastAttempt: "2026-07-10T06:12:00Z"
   # Destination tags no longer referenced by any pod, held for `cleanup.retention` before being
   # deleted (if cleanup enabled). Fed both by pod events and by the tag listing every reconcile

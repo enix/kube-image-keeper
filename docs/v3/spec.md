@@ -776,9 +776,11 @@ If no source answers, nothing is copied and the image is counted in `status.imag
 ### Attribution
 
 The CR that supplied the retained reference is the one named in
-[`kuik.enix.io/rewritten-by`](#annotations), and the only one to count the pod in its status, so the
+[`kuik.enix.io/rewritten-by`](./observability.md#annotations), and the only one to count the pod in its status, so the
 `pods` gauges are disjoint between CRs and between kinds and sum consistently. `pods.noAlternatives`
-is the exception: no candidate won, so every CR that contributed one counts the pod.
+is the exception: no candidate won, so every CR that contributed one counts the pod. It is read from
+[`kuik.enix.io/no-alternatives`](./observability.md#annotations), which lists the containers no
+candidate could serve and deliberately names no resource — an inaction belongs to none.
 
 Status controllers read the original reference from `kuik.enix.io/original-images`, falling back to
 the live container image for pods that were never rewritten and therefore carry no annotation.
@@ -789,27 +791,6 @@ the live container image for pods that were never rewritten and therefore carry 
 > rule above (it answers "would this CR apply?", useful for reviewing a selector before it ever
 > wins), or it is redefined as "pods this CR owns". The other gauges are unaffected either way.
 
-## Annotations
-
-Annotations added to pod by mutating webhook:
-
-```yaml
-metadata:
-  annotations:
-    # Same as KuiK v2, keep original images name referenced when we rewrite pod spec
-    kuik.enix.io/original-images: |
-      {"config-reloader":"quay.io/prometheus-operator/prometheus-config-reloader:v0.91.0","prometheus":"quay.io/prometheus/prometheus:v3.13.1-distroless","thanos-sidecar":"quay.io/thanos/thanos:v0.42.2"}'
-    # CR that rewritten the image
-    kuik.enix.io/rewritten-by: |
-      {"config-reloader":"ImageMirror/prod-mirror","prometheus":"ImageAlternative/prometheus","thanos":"ImageAlternative/thanos"}
-    # Reason of KuiK action (image rewrite) or inaction if original image isn't available
-    #   OnFailure: Original image wasn't available, rewritten to first available alternative
-    #   Always: Rewrite to first available alternative requested by rewritePolicy
-    #   NoAlternatives: Could not find an available alternative for the image
-    kuik.enix.io/reason:
-      {"config-reloader":"NoAlternatives","prometheus":"Always","thanos":"OnFailure"}
-```
-
 ## Global config
 
 ```yaml
@@ -819,6 +800,11 @@ metadata:
 # single cluster and unsafe as soon as a destination is shared. Short, and limited to
 # `[a-zA-Z0-9._-]` (OCI tag alphabet)
 clusterID: cluster-a
+
+# Optional metrics, off by default because they cost more series than the rest of the metric surface
+# put together. See "observability v3"
+metrics:
+  copyDuration: false        # histogram of how long each copy took, per ImageMirror
 
 webhook:
   availabilityCheck:

@@ -69,7 +69,7 @@ admission outcomes depend on apply order. Overlap is resolved at lookup time ins
    public so probes are anonymous, except on `docker.io` where the global `perPrefixFallbackAuth`
    supplies credentials
 7. **rewrite and annotate** — nothing to do if the original answers; otherwise the container is
-   patched and [annotated](../spec.md#annotations):
+   patched and [annotated](../observability.md#annotations):
 
    ```yaml
    kuik.enix.io/original-images: '{"nginx":"docker.io/library/nginx:1.27"}'
@@ -105,7 +105,7 @@ high. Per [status v3](../status.md) it makes **no registry calls at all**, and t
 **no status**: the annotations from step 2 are the entire channel between the two.
 
 Per reconcile: select pods with the selectors, match each container's original reference the same way
-the webhook did, classify from `rewritten-by` and `reason` per
+the webhook did, classify from `rewritten-by`, `reason` and `no-alternatives` per
 [attribution](../spec.md#attribution), then aggregate into `activeFallbacks` and `noAlternatives` and
 patch only on change.
 
