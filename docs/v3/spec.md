@@ -402,6 +402,12 @@ spec:
 
 ```
 
+Drift is checked per tracked **tag**, not per pod: pods referencing the same tag can have pulled it at
+different times, so more than one digest can be running for that tag at once (skew). `status.driftedImages`
+records that breakdown — one entry per drifted ref, with a `runningDigests` list of every digest currently
+seen and how many pods reference each — against the single `upstreamDigest` the last check observed (see
+[status](./status.md#imagemonitor)).
+
 ## Scheduling
 
 Checks and copies run on **windows** counted from the start of the controller process, at a rate of at

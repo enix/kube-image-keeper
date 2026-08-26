@@ -123,12 +123,17 @@ status:
     derivedFrom: quay.io/thanos/thanos:v0.42.2
     via: "ImageAlternative/thanos[2]"
     reason: Unauthorized
-  # Images with running digest differ from upstream one (e.g. tag `latest` or similar)
+  # Images with a running digest that differs from the upstream one (e.g. tag `latest` or similar).
+  # Pods referencing the same tag can be pulled at different times, so more than one digest can be
+  # running for the same ref at once (skew); runningDigests lists each one seen with its own pod count
   driftedImages:
   - ref: docker.io/acme/app:prod
-    runningDigest: sha256:aaaa…
     upstreamDigest: sha256:bbbb…
-    referencedBy: 7
+    runningDigests:
+    - digest: sha256:aaaa…
+      referencedBy: 5
+    - digest: sha256:cccc…
+      referencedBy: 2
   # Health of the check schedule: one image checked per `interval` window of a registry, taken from
   # this resource's own ring of that registry (see "Scheduling" in spec.md)
   checks:
