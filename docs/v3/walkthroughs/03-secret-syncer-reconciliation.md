@@ -56,23 +56,19 @@ A credential that cannot be resolved — missing source Secret, rejected token r
 One Secret, fully determined by the pair:
 
 | Field | Value |
-|---|---|
-| `name` | `kuik-<CR name>` — derived from **identity**, never from configuration |
+| --- | --- |
+| `name` | `kuik-inject-<kind>-<CR name>` — derived from **identity**, never from configuration, and computed the same way by the webhook when it injects the reference ([the name of an injected Secret](../architecture.md#the-name-of-an-injected-secret)) |
 | `namespace` | the target namespace |
 | `type` | `kubernetes.io/dockerconfigjson` |
 | `.dockerconfigjson` | one `auths` entry per registry from A.2/A.3 |
 | labels | the `managed-by` marker the admission policy requires |
 | `ownerReferences` | the cluster-scoped routing CR |
 
-Three properties are worth understanding rather than just implementing.
-
-**The name never encodes configuration.** If it derived from, say, the source secret's name or the matched entry, then editing the CR would rename the object — leaving the previous one orphaned in every namespace, with no way to find it again (the syncer cannot list Secrets). Deriving the name from the CR's identity means a configuration change alters the *content* of a stable object, and orphans are impossible by construction.
+Two properties are worth understanding rather than just implementing.
 
 **One merged Secret, not one per registry.** `dockerconfigjson` natively holds several registries, and the kubelet picks the right entry by matching the image's registry at pull time. Merging means one object to reconcile, one reference to inject, and atomic updates. Splitting per registry would multiply objects and references for no gain.
 
 **The owner is the CR, not the pod.** A namespaced object may legally have a cluster-scoped owner. This is what makes deletion free (Part C) and, just as importantly, what keeps the Secret alive across pod churn: pods come and go, the CR persists.
-
-> A pod rewritten by two different CRs gets two references in its `imagePullSecrets`. That is fine — it is a list, and the kubelet aggregates all of them when pulling.
 
 ### A.5 Apply it blind
 

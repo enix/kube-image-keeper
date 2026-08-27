@@ -138,7 +138,7 @@ Three conditions, all required:
 | --------- | --- |
 | `type == "kubernetes.io/dockerconfigjson"` | a pull secret is the only thing the syncer produces |
 | carries the `managed-by` label | makes the objects it owns identifiable without reading them |
-| `metadata.name` starts with the reserved prefix | confines it to a namespace of names it owns |
+| `metadata.name` starts with the reserved `kuik-inject-` prefix | confines it to a namespace of names it owns |
 
 The prefix is reserved **both ways**: the syncer may write only under it, and no other identity may
 write under it at all. The second half is what keeps the names it owns from being squatted or
@@ -148,6 +148,50 @@ whatever else happened to use that name.
 What remains possible if the syncer is compromised or buggy is bounded to writing a useless pull
 secret under a reserved name. It cannot touch an application's own Secrets, cannot read anything, and
 cannot exfiltrate.
+
+### The name of an injected Secret
+
+Two processes compute that name and they exchange nothing: the syncer, to write the object, and the
+webhook, to append the reference to the pod's `spec.imagePullSecrets` at admission. It is a contract
+between them rather than an implementation detail of either, and it is derived from **identity
+alone**, kind lowercased:
+
+```text
+kuik-inject-<kind>-<CR name>          e.g. kuik-inject-imagemirror-prod-mirror
+```
+
+**The name never encodes configuration.** If it derived from, say, the source secret's name or the
+matched entry, then editing the CR would rename the object — leaving the previous one orphaned in
+every namespace, with no way to find it again (the syncer cannot list Secrets). Deriving the name
+from the CR's identity means a configuration change alters the *content* of a stable object, and
+orphans are impossible by construction.
+
+**The kind is part of that identity.** The three routing kinds share one namespace of names, so an
+`ImageAlternative/foo` and an `ImageMirror/foo` would otherwise compute the same object and overwrite
+each other's credentials in every namespace they both cover — silently, since the syncer applies
+blind and never reads back what is already there. The `kuik-inject-` prefix answers a different
+question: it is the set reserved just above, in both directions, so it has to name something nobody
+else wants.
+
+**The name is bounded, and stays injective when it is.** A Secret name is a DNS subdomain, so 253
+characters; `kuik-inject-` plus the longest kind that ever injects one (`imagealternative`) plus a
+separator spends 29 of them, leaving 224 for the CR's own name. Past the limit the CR name is
+truncated and a short hash of the untruncated name is appended, exactly as an over-long tag is
+handled at a mirror destination ([tag naming constraints](./spec.md#tag-naming-constraints)). Two CRs
+whose names differ only past the cut still get different hashes, so the mapping stays injective, and
+it stays computable from identity alone — which is what lets the syncer write without ever listing,
+and the webhook inject without ever reading. What is lost is only legibility, and only in that
+extreme case: the `ownerReferences` still name the CR verbatim, so a `kubectl get secret -o yaml`
+answers "whose is this?" whatever the name looks like.
+
+Only a routing CR ever gets one. A credential declared in
+[`perPrefixFallbackAuth`](./spec.md#global-config) belongs to no resource, so there is no identity to
+derive a name from: it serves the controllers' own reads and is never injected
+([`injectPullSecret`](./spec.md#injectpullsecret)).
+
+> [!NOTE]
+> A pod rewritten by two different CRs gets two references in its `imagePullSecrets`. That is fine —
+> it is a list, and the kubelet aggregates all of them when pulling.
 
 ## Least privilege, and the one place it costs something
 

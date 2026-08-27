@@ -614,7 +614,11 @@ Set to `true` with a `provider`, kuik materializes, **renews** and injects a doc
 the cross-cloud case, and what makes 12h ECR tokens usable.
 
 `ImageMirror`'s `destination.push` ignores the field entirely: push credentials are only ever used by
-the controller.
+the controller. `registries.<host>.perPrefixFallbackAuth` ignores it too, for a different reason: the
+injected Secret is named after the identity of the resource that asked for it
+([the name of an injected Secret](./architecture.md#the-name-of-an-injected-secret)), and a global
+fallback credential belongs to no resource. It serves the controllers' own reads; injection is
+declared on the CR that routes the image.
 
 ### One credential per read, two for the mirror
 

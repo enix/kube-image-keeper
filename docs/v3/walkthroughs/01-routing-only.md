@@ -77,6 +77,13 @@ admission outcomes depend on apply order. Overlap is resolved at lookup time ins
    kuik.enix.io/reason:          '{"nginx":"OnFailure"}'
    ```
 
+8. **pull secret** — if the retained candidate's `auth` asks for an injection
+   ([`injectPullSecret`](../spec.md#injectpullsecret)), the webhook appends the syncer's Secret name
+   for that CR to `spec.imagePullSecrets`, computed from identity alone and never read back
+   ([the name of an injected Secret](../architecture.md#the-name-of-an-injected-secret)). Nothing to
+   inject here: this CR declares no `auth`, and the `perPrefixFallbackAuth` of step 6 is never
+   injected
+
 > [!IMPORTANT]
 > That `perPrefixFallbackAuth` entry is not cosmetic: anonymous Docker Hub `HEAD`s are the ones that
 > get 429'd, and a 429 on the *check* would read as "the original is down" and reroute the whole
