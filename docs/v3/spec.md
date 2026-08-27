@@ -518,6 +518,9 @@ publishes — every tracked image checked once per `cycleDuration` — hold.
 A copy queue needs no position of any kind: drained rather than cycled, it holds no cursor and
 reports no lap.
 
+Rings, queues and the windows they draw from all live in the leader-elected reconciler, which is why
+a single budget per host is enforceable at all — see [architecture v3](./architecture.md).
+
 ### Quotas count per identity, clusters pace independently
 
 An `interval` bounds what **one** controller sends to a host. A registry quota is attached to
