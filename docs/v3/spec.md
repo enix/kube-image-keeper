@@ -625,14 +625,26 @@ registry: one credential fits both and only whether to inject it differs, hence 
 
 ### No `auth` at all
 
-kuik does nothing: no injection — the pod is expected to carry its own `imagePullSecrets`, or the
-kubelet's credential provider handles it — **and checks are anonymous**.
+kuik injects nothing: the pod is expected to carry its own `imagePullSecrets`, or the kubelet's
+credential provider handles it.
+
+What kuik itself checks with then depends on how much the cluster lets it read, and the design
+assumes the stricter of the two. **Everything in these documents is written for
+[`secretAccess.mode: restricted`](./architecture.md#two-modes-one-clusterrole-apart)**, where kuik
+holds no read on Secrets outside its install namespace: it never sees the pod's `imagePullSecrets`,
+so a check with no declared credential is **anonymous**. `permissive` — which the chart installs by
+default, purely so that a fresh install works against a private registry with nothing declared —
+lets kuik read the `imagePullSecrets` of the pods an image comes from and use them when it can. It
+only ever *adds* a credential to the same resolution: a check that had one already is unaffected,
+and a check that finds nothing degrades to exactly the anonymous case above.
 
 > [!WARNING]
 > A private image with neither `auth` nor a matching
-> [`perPrefixFallbackAuth`](#global-config) therefore looks perpetually unavailable, even though the
-> kubelet can pull it. A persistent anonymous 401/403 raises a `Warning` event pointing at that
-> likely oversight.
+> [`perPrefixFallbackAuth`](#global-config) therefore looks perpetually unavailable under
+> `restricted`, even though the kubelet can pull it — and under `permissive` its availability
+> silently depends on a Secret nobody declared to kuik. A persistent anonymous 401/403 raises a
+> `Warning` event pointing at that likely oversight. Declaring the credential once is what makes
+> the check independent of the mode.
 
 ## Candidate ordering
 
@@ -837,9 +849,10 @@ registries:
     copy:
       interval: 30s           # local registry, no quota to spare it from
     # Auth used to check image availability when the CR provides none, by ImageMonitor and
-    # ImageAlternative alike. KuiK never reads a pod's imagePullSecrets (no cluster-wide secret
-    # access, see "Authentication"), so this is how it gets credentials for a private registry
-    # nobody declared `auth` for. Same schema as `auth`, per image prefix
+    # ImageAlternative alike. KuiK is designed not to depend on a pod's imagePullSecrets — under
+    # `secretAccess.mode: restricted` it cannot read them at all (see "Authentication") — so this
+    # is how it gets credentials for a private registry nobody declared `auth` for. Same schema as
+    # `auth`, per image prefix
     perPrefixFallbackAuth:
     - prefix: /project1
       secretRef:
