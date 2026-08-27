@@ -690,8 +690,9 @@ The four policy combinations, for one mirror candidate `M` and alternatives decl
 
 Candidates are probed in list order with a manifest `HEAD`, concurrently but resolving to the **first
 success in list order**, so worst case latency is one `availabilityCheck.timeout` rather than their
-sum and a fast mirror never beats a healthy higher-priority entry. A probe returns a typed status
-(`Available`, `NotFound`, `Unreachable`, `InvalidAuth`, `QuotaExceeded`).
+sum and a fast mirror never beats a healthy higher-priority entry. A probe answers either
+`Available` or one of the check reasons of the [shared vocabulary](./observability.md#reasons)
+(`ManifestNotFound`, `Unauthorized`, `QuotaExceeded`, `Unreachable`).
 
 `HEAD /v2/<name>/manifests/<reference>` is what every check uses, everywhere and without a knob:
 the OCI Distribution spec mandates it, it is the cheapest request that answers the question, and a
@@ -716,8 +717,8 @@ What makes this safe is that a digest is content-addressed and repository-indepe
 computed over the manifest bytes, not over the reference, so copying an image to another registry
 preserves it. `registry.tld/mirror/docker.io/library/nginx@sha256:ab…` is therefore either the exact
 same bytes as `docker.io/library/nginx@sha256:ab…`, or it does not exist at all. A candidate holding
-a *different* image simply does not have that digest, the probe answers `NotFound` and the candidate
-is dropped. Unlike a tag, there is no way for a pinned reference to silently resolve to different
+a *different* image simply does not have that digest, the probe answers `ManifestNotFound` and the
+candidate is dropped. Unlike a tag, there is no way for a pinned reference to silently resolve to different
 content.
 
 Two consequences on the mirror side:
