@@ -21,6 +21,37 @@ keeps specific images out of a mirror (e.g. huge images) without changing which 
 applies to, and a mirror's own destination, implicitly excluded from it (see
 [Mirror loop prevention](#mirror-loop-prevention)).
 
+### What the webhook never rewrites
+
+Two gates sit ahead of every resource, and both are **per container**, carry no configuration, and
+cannot be opted into or out of by any resource.
+
+- **a container whose current reference kuik produced itself** is never resolved a second time.
+  Resolving it again would record kuik's own output as the origin and destroy the only way back to
+  the real one
+  ([Why the record lives on the pod](./observability.md#why-the-record-lives-on-the-pod))
+- **a container with `imagePullPolicy: Never`** is told to use the node's cache and nothing else.
+  Rewriting its reference could only turn a working pod into a failing one, whatever the candidate
+  ordering says
+
+The first cannot fire on a pod the webhook has not already been through, and how kuik tells its own
+output from anything else belongs to the admission path rather than to any resource:
+[Reinvocation](./architecture.md#reinvocation).
+
+One consequence of the first gate is worth stating here, because it reaches well past the webhook.
+When another mutating webhook replaces the reference kuik placed, kuik does not write over it: it
+stands down, and withdraws its own record with it. The container then reads, to every part of kuik
+that looks at a pod, like one kuik never touched — no attribution, no origin to mirror, no injected
+pull secret — which is what it now is
+([What conceding removes](./architecture.md#what-conceding-removes)). Nothing in any of this is what
+prevents a mirror from mirroring an image.
+
+Everything else is a matter for the selectors. v2's global `skipLabels` / `skipAnnotations` have no
+v3 equivalent: excluding a workload is expressed on the resources that would otherwise apply to it,
+so an exclusion is visible on the object that owns the decision rather than in the operator's
+configuration. And v2's third gate is gone outright — digest-pinned containers are routed like any
+other image, see [Digest-pinned images](#digest-pinned-images).
+
 ## ImageAlternative
 
 ```yaml

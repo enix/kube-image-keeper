@@ -44,10 +44,11 @@ admission outcomes depend on apply order. Overlap is resolved at lookup time ins
 
 ## 2. Pod admission, mutating webhook
 
-1. **pod-level gates** — skip mirror pods, pods matching the global `skipLabels` / `skipAnnotations`,
-   containers already listed in `kuik.enix.io/original-images`, and `imagePullPolicy: Never`. Same as
-   v2 minus one gate: digest-pinned containers are no longer skipped, they route like any other image
-   ([digest-pinned images](../spec.md#digest-pinned-images))
+1. **gates** — per container: one whose reference kuik produced itself, or one with
+   `imagePullPolicy: Never`, is left alone
+   ([what the webhook never rewrites](../spec.md#what-the-webhook-never-rewrites)). The first cannot
+   fire on a first admission: it decides what happens on a
+   [reinvocation or a replayed spec](../architecture.md#reinvocation).
 2. **normalization** — `nginx:1.27` becomes `docker.io/library/nginx:1.27`, which is what matching,
    cache keys and status keys all use. It matters here: only after normalization does the pod's image
    match the third entry
@@ -91,8 +92,10 @@ admission outcomes depend on apply order. Overlap is resolved at lookup time ins
 
 Two properties worth noting for this CR. A pod that directly references
 `public.ecr.aws/docker/library/nginx:1.27` matches entry 1 of the same CR and gets the same three
-candidates, with ECR now at the pivot. And rerouting cannot chain into a loop, since the webhook
-mutates once and `original-images` makes the pod ineligible afterwards.
+candidates, with ECR now at the pivot. And the rewrite is not sticky: nothing re-decides it, because
+the pod that carries it never returns to admission. The next pod of that Deployment is built from
+the template, with `nginx:1.27` in it, and gets the candidate that is available *then* — so a Docker
+Hub outage that ends is followed back on the next rollout, with nothing to unwind.
 
 Two implementation costs, both consequences of this CR carrying no selector, so that every pod in the
 cluster goes through it:

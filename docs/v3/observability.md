@@ -75,8 +75,8 @@ itself carries no such judgement.
 
 These ride along in the **mutation the webhook returns**, the patch travels back in the `AdmissionResponse` and the API server applies it to the object it was already writing.
 
-Four annotations. Three are JSON objects keyed by **container name** — a pod has many containers and
-each one is decided independently — and the fourth is a JSON list of container names:
+Five annotations. Four are JSON objects keyed by **container name** — a pod has many containers and
+each one is decided independently — and the fifth is a JSON list of container names:
 
 ```yaml
 metadata:
@@ -90,6 +90,10 @@ metadata:
     #   Always:    a `rewritePolicy: Always` resource asked for the rewrite
     #   OnFailure: the original did not answer, rewritten to the first candidate that did
     kuik.enix.io/reason: '{"prometheus":"Always","thanos-sidecar":"OnFailure"}'
+    # Rewrites kuik withdrew: another mutating webhook replaced the reference kuik had placed, and
+    # kuik stood down rather than write over it. Holds the three things the pod no longer shows —
+    # the origin, the reference kuik had placed, the resource that supplied it
+    kuik.enix.io/conceded-rewrites: '{"oauth-proxy":{"from":"quay.io/oauth2-proxy/oauth2-proxy:v7.7.1","was":"registry.tld/mirror/quay.io/oauth2-proxy/oauth2-proxy:v7.7.1_cluster-a","by":"ImageMirror/prod-mirror"}}'
     # Containers no candidate could serve, left untouched. A list, not a map: there is no reference
     # to preserve and no resource to attribute, only the fact that kuik had nothing to offer
     kuik.enix.io/no-alternatives: '["config-reloader"]'
@@ -97,7 +101,7 @@ metadata:
 
 ### Where a container appears says what happened to it
 
-Three outcomes, three disjoint places to look:
+Four outcomes, four disjoint places to look:
 
 - a container kuik **left alone because the original answered** appears nowhere. Nothing happened, so
   there is nothing to record — which is why a pod with no kuik annotation at all is the normal case
@@ -121,6 +125,14 @@ Three outcomes, three disjoint places to look:
   because "kuik tried and had nothing to offer" is what `pods.noAlternatives` and
   `kuik_no_alternatives_total` count, and without it the container would be indistinguishable from one
   kuik never looked at
+- a container kuik rewrote and then **conceded** appears in `conceded-rewrites`, and in none of the
+  other maps. Another mutating webhook replaced the reference kuik had placed and kuik stood down
+  rather than write over it
+  ([what conceding removes](./architecture.md#what-conceding-removes)), so the entry holds
+  what the pod no longer shows anywhere: the origin, the reference kuik had placed, and the resource
+  that supplied it. Being out of the other three maps is exactly what makes the container invisible
+  to attribution, to the syncer and to the mirror — for all of them it is one kuik never touched,
+  which is what it now is
 
 ### Why the record lives on the pod
 
@@ -128,7 +140,9 @@ Three outcomes, three disjoint places to look:
 un-computed — the destination layout is one-way, long tags being truncated and hashed
 ([walkthrough A.3](./walkthroughs/02-imagemirror-reconciliation.md#a3-resolve-the-origin-reference))
 — and re-deriving it by replaying the matching would give the wrong answer as soon as a resource is
-edited between admission and reconcile. Recording it verbatim removes the question.
+edited between admission and reconcile. Recording it verbatim removes the question. The same reason
+keeps `from` on a conceded entry rather than dropping it with the rest: a rewrite kuik gave up still
+had an origin, and it is the one part of the story the pod would otherwise hold no trace of.
 
 `rewritten-by` is what makes attribution disjoint — one resource owns each rewritten container, so the
 `pods` gauges of different resources never double-count ([Attribution](./spec.md#attribution)) — and it
@@ -207,6 +221,7 @@ metric instead, where it stays visible and alertable without shouting.
 | `ImageFallback` | Pod | Normal | The original was unavailable and an alternative candidate answered. The message carries the original reference, the retained one, and the resource that supplied it — which is what makes an inter-resource ordering debuggable |
 | `NoAlternativeAvailable` | Pod | Warning | The original was unavailable and no alternative candidate answered. The pod is left untouched and may still start from the node's cache |
 | `PullSecretInjectionFailed` | Pod | Warning | The syncer could not materialise the secret the webhook referenced |
+| `RewriteConceded` | Pod | Warning | Another mutating webhook replaced the reference kuik had placed, and kuik stood down rather than write over it. The message carries the container, the origin, the reference kuik had placed, the resource it came from, and the image that won. It emits because it has a remedy: two components are disputing one field, and one of the two scopes has to move |
 | `AmbiguousRewrite` | the resources involved | Warning | Two `rewritePolicy: Always` resources place a *different* candidate ahead of the original for the same image. Emitted once on the resources, not per pod |
 | `ImageCopied` | `ImageMirror` | Normal | First copy of an image to the destination |
 | `ImageRecopied` | `ImageMirror` | **Warning** | A manifest that had been copied was found missing and copied again. This is the most valuable event of the set: it means something outside kuik deleted from the destination while pods may be routed to it |
@@ -423,11 +438,12 @@ surprise.
 | `kuik_image_drifted{kind, name, image}` | 1 while the digest a resource accounts for differs from the upstream digest of that tag — the digest running in the cluster for an `ImageMonitor`, the digest held at the destination for an `ImageMirror`. `image` is the origin reference in both cases. Status side: `driftedImages` on either kind |
 | `kuik_mirror_image_failed{kind, name, image, reason}` | 1 while an image cannot be copied to the destination |
 | `kuik_image_cluster_skew{kind, name, image}` | Number of distinct digests running for one image reference, mirroring the length of its `runningDigests` in the status. Present only while pods disagree, so its value is always 2 or more |
+| `kuik_rewrite_conceded{kind, name, image}` | Live pods carrying a container this resource had rewritten and another mutating webhook replaced. `image` is the origin reference. Status side: `concededRewrites` on the routing resource |
 
 The `reason` label on the first and third is the [shared vocabulary](#reasons) — enumerated, hence
 safe on a series, and identical to the one the corresponding status entry carries.
 
-What unites these four is not their value but the fact that **the series exists only while the
+What unites these five is not their value but the fact that **the series exists only while the
 anomaly does**: an alert fires on presence and resolves when the series goes away, without ever
 comparing a number to a threshold.
 
@@ -436,7 +452,8 @@ Their values differ accordingly. Three carry the constant `1`, because presence 
 are the same condition but not the same urgency, and once the series exists there is no reason to
 spend its value on a constant. Alerting is written the same way for all four. The division with the
 status is the usual one — the metric says how many and since when, the status says which digests and
-how many pods are on each.
+how many pods are on each. `kuik_rewrite_conceded` is also a count of affected pods instead of a
+constant.
 
 `kuik_image_drifted` is the one series both kinds produce, which is why its `image` label is the
 **origin** reference on either — the destination reference would say the same thing in a form only one
@@ -451,8 +468,8 @@ Either way, this requires the exporter to **delete the series from its collector
 rather than merely stopping to update it. Removing it marks the series stale immediately; leaving it
 in place makes the last value linger for the staleness window and alerts resolve late.
 
-Each of the four has its bounded list in a status, per the rule at the top of this document — the
-metric says how many and since when, the status says which digests, which pods.
+Each of the five has its bounded list in a status, per the rule at the top of this document — the
+metric says how many and since when, the status says which digests, which pods, what replaced what.
 What none of them has is a matching **aggregate gauge**, unlike the states in the first table, and
 that would be redundant: `count(kuik_image_cluster_skew)` is the total, computed over a series that is
 bounded by construction. The aggregates in the status exist because a status cannot run PromQL.

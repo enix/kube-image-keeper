@@ -61,7 +61,7 @@ Everything the processes share travels through the API server, in one direction:
 
 ```text
   reconciler ──(status: unavailable images, drift)──▶  webhook
-  webhook    ──(pod annotations: original-images, rewritten-by, reason, no-alternatives)──▶  reconciler, syncer
+  webhook    ──(pod annotations: original-images, rewritten-by, reason, conceded-rewrites, no-alternatives)──▶  reconciler, syncer
 ```
 
 The reconciler **publishes** what it observed; the webhook **consumes** it, through informers, to
@@ -270,11 +270,25 @@ turn off.
 > no declaration at all, as previous kuik version did. Switching to `restricted` may require more
 > configuration and should be a conscious choice.
 
-## Failing open
+## The admission path
 
-The mutating webhook is registered with `failurePolicy: Ignore`. A kuik that is down, slow or
-misconfigured therefore stops rewriting images — pods are admitted with the references their authors
-wrote — and never stops pods from being scheduled.
+Three lines of the `MutatingWebhookConfiguration` decide how the API server treats kuik:
+
+```yaml
+failurePolicy: Ignore         # a kuik that is down must not stop a pod
+rules:
+- operations: [CREATE]        # a pod is routed when it is created, never later
+  resources: [pods]
+reinvocationPolicy: IfNeeded  # another webhook may run after kuik, so kuik may be called again
+```
+
+Each is a decision with a cost, and they are taken below in that order. The last one shapes the
+admission path itself: a webhook that can be called twice has to be able to answer twice.
+
+### Failing open
+
+A kuik that is down, slow or misconfigured stops rewriting images — pods are admitted with the
+references their authors wrote — and never stops pods from being scheduled.
 
 This is the single most important property of the deployment, and it is what the rest of the design
 is arranged around: routing is an improvement applied when it can be, never a dependency of the
@@ -282,3 +296,125 @@ cluster's ability to start a workload. It is the same reasoning that keeps the w
 write of its own, free of an informer on pods, and that bounds every probe it makes with
 [`availabilityCheck.timeout`](./spec.md#global-config) — each of those is one more way an unhealthy
 kuik could have delayed an admission, removed.
+
+### Only on CREATE
+
+The rule matches a pod when it is created, and on no other write (like `kubectl set image`, or a
+controller adding a toleration).
+
+The main reason is that **`spec.imagePullSecrets` is not mutable on a Pod.** What an update may
+change is only a subset of fields and the pull secrets are not on that list. A rewrite needing an
+injected credential would therefore make the API server **reject the user's own update**, and
+[`failurePolicy: Ignore`](#failing-open) does not cover it: the webhook succeeded, validation is
+what refuses.
+
+Relying only on CREATE make the admission cost is bound to pod churn and not on subsequent updates.
+
+### Reinvocation
+
+A mutating webhook that declares `IfNeeded` may be called again when another admission plugin has
+modified the object after its first call — which is the only way kuik ever sees a sidecar an injector
+added after it ran.
+
+kuik asks for that because it cannot ask for anything better. The API server invokes mutating
+webhooks in the alphabetical order of their `MutatingWebhookConfiguration` names, an implementation
+detail chosen so that a serial execution is deterministic, not an ordering anyone may rely on — and
+the same documentation that defines `IfNeeded` states that webhooks using it *may be reordered*, and
+that the number of additional invocations *is not guaranteed to be exactly one*. Running last is
+therefore not an available position: the only name that would buy it is one no other vendor has
+picked yet, and it would still not survive a reordering.
+
+What that costs is stated in the same place: a mutating webhook **must be idempotent**, able to
+process an object it has already admitted and modified.
+
+That object is never a pod coming back for a second admission — that never happens. A rescheduled
+workload is a **new** Pod built from a template that still holds the original reference, resolved
+afresh on the availability of the moment. Only two situations put an already-mutated spec in front
+of the webhook.
+
+One is a **reinvocation**: another mutating webhook changes the pod after kuik ran, and the API
+server calls kuik again on its own output. The other is a **replayed spec**, a live Pod object
+created again as it stood, like a Velero restore or `kubectl debug --copy-to`. Both carry kuik's
+output **and** the record that identifies it as such, which is what the gate reads.
+
+The gates of [what the webhook never rewrites](./spec.md#what-the-webhook-never-rewrites) exist for
+those two situations, and the rest of this section is how they hold.
+
+#### Recognising kuik's own output
+
+Nothing is stored for it. Picking a candidate is deterministic given the candidate list and the
+availability of each entry, so kuik finds its own output by **running the resolution again** from
+the origin recorded in `kuik.enix.io/original-images`. It is the resolution kuik already knows how
+to do, and the two invocations of a reinvocation are milliseconds apart, so it is answered from
+[`activeCheckCache`](./spec.md#global-config) on all but a cold replica — which pays real probes,
+bounded by `availabilityCheck.timeout`.
+
+Every container then falls in one of four states:
+
+| State | Test | What kuik does |
+| ----- | ---- | -------------- |
+| **new** | the pod holds no record for it | resolves it like any other container |
+| **intact** | its reference is **one of** the candidates for that origin and that resource | nothing at all, and the record stands |
+| **conceded** | its reference is **none of** them | withdraws, and records what it lost |
+| **gone** | the container is no longer in the pod | drops the entry, silently |
+
+**Membership** is what decides, not equality with the candidate the resolution returns now. The two
+part ways in a case that is not exotic: a spec replayed days later, whose origin has become
+available again in the meantime. The resolution answers "I would take the origin" while the pod
+carries the mirror — the same candidate list, a different element of it. Equality would read a
+conflict where there is none, drop the attribution and report a concession that never happened;
+membership recognises kuik's own output and leaves it where it is. It is the same rule as
+[the rewrite is not sticky](./walkthroughs/01-routing-only.md#2-pod-admission-mutating-webhook),
+read from the other end: a live pod is never un-rewritten, and an origin that comes back is followed
+on the next rollout.
+
+A rewrite to **another entry of the same resource** is *intact* for that reason too. Deliberately:
+nothing lies — the origin is right and so is the attribution — and the only fact lost is one nobody
+acts on.
+
+A container the pod holds no record for is *new* even when another webhook has just written its
+image. kuik rewrites the reference it finds and only refuses to play over its own; anything else and
+it would stop rewriting altogether as soon as a sidecar injector runs before it. Which is also why
+all of this is read per container rather than per pod: the sidecar just injected is routed like any
+other image, while the containers kuik already served are left exactly as they are.
+
+**kuik rewrites a container at most once per admission.** Once rewritten, its reference belongs to
+kuik's own candidates, so every later round reads it as *intact* or *conceded* and never as *new* —
+whatever the other webhook does, and however many rounds the API server runs. That sentence is the
+whole termination argument, and it assumes nothing about the other webhook.
+
+#### What conceding removes
+
+kuik does not rewrite over a reference another webhook chose. Two webhooks disputing one image field
+produce a result that depends on invocation order, and that order is not kuik's to control — so kuik
+withdraws, and records what it lost:
+
+```yaml
+kuik.enix.io/conceded-rewrites: '{"nginx":{"from":"docker.io/library/nginx:1.27","was":"registry.tld/mirror/docker.io/library/nginx:1.27_cluster-a","by":"ImageMirror/prod-mirror"}}'
+```
+
+Three fields, and the image that won is not among them: it is on the container, where duplicating it
+would only give it a chance to diverge. `was` is what the resolution above returns, which in the
+case this is written for — a reinvocation, milliseconds after the rewrite — is the reference kuik
+had placed.
+
+The container leaves `original-images`, `rewritten-by` and `reason`, and does not enter
+`no-alternatives`. Downstream it becomes indistinguishable from a container kuik never touched,
+which is what it now is: the status controllers fall back to the live reference
+([Attribution](./spec.md#attribution)). `conceded-rewrites` has exactly one reader, the reconciler,
+which turns it into an event and a metric series ([observability](./observability.md#annotations)).
+
+The entry is also what makes the state stable: a container listed there is never taken up again, so
+a further round reaches the same decision and produces no patch.
+
+**The pull secret follows as an invariant, not as an action.** When the pass ends, the pod carries a
+kuik-injected name (`kuik-inject-<kind>-<name>`) **if and only if** a container still attributed to
+that resource in `rewritten-by` needs an injected credential
+([`injectPullSecret`](./spec.md#injectpullsecret)). Put that way it is idempotent across
+reinvocations, self-healing on a replayed spec, and it settles on its own the pod whose *other*
+containers that resource still serves. The only name it ever removes is the one the syncer
+materialised for that resource — the `imagePullSecrets` the pod declared itself are never touched —
+and that secret has no business serving an image another webhook chose, since it covers the registry
+of an alternative kuik no longer supplies. Leaving it behind would leave a dangling reference, the
+syncer collecting the Secret as soon as the attribution is gone
+([walkthrough 03](./walkthroughs/03-secret-syncer-reconciliation.md)).

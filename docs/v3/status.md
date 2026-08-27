@@ -13,6 +13,7 @@ status:
     tracked: 123       # Number of pods this CR could apply to
     rewritten: 12      # Number of pods effectivly rewritten (either by `OnFailure` or `Always` policy)
     noAlternatives: 2  # Number of pods left untouched as no alternatives image was available
+    conceded: 1        # Number of pods where another mutating webhook replaced what KuiK had placed
   # Store the list of fallback images (only with `rewritePolicy: OnFailure`)
   activeFallbacks:
   - image: quay.io/thanos/thanos:v0.42.2
@@ -23,6 +24,15 @@ status:
   - image: quay.io/thanos/thanos:v0.42.2-debug
     pods: 2
     since: "2026-07-11T07:27:36Z"
+  # Rewrites this CR made and another mutating webhook overwrote, read back from the pods'
+  # `kuik.enix.io/conceded-rewrites` annotation. The anomaly behind `kuik_rewrite_conceded`: two
+  # components are disputing one field and one of the two scopes has to move
+  concededRewrites:
+  - image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1              # origin, as the metric labels it
+    routedTo: registry.tld/mirror/quay.io/oauth2-proxy/oauth2-proxy:v7.7.1_cluster-a
+    replacedBy: internal.tld/oauth2-proxy:v7.7.1                 # what the pod actually runs now
+    pods: 1
+    since: "2026-07-11T11:02:00Z"
   conditions:
   - type: Ready               # Valid config and could read secrets (if provided)
     status: "True"
