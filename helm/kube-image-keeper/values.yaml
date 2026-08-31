@@ -18,6 +18,8 @@ manager:
   imagePullSecrets: []
   # -- Annotations to add to the manager pod
   podAnnotations: {}
+  # -- Labels to add to the manager pod
+  podLabels: {}
   # -- Security context for the manager pod
   podSecurityContext: {}
   # -- Security context for containers of the manager pod
