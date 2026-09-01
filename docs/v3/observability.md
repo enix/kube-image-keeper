@@ -340,13 +340,21 @@ to sum — `tracked` is the total, the others overlap it.
 
 | Metric (gauge) | HELP |
 | -------------- | ---- |
-| `kuik_monitor_cycle_duration_seconds{kind, name, registry}` | Wall-clock seconds taken by the last completed check lap over a registry's images. Absent until a first lap completes |
+| `kuik_check_cycle_duration_seconds{kind, name, registry}` | Wall-clock seconds taken by the last completed check lap over a registry's images. Produced by an ImageMonitor for the images it tracks, and by an ImageMirror under `driftPolicy: Warn` / `Sync` for the source tags it re-reads. Absent until a first lap completes |
 | `kuik_mirror_self_checked_timestamp_seconds{kind, name}` | Unix timestamp at which the last full comparison of the destination finished |
 | `kuik_registry_interval_seconds{registry, operation}` | Configured length of the window between two requests of this operation to a registry, as currently loaded |
 
 The first two are what an operator watches to decide whether the configured pace still matches the
 workload: a lap duration that grows past what the freshness of a verdict is worth, or a self-check
 timestamp that stops advancing.
+
+They are also where the `kind` label earns its keep, since `kuik_check_cycle_duration_seconds` is the
+one scheduling series two kinds produce: a ring belongs to a **(resource, host)** pair
+([Scheduling](./spec.md#one-budget-per-host-one-ring-per-resource)), and a mirror re-reading an
+upstream tag holds one just as a monitor does. The series never covers a mirror's *destination* — that
+is what `kuik_mirror_self_checked_timestamp_seconds` is for, and the reason the two are shaped
+differently: a lap only means something where the work is paced, and nothing paces a registry kuik
+owns.
 
 The third exposes **configuration**, and it is there so that PromQL can compute the values that
 otherwise have to be hard-coded into alerting rules and then kept in sync with the YAML by hand:
@@ -362,9 +370,11 @@ otherwise have to be hard-coded into alerting rules and then kept in sync with t
   `Ok`) or single copies outlasting their own window — which `kuik_mirror_copy_duration_seconds`
   settles, when enabled.
 - **expected lap length.** One image is checked per window, so a full lap ought to take
-  `tracked images × interval`. Comparing the measured `cycle_duration` to that product surfaces lost
+  `ring size × interval`. Comparing the measured `cycle_duration` to that product surfaces lost
   windows — failures, restarts, contention — as a ratio above 1 rather than as a number nobody can
-  interpret.
+  interpret. Ring size is `kuik_monitor_images_by_registry{state="tracked"}` for a monitor and the
+  mirrored images pulled from that host for a mirror; on a shared host the ratio also rises simply
+  because the rings share the budget, which is the same signal read one level up.
 - **thresholds that follow the config.** "Alert if a lap takes twice what was asked for" becomes
   expressible, instead of a literal that silently drifts the day someone edits `interval`.
 

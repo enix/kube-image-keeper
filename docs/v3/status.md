@@ -119,6 +119,22 @@ status:
   - registry.tld/mirror/quay.io/acme/tool
   - registry.tld/mirror/quay.io/prometheus/prometheus
   - registry.tld/mirror/quay.io/thanos/thanos
+  # Health of the drift check schedule, and only that: present when `driftPolicy` is `Warn` or `Sync`,
+  # absent under `Ignore`. Re-reading an upstream tag is a read of a *source* host, so it takes that
+  # host's check windows and turns a ring of its own, exactly like an ImageMonitor's — one ring per
+  # (resource, host), cursor persisted so the lap resumes at its successor on restart (see
+  # "Scheduling" in spec.md). The *destination* has no entry here and never will: it is written by
+  # KuiK, carries no quota to spare, and its verification is the unpaced self-check above
+  checks:
+    registries:
+    - registry: quay.io                    # a source host this mirror re-reads, never the destination
+      cursor: quay.io/thanos/thanos        # last tag re-read, the ring resumes at its successor
+      cycleStarted: "2026-07-10T05:00:00Z"
+      # measured lap: how often each mirrored tag of this host is re-read for drift, hence the delay
+      # before a `Warn` is reported or a `Sync` is queued. Absent until a first lap completes, and
+      # not derived from `images.copied * interval` — every ring of a host shares its windows with
+      # the ImageMonitors tracking it
+      cycleDuration: 96h
   conditions:
   - type: DestinationOutOfSync # True = the destination does not hold the desired state (yet)
     status: "True"

@@ -506,7 +506,8 @@ reported in [status](./status.md#imagemonitor). A monitor alone on a host with 6
 `interval: 10m` laps in 10 hours; lowering `interval` re-checks each image sooner and sends that host
 more requests. Drift detection (`driftDetection: true`) reads the same manifest on the same windows,
 and an `ImageMirror` takes a window of its **source** host when `driftPolicy` is `Warn` or `Sync`, to
-re-read the upstream tag.
+re-read the upstream tag — a paced read like any other, so it holds a ring of its own there and
+reports its cursor and lap in [status](./status.md#imagemirror) exactly as a monitor does.
 
 **Copies** are paced by [`registries.<host>.copy.interval`](#global-config), on windows of their own.
 Where checks cycle a ring, copies drain a queue: the images the mirrors still owe (`images.desired`
