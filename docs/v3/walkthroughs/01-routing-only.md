@@ -130,8 +130,9 @@ status:
       pods: 12
       since: "2026-07-31T09:14:00Z"
   conditions:
-    - type: NoActiveFallback
-      status: "False"
+    - type: FallbackActive
+      status: "True"
+      reason: OriginUnavailable
       message: "1 image routed to fallback (12 pods)"
 ```
 

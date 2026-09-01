@@ -157,7 +157,7 @@ Pinned references remain desired-state entries **keyed by digest**, independent 
 
 ### B.6 Report
 
-`DestinationInSync` reflects whether observed matches desired. A failing credential or an invalid configuration flips `Ready` instead — the two conditions answer different questions ("is the mirror complete?" vs "can the mirror work at all?").
+`DestinationOutOfSync` is `True` for as long as observed differs from desired. A failing credential or an invalid configuration flips `Ready` instead — the two conditions answer different questions ("is the mirror complete?" vs "can the mirror work at all?").
 
 ---
 

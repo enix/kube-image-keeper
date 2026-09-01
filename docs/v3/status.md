@@ -4,6 +4,11 @@ We only persist aggregates, anomalies and information that could not be recomput
 
 Status is only computed via informer on leader elected controller, nothing is updated directly in mutating webhook. Which process writes what, and why the webhook writes nothing, is in [architecture v3](./architecture.md); the events and metrics that complete it are in [observability v3](./observability.md).
 
+Conditions follow one rule: **`Ready` is the only one that is `True` when things are well.** Every
+other condition names an anomaly and stays `True` for as long as it lasts, so "is anything wrong with
+this resource?" is a single query — a condition whose `status` is `True` and whose `type` is not
+`Ready`.
+
 ## ImageAlternative
 
 ```yaml
@@ -34,13 +39,16 @@ status:
     pods: 1
     since: "2026-07-11T11:02:00Z"
   conditions:
-  - type: Ready               # Valid config and could read secrets (if provided)
+  - type: Ready                   # Valid config and could read secrets (if provided)
     status: "True"
-  - type: NoActiveFallback    # False = KuiK avoided a pull error by rewriting an alternative image
-    status: "False"
+    reason: IsReady
+  - type: FallbackActive          # True = KuiK avoided a pull error by rewriting an alternative image
+    status: "True"
+    reason: OriginUnavailable
     message: "1 image routed to fallback (12 pods)"
-  - type: NoAlternatives      # True = KuiK could not find an available image in alternatives
-    status: "True"            # Pod may start if image is cached on node, else it result in a pull error
+  - type: AlternativesExhausted   # True = KuiK could not find an available image in alternatives
+    status: "True"                # Pod may start if image is cached on node, else it result in a pull error
+    reason: AllCandidatesFailed
     message: "1 image unavailable (2 pods)"
 ```
 
@@ -112,11 +120,13 @@ status:
   - registry.tld/mirror/quay.io/prometheus/prometheus
   - registry.tld/mirror/quay.io/thanos/thanos
   conditions:
-  - type: DestinationInSync    # Destination registry in desired state
-    status: "False"
+  - type: DestinationOutOfSync # True = the destination does not hold the desired state (yet)
+    status: "True"
     reason: MissingImages
+    message: "3 images not copied yet"
   - type: Ready                # Conf valid and working credentials
     status: "True"
+    reason: IsReady
     # status: "False", reason: RegistryDeleteUnsupported when cleanup.enabled and the destination
     # registry rejects tag deletion (e.g. responds 405 to DELETE /v2/<name>/manifests/<tag>) — cleanup
     # cannot make progress until this is fixed, see "Destination registry requirements" in spec.md
@@ -186,7 +196,8 @@ status:
       # images of quay.io and takes some of its windows
       cycleDuration: 240h                  # 1101 images, quay.io `interval: 10m`
   conditions:
-  - {type: AllImagesAvailable, status: "False"}        # a tracked image is unavailable
-  - {type: AllAlternativesAvailable, status: "False"}  # an alternative of tracked image is unavailable
-  - {type: NoImageDrift, status: "False"}              # digest drift detected
+  - {type: Ready, status: "True", reason: IsReady}                            # Conf valid and working credentials
+  - {type: ImagesUnavailable, status: "True", reason: ChecksFailed}              # a tracked image is unavailable
+  - {type: AlternativesUnavailable, status: "True", reason: ChecksFailed}        # an alternative of a tracked image is unavailable
+  - {type: ImagesDrifted, status: "True", reason: UpstreamDigestMoved}           # digest drift detected
 ```

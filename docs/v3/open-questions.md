@@ -21,28 +21,3 @@ tag exactly when the pod asked to. The caveat is that `imagePullPolicy: Always` 
 in complicated ways with kuik, so this is parked for review **after v3.0**.
 
 Status: open; `Ignore` stays the default in the spec for now, `Auto` deferred post v3.0.
-
-## `ImageAlternative` status condition naming (`NoActiveFallback` / `NoAlternatives`)
-
-Sources: [PR #629, thread on `NoActiveFallback`](https://github.com/enix/kube-image-keeper/pull/629#discussion_r3650519411)
-and [thread on `NoAlternatives`](https://github.com/enix/kube-image-keeper/pull/629#discussion_r3650528268),
-both on [`status.md`](./status.md).
-
-Two related concerns about the conditions currently declared on `ImageAlternative.status`:
-
-1. `NoActiveFallback` reads as a double negation in practice (`NoActiveFallback=False` means a fallback
-   *is* in use). Naming it positively, for instance `ActiveFallback` or `FallbackInUse`, would read
-   better. The usefulness of the condition itself was also questioned: is there a real scenario where
-   an operator would `kubectl wait` on it? The plausible one is "wait until all pods are using their
-   intended images", which does make sense, but ideally without the negation.
-2. `NoAlternatives` has the same problem in reverse. The likely use case is "wait until every image in
-   every pod has at least one available alternative", which suggests inverting the condition, but the
-   candidate name (`AtLeastOneAlternativeAvailable`) is clumsy and needs more work.
-
-The polarity choice is not free: Kubernetes API conventions push toward positive polarity condition
-types, while `Normal-True` conditions (a condition that is `True` in the healthy case) are what keeps
-`kubectl get` output quiet, and that is exactly what the `NoXXX` naming was buying here. Any rename
-has to pick which of the two it optimises for, and stay consistent across all CRs.
-
-Status: open, deferred. The v3.0 CRDs ship as **alpha**, so conditions can be renamed or reshaped
-later without a breaking change.
