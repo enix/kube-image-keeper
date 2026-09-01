@@ -4,7 +4,7 @@
 
 The syncer does not reconcile pods, and it does not reconcile CRs. Its unit of work is the pair:
 
-```
+```text
 (routing CR, namespace)
 ```
 
@@ -28,7 +28,7 @@ In both cases the pair `(C, N)` comes into existence for the syncer at that mome
 ### A.2 Determine which credentials are needed
 
 | `rewritePolicy` | Desired set | Derived from |
-|---|---|---|
+| --- | --- | --- |
 | `Always` | every injectable entry of the CR | the CR spec and the namespace labels |
 | `OnFailure` | the entries used by live rewritten pods of that namespace, plus those used recently (C.1) | the observed pods |
 
@@ -142,7 +142,7 @@ Under `OnFailure`, the content follows the live rewritten pods, and it **has** t
 **Not immediately.** An entry that leaves the computed set is kept for a grace period before it is actually dropped. This distinguishes the two very different reasons an entry stops being used:
 
 | Why the entry disappeared | What it means | What the grace does |
-|---|---|---|
+| --- | --- | --- |
 | The origin registry recovered; pods are no longer rewritten | The credential is genuinely no longer needed, and durably so | The entry ages out and is dropped |
 | Scale-down, rollout, eviction — while the origin is still down | The pods are coming back, and they will need it again in seconds | The entry survives; the returning pods find a working Secret |
 
@@ -167,7 +167,7 @@ This is also why the owner must be the CR and not something else: it is the only
 Reconciliation never requires reading a Secret outside `kuik-system`. It is worth seeing the four techniques together, because each one replaces a lookup that would otherwise be necessary:
 
 | Would normally require | Replaced by |
-|---|---|
+| --- | --- |
 | Reading the existing object before updating it | Blind server-side apply — `patch` needs no `get`, and identical content is a server-side no-op |
 | Searching for objects created earlier | Names derived from CR identity — always recomputable, never stale |
 | Tracking what to delete | `ownerReferences` — Kubernetes does the cleanup |
