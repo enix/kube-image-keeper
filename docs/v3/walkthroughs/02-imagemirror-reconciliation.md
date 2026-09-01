@@ -100,7 +100,7 @@ Then perform the copy:
 
 2. **Multi-cluster fast path:** `HEAD` the manifest **by digest** in the destination repository, using the credentials and digest retained above. If another cluster already pushed it, the copy reduces to a `PUT` of this cluster's tag — a few KB, zero blob transferred. Blobs are linked per repository, so clusters sharing a repository share them natively. Reading from an alternative, that digest may differ from the one the origin tag resolves to, in which case the fast path misses a manifest another cluster pushed from the origin: the copy then runs in full, which costs a transfer and stays correct.
 3. **Otherwise copy verbatim**: the index and all its children, digest preserved end to end.
-4. **Tag it** as computed in A.6, and record what was actually read as OCI annotations: `kuik.enix.io/source-ref` names the reference the bytes came from, `kuik.enix.io/source-digest` its digest. They make the artifact self-describing for a human running `crane manifest`, whatever mangling the tag went through, and `source-digest` is the digest `driftPolicy` compares against later (B.5) — so a copy served by an alternative is recognisable as such instead of passing for the origin's bytes.
+4. **Tag it** as computed in A.6.
 
 ### A.9 Report
 
