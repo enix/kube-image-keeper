@@ -624,9 +624,8 @@ resource namespace*, configurable by an operator flag), exactly as cert-manager 
 
 ### `provider`
 
-The enum is **closed** (`aws`, `gcp`, `azure`), with deliberately no `exec:` credential helper:
-running arbitrary binaries from a minimal image is a security surface kuik does not want. Region and
-project are derived from the registry hostname.
+The enum is **closed** (`aws`, `gcp`, `azure`). Region and project are derived from the registry
+hostname.
 
 `serviceAccountRef` is optional and requests a token for that ServiceAccount, so a CR can carry its
 own IAM role instead of borrowing the controller's global identity.
@@ -642,7 +641,7 @@ Whether kuik copies a pull secret into the pod namespace, so the kubelet can pul
 | `provider` | `false` | the majority case is same-cloud, where the kubelet is already authorized natively |
 
 Set to `true` with a `provider`, kuik materializes, **renews** and injects a docker-registry secret —
-the cross-cloud case, and what makes 12h ECR tokens usable.
+the cross-cloud case, and what makes cloud-provider registries short lived tokens usable.
 
 `ImageMirror`'s `destination.push` ignores the field entirely: push credentials are only ever used by
 the controller. `registries.<host>.perPrefixFallbackAuth` ignores it too, for a different reason: the
@@ -702,9 +701,7 @@ list:
   `rewritePolicy: None`, for an image matching its `excludeImages`, or for an image already
   under its own `destination.path` ([Mirror loop prevention](#mirror-loop-prevention))
 - candidates are **deduplicated on (reference, resolved config), keeping the first occurrence**
-- sorting by name, not by `creationTimestamp` (the tie-break Gateway API uses): a timestamp is not
-  stable under GitOps, where deleting and recreating an object silently changes precedence, and
-  `kubectl get imagealternatives` displays the name order for free
+- sorting CR by name to handle possible overlapping config with deterministic alternatives order
 
 `Always` exists for latency and quota reasons, so an `Always` mirror has to beat a distant upstream
 alternative; under `OnFailure` the upstreams are canonical and fresh, so the local copy sits behind

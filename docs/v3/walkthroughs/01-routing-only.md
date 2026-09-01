@@ -147,8 +147,8 @@ routing-only CR.
 
 ## 4. ImageMirror and ImageMonitor controllers
 
-**Not involved.** No `destination`, so no copy loop, no `cleanup` GC, no `repositories` inventory, no
-`selfCheck` ring, no push credentials, no secret injected into user namespaces.
+**Not involved.** No `destination`, so no copy loop, no self-check loop, no `cleanup` GC, no
+`repositories` inventory, no push credentials, no secret injected into user namespaces.
 
 What changes when an `ImageMirror` matches these pods too — which
 [example 05](../examples/05-global-mirror-force-rewrite.yaml) does cluster-wide — is
