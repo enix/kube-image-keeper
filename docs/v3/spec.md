@@ -430,11 +430,16 @@ shared egress IP for anonymous pulls) hands that account or IP the sum of their 
   `clusterID` is validated against that alphabet and is expected to be short. A reference whose
   suffixed tag would exceed 128 characters is truncated deterministically, with a hash of the full
   tag appended, so the mapping stays injective for the endless tags CI systems produce
-- the separator is `_`, and stripping exactly **one** trailing `_<clusterID>` recovers the upstream
-  tag. That stays true for an upstream tag literally ending in `_cluster-a`, which cluster A copies
-  to `…_cluster-a_cluster-a`. The residual hazard is a *foreign* writer pushing a tag ending in
-  `_<clusterID>` under `destination.path`, which cleanup would take for its own: a mirror destination
-  is expected to be kuik's alone
+- the separator is `_`, and appending it is **unambiguous**: exactly one trailing `_<clusterID>` is
+  added, so an upstream tag literally ending in `_cluster-a` is copied by cluster A to
+  `…_cluster-a_cluster-a` rather than colliding with itself. What the suffix does *not* buy is a way
+  back: for a tag short enough to survive whole, stripping that one suffix happens to recover the
+  upstream tag, but a truncated-and-hashed tag recovers nothing, so **the mapping is one-way and
+  nothing in kuik reads it backwards** — every loop computes destination tags forward from the desired
+  state instead ([walkthrough 02,
+  invariants](./walkthroughs/02-imagemirror-reconciliation.md#cross-cutting-invariants)). The residual
+  hazard is a *foreign* writer pushing a tag ending in `_<clusterID>` under `destination.path`, which
+  cleanup would take for its own: a mirror destination is expected to be kuik's alone
 
 #### Sharing a destination requires `clusterID` everywhere
 
