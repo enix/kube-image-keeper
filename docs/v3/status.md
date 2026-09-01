@@ -156,7 +156,7 @@ status:
   images:
     tracked: 3241               # images tracked by this CR
     inUse: 3180                 # images associated for running pod
-    retained: 61                # images no longer running but still monitored for `unusedImageExpiry`
+    retained: 61                # images no longer running but still monitored for `unusedImageRetention`
     available: 3226
     unavailable: 4
     drifted: 2                  # image tag have digest different than the upstream one (only with driftDetection=true)

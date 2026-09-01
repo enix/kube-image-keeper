@@ -27,4 +27,4 @@ spec:
     matchExpressions:
       - key: kuik-monitor-ignore
         operator: DoesNotExist
-  unusedImageExpiry: 168h
+  unusedImageRetention: 168h

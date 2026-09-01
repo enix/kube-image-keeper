@@ -471,7 +471,7 @@ spec:
   podSelector: {}
   namespaceSelector: {}
 
-  unusedImageExpiry: 24h       # keep monitoring for a given time after no longer used in cluster
+  unusedImageRetention: 24h    # keep monitoring for a given time after no longer used in cluster
                                # useful for cronjob
 
   driftDetection: true         # Default: true - Detect if an image tag digest differ from pod running in cluster
