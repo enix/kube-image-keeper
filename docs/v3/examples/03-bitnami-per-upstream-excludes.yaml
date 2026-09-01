@@ -20,8 +20,6 @@ spec:
           - "/bitnamilegacy/.+"
         exclude:
           - "/bitnamilegacy/sealed-secrets.*:.+"
-          - "/bitnamilegacy/charts-syncer:.+"
-          - "/bitnamilegacy/minideb:.+"
       path: "/bitnamilegacy/"
     - registry: public.ecr.aws
       priority: 9999 # no longer available
