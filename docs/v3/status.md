@@ -162,7 +162,8 @@ status:
     available: 3226             # 11 short of `tracked`: those have not been checked yet, the
     unavailable: 4              # ring not having reached them since they entered it
     drifted: 2                  # image tag have digest different than the upstream one (only with driftDetection=true)
-  # Images from alternatives matching a running pod (only with monitorAlternatives=true)
+  # Alternatives kuik would offer for a tracked image, from ImageAlternative entries and ImageMirror
+  # destinations alike (only with monitorAlternatives=true)
   alternatives:
     tracked: 214
     unavailable: 2
@@ -177,11 +178,17 @@ status:
     reason: ManifestNotFound
     since: "2026-07-08T14:00:00Z"
     referencedBy: 3
+  # `via` names the resource the alternative came from: an ImageAlternative entry carries its index
+  # in `spec.alternatives`, an ImageMirror has a single destination and so carries none
   unavailableAlternatives:
   - ref: ghcr.io/thanos-io/thanos:v0.42.2
     derivedFrom: quay.io/thanos/thanos:v0.42.2
     via: "ImageAlternative/thanos[2]"
     reason: Unauthorized
+  - ref: registry.example.com/mirror/docker.io/acme/app:prod_cluster-a
+    derivedFrom: docker.io/acme/app:prod
+    via: "ImageMirror/registry-global"
+    reason: ManifestNotFound
   # Images with a running digest that differs from the upstream one (e.g. tag `latest` or similar).
   # Pods referencing the same tag can be pulled at different times, so more than one digest can be
   # running for the same ref at once (skew); runningDigests lists each one seen with its own pod count

@@ -499,10 +499,25 @@ spec:
 
   driftDetection: true         # Default: true - Detect if an image tag digest differ from pod running in cluster
 
-  monitorAlternatives: false   # Default: false - Also monitor alternative images in addition to the
-                               # original ones. Entries marked `unavailable: true` are never tracked
+  monitorAlternatives: false   # Default: false - Also monitor the alternatives kuik would offer for
+                               # each tracked image, from ImageAlternative entries and ImageMirror
+                               # destinations alike. Entries marked `unavailable: true` are never
+                               # tracked
 
 ```
+
+What an `ImageMonitor` tracks is the **origin** reference of every container of every pod its
+`podSelector` and `namespaceSelector` select — read from
+[`kuik.enix.io/original-images`](./observability.md#annotations) for pods the webhook already
+rewrote, per [Attribution](#attribution). A monitor therefore never sees a mirror's reference in
+place of the origin it replaced, whatever any routing resource did to the pod.
+
+`monitorAlternatives: true` adds, for each of those images, **every candidate a routing resource
+would offer for it** — an `ImageAlternative` entry and an `ImageMirror` destination alike, since both
+produce candidates ([Candidate ordering](#candidate-ordering)). A monitor holds no list of its own:
+it follows what the webhook would propose, which is why one flag covers both kinds and why the
+[status](./status.md#imagemonitor) reports the resource each alternative came from. Entries marked
+[`unavailable: true`](#unavailable) are excluded, being references nothing will ever be routed to.
 
 Drift is checked per tracked **tag**, not per pod: pods referencing the same tag can have pulled it at
 different times, so more than one digest can be running for that tag at once (skew). `status.driftedImages`
