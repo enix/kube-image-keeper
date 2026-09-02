@@ -15,7 +15,8 @@ this resource?" is a single query — a condition whose `status` is `True` and w
 status:
   # Gauge on living pods computed with informers
   pods:
-    tracked: 123       # Number of pods this CR could apply to
+    tracked: 123       # Number of pods selected by `podSelector` and `namespaceSelector`. Overlaps
+                       # between CRs by design, so never sum it across them (see "Attribution" in spec.md)
     rewritten: 12      # Number of pods effectively rewritten (either by `OnFailure` or `Always` policy)
     noAlternatives: 2  # Number of pods left untouched as no alternatives image was available
     conceded: 1        # Number of pods where another mutating webhook replaced what KuiK had placed

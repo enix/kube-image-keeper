@@ -895,21 +895,26 @@ If no source answers, nothing is copied and the image is counted in `status.imag
 
 ### Attribution
 
-The CR that supplied the retained reference is the one named in
-[`kuik.enix.io/rewritten-by`](./observability.md#annotations), and the only one to count the pod in its status, so the
-`pods` gauges are disjoint between CRs and between kinds and sum consistently. `pods.noAlternatives`
-is the exception: no candidate won, so every CR that contributed one counts the pod. It is read from
+The `pods` gauges of [status v3](./status.md) fall into two regimes, and telling them apart is what
+makes them readable:
+
+- **attributed** — `pods.rewritten` and `pods.conceded`. The CR that supplied the retained reference
+  is the one named in [`kuik.enix.io/rewritten-by`](./observability.md#annotations), and the only one
+  to count the pod, so these two are disjoint between CRs and between kinds and sum consistently
+- **shared** — `pods.tracked` and `pods.noAlternatives`, which overlap between CRs and must not be
+  summed across them
+
+`pods.tracked` counts the pods a CR's `podSelector` and `namespaceSelector` select. The overlap is
+deliberate: it answers "does this CR watch this pod?". It is emphatically not a claim of ownership —
+what a CR *did* is what `rewritten` reports, and the annotation is what settles it.
+
+`pods.noAlternatives` overlaps for a different reason: no candidate won, so every CR that contributed
+one counts the pod. It is read from
 [`kuik.enix.io/no-alternatives`](./observability.md#annotations), which lists the containers no
 candidate could serve and deliberately names no resource — an inaction belongs to none.
 
 Status controllers read the original reference from `kuik.enix.io/original-images`, falling back to
 the live container image for pods that were never rewritten and therefore carry no annotation.
-
-> [!NOTE]
-> Unsettled: [status v3](./status.md) defines `pods.tracked` as "pods this CR could apply to", which
-> overlaps between resources by construction and so cannot be disjoint. Either it is exempt from the
-> rule above (it answers "would this CR apply?", useful for reviewing a selector before it ever
-> wins), or it is redefined as "pods this CR owns". The other gauges are unaffected either way.
 
 ## Global config
 
