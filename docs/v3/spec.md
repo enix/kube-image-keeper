@@ -2,11 +2,9 @@
 
 ## Scope and filtering
 
-The three custom resources (`ImageAlternative`, `ImageMirror`, `ImageMonitor`) are all
-**cluster-scoped**. There is no namespaced variant: in v2 the mirror and replication kinds each
-had a namespaced peer (`ImageSetMirror`, `ReplicatedImageSet`), v3 drops them. Restricting a
-resource to a subset of the cluster is done with `namespaceSelector`, not by creating the object
-in a given namespace:
+The three custom resources (`ImageAlternative`, `ImageMirror`, `ImageMonitor`) are
+**cluster-scoped**. There is no namespaced variant as in v2, restricting a resource to a subset of
+the cluster is done with `namespaceSelector`, not by creating the object in a given namespace:
 
 ```yaml
 namespaceSelector:
@@ -55,6 +53,7 @@ other image, see [Digest-pinned images](#digest-pinned-images).
 ## ImageAlternative
 
 ```yaml
+apiVersion: kuik.enix.io/v1alpha1
 kind: ImageAlternative
 metadata:
   name: acme-foo
@@ -178,6 +177,7 @@ segments and cost O(segments) whatever the number of CRs.
 ## ImageMirror
 
 ```yaml
+apiVersion: kuik.enix.io/v1alpha1
 kind: ImageMirror
 metadata:
   name: prod-mirror
@@ -461,6 +461,7 @@ code path with an empty suffix.
 ## ImageMonitor
 
 ```yaml
+apiVersion: kuik.enix.io/v1alpha1
 kind: ImageMonitor
 metadata:
   name: cluster-images
