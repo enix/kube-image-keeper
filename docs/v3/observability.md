@@ -64,7 +64,7 @@ are worth using:
 | Condition | Status | Metric | Event |
 | --------- | ------ | ------ | ----- |
 | a tracked image fails its check | `ImageMonitor.status.unavailableImages[].reason` | `kuik_image_unavailable{reason}` | none, deliberately — see [Why availability is not evented](#why-availability-is-not-evented) |
-| a monitored alternative fails its check | `ImageMonitor.status.unavailableAlternatives[].reason` | — | `AlternativeUnusable`, and only when the cause has a remedy |
+| a monitored alternative fails its check | `ImageMonitor.status.unavailableAlternatives[].reason` | `kuik_image_unavailable{source="Alternative", reason}` | `AlternativeUnusable`, and only when the cause has a remedy |
 | a copy fails | `ImageMirror.status.failedImagesCopy[].reason` | `kuik_mirror_image_failed{reason}` | `ImageCopyFailed`, coalesced by prefix — see [below](#a-copy-failure-is-coalesced-never-generalised) |
 
 An unavailable image and a failed copy are the same observation about the same kind of request; they
@@ -325,8 +325,7 @@ series at the end.
 
 | Metric (gauge) | HELP |
 | -------------- | ---- |
-| `kuik_monitor_images{kind, name, state}` | Images an ImageMonitor is tracking, by state. States are not mutually exclusive and must not be summed |
-| `kuik_monitor_alternatives{kind, name, state}` | Alternative references an ImageMonitor is tracking on behalf of routing resources, by state |
+| `kuik_monitor_images{kind, name, source, state}` | Images an ImageMonitor is tracking, by where the reference came from (`InUse` for what pods carry, `Alternative` for what a routing resource would offer instead) and by state. States are not mutually exclusive and must not be summed |
 | `kuik_mirror_images{kind, name, state}` | Images an ImageMirror accounts for, by state |
 | `kuik_rewrite_pods{kind, name, state}` | Live pods a routing resource applies to, by what the resource did for them |
 
@@ -335,6 +334,23 @@ The `state` label repeats the field names of the corresponding status, so a dash
 on `kuik_monitor_images`, `inUse` and `retained` partition why an image is tracked, while
 `available`, `unavailable` and `drifted` report the outcome of its last check. Hence the warning not
 to sum — `tracked` is the total, the others overlap it.
+
+`source` is the third dimension of that metric, and it exists because the two populations are the
+same measurement: an `ImageMonitor` tracks and checks references, and
+[`monitorAlternatives`](./spec.md#imagemonitor) merely widens which ones. One series therefore covers
+both — `kuik_monitor_images{state="unavailable"}` answers "what is failing" whatever its provenance,
+and `sum by (source)` splits it — where two metrics forced every such query to be written twice. The
+two mirror the two status blocks: `source="InUse"` carries the states of `status.images`,
+`source="Alternative"` those of `status.alternatives`, which are fewer. So the label combinations are
+sparse by construction — `{source="Alternative", state="drifted"}` never exists, and
+`source="Alternative"` is absent entirely unless `monitorAlternatives` is on. That is a property of
+the underlying status, not an artefact of merging.
+
+`kuik_rewrite_pods` mixes them the same way, with one extra caveat: `tracked` names what a resource
+*selects* where `rewritten` and `conceded` name what it *did*. So it overlaps the others within a
+resource, and unlike them it also overlaps **across** resources — several CRs legitimately select the
+same pod ([Attribution](./spec.md#attribution)). Aggregate `rewritten` and `conceded` across
+resources freely; never aggregate `tracked`.
 
 #### Scheduling health — is the configured pace keeping up
 
@@ -449,7 +465,7 @@ surprise.
 
 | Metric (gauge) | HELP |
 | -------------- | ---- |
-| `kuik_image_unavailable{kind, name, image, registry, reason}` | 1 while a tracked image is failing its availability check |
+| `kuik_image_unavailable{kind, name, source, image, registry, reason}` | 1 while a tracked reference is failing its availability check. `source="InUse"` for an image the cluster runs, `source="Alternative"` for one a routing resource would have offered instead. Status side: `unavailableImages` and `unavailableAlternatives` respectively |
 | `kuik_image_drifted{kind, name, image}` | 1 while the digest a resource accounts for differs from the upstream digest of that tag — the digest running in the cluster for an `ImageMonitor`, the digest held at the destination for an `ImageMirror`. `image` is the origin reference in both cases. Status side: `driftedImages` on either kind |
 | `kuik_mirror_image_failed{kind, name, image, reason}` | 1 while an image cannot be copied to the destination |
 | `kuik_image_cluster_skew{kind, name, image}` | Number of distinct digests running for one image reference, mirroring the length of its `runningDigests` in the status. Present only while pods disagree, so its value is always 2 or more |
@@ -485,6 +501,9 @@ in place makes the last value linger for the staleness window and alerts resolve
 
 Each of the five has its bounded list in a status, per the rule at the top of this document — the
 metric says how many and since when, the status says which digests, which pods, what replaced what.
+`kuik_image_unavailable` answers to two of them, one per `source` value, which is why that label
+belongs on an anomaly series as much as on the aggregate: without it, `unavailableAlternatives` would
+be the one anomaly list in this document with no series at all.
 What none of them has is a matching **aggregate gauge**, unlike the states in the first table, and
 that would be redundant: `count(kuik_image_cluster_skew)` is the total, computed over a series that is
 bounded by construction. The aggregates in the status exist because a status cannot run PromQL.
@@ -503,10 +522,17 @@ The dividing line worth stating once, since every future metric will be an insta
 - **labels drawn from content** — image references above all — are bounded by nothing, and may appear
   only on anomaly series, which disappear on their own
 
-Two label names are reserved throughout, so that a query written against one metric reads the same
+Four label names are reserved throughout, so that a query written against one metric reads the same
 against another: `kind` and `name` always denote the Kubernetes resource a series is about, never a
 category of anything else. Anything that classifies *why* something happened is a `reason`, and
-anything that classifies *what state* something is in is a `state`.
+anything that classifies *what state* something is in is a `state`. Anything that classifies **which
+population of references** a series counts is a `source`, whose two values — `InUse` for what a pod
+carries, `Alternative` for what a routing resource would offer instead — are the only ones it ever
+takes.
+
+`source` is what lets one metric cover two populations without a second metric name, and it is
+reserved for exactly that: it never discriminates producers, which is `kind`'s job, nor outcomes,
+which is `state`'s.
 
 **Every enumerated value is PascalCase**, on a metric label exactly as on a condition reason or a
 status entry — one spelling per cause, everywhere. A value that names a cause is taken from the
