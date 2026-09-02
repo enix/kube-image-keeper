@@ -38,6 +38,8 @@ metadata:
 spec:
   alternatives:
     - repositoryGroup: docker.io/bitnamilegacy
+    # The two repositories Bitnami withdrew. `unavailable: true` keeps them matching without ever
+    # offering them: pods still referencing them are recognised, and rerouted to bitnamilegacy above.
     - repositoryGroup: docker.io/bitnami
       unavailable: true
     - repositoryGroup: public.ecr.aws/bitnami

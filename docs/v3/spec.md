@@ -174,6 +174,27 @@ therefore the remainder to carry over — not which CR owns the image.
 Because the semantics are structural rather than regex based, a lookup can walk a trie of path
 segments and cost O(segments) whatever the number of CRs.
 
+### `unavailable`
+
+An entry marked `unavailable: true` **still matches, and is never offered**. It takes part in
+deciding whether the CR applies to an image, and in nothing else: it produces no candidate at
+admission ([Candidate ordering](#candidate-ordering)), it is never read as a copy source by an
+`ImageMirror` ([What an `ImageMirror` copies](#what-an-imagemirror-copies)), and
+[`monitorAlternatives`](#imagemonitor) does not track it.
+
+Matching is exactly what it is for. A repository that has been emptied or withdrawn is still the
+reference the cluster's pods carry, and if nothing in the CR names it, nothing recognises those pods:
+the CR does not apply, and none of its live entries is ever proposed. Declaring the dead source is
+what buys the right to replace it — which is the whole point, since a pod on a source that no longer
+answers is a pull error waiting for its next reschedule, and the alternative is right there in the
+same object.
+
+> [!NOTE]
+> `unavailable: true` is a **declaration**, not an observation. It is the operator stating that a
+> source is gone. What kuik observes on its own lands in
+> [`ImageMonitor.status.unavailableAlternatives`](./status.md#imagemonitor), which reports entries
+> that failed a check — entries kuik *was* willing to offer.
+
 ## ImageMirror
 
 ```yaml
@@ -478,7 +499,8 @@ spec:
 
   driftDetection: true         # Default: true - Detect if an image tag digest differ from pod running in cluster
 
-  monitorAlternatives: false   # Default: false - Also monitor alternative images in addition to the original ones
+  monitorAlternatives: false   # Default: false - Also monitor alternative images in addition to the
+                               # original ones. Entries marked `unavailable: true` are never tracked
 
 ```
 
@@ -708,6 +730,8 @@ list:
   [Multi-cluster](#multi-cluster-shared-destination-one-tag-per-cluster)), and none at all under
   `rewritePolicy: None`, for an image matching its `excludeImages`, or for an image already
   under its own `destination.path` ([Mirror loop prevention](#mirror-loop-prevention))
+- an `ImageAlternative` entry marked [`unavailable: true`](#unavailable) contributes **no**
+  candidate; it only ever served to match the image
 - candidates are **deduplicated on (reference, resolved config), keeping the first occurrence**
 - sorting CR by name to handle possible overlapping config with deterministic alternatives order
 
@@ -814,8 +838,9 @@ An origin image already living under this mirror's own `destination.path` is not
 ([Mirror loop prevention](#mirror-loop-prevention)).
 
 When the origin is unreachable at copy time, the controller may pull the bytes from any
-`ImageAlternative` entry covering that image, skipping the entries marked `unavailable: true`, and push
-them to that same destination — a first copy and a re-copy alike, so an image whose origin registry
+`ImageAlternative` entry covering that image, skipping the entries marked
+[`unavailable: true`](#unavailable), and push them to that same destination — a first copy and a
+re-copy alike, so an image whose origin registry
 disappeared for good stays re-copyable, which is the scenario alternatives exist for. The destination is
 the one derived from the origin in every case, never from the source actually read
 ([walkthrough A.8](./walkthroughs/02-imagemirror-reconciliation.md#a8-record-the-repository-choose-the-source-then-push)).
