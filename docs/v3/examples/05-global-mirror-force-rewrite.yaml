@@ -13,6 +13,7 @@ spec:
     exclude:
       # Exclude images used by CNPG pods as this conflict with cnpg-operator
       - .+/cloudnative-pg/(postgresql|cloudnative-pg):.+
+      - dev-registry.tld/huge-image-repo/.+
     include:
       - .*
   mirrors:
@@ -33,9 +34,12 @@ metadata:
 spec:
   rewritePolicy: Always
   podSelector:
+    # Better exclusion for pod managed by CNPG as image may vary
     matchExpressions:
       - key: cnpg.io/cluster
         operator: DoesNotExist
+  excludeImages:
+    - dev-registry.tld/huge-image-repo/*
   destination:
     path: registry.example.com/mirror/
     push:
