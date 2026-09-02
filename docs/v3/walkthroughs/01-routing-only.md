@@ -54,7 +54,9 @@ admission outcomes depend on apply order. Overlap is resolved at lookup time ins
    match the third entry
 3. **CR selection** — three cluster-wide informer-backed lists against v2's four (two cluster-scoped
    kinds plus two namespaced ones listed per pod namespace), then `podSelector` and
-   `namespaceSelector`. Both are empty here, so the CR always applies
+   `namespaceSelector`. Both are empty here, so the CR always applies. `ImageMonitor` is one of the
+   three even though it [never contributes a candidate](../spec.md#candidate-ordering): the webhook
+   reads it for the negative check results [`skipHints`](../spec.md#global-config) consumes
 4. **matching** — [alternatives matching](../spec.md#alternatives-matching) selects entry 3, the
    `repositoryGroup` `docker.io/library`, with remainder `nginx` and tag `1.27`
 5. **ordering** — [candidate ordering](../spec.md#candidate-ordering). Only this CR matches and it is

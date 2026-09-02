@@ -80,9 +80,11 @@ status for a while, since the two are refreshed on different clocks —
 That is intended: routing needs a verdict now, alerting needs one that lasts.
 
 > [!NOTE]
-> The events of [observability v3](./observability.md) are emitted by the **reconciler**, not by the
-> webhook: it already reads the annotations to build the status gauges, and emitting from the webhook
-> would give the admission path a write it does not otherwise need.
+> The events of [observability v3](./observability.md) are emitted by the **reconciler** and by the
+> **syncer** — never by the webhook. The reconciler already reads the annotations to build the status
+> gauges, and the syncer reports what it could not materialise
+> ([`PullSecretInjectionFailed`](./observability.md#catalogue)); emitting from the webhook would give
+> the admission path a write it does not otherwise need.
 >
 > Metrics divide the other way. A counter belongs to the process that witnesses what it counts, and it
 > lives in that process's memory rather than in the API, so `kuik_rewrites_total` and
@@ -264,11 +266,6 @@ that chose differently:
 And it never touches the syncer, in either mode: the component holding the broadest write privilege
 in the cluster holds no read privilege at all, and that is not something an install-time flag can
 turn off.
-
-> [!NOTE]
-> `permissive` mode is the default. to makes a fresh install work against private registries with
-> no declaration at all, as previous kuik version did. Switching to `restricted` may require more
-> configuration and should be a conscious choice.
 
 ## The admission path
 

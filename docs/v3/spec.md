@@ -476,7 +476,7 @@ spec:
 
   driftDetection: true         # Default: true - Detect if an image tag digest differ from pod running in cluster
 
-  monitorAlternatives: false   # Default: false - Also monitor alternatives images instead of only original ones
+  monitorAlternatives: false   # Default: false - Also monitor alternative images in addition to the original ones
 
 ```
 
@@ -862,7 +862,7 @@ metrics:
 
 webhook:
   availabilityCheck:
-    timeout: 2s              # max time before considering a registry as unavailble
+    timeout: 2s              # max time before considering a registry as unavailable
     # Cache per controller replica to avoid querying registry multiple time on burst
     # A single image used by 50 pods scheduled in a short period should result in 1 check, not 50
     activeCheckCache:

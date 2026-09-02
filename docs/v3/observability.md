@@ -410,8 +410,8 @@ endpoint answered, so the reason has no side left to disambiguate.
 | `kuik_secret_applies_total{result}` | Pull-secret applies performed by the syncer, by outcome (`Applied`, `Noop`, `Failed`) |
 
 The first two counters (`kuik_rewrites_total` and `kuik_no_alternatives_total`) are the only ones
-exported by the **webhook** and expose how many rewrite were done or those which could not occur
-due to missing availalble alternative.
+exported by the **webhook**: they count the rewrites it made, and the containers it could not rewrite
+for want of an available candidate.
 
 And `kuik_mirror_copies_total` separates `Recopy` from `Initial` for the same reason `ImageRecopied` is
 a `Warning` and `ImageCopied` is not: they cost the same bytes and mean entirely different things.

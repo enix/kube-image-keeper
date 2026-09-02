@@ -16,7 +16,7 @@ status:
   # Gauge on living pods computed with informers
   pods:
     tracked: 123       # Number of pods this CR could apply to
-    rewritten: 12      # Number of pods effectivly rewritten (either by `OnFailure` or `Always` policy)
+    rewritten: 12      # Number of pods effectively rewritten (either by `OnFailure` or `Always` policy)
     noAlternatives: 2  # Number of pods left untouched as no alternatives image was available
     conceded: 1        # Number of pods where another mutating webhook replaced what KuiK had placed
   # Store the list of fallback images (only with `rewritePolicy: OnFailure`)
@@ -29,9 +29,11 @@ status:
   - image: quay.io/thanos/thanos:v0.42.2-debug
     pods: 2
     since: "2026-07-11T07:27:36Z"
-  # Rewrites this CR made and another mutating webhook overwrote, read back from the pods'
-  # `kuik.enix.io/conceded-rewrites` annotation. The anomaly behind `kuik_rewrite_conceded`: two
-  # components are disputing one field and one of the two scopes has to move
+  # Rewrites this CR made and another mutating webhook overwrote. `image`, `routedTo` and the
+  # attribution come from the pods' `kuik.enix.io/conceded-rewrites` annotation; `replacedBy` is read
+  # from the live container, where the annotation deliberately leaves it (see "What conceding
+  # removes" in architecture.md), and `since` is carried forward like `activeFallbacks.since`, the
+  # annotation being untimestamped.
   concededRewrites:
   - image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1              # origin, as the metric labels it
     routedTo: registry.tld/mirror/quay.io/oauth2-proxy/oauth2-proxy:v7.7.1_cluster-a
@@ -60,7 +62,7 @@ With rewritePolicy != None, we also have the same status as ImageAlternative in 
 status:
   images:
     desired: 312               # images used in running pod + retained ones carrying an `origin`
-    copied: 309                # images effectivly copied to destination registry
+    copied: 309                # images effectively copied to destination registry
     retained: 2                # tags pending deletion (if cleanup.retention > 0), origin-less ones
                                # among them are held then deleted, never copied again
     drifted: 0                 # with driftPolicy=Warn or Sync - image tag whose upstream digest moved
@@ -157,8 +159,8 @@ status:
     tracked: 3241               # images tracked by this CR
     inUse: 3180                 # images associated for running pod
     retained: 61                # images no longer running but still monitored for `unusedImageRetention`
-    available: 3226
-    unavailable: 4
+    available: 3226             # 11 short of `tracked`: those have not been checked yet, the
+    unavailable: 4              # ring not having reached them since they entered it
     drifted: 2                  # image tag have digest different than the upstream one (only with driftDetection=true)
   # Images from alternatives matching a running pod (only with monitorAlternatives=true)
   alternatives:
