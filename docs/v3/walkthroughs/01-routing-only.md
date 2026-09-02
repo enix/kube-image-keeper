@@ -24,8 +24,8 @@ registries. Nothing is ever copied to a registry: this is pure routing, the v3 e
 `ClusterReplicatedImageSet`. The pod is created with `image: nginx:1.27`.
 
 The relevant [global config](../spec.md#global-config): `availabilityCheck.timeout: 2s`,
-`activeCheckCache.ttl: 10s`, `skipHints` enabled with `maxAge: 30m`, and `dockerhub-creds` as
-`perPrefixFallbackAuth` for `docker.io`.
+`activeCheckCache.ttl: 10s`, `skipHints` enabled with `maxAge: 30m`, and `dockerhub-creds` declared
+in `fallbackAuth` for `repositoryGroup: docker.io`.
 
 ## 1. `kubectl apply`, validating webhook
 
@@ -69,7 +69,7 @@ admission outcomes depend on apply order. Overlap is resolved at lookup time ins
    ```
 
 6. **probing** — [availability probing](../spec.md#availability-probing). All three registries are
-   public so probes are anonymous, except on `docker.io` where the global `perPrefixFallbackAuth`
+   public so probes are anonymous, except on `docker.io` where the global `fallbackAuth`
    supplies credentials
 7. **rewrite and annotate** — nothing to do if the original answers; otherwise the container is
    patched and [annotated](../observability.md#annotations):
@@ -84,11 +84,10 @@ admission outcomes depend on apply order. Overlap is resolved at lookup time ins
    ([`injectPullSecret`](../spec.md#injectpullsecret)), the webhook appends the syncer's Secret name
    for that CR to `spec.imagePullSecrets`, computed from identity alone and never read back
    ([the name of an injected Secret](../architecture.md#the-name-of-an-injected-secret)). Nothing to
-   inject here: this CR declares no `auth`, and the `perPrefixFallbackAuth` of step 6 is never
-   injected
+   inject here: this CR declares no `auth`, and the `fallbackAuth` of step 6 is never injected
 
 > [!IMPORTANT]
-> That `perPrefixFallbackAuth` entry is not cosmetic: anonymous Docker Hub `HEAD`s are the ones that
+> That `fallbackAuth` entry is not cosmetic: anonymous Docker Hub `HEAD`s are the ones that
 > get 429'd, and a 429 on the *check* would read as "the original is down" and reroute the whole
 > cluster to ECR.
 

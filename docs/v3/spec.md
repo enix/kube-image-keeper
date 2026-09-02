@@ -622,7 +622,8 @@ nothing to transfer.
 
 `auth` is a discriminated union — exactly one of `secretRef` or `provider`, enforced at admission —
 and the same schema everywhere credentials appear: `ImageAlternative` entries, `ImageMirror`
-`destination.push` / `destination.pull`, and `registries.<host>.perPrefixFallbackAuth`.
+`destination.push` / `destination.pull`, and the entries of
+[`fallbackAuth`](#fallback-credentials).
 
 ```yaml
 auth:
@@ -674,7 +675,7 @@ Set to `true` with a `provider`, kuik materializes, **renews** and injects a doc
 the cross-cloud case, and what makes cloud-provider registries short lived tokens usable.
 
 `ImageMirror`'s `destination.push` ignores the field entirely: push credentials are only ever used by
-the controller. `registries.<host>.perPrefixFallbackAuth` ignores it too, for a different reason: the
+the controller. [`fallbackAuth`](#fallback-credentials) ignores it too, for a different reason: the
 injected Secret is named after the identity of the resource that asked for it
 ([the name of an injected Secret](./architecture.md#the-name-of-an-injected-secret)), and a global
 fallback credential belongs to no resource. It serves the controllers' own reads; injection is
@@ -704,7 +705,7 @@ and a check that finds nothing degrades to exactly the anonymous case above.
 
 > [!WARNING]
 > A private image with neither `auth` nor a matching
-> [`perPrefixFallbackAuth`](#global-config) therefore looks perpetually unavailable under
+> [`fallbackAuth`](#fallback-credentials) therefore looks perpetually unavailable under
 > `restricted`, even though the kubelet can pull it — and under `permissive` its availability
 > silently depends on a Secret nobody declared to kuik. A persistent anonymous 401/403 raises a
 > `Warning` event pointing at that likely oversight. Declaring the credential once is what makes
@@ -899,10 +900,13 @@ webhook:
     skipHints:
       enabled: true
       maxAge: 30m
-# Checks and copies run on windows counted from the start of the controller process, one image per
-# window, so with `interval: 5m` a controller started at 13:32 takes its first image at 13:37.
-# See "Scheduling"
+
+# How fast kuik reads from each registry host. Checks and copies run on windows counted from the
+# start of the controller process, one image per window, so with `interval: 5m` a controller started
+# at 13:32 takes its first image at 13:37. See "Scheduling"
 registries:
+  # Applies to every host, field by field: a host below overrides the fields it names and inherits
+  # every other one from here
   default:
     check:
       interval: 30s           # one image of this host checked every 30 seconds
@@ -913,38 +917,76 @@ registries:
 
   private-registry.tld:
     copy:
-      interval: 30s           # local registry, no quota to spare it from
-    # Auth used to check image availability when the CR provides none, by ImageMonitor and
-    # ImageAlternative alike. KuiK is designed not to depend on a pod's imagePullSecrets — under
-    # `secretAccess.mode: restricted` it cannot read them at all (see "Authentication") — so this
-    # is how it gets credentials for a private registry nobody declared `auth` for. Same schema as
-    # `auth`, per image prefix
-    perPrefixFallbackAuth:
-    - prefix: /project1
-      secretRef:
-        name: project1-creds
-    - prefix: /project2
-      secretRef:
-        name: project2-creds
-
-  123456.dkr.ecr.eu-west-3.amazonaws.com:
-    perPrefixFallbackAuth:
-    - prefix: /acme
-      provider:
-        name: aws
-        serviceAccountRef:
-          name: kuik-ecr-access
+      interval: 30s           # local registry, no quota to spare it from; keeps `default.copy.timeout`
+                              # and the whole of `default.check`
 
   docker.io:
     # Rate limited source: copy less often than default
     copy:
       interval: 10m
-    perPrefixFallbackAuth:
-    - prefix: /
-      secretRef:
-        name: dockerhub-creds
 
   public.ecr.aws:
     check:
       interval: 30m
+
+# Credentials used to read an image when no CR declares any, by ImageMonitor, ImageAlternative and
+# ImageMirror alike. KuiK is designed not to depend on a pod's imagePullSecrets — under
+# `secretAccess.mode: restricted` it cannot read them at all (see "Authentication") — so this is how
+# it gets credentials for a private registry nobody declared `auth` for. Entries match exactly as
+# `ImageAlternative.alternatives` do, see "Fallback credentials"
+fallbackAuth:
+- repositoryGroup: private-registry.tld/project1
+  secretRef:
+    name: project1-creds
+- repositoryGroup: private-registry.tld/project2
+  secretRef:
+    name: project2-creds
+- repositoryGroup: 123456.dkr.ecr.eu-west-3.amazonaws.com/acme
+  provider:
+    name: aws
+    serviceAccountRef:
+      name: kuik-ecr-access
+- repositoryGroup: docker.io          # the whole host: a credential raises Docker Hub's pull quota
+  secretRef:
+    name: dockerhub-creds
 ```
+
+### `registries`: pacing what kuik pulls from
+
+`registries` holds **pacing and nothing else**: how often kuik may read from a host, and how long it
+waits for an answer. It is about registries that ration — a public registry with a pull quota — and
+says nothing about credentials.
+
+> [!IMPORTANT]
+> The pacing is only for background checks (from ImageMonitor and ImageMirror), the active check in
+> webhook always perform a check regardless the interval configured and have it's own timeout
+> defined in webhook.availabilityCheck.timeout
+
+`default` applies to every host **field by field**. A host entry overrides the fields it names and
+inherits every other one, so `private-registry.tld` above, which names only `copy.interval`, keeps
+`default.copy.timeout` and the whole of `default.check`. Anything else would make the three one-field
+host entries of the example silently drop three settings each.
+
+### Fallback credentials
+
+`fallbackAuth` is a flat list, outside `registries`, and each entry matches images exactly as an
+`ImageAlternative` entry does — [`repository`](#alternatives-matching) for one repository,
+`repositoryGroup` for everything below a path at any depth, written **fully qualified, hostname
+included**, and compared at path segment granularity. One matching syntax for the whole spec, and
+one validation rule.
+
+The two keys are separate because the two sets barely overlap: hosts worth pacing are the public
+ones that ration, hosts worth authenticating are the private ones that do not. They meet only where
+a credential buys a larger quota — Docker Hub, the entry above being exactly that case. Keeping them
+in one map forced every credential to repeat the hostname the map key already carried.
+
+Two rules differ from `alternatives`, both because `fallbackAuth` only ever *selects* an entry where
+`alternatives` *produces* a reference:
+
+- **the two forms may be mixed** in the list. `alternatives` forbids it because its entries have to
+  describe the same set of images for a rewrite to carry the remainder over; nothing is rewritten
+  here, so a specific repository and a broad group can sit side by side
+- **the most specific match wins**: a `repository` beats a `repositoryGroup`, and a deeper group
+  beats a shallower one. An image matching no entry is read anonymously
+
+Those secrets are only used for controller checks and never used as injected pull secrets.

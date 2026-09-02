@@ -187,7 +187,7 @@ extreme case: the `ownerReferences` still name the CR verbatim, so a `kubectl ge
 answers "whose is this?" whatever the name looks like.
 
 Only a routing CR ever gets one. A credential declared in
-[`perPrefixFallbackAuth`](./spec.md#global-config) belongs to no resource, so there is no identity to
+[`fallbackAuth`](./spec.md#fallback-credentials) belongs to no resource, so there is no identity to
 derive a name from: it serves the controllers' own reads and is never injected
 ([`injectPullSecret`](./spec.md#injectpullsecret)).
 
@@ -238,7 +238,8 @@ before v3, and it is what makes a fresh install work against a private registry 
 **`restricted`** does not deploy it. kuik keeps working — nothing about the loops changes — but a
 private registry it has no credential for answers `401`, and the affected images are reported as
 `Unauthorized` rather than checked. Credentials are supplied instead by the operator, declared once
-per prefix in [`perPrefixFallbackAuth`](./spec.md#global-config) (or via `auth` in `ImageAlternative`).
+per repository or repository group in
+[`fallbackAuth`](./spec.md#fallback-credentials) (or via `auth` in `ImageAlternative`).
 
 > [!IMPORTANT]
 > The cost of `restricted` is not proportional to the number of images, but to the number of
