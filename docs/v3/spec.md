@@ -214,7 +214,8 @@ spec:
 
   cleanup:
     enabled: true              # Default: true - Delete image tag no longer referenced by any pod
-    retention: 24h             # Image tag hold duration before deleting them, to deal with cronjob for instance
+    retention: 168h            # Default: 168h (7 days) - Image tag hold duration before deleting
+                               # them, to deal with cronjob for instance
                                # Tags waiting out their retention are listed in
                                # `status.pendingDeletion`, see "Collecting unused tags"
 
@@ -472,8 +473,8 @@ spec:
   podSelector: {}
   namespaceSelector: {}
 
-  unusedImageRetention: 24h    # keep monitoring for a given time after no longer used in cluster
-                               # useful for cronjob
+  unusedImageRetention: 168h   # Default: 168h (7 days) - keep monitoring for a given time after no
+                               # longer used in cluster, useful for cronjob
 
   driftDetection: true         # Default: true - Detect if an image tag digest differ from pod running in cluster
 
