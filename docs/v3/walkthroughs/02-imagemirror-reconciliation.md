@@ -126,11 +126,11 @@ The self-check issues `HEAD /v2/<repo>/manifests/<ref>` for each desired ref, on
 
 For pinned images the check is done **by digest**, which is an exact check: if the digest is present, the content is provably identical.
 
-### B.3 Traverse the whole desired state, unpaced
+### B.3 Traverse the whole desired state, once per interval
 
-Intervals exist to stay inside the quotas of the registries kuik **pulls from** ([Scheduling](../spec.md#scheduling)). A destination is written by kuik and belongs to the operator, so nothing about it is paced: the self-check waits for no window, holds no cursor and reports no cycle. Every reconcile compares the whole desired state, and the freshness of a verdict is the reconcile cadence rather than a lap time.
+Windows exist to stay inside the quotas of the registries kuik **pulls from** ([Scheduling](../spec.md#scheduling)). A destination is written by kuik and belongs to the operator, so no window applies to it: the self-check waits for none, holds no cursor and reports no cycle. It compares the whole desired state in one pass, and repeats that pass once per [`mirror.destinationScan.interval`](../spec.md#mirror-pacing-the-destination-kuik-owns) — a period between whole passes, where a window is a rate between single requests. The freshness of a verdict is that interval rather than a lap time.
 
-What bounds the cost is the size of the desired state, one `HEAD` per desired reference (B.2), against a registry that is usually on the same network as the cluster. There is nothing to resume after a restart: the first reconcile checks everything, which is also what covers the crash window of A.8.
+What bounds the cost is the size of the desired state, one `HEAD` per desired reference (B.2), against a registry that is usually on the same network as the cluster. There is nothing to resume after a restart, and the first pass runs at startup rather than an `interval` later: it checks everything, which is also what covers the crash window of A.8.
 
 ### B.4 Handle each divergence
 
@@ -174,9 +174,9 @@ Cleanup runs only when `cleanup.enabled` is set, and every step below is biased 
 Two paths feed `status.pendingDeletion`:
 
 1. **Pod events** — when the **last** live pod referencing an origin ref disappears, the controller records the destination tag it computed for it, with `unusedSince = now`.
-2. **The tag sweep** — every reconcile begins by listing the tags of each repository in `status.repositories` (C.3), keeps this cluster's tags, and records any of them that falls outside the expected set of the desired state.
+2. **The tag sweep** — every destination pass ([B.3](#b3-traverse-the-whole-desired-state-once-per-interval)) begins by listing the tags of each repository in `status.repositories` (C.3), keeps this cluster's tags, and records any of them that falls outside the expected set of the desired state.
 
-The sweep is the garbage collector, and it is what makes `pendingDeletion` recomputable: it reads the destination rather than remembering what was running, so a tag that fell out of use while the controller was down is picked up at the first reconcile after startup. Losing the entries costs a restarted retention clock, never a leaked tag.
+The sweep is the garbage collector, and it is what makes `pendingDeletion` recomputable: it reads the destination rather than remembering what was running, so a tag that fell out of use while the controller was down is picked up at the first pass after startup. Losing the entries costs a restarted retention clock, never a leaked tag.
 
 Entries are keyed by the **destination tag** — the thing that eventually gets deleted — with the origin ref alongside it when a pod event supplied one. Nothing is un-computed from a tag: A.6 is one-way, so a swept tag is compared against expected tags computed forward, and a swept entry carries no origin.
 

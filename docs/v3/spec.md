@@ -291,14 +291,15 @@ answers "do I mirror this?", so it stays a pattern and produces no reference.
 
 ### Collecting unused tags
 
-With `cleanup.enabled`, every reconcile of an `ImageMirror` starts by listing the tags of each
-repository of `status.repositories` (`GET /v2/<repo>/tags/list`), keeps those carrying this cluster's
-identity, and diffs them forward against the tags the desired state expects. A tag outside that set is
+With `cleanup.enabled`, every destination pass of an `ImageMirror`
+([`mirror.destinationScan.interval`](#mirror-pacing-the-destination-kuik-owns)) starts by listing the
+tags of each repository of `status.repositories` (`GET /v2/<repo>/tags/list`), keeps those carrying
+this cluster's identity, and diffs them forward against the tags the desired state expects. A tag outside that set is
 recorded in `status.pendingDeletion`, with `unusedSince` stamped at that moment, and deleted once
 `cleanup.retention` has elapsed.
 
 Reading the destination is what makes the collection self-healing: images that stop being used while
-the controller is down are collected at the first reconcile after startup, and a
+the controller is down are collected at the first pass after startup, and a
 `status.pendingDeletion` lost with the object is rebuilt, each retention clock restarting from then.
 Pod events feed the same list, so a reference losing its last pod while the controller runs is
 noticed right away rather than at the next listing.
@@ -570,8 +571,9 @@ Windows pace what kuik **pulls from**, and nothing else. A quota is what an upst
 reads, while a mirror destination is the operator's own registry: neither the pushes nor the
 self-check `HEAD`s that verify them wait for a window, and an `ImageMirror` holds no place in any ring
 for its destination ([walkthrough 02, B.3](./walkthroughs/02-imagemirror-reconciliation.md)). Its
-destination is compared to its desired state on every reconcile, with nothing to resume and no cycle
-to report.
+destination is compared to its desired state whole, once per
+[`mirror.destinationScan.interval`](#mirror-pacing-the-destination-kuik-owns) — a period between
+passes rather than a rate between requests — with nothing to resume and no cycle to report.
 
 ### One budget per host, one ring per resource
 
@@ -945,6 +947,14 @@ clusterID: cluster-a
 metrics:
   copyDuration: false        # histogram of how long each copy took, per ImageMirror
 
+# The destination of an ImageMirror is a registry kuik owns: it rations nothing, so it is not paced
+# by the windows of `registries`. Its loops still read it whole, though, so what they need is a
+# period rather than a rate. See "mirror: pacing the destination kuik owns"
+mirror:
+  destinationScan:
+    interval: 1h             # Default: 1h - how often each ImageMirror re-reads its own destination:
+                             # one pass does the self-check and the cleanup sweep together
+
 webhook:
   availabilityCheck:
     timeout: 2s              # max time before considering a registry as unavailable
@@ -1006,6 +1016,38 @@ fallbackAuth:
   secretRef:
     name: dockerhub-creds
 ```
+
+### `mirror`: pacing the destination kuik owns
+
+A **window** of [`registries`](#registries-pacing-what-kuik-pulls-from) rations somebody else's
+quota and is counted per image: one request per `interval`, a rate. `mirror.destinationScan.interval`
+is not the same quantity. A mirror's destination rations nothing — the operator owns it — but its two
+reading loops traverse it *whole*, so what they need is a **period** between passes, not a rate
+between requests. Taking a `check.interval` for it would re-read the entire destination every 30
+seconds; the two are separate fields because they measure different things.
+
+One pass covers both destination loops together: the self-check `HEAD`s every desired reference
+([walkthrough 02, B.2](./walkthroughs/02-imagemirror-reconciliation.md#b2-ask-precisely-one-reference-at-a-time)),
+and with `cleanup.enabled` the sweep lists the tags of every repository in `status.repositories`
+([C.3](./walkthroughs/02-imagemirror-reconciliation.md#c3-sweep-the-repositories)). The interval is
+therefore what bounds the cost of the sweep, which grows with the inventory, and what the freshness
+of a destination verdict is worth.
+
+Two differences from the window model are deliberate:
+
+- **the first pass runs at startup**, without waiting an `interval` — where a first window is
+  deliberately a full `interval` away. That immediate pass is what covers the crash window of
+  `A.8`, and a mirror has no quota of its own to protect
+- **it holds no cursor and no ring.** A pass is whole or it is not, so there is nothing to resume and
+  no lap to report; `status.selfChecked` timestamps the last completed one, and the destination
+  never appears in `status.checks.registries`
+
+Reconciles themselves stay event-driven, on pod and CR events, debounced. This interval does not
+change that: it bounds only the parts of a reconcile that read the destination, so a reconcile firing
+five seconds after a pass reuses its verdict rather than re-reading. The secret syncer's periodic
+re-apply is unaffected and keeps running on the informer's resync interval
+([walkthrough 03, B.4](./walkthroughs/03-secret-syncer-reconciliation.md#b4-someone-edited-a-managed-secret)),
+at controller-runtime's defaults.
 
 ### `demoteKnownFailures`: reusing what the loops already know
 

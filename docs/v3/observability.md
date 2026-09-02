@@ -343,26 +343,29 @@ to sum — `tracked` is the total, the others overlap it.
 | `kuik_check_cycle_duration_seconds{kind, name, registry}` | Wall-clock seconds taken by the last completed check lap over a registry's images. Produced by an ImageMonitor for the images it tracks, and by an ImageMirror under `driftPolicy: Warn` / `Sync` for the source tags it re-reads. Absent until a first lap completes |
 | `kuik_check_images_by_registry{kind, name, registry, state}` | Images a resource checks on a registry, by state: the images an ImageMonitor tracks there, and under `driftPolicy: Warn` / `Sync` the source tags an ImageMirror re-reads there. The size of the ring behind the lap above |
 | `kuik_mirror_self_checked_timestamp_seconds{kind, name}` | Unix timestamp at which the last full comparison of the destination finished |
-| `kuik_registry_interval_seconds{registry, operation}` | Configured length of the window between two requests of this operation to a registry, as currently loaded |
+| `kuik_registry_interval_seconds{registry, operation}` | Configured pace at which kuik reads a registry for this operation, as currently loaded: the window between two requests for `Check` and `Copy`, the period between two whole passes for `Scan` (a mirror destination) |
 
 The lap duration and the self-check timestamp are what an operator watches to decide whether the
 configured pace still matches the workload: a lap that grows past what the freshness of a verdict is
-worth, or a timestamp that stops advancing. The ring size sits between them because it is the
-denominator that turns the first into something comparable — see **expected lap length** below.
+worth, or a timestamp falling further behind `operation="Scan"` than one pass explains. The ring size
+sits between them because it is the denominator that turns the first into something comparable — see
+**expected lap length** below.
 
 They are also where the `kind` label earns its keep, since the two ring series are produced by two
 kinds each: a ring belongs to a **(resource, host)** pair
 ([Scheduling](./spec.md#one-budget-per-host-one-ring-per-resource)), and a mirror re-reading an
 upstream tag holds one just as a monitor does. The series never covers a mirror's *destination* — that
 is what `kuik_mirror_self_checked_timestamp_seconds` is for, and the reason the two are shaped
-differently: a lap only means something where the work is paced, and nothing paces a registry kuik
-owns.
+differently: a lap only means something where windows meter the work image by image, and nothing
+rations a registry kuik owns. Its self-check has a **period** instead
+([`mirror.destinationScan.interval`](./spec.md#mirror-pacing-the-destination-kuik-owns)), so what it
+reports is when a whole pass last finished, not how long a lap took.
 
 The last exposes **configuration**, and it is there so that PromQL can compute the values that
 otherwise have to be hard-coded into alerting rules and then kept in sync with the YAML by hand:
 
 - **budget saturation.** One copy is issued per window, so the ceiling is `1 / interval` for
-  `operation="copy"`, and `rate(kuik_mirror_copies_total[1h])` divided by it gives how much of the
+  `operation="Copy"`, and `rate(kuik_mirror_copies_total[1h])` divided by it gives how much of the
   budget is actually being used. On its own that ratio means nothing — an idle mirror sits near zero
   and is perfectly healthy — so it is read *after* establishing there is a backlog, with
   `kuik_mirror_images{state="desired"} - kuik_mirror_images{state="copied"}`. With a backlog present:

@@ -96,8 +96,8 @@ status:
     reason: SourceNotFound
     lastAttempt: "2026-07-10T06:12:00Z"
   # Destination tags no longer referenced by any pod, held for `cleanup.retention` before being
-  # deleted (if cleanup enabled). Fed both by pod events and by the tag listing every reconcile
-  # starts with, so tags that stopped being used while the controller was down are collected at
+  # deleted (if cleanup enabled). Fed both by pod events and by the tag listing every destination
+  # pass starts with, so tags that stopped being used while the controller was down are collected at
   # startup. `unusedSince` is stamped when the entry appears and never refreshed afterwards.
   # `origin` is the reference the image was copied from, known when a pod event created the entry
   # and absent for a tag found by listing (the destination layout is one-way, see walkthrough 02)
@@ -107,8 +107,9 @@ status:
     unusedSince: "2026-07-10T02:00:00Z"
   - ref: registry.tld/mirror/quay.io/acme/tool:1.3_cluster-a
     unusedSince: "2026-07-11T09:30:00Z"
-  # The destination is written by KuiK and carries no quota to spare, so its self-check runs
-  # unpaced on every reconcile: no cursor and no cycle to persist (see walkthrough 02, B.3)
+  # The destination is written by KuiK and carries no quota to spare, so no window applies to its
+  # self-check: it runs whole, once per `mirror.destinationScan.interval` — a period between passes,
+  # not a rate between requests — so there is no cursor and no cycle to persist (walkthrough 02, B.3)
   selfChecked: "2026-07-10T06:12:00Z"   # end of the last full comparison against the destination
   # Persist the list of repositories tracked by this CR as it cannot be recomputed if controller restart,
   # it's written before first push and removed when no tag tracked by this CR remains *for this cluster*:
@@ -127,7 +128,8 @@ status:
   # host's check windows and turns a ring of its own, exactly like an ImageMonitor's — one ring per
   # (resource, host), cursor persisted so the lap resumes at its successor on restart (see
   # "Scheduling" in spec.md). The *destination* has no entry here and never will: it is written by
-  # KuiK, carries no quota to spare, and its verification is the unpaced self-check above
+  # KuiK, carries no quota to spare, and its verification is the whole-pass self-check above, which
+  # has a period rather than a lap and so has nothing to report here
   checks:
     registries:
     - registry: quay.io                    # a source host this mirror re-reads, never the destination

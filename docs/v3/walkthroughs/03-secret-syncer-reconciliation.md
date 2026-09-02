@@ -123,7 +123,7 @@ Editing a routing CR — new alternative, changed `auth`, injection toggled, sel
 
 ### B.4 Someone edited a managed Secret
 
-The syncer cannot detect this: detecting it would mean reading. Instead, it bounds how long a foreign edit can survive by **re-applying every known pair periodically**, on the informer's resync interval. Server-side apply restores the fields kuik owns; every one of those applies is a server-side no-op unless something actually diverged.
+The syncer cannot detect this: detecting it would mean reading. Instead, it bounds how long a foreign edit can survive by **re-applying every known pair periodically**, on the informer's resync interval — controller-runtime's own default, deliberately not a knob of the [global config](../spec.md#global-config), since the applies it triggers are no-ops and cost the API server rather than any registry. Server-side apply restores the fields kuik owns; every one of those applies is a server-side no-op unless something actually diverged.
 
 ### B.5 The controller restarted
 
