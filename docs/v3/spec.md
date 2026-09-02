@@ -682,6 +682,20 @@ Whether kuik copies a pull secret into the pod namespace, so the kubelet can pul
 Set to `true` with a `provider`, kuik materializes, **renews** and injects a docker-registry secret —
 the cross-cloud case, and what makes cloud-provider registries short lived tokens usable.
 
+**Where the Secret lands depends on `rewritePolicy`, and under `Always` it does not wait for a pod.**
+Under `OnFailure` a rewrite only happens when an origin fails, so the need is discovered: the Secret
+appears in a namespace once a pod there has actually been rewritten. Under `Always` every matched pod
+will be rewritten by definition, so the need is known in advance and the Secret is materialized in
+**every namespace the `namespaceSelector` selects**, pod or no pod. An absent or empty
+`namespaceSelector` selects **every namespace in the cluster**, and the Secret is synchronized in all
+of them accordingly.
+
+`podSelector` does not narrow this. It decides which pods are rewritten, not where credentials are
+provisioned, so a cluster-wide `Always` resource that matches three pods still populates every
+namespace. That is the price of `Always` having no first-pull race
+([walkthrough 03, A.7](./walkthroughs/03-secret-syncer-reconciliation.md#a7-the-first-pull-race-onfailure-only)),
+and a `namespaceSelector` is what bounds it.
+
 `ImageMirror`'s `destination.push` ignores the field entirely: push credentials are only ever used by
 the controller. [`fallbackAuth`](#fallback-credentials) ignores it too, for a different reason: the
 injected Secret is named after the identity of the resource that asked for it
