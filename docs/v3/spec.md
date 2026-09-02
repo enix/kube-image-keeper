@@ -314,7 +314,7 @@ end. Two requirements apply to every `ImageMirror`, cleanup or not:
 - **Conformance to the OCI Distribution spec** — `HEAD`/`GET` on manifests, `GET` on tag listings, `PUT`
   to push: kuik calls nothing else, and assumes the spec's guarantees on each hold
   (see [Availability probing](#availability-probing) and
-  [walkthrough B.2](./walkthroughs/02-imagemirror-reconciliation.md#b2-never-enumerate-always-ask-precisely)).
+  [walkthrough B.2](./walkthroughs/02-imagemirror-reconciliation.md#b2-ask-precisely-one-reference-at-a-time)).
 - **Deep repository paths** — the destination reference is `destination.path` joined with the *full*
   original reference, hostname included
   ([walkthrough A.6](./walkthroughs/02-imagemirror-reconciliation.md#a6-compute-the-destination-reference)),

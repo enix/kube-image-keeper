@@ -120,9 +120,9 @@ The destination registry is the source of truth for "what is copied". The self-c
 
 The comparison always runs **forward**: for each desired ref, compute the destination ref (A.6) and ask about *that*. No destination ref is ever parsed backwards, so hashed/truncated tags are handled like any other.
 
-### B.2 Never enumerate, always ask precisely
+### B.2 Ask precisely, one reference at a time
 
-The OCI Distribution spec guarantees only `GET /v2/<name>/tags/list` per repository. The self-check therefore issues `HEAD /v2/<repo>/manifests/<ref>` for each desired ref, which needs read access on that repository only.
+The self-check issues `HEAD /v2/<repo>/manifests/<ref>` for each desired ref, one at a time. `HEAD` on a manifest is what [every check uses](../spec.md#availability-probing), mandated by the OCI Distribution spec, so the comparison rests on nothing a conformant registry may lack.
 
 For pinned images the check is done **by digest**, which is an exact check: if the digest is present, the content is provably identical.
 
