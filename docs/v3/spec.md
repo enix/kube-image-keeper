@@ -517,16 +517,24 @@ most one image per window. A process started at 13:32 with `interval: 5m` opens 
 13:42, 13:47 and so on, and each opening takes one image: the next of a monitoring ring, or the next of
 a mirror's copy queue.
 
-The phase is **fixed** for the lifetime of the process — a window opens when `now` reaches
-`start + k × interval` — so the work done inside a window never moves the following ones. An opening
-that finds nothing to do, or that comes while the previous image is still being transferred, is lost
-rather than banked, which makes the rate a ceiling: a host is asked for at most one image per
+The phase is **fixed** — a window opens when `now` reaches `start + k × interval` — so the work done
+inside a window never moves the following ones. An opening that finds nothing to do, or that comes
+while the previous image is still being transferred, is lost rather than banked, which makes the
+rate a ceiling: a host is asked for at most one image per
 `interval`, whatever happens. Re-arming the clock on each image instead would make the real period
 `interval` plus the time that image took, stretching a ring's lap by the latency of every image in it.
 
 The first window of a process is a full `interval` away, and that extends the ceiling across restarts: a
 controller whose lifetime stays under `interval` sends nothing at all, so a crash loop shows up as a
 ring that stops turning.
+
+A [config reload](#global-config) is the one thing that moves a phase, and it moves only the hosts it
+touches: a host whose `check` or `copy` settings changed **restarts its series from the reload**,
+first window a full (new) `interval` later, exactly as a process start does for every host. The
+ceiling therefore holds across a reload — editing the ConfigMap in a loop cannot burst a registry,
+since each edit pushes the next window further away rather than nearer. Hosts whose settings did not
+move keep their phase, and **no ring cursor moves in any case**: a reload changes the pace, never
+the position.
 
 **Checks** are paced by [`registries.<host>.check.interval`](#global-config). Every `ImageMonitor`
 holds a ring of the images it tracks on a host, in lexicographic order, and each window of that host
@@ -874,6 +882,20 @@ the live container image for pods that were never rewritten and therefore carry 
 > wins), or it is redefined as "pods this CR owns". The other gauges are unaffected either way.
 
 ## Global config
+
+The global config is a **file of its own**, mounted from a ConfigMap and distinct from the custom
+resources: it configures the operator, where the CRs describe what the operator should do. The three
+processes read the same one and each holds its own copy.
+
+It is **reloaded in place**, and that exists first for the `interval` and `timeout` of
+[`registries`](#registries-pacing-what-kuik-pulls-from): retuning the pace of a registry that
+rations should not cost a restart, since a restart already costs a full `interval` before the first
+window opens. A reload that does not parse or does not validate is **rejected whole** — the
+previously loaded config stays in effect, and the failure is logged and counted. A reload therefore
+fails by keeping something that worked, never by falling back to a default nobody asked for.
+
+What a reload does to the windows is specified in [Scheduling](#scheduling): the hosts whose config
+moved are re-phased from the reload, the others keep their phase, and no ring cursor moves.
 
 ```yaml
 # Identity of this cluster, appended to every tag an ImageMirror writes so that several clusters
