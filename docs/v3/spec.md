@@ -802,8 +802,9 @@ registry answering it wrongly is a registry to fix rather than a case to configu
 
 Concurrent admissions for the same image collapse into a single registry call, and
 `activeCheckCache` short-circuits the whole resolution for its TTL, so a 50 replica rollout costs
-one resolution. `skipHints` additionally deprioritises candidates that `ImageMonitor` or
-`ImageMirror` recorded unavailable less than `maxAge` ago.
+one resolution. [`demoteKnownFailures`](#demoteknownfailures-reusing-what-the-loops-already-know)
+additionally sends candidates an `ImageMonitor` or an `ImageMirror` reports failing to the end of
+the list, where they are still probed if everything above them fails.
 
 The first candidate to answer `Available` is the retained reference. When none answers, the pod is
 left untouched (it still starts if the image is in the node's cache).
@@ -946,11 +947,10 @@ webhook:
     # A single image used by 50 pods scheduled in a short period should result in 1 check, not 50
     activeCheckCache:
       ttl: 10s
-    # Use image negative check result from ImageMirror and ImageMonitor to tests
-    # other alternatives first to optimize
-    skipHints:
-      enabled: true
-      maxAge: 30m
+    # Default: true - Reuse what the background loops already know: a candidate an ImageMonitor or
+    # an ImageMirror reports failing is tried LAST instead of first. It is never dropped, so a
+    # stale hint costs ordering and never availability.
+    demoteKnownFailures: true
 
 # How fast kuik reads from each registry host. Checks and copies run on windows counted from the
 # start of the controller process, one image per window, so with `interval: 5m` a controller started
@@ -1001,6 +1001,22 @@ fallbackAuth:
   secretRef:
     name: dockerhub-creds
 ```
+
+### `demoteKnownFailures`: reusing what the loops already know
+
+The webhook probes candidates in order, and the background loops have often already answered the
+same question. `demoteKnownFailures` reuses their published verdicts to **reorder** the candidate
+list, sending what is known to be failing to the end. Three status lists feed it:
+
+- [`ImageMonitor.status.unavailableImages`](./status.md#imagemonitor) — the origin reference, which
+  is a candidate in its own right
+- [`ImageMonitor.status.unavailableAlternatives`](./status.md#imagemonitor) — one particular
+  alternative. Only populated with [`monitorAlternatives`](#imagemonitor) enabled
+- [`ImageMirror.status.failedImagesCopy`](./status.md#imagemirror) — a destination whose copy has not
+  succeeded, so the mirror knows the reference is not there to be served
+
+**A demoted candidate is still probed.** Nothing is dropped: it moves to the end of the list and is
+tried once everything above it has failed, active check in webhook have the final decision.
 
 ### `registries`: pacing what kuik pulls from
 

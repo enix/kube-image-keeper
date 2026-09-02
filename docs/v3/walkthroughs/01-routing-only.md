@@ -24,7 +24,7 @@ registries. Nothing is ever copied to a registry: this is pure routing, the v3 e
 `ClusterReplicatedImageSet`. The pod is created with `image: nginx:1.27`.
 
 The relevant [global config](../spec.md#global-config): `availabilityCheck.timeout: 2s`,
-`activeCheckCache.ttl: 10s`, `skipHints` enabled with `maxAge: 30m`, and `dockerhub-creds` declared
+`activeCheckCache.ttl: 10s`, `demoteKnownFailures` enabled, and `dockerhub-creds` declared
 in `fallbackAuth` for `repositoryGroup: docker.io`.
 
 ## 1. `kubectl apply`, validating webhook
@@ -56,7 +56,9 @@ admission outcomes depend on apply order. Overlap is resolved at lookup time ins
    kinds plus two namespaced ones listed per pod namespace), then `podSelector` and
    `namespaceSelector`. Both are empty here, so the CR always applies. `ImageMonitor` is one of the
    three even though it [never contributes a candidate](../spec.md#candidate-ordering): the webhook
-   reads it for the negative check results [`skipHints`](../spec.md#global-config) consumes
+   reads it for the negative check results
+   [`demoteKnownFailures`](../spec.md#demoteknownfailures-reusing-what-the-loops-already-know)
+   consumes
 4. **matching** — [alternatives matching](../spec.md#alternatives-matching) selects entry 3, the
    `repositoryGroup` `docker.io/library`, with remainder `nginx` and tag `1.27`
 5. **ordering** — [candidate ordering](../spec.md#candidate-ordering). Only this CR matches and it is

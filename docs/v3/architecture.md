@@ -64,11 +64,11 @@ Everything the processes share travels through the API server, in one direction:
   webhook    ──(pod annotations: original-images, rewritten-by, reason, conceded-rewrites, no-alternatives)──▶  reconciler, syncer
 ```
 
-The reconciler **publishes** what it observed; the webhook **consumes** it, through informers, to
-skip candidates a monitor or a mirror recently found unavailable
-([`skipHints`](./spec.md#global-config)). The reverse arrow does not exist, and by now it should be
-clear why: a webhook writing back into the state that drives webhooks would both invert the
-dependency and break the constraint above.
+The reconciler **publishes** what it observed; the webhook **consumes** it, through informers, to try
+**last** the candidates a monitor or a mirror reports failing, never to drop them
+([`demoteKnownFailures`](./spec.md#demoteknownfailures-reusing-what-the-loops-already-know)). The
+reverse arrow does not exist, and by now it should be clear why: a webhook writing back into the
+state that drives webhooks would both invert the dependency and break the constraint above.
 
 The annotations the webhook leaves on the pod ([Annotations](./observability.md#annotations)) are the
 only channel in the other direction. They are what lets the reconciler attribute a rewrite without
