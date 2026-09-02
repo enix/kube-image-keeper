@@ -341,22 +341,24 @@ to sum — `tracked` is the total, the others overlap it.
 | Metric (gauge) | HELP |
 | -------------- | ---- |
 | `kuik_check_cycle_duration_seconds{kind, name, registry}` | Wall-clock seconds taken by the last completed check lap over a registry's images. Produced by an ImageMonitor for the images it tracks, and by an ImageMirror under `driftPolicy: Warn` / `Sync` for the source tags it re-reads. Absent until a first lap completes |
+| `kuik_check_images_by_registry{kind, name, registry, state}` | Images a resource checks on a registry, by state: the images an ImageMonitor tracks there, and under `driftPolicy: Warn` / `Sync` the source tags an ImageMirror re-reads there. The size of the ring behind the lap above |
 | `kuik_mirror_self_checked_timestamp_seconds{kind, name}` | Unix timestamp at which the last full comparison of the destination finished |
 | `kuik_registry_interval_seconds{registry, operation}` | Configured length of the window between two requests of this operation to a registry, as currently loaded |
 
-The first two are what an operator watches to decide whether the configured pace still matches the
-workload: a lap duration that grows past what the freshness of a verdict is worth, or a self-check
-timestamp that stops advancing.
+The lap duration and the self-check timestamp are what an operator watches to decide whether the
+configured pace still matches the workload: a lap that grows past what the freshness of a verdict is
+worth, or a timestamp that stops advancing. The ring size sits between them because it is the
+denominator that turns the first into something comparable — see **expected lap length** below.
 
-They are also where the `kind` label earns its keep, since `kuik_check_cycle_duration_seconds` is the
-one scheduling series two kinds produce: a ring belongs to a **(resource, host)** pair
+They are also where the `kind` label earns its keep, since the two ring series are produced by two
+kinds each: a ring belongs to a **(resource, host)** pair
 ([Scheduling](./spec.md#one-budget-per-host-one-ring-per-resource)), and a mirror re-reading an
 upstream tag holds one just as a monitor does. The series never covers a mirror's *destination* — that
 is what `kuik_mirror_self_checked_timestamp_seconds` is for, and the reason the two are shaped
 differently: a lap only means something where the work is paced, and nothing paces a registry kuik
 owns.
 
-The third exposes **configuration**, and it is there so that PromQL can compute the values that
+The last exposes **configuration**, and it is there so that PromQL can compute the values that
 otherwise have to be hard-coded into alerting rules and then kept in sync with the YAML by hand:
 
 - **budget saturation.** One copy is issued per window, so the ceiling is `1 / interval` for
@@ -372,9 +374,10 @@ otherwise have to be hard-coded into alerting rules and then kept in sync with t
 - **expected lap length.** One image is checked per window, so a full lap ought to take
   `ring size × interval`. Comparing the measured `cycle_duration` to that product surfaces lost
   windows — failures, restarts, contention — as a ratio above 1 rather than as a number nobody can
-  interpret. Ring size is `kuik_monitor_images_by_registry{state="tracked"}` for a monitor and the
-  mirrored images pulled from that host for a mirror; on a shared host the ratio also rises simply
-  because the rings share the budget, which is the same signal read one level up.
+  interpret. Ring size is `kuik_check_images_by_registry`, which both kinds produce: `state="tracked"`
+  for an `ImageMonitor`, `state="copied"` for an `ImageMirror`, whose ring holds the tags it has
+  copied from that host. On a shared host the ratio also rises simply because the rings share the
+  budget, which is the same signal read one level up.
 - **thresholds that follow the config.** "Alert if a lap takes twice what was asked for" becomes
   expressible, instead of a literal that silently drifts the day someone edits `interval`.
 
@@ -390,7 +393,6 @@ otherwise have to be hard-coded into alerting rules and then kept in sync with t
 | Metric | Type | HELP |
 | ------ | ---- | ---- |
 | `kuik_registry_requests_total{registry, operation, result}` | counter | Requests kuik sent to a registry, by operation (`Check`, `Copy`) and outcome (`Ok`, or the reason that request produced: `ManifestNotFound`, `Unauthorized`, `QuotaExceeded`, `Unreachable`, `PushRejected`) |
-| `kuik_monitor_images_by_registry{kind, name, registry, state}` | gauge | Images an ImageMonitor is tracking, broken down by the registry they are pulled from and by state |
 
 `kuik_registry_requests_total` is what answers "is docker.io rate-limiting us" without looking at a
 single image: a rising `QuotaExceeded` result on one registry is the signal, and the `operation` label
