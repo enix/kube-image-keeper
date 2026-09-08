@@ -88,7 +88,7 @@ That is intended: routing needs a verdict now, alerting needs one that lasts.
 >
 > Metrics divide the other way. A counter belongs to the process that witnesses what it counts, and it
 > lives in that process's memory rather than in the API, so `kuik_rewrites_total` and
-> `kuik_no_alternatives_total` are exported by the **webhook** — one increment per admission, by
+> `kuik_alternatives_exhausted_total` are exported by the **webhook** — one increment per admission, by
 > construction. Deriving them in the reconciler would mean counting from a state rather than from an
 > occurrence: the informer replays every live pod at start-up, which would re-count them all instead
 > of resetting the counter.

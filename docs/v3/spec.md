@@ -638,7 +638,7 @@ three clusters on `interval: 10m` may hit the host within the same second, three
 
 The symptoms are worth recognising, because one of them is misleading: a `QuotaExceeded` on a
 **check** looks like an unavailable image, and an `ImageAlternative` reacts to it by routing pods
-away from a healthy registry; on a **copy** it lands in `status.failedImagesCopy` with reason
+away from a healthy registry; on a **copy** it lands in `status.failedImageCopies` with reason
 `QuotaExceeded`, which is explicit. A shared destination is unaffected: the deduplication of
 [Multi-cluster](#multi-cluster-shared-destination-one-tag-per-cluster) leaves the second cluster
 nothing to transfer.
@@ -1059,7 +1059,7 @@ list, sending what is known to be failing to the end. Three status lists feed it
   is a candidate in its own right
 - [`ImageMonitor.status.unavailableAlternatives`](./status.md#imagemonitor) — one particular
   alternative. Only populated with [`monitorAlternatives`](#imagemonitor) enabled
-- [`ImageMirror.status.failedImagesCopy`](./status.md#imagemirror) — a destination whose copy has not
+- [`ImageMirror.status.failedImageCopies`](./status.md#imagemirror) — a destination whose copy has not
   succeeded, so the mirror knows the reference is not there to be served
 
 **A demoted candidate is still probed.** Nothing is dropped: it moves to the end of the list and is
