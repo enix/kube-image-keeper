@@ -1,6 +1,6 @@
 # 0002 — development pipeline and milestones
 
-**Date:** 2026-08-21 · **Status:** draft
+**Date:** 2026-08-21 · **Status:** active
 
 How we intend to organize the v3 build. This captures the proposed pipeline plus the
 amendments coming out of the reuse analysis ([0001](./0001-v2-reuse-analysis.md)).
