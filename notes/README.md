@@ -16,7 +16,15 @@ The v3 specification itself is not here either — it lives in the
 
 - One topic per file, numbered: `NNNN-short-slug.md` (next number = highest existing + 1).
 - Every note starts with its title as an H1, then a **Date** / **Status** line.
-  Status is one of `draft`, `active`, `decided`, `superseded by NNNN`.
+  Status is one of:
+  - `draft` — work in progress, not yet a reference; may be incomplete, contradicted, or
+    dropped. Edit freely in place.
+  - `active` — the reference in force; the shape is settled but the details are still
+    expected to move (e.g. pending calibration or upcoming work). Edit in place.
+  - `decided` — frozen. Never edited beyond typo fixes; changed only by a new note that
+    supersedes it.
+  - `superseded by NNNN` — kept for history, no longer authoritative; `NNNN` is the note
+    to read instead.
 - Structural decisions (the "ADR-light" format): state the decision up front, then the
   context and the alternatives that were rejected and why. A decision is amended by a new
   note that supersedes the old one, not by rewriting history.

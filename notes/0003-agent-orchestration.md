@@ -1,6 +1,6 @@
 # 0003 — agent orchestration and guardrails
 
-**Date:** 2026-08-21 · **Status:** draft
+**Date:** 2026-08-21 · **Status:** active
 
 Operational side of phase 4 of the pipeline ([0002](./0002-development-pipeline.md)):
 how the agent loop actually runs, what keeps it from going off the rails, and how the
