@@ -222,7 +222,6 @@ metric instead, where it stays visible and alertable without shouting.
 | `NoAlternativeAvailable` | Pod | Warning | The original was unavailable and no alternative candidate answered. The pod is left untouched and may still start from the node's cache |
 | `PullSecretInjectionFailed` | Pod | Warning | The syncer could not materialise the secret the webhook referenced |
 | `RewriteConceded` | Pod | Warning | Another mutating webhook replaced the reference kuik had placed, and kuik stood down rather than write over it. The message carries the container, the origin, the reference kuik had placed, the resource it came from, and the image that won. It emits because it has a remedy: two components are disputing one field, and one of the two scopes has to move |
-| `AmbiguousRewrite` | the resources involved | Warning | Two `rewritePolicy: Always` resources place a *different* candidate ahead of the original for the same image. Emitted once on the resources, not per pod |
 | `ImageCopied` | `ImageMirror` | Normal | First copy of an image to the destination |
 | `ImageRecopied` | `ImageMirror` | **Warning** | A manifest that had been copied was found missing and copied again. This is the most valuable event of the set: it means something outside kuik deleted from the destination while pods may be routed to it |
 | `ImageResynced` | `ImageMirror` | Normal | `driftPolicy: Sync` moved a destination tag onto the upstream's new digest |
