@@ -116,7 +116,9 @@ Default type order when priorities are equal: Original → CISM → ISM → CRIS
 
 - **`internal/info/`** — build-time version metadata (`Version`, `Revision`, `BuildDateTime`, populated via `-ldflags`) and a Prometheus collector that exposes them under the `kube_image_keeper` metrics namespace.
 
-- **`internal/testsetup/`** — side-effect import for test suites that registers a Gomega custom formatter so `*regexp.Regexp` values render as their source string in failure output. Test suites are Ginkgo/Gomega with envtest; suite files follow `suite_test.go` and load CRDs from `config/crd/bases/`. End-to-end tests live under `test/e2e/`.
+- **`internal/testsetup/`** — side-effect import that registers a Gomega custom formatter so `*regexp.Regexp` values render as their source string in failure output. Currently blank-imported nowhere (no test asserts on a `*regexp.Regexp` yet); blank-import it in the suite that needs it rather than everywhere.
+
+**Testing rule** _(see [`notes/0004-test-framework.md`](./notes/0004-test-framework.md))_ — Ginkgo/Gomega is the only test framework, pure unit tests included: Gomega is the only assertion grammar (`g := NewWithT(t)` in any remaining plain `func TestX`), and table-driven tests use `DescribeTable` / `Entry`, not `[]struct{}` + `t.Run`. The `Describe` / `Context` / `It` strings carry the reviewed natural-language test case from the issue, which is what makes a case traceable to its assertion. Some pre-existing files still use plain `testing`; they stay as they are, the rule governs new code. envtest suite files follow `suite_test.go` and load CRDs from `config/crd/bases/`; end-to-end tests live under `test/e2e/`.
 
 ### Non-Obvious Behaviors
 
@@ -143,4 +145,4 @@ All v3 design and process decisions are recorded in [`notes/`](./notes/), the en
 
 ## Git Hooks
 
-Lefthook runs `make manifests generate lint-fix` and `markdownlint-cli2` (the latter skipped unless Node.js ≥ 20 is available) on pre-commit, and `make test` on pre-push; conventional commits are enforced. See [`CONTRIBUTING.md`](./CONTRIBUTING.md).
+Lefthook runs `make manifests generate lint-fix` and `markdownlint-cli2` (the latter skipped unless Node.js ≥ 22 is available) on pre-commit, and `make test-short` on pre-push; conventional commits are enforced. See [`CONTRIBUTING.md`](./CONTRIBUTING.md).
