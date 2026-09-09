@@ -109,10 +109,19 @@ reviews:
     - path: "**/*.go"
       instructions: |
         Go code for a Kubernetes operator (kubebuilder v4,
-        controller-runtime). Tests live next to the code (*_test.go)
-        and use Ginkgo/Gomega with envtest. Prefer idiomatic Go and
-        the patterns already in the file over introducing new
-        abstractions. New code should always be tested.
+        controller-runtime). Prefer idiomatic Go and the patterns
+        already in the file over introducing new abstractions. New
+        code should always be tested.
+
+        Tests live next to the code (*_test.go). Ginkgo/Gomega is the
+        only test framework, pure unit tests included: Gomega is the
+        only assertion grammar, and table-driven tests are written as
+        DescribeTable/Entry rather than []struct{} + t.Run. The
+        Describe/Context/It strings carry the reviewed natural-language
+        test case from the issue, so flag specs whose description does
+        not state what the assertion actually checks. Some pre-existing
+        files still use plain `testing`; that is legacy, not a pattern
+        to follow — don't ask for them to be converted either.
 
     - path: "helm/kube-image-keeper/**/*.{yaml,tpl}"
       instructions: |

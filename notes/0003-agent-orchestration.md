@@ -1,11 +1,12 @@
 # 0003 — agent orchestration and guardrails
 
-**Date:** 2026-08-21 · **Status:** active
+**Date:** 2026-08-21 · **Amended:** 2026-09-09 · **Status:** active
 
 Operational side of phase 4 of the pipeline ([0002](./0002-development-pipeline.md)):
 how the agent loop actually runs, what keeps it from going off the rails, and how the
 TDD split is enforced mechanically rather than by convention. Written before the loop
-exists; will be amended once the first issues have gone through it.
+exists; will be amended once the first issues have gone through it. Amendments are
+marked inline and dated.
 
 ## Where the loop runs
 
@@ -45,6 +46,15 @@ agent C reviews the PR, a human merges. The split only means something if B cann
   fails if the diff modifies any `*_test.go` file (or `test/e2e/`) relative to A's
   test commit. Convention does not survive an agent under pressure to go green;
   a failing check does.
+- **The committed Ginkgo spec is the reference artefact, not the issue body.**
+  *(Amendment, 2026-09-09:)* the natural-language cases are now authored in the issue
+  (phase 3 of [0002](./0002-development-pipeline.md)) and A transcribes them into the
+  `Describe` / `Context` / `It` strings ([0004](./0004-test-framework.md)), so by the
+  time B starts, the reviewed English is in git and behind the no-test-edits check.
+  The issue body is not: the agent token carries `issues` write, and GitHub's `Issues`
+  scope does not separate commenting from editing. C therefore reviews the PR against
+  the committed specs; a spec that disagrees with the issue is a `needs-human` signal,
+  never a licence to adjust either side.
 - **CI is the real reviewer.** Agent C reviews for design and spec conformance, but
   correctness pressure comes from the harness: build, lint, `make test` (envtest),
   conventional commits, and the no-test-edits check. All of it must exist before the

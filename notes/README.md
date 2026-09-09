@@ -35,3 +35,4 @@ The v3 specification itself is not here either — it lives in the
 - [0001 — v2 reuse analysis and rewrite decision](./0001-v2-reuse-analysis.md)
 - [0002 — development pipeline and milestones](./0002-development-pipeline.md)
 - [0003 — agent orchestration and guardrails](./0003-agent-orchestration.md)
+- [0004 — Ginkgo everywhere as the single test framework](./0004-test-framework.md)
