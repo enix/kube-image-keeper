@@ -696,9 +696,10 @@ the cross-cloud case, and what makes cloud-provider registries short lived token
 
 **Where the Secret lands depends on `rewritePolicy`, and under `Always` it does not wait for a pod.**
 Under `OnFailure` a rewrite only happens when an origin fails, so the need is discovered: the Secret
-appears in a namespace once a pod there has actually been rewritten. Under `Always` every matched pod
-will be rewritten by definition, so the need is known in advance and the Secret is materialized in
-**every namespace the `namespaceSelector` selects**, pod or no pod. An absent or empty
+appears in a namespace once a pod there has actually been rewritten. Under `Always` the *need* is
+known in advance — the resource's candidates are probed ahead of the original for every matched pod
+— so the Secret is materialized in **every namespace the `namespaceSelector` selects**, pod or no
+pod. An absent or empty
 `namespaceSelector` selects **every namespace in the cluster**, and the Secret is synchronized in all
 of them accordingly.
 
