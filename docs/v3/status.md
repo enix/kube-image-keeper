@@ -165,9 +165,9 @@ status:
       cycleStarted: "2026-07-10T05:00:00Z"
       # measured lap: how often each mirrored tag of this host is re-read for drift, hence the delay
       # before a `Warn` is reported or a `Sync` is queued. Absent until a first lap completes, and
-      # not derived from `images.copied * interval` — every ring of a host shares its windows with
-      # the ImageMonitors tracking it
-      cycleDuration: 96h
+      # not derived from `images * interval` — this ring would lap in 41m alone, and shares quay.io's
+      # windows with the ImageMonitors tracking it
+      cycleDuration: 2h
   conditions:
   - type: DestinationOutOfSync # True = the destination does not hold the desired state (yet)
     status: "True"
@@ -243,14 +243,14 @@ status:
       # back, and the freshness this CR guarantees. Absent until a first lap completes. Not derived
       # from `tracked * interval`, as every ring of a registry shares its windows
       # a value too high is a signal to lower the registry `interval`
-      cycleDuration: 1426h40m              # 2140 images, docker.io `interval: 40m`, sole consumer
+      cycleDuration: 35h40m                # 2140 images, docker.io `interval: 1m`, sole consumer
     - registry: quay.io
       images: 1101
       cursor: quay.io/thanos/thanos
       cycleStarted: "2026-07-10T03:20:00Z"
-      # measured well above the 183h30m this ring would lap in alone: another ImageMonitor tracks
-      # images of quay.io and takes some of its windows
-      cycleDuration: 240h                  # 1101 images, quay.io `interval: 10m`
+      # measured three times the 18h21m this ring would lap in alone: another ImageMonitor and an
+      # ImageMirror's drift ring take their share of quay.io's windows
+      cycleDuration: 55h                   # 1101 images, quay.io `interval: 1m`
   conditions:
   - {type: Ready, status: "True", reason: IsReady}                            # Conf valid and working credentials
   - {type: ImagesUnavailable, status: "True", reason: ChecksFailed}              # a tracked image is unavailable

@@ -583,7 +583,7 @@ the position.
 holds a ring of the images it tracks on a host, in lexicographic order, and each window of that host
 takes the next image of one of them, so an image comes back once per lap — the `cycleDuration`
 reported in [status](./status.md#imagemonitor). A monitor alone on a host with 60 tracked images and
-`interval: 10m` laps in 10 hours; lowering `interval` re-checks each image sooner and sends that host
+`interval: 1m` laps in an hour; lowering `interval` re-checks each image sooner and sends that host
 more requests. Drift detection (`driftDetection: true`) reads the same manifest on the same windows,
 and an `ImageMirror` takes a window of its **source** host when `driftPolicy` is `Warn` or `Sync`, to
 re-read the upstream tag — a paced read like any other, so it holds a ring of its own there and
@@ -622,7 +622,7 @@ sum of their rings.
 
 `cycleDuration` is therefore the lap **actually measured**, from `cycleStarted` to the cursor returning
 where it started, rather than a value derived from the ring's size: two monitors covering 1000 images
-each, disjoint, on `interval: 10m` lap in 2000 windows and not 1000, while the same two monitors
+each, disjoint, on `interval: 1m` lap in 2000 windows and not 1000, while the same two monitors
 covering the *same* 1000 images lap in 1000, the second one carried by the verdict cache. Ring size
 times the host's `interval` is the lap of a resource alone on its host, hence the best case. Measuring
 folds in the sharing, restarts and a growing ring alike, which is what makes the guarantee the status
@@ -653,7 +653,7 @@ share the identity behind them: each cluster paces itself to one request per `in
 account or IP sees the sum.
 
 Windows are counted per process ([Scheduling](#scheduling)), so they stay independent across clusters:
-three clusters on `interval: 10m` may hit the host within the same second, three times per 10 minutes.
+three clusters on `interval: 1m` may hit the host within the same second, three times per minute.
 
 > [!WARNING]
 > Sizing `check.interval` and `copy.interval` for a single cluster and then sharing the identity that
@@ -1064,7 +1064,7 @@ registries:
   # every other one from here
   default:
     check:
-      interval: 30s           # one image of this host checked every 30 seconds
+      interval: 1m            # one image of this host checked every minute
       timeout: 10s
     copy:
       interval: 3m            # one image pulled from this host every 3 minutes, on its own windows
@@ -1082,7 +1082,7 @@ registries:
 
   public.ecr.aws:
     check:
-      interval: 30m
+      interval: 5m            # slower still: a ring of 300 images here comes back once a day
 
 # Credentials used to read an image when no CR declares any, by ImageMonitor, ImageAlternative and
 # ImageMirror alike. KuiK is designed not to depend on a pod's imagePullSecrets — under
@@ -1113,8 +1113,8 @@ A **window** of [`registries`](#registries-pacing-what-kuik-pulls-from) rations 
 quota and is counted per image: one request per `interval`, a rate. `mirror.destinationScan.interval`
 is not the same quantity. A mirror's destination rations nothing — the operator owns it — but its two
 reading loops traverse it *whole*, so what they need is a **period** between passes, not a rate
-between requests. Taking a `check.interval` for it would re-read the entire destination every 30
-seconds; the two are separate fields because they measure different things.
+between requests. Taking a `check.interval` for it would re-read the entire destination every
+minute; the two are separate fields because they measure different things.
 
 One pass covers both destination loops together: the self-check `HEAD`s every desired reference
 ([walkthrough 02, B.2](./walkthroughs/02-imagemirror-reconciliation.md#b2-ask-precisely-one-reference-at-a-time)),
