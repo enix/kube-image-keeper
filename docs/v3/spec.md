@@ -727,15 +727,30 @@ registry: one credential fits both and only whether to inject it differs, hence 
 kuik injects nothing: the pod is expected to carry its own `imagePullSecrets`, or the kubelet's
 credential provider handles it.
 
-What kuik itself checks with then depends on how much the cluster lets it read, and the design
-assumes the stricter of the two. **Everything in these documents is written for
-[`secretAccess.mode: restricted`](./architecture.md#two-modes-one-clusterrole-apart)**, where kuik
-holds no read on Secrets outside its install namespace: it never sees the pod's `imagePullSecrets`,
-so a check with no declared credential is **anonymous**. `permissive` — which the chart installs by
-default, purely so that a fresh install works against a private registry with nothing declared —
-lets kuik read the `imagePullSecrets` of the pods an image comes from and use them when it can. It
-only ever *adds* a credential to the same resolution: a check that had one already is unaffected,
-and a check that finds nothing degrades to exactly the anonymous case above.
+What kuik itself reads an image with follows **one order**, the same for every resource and every
+loop:
+
+1. the entry's own **`auth`**, when it declares one
+2. the **pod's `imagePullSecrets`**
+3. the matching **[`fallbackAuth`](#fallback-credentials)** entry, most specific first
+4. **anonymous**
+
+**The order is the same in every mode**; what
+[`secretAccess.mode`](./architecture.md#two-modes-one-clusterrole-apart) decides is whether step 2
+can succeed. Under `permissive` kuik may read those Secrets. Under `restricted` the API server
+refuses it, except in the namespaces `secretAccess.namespaces` grants access to. A refusal is not an
+error to report: kuik takes it as "no credential here" and moves on to step 3, exactly as it does
+for a pod that declares no `imagePullSecrets` at all.
+
+**Everything in these documents is written for `restricted`**, where step 2 usually yields nothing:
+a check with no declared credential and no `fallbackAuth` match is anonymous. `permissive` — which
+the chart installs by default, purely so that a fresh install works against a private registry with
+nothing declared — only makes that step productive, and a check that finds nothing there degrades to
+exactly the `restricted` case.
+
+This order decides what kuik reads with, and nothing else. Whether a credential is also copied into
+a pod's namespace is a separate question, answered per entry by
+[`injectPullSecret`](#injectpullsecret).
 
 > [!WARNING]
 > A private image with neither `auth` nor a matching
@@ -991,8 +1006,9 @@ registries:
 
 # Credentials used to read an image when no CR declares any, by ImageMonitor, ImageAlternative and
 # ImageMirror alike. KuiK is designed not to depend on a pod's imagePullSecrets — under
-# `secretAccess.mode: restricted` it cannot read them at all (see "Authentication") — so this is how
-# it gets credentials for a private registry nobody declared `auth` for. Entries match exactly as
+# `secretAccess.mode: restricted` it is refused that read in most namespaces (see "Authentication")
+# — so this is how it gets credentials for a private registry nobody declared `auth` for. Entries
+# match exactly as
 # `ImageAlternative.alternatives` do, see "Fallback credentials"
 fallbackAuth:
 - repositoryGroup: private-registry.tld/project1

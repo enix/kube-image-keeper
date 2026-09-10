@@ -257,9 +257,10 @@ posture. Where it has been granted stays answerable with one `kubectl get rolebi
 Two rules keep the modes from becoming two code paths, and keep manifests portable between clusters
 that chose differently:
 
-- everything in these documents describes the **`restricted`** behaviour. `permissive` only *adds*
-  one step to the same credential resolution, and anything unavailable there degrades to exactly what
-  `restricted` would have done — there is no branch where a loop behaves differently
+- everything in these documents describes the **`restricted`** behaviour. The credential resolution
+  is the same in both modes ([Authentication](./spec.md#no-auth-at-all)); `permissive` only decides
+  whether its `imagePullSecrets` step is allowed to succeed, and a step kuik may not read degrades to
+  exactly what `restricted` would have done — there is no branch where a loop behaves differently
 - the mode never changes the API. A `secretRef` resolves in `kuik-system` either way
   ([Authentication](./spec.md#authentication)), so a resource written for one cluster applies
   unchanged to the other
