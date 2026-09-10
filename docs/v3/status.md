@@ -161,10 +161,6 @@ status:
   images:
     tracked: 3241               # images tracked by this CR
     inUse: 3180                 # images associated for running pod
-    rewritten: 2104             # subset of `inUse`: origins the cluster reaches through a kuik
-                                # rewrite, so `inUse - rewritten` are the ones pods carry as they
-                                # were written. One ref can be in both at once, mid-rollout or from
-                                # one namespace to the next, so it overlaps rather than partitions
     retained: 61                # images no longer running but still monitored for `unusedImageRetention`
     available: 3226             # 11 short of `tracked`: those have not been checked yet, the
     unavailable: 4              # ring not having reached them since they entered it

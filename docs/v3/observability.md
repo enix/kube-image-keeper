@@ -342,7 +342,7 @@ The `state` label repeats the field names of the corresponding status, so a dash
 
 | Metric | Status | `state` values |
 | ------ | ------ | -------------- |
-| `kuik_monitor_images` | `ImageMonitor.status.images` | `tracked`, `inUse`, `retained`, `rewritten`, `available`, `unavailable`, `drifted` |
+| `kuik_monitor_images` | `ImageMonitor.status.images` | `tracked`, `inUse`, `retained`, `available`, `unavailable`, `drifted` |
 | `kuik_monitor_alternatives` | `ImageMonitor.status.alternatives` | `tracked`, `unavailable` |
 | `kuik_mirror_images` | `ImageMirror.status.images` | `desired`, `copied`, `retained`, `drifted`, `missingSource` |
 
@@ -354,14 +354,10 @@ container otherwise. That is what an `ImageMonitor` tracks
 `state` mixes two dimensions on purpose, exactly as the status does: on `kuik_monitor_images`, `inUse`
 and `retained` partition why an image is tracked, while `available`, `unavailable` and `drifted` report
 the outcome of its last check. Hence the warning not to sum — `tracked` is the total, the others
-overlap it. `rewritten` is a subset of `inUse` rather than a third alongside it: it counts the origins
-the cluster reaches **through a kuik rewrite**, so `inUse - rewritten` are the ones pods carry as they
-were written. One reference can be in both at once, mid-rollout or from one namespace to the next.
+overlap it.
 
-That subset answers "how much of what this cluster runs goes through kuik" in **references**, from the
-monitor's vantage point and de-duplicated per reference. `kuik_rewrite_pods` answers the neighbouring
-question in **pods**, from each routing resource's own. The two are not substitutes: one counts what is
-being run, the other counts where a rewrite happened.
+`kuik_rewrite_pods` answers a neighbouring question, in **pods** rather than in references and from
+each routing resource's own vantage point: not what the cluster runs, but where a rewrite happened.
 
 #### Scheduling health — is the configured pace keeping up
 
