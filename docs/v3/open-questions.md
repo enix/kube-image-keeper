@@ -17,7 +17,10 @@ verified byte-identical (see the note on copy semantics in [`spec.md`](./spec.md
 
 Counter-proposal from the thread: rather than flipping the default, add an `Auto` value that enables
 `Sync` behaviour only when the container's `imagePullPolicy` is `Always`, so the mirror follows the
-tag exactly when the pod asked to. The caveat is that `imagePullPolicy: Always` is known to interact
-in complicated ways with kuik, so this is parked for review **after v3.0**.
+tag exactly when the pod asked to. v3.0 answers that interaction the other way round — such a
+container has its mirror candidate demoted rather than its copy refreshed
+([`imagePullPolicy: Always` demotes a mirror](./spec.md#imagepullpolicy-always-demotes-a-mirror)) —
+so `Auto` would be a second and opposite answer to the same question. Parked for review
+**after v3.0**.
 
 Status: open; `Ignore` stays the default in the spec for now, `Auto` deferred post v3.0.

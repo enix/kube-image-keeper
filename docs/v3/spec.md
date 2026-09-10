@@ -834,6 +834,24 @@ The four policy combinations, for one mirror candidate `M` and alternatives decl
 | `Always` | `OnFailure` | `M` → `docker.io` → `ecr` → `gcr` |
 | `Always` | `Always` | `M` → `ecr` → `gcr` → `docker.io` |
 
+### `imagePullPolicy: Always` demotes a mirror
+
+A container with `imagePullPolicy: Always` asks the runtime to re-resolve its tag on every start,
+which is how a mutable tag is followed. An `ImageMirror` cannot promise that: its copy is a snapshot
+of what was running when it was made, and it follows the upstream only under
+[`driftPolicy: Sync`](#imagemirror), and then only as far as the last resync got. Serving such a
+container from the mirror answers "give me the newest" with "here is the one I have".
+
+So for that container, and only for it, an `ImageMirror`'s `rewritePolicy: Always` is **ignored**:
+its candidate goes to the `OnFailure` mirror band at the end of the list, where it is still the
+safety net if nothing upstream answers. `ImageAlternative` entries are unaffected — an alternative
+is an upstream, and resolves the tag exactly as the original would.
+
+[`webhook.demoteMirrorWithPullPolicyAlways: false`](#global-config) turns this off. The case it
+exists for is the `AlwaysPullImages` admission plugin, which sets `imagePullPolicy: Always` on every
+container in the cluster: the demotion would then apply everywhere and defeat what the mirror is
+usually there for, which is keeping the cluster off a rate-limited upstream.
+
 ### Availability probing
 
 Candidates are probed **sequentially, in list order**, with a manifest `HEAD` bounded by
@@ -1011,6 +1029,12 @@ mirror:
                              # one pass does the self-check and the cleanup sweep together
 
 webhook:
+  # Default: true - A container with `imagePullPolicy: Always` asks for the newest content of its
+  # tag, which a mirror cannot promise, so an ImageMirror's `rewritePolicy: Always` is ignored for
+  # that container and its candidate is demoted to the end of the list. Set to false where the
+  # mirror is wanted anyway, typically under the AlwaysPullImages admission plugin.
+  # See "imagePullPolicy: Always demotes a mirror"
+  demoteMirrorWithPullPolicyAlways: true
   availabilityCheck:
     timeout: 2s              # max time before considering a registry as unavailable
     # Cache per controller replica to avoid querying registry multiple time on burst
