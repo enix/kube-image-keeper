@@ -940,8 +940,9 @@ what a CR *did* is what `rewritten` reports, and the annotation is what settles 
 
 `pods.noAlternatives` overlaps for a different reason: no candidate won, so every CR that contributed
 one counts the pod. It is read from
-[`kuik.enix.io/no-alternatives`](./observability.md#annotations), which lists the containers no
-candidate could serve and deliberately names no resource — an inaction belongs to none.
+[`kuik.enix.io/no-alternatives`](./observability.md#annotations), which maps each container no
+candidate could serve to the resources that offered one — so the count comes off the pod rather than
+from replaying the matching, which a CR edited since admission would answer wrongly.
 
 Status controllers read the original reference from `kuik.enix.io/original-images`, falling back to
 the live container image for pods that were never rewritten and therefore carry no annotation.

@@ -75,8 +75,8 @@ itself carries no such judgement.
 
 These ride along in the **mutation the webhook returns**, the patch travels back in the `AdmissionResponse` and the API server applies it to the object it was already writing.
 
-Five annotations. Four are JSON objects keyed by **container name** — a pod has many containers and
-each one is decided independently — and the fifth is a JSON list of container names:
+Five annotations, all JSON objects keyed by **container name** — a pod has many containers and each
+one is decided independently:
 
 ```yaml
 metadata:
@@ -94,9 +94,10 @@ metadata:
     # kuik stood down rather than write over it. Holds the three things the pod no longer shows —
     # the origin, the reference kuik had placed, the resource that supplied it
     kuik.enix.io/conceded-rewrites: '{"oauth-proxy":{"from":"quay.io/oauth2-proxy/oauth2-proxy:v7.7.1","was":"registry.tld/mirror/quay.io/oauth2-proxy/oauth2-proxy:v7.7.1_cluster-a","by":"ImageMirror/prod-mirror"}}'
-    # Containers no candidate could serve, left untouched. A list, not a map: there is no reference
-    # to preserve and no resource to attribute, only the fact that kuik had nothing to offer
-    kuik.enix.io/no-alternatives: '["config-reloader"]'
+    # Containers no candidate could serve, left untouched, each mapped to the resources that offered
+    # one. There is no reference to preserve — the original is still the live image — but the
+    # offering resources are what `pods.noAlternatives` is counted from
+    kuik.enix.io/no-alternatives: '{"config-reloader":["ImageAlternative/prometheus","ImageMirror/prod-mirror"]}'
 ```
 
 ### Where a container appears says what happened to it
@@ -119,12 +120,11 @@ Four outcomes, four disjoint places to look:
   that stopped answering is an `ImageMirror` concern (`status.failedImageCopies`, `DestinationOutOfSync`)
 - a container that was **rewritten** appears in the three maps: the reference it came from, the
   resource that supplied the new one, and under which policy
-- a container **no candidate could serve** appears in `no-alternatives`, and in none of the maps. Its
-  spec was not touched, so the original is still the live image and there is nothing to preserve; and
-  no resource supplied anything, so there is nobody to attribute it to. It is recorded all the same,
-  because "kuik tried and had nothing to offer" is what `pods.noAlternatives` and
-  `kuik_alternatives_exhausted_total` count, and without it the container would be indistinguishable from one
-  kuik never looked at
+- a container **no candidate could serve** appears in `no-alternatives`, and in none of the other
+  maps. Its spec was not touched, so the original is still the live image and there is nothing to
+  preserve; what the entry holds instead is every resource that offered a candidate, which is what
+  `pods.noAlternatives` and `kuik_alternatives_exhausted_total` are counted from. Without it the
+  container would be indistinguishable from one kuik never looked at
 - a container kuik rewrote and then **conceded** appears in `conceded-rewrites`, and in none of the
   other maps. Another mutating webhook replaced the reference kuik had placed and kuik stood down
   rather than write over it
