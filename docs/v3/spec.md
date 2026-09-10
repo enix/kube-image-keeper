@@ -472,9 +472,13 @@ shared egress IP for anonymous pulls) hands that account or IP the sum of their 
 #### Tag naming constraints
 
 - OCI tags are limited to **128 characters**, and to `[a-zA-Z0-9._-]` after the first character.
-  `clusterID` is validated against that alphabet and is expected to be short. A reference whose
-  suffixed tag would exceed 128 characters is truncated deterministically, with a hash of the full
-  tag appended, so the mapping stays injective for the endless tags CI systems produce
+  `clusterID` is validated against `^[a-zA-Z0-9][a-zA-Z0-9.-]*$` — that alphabet **minus `_`**,
+  which is the separator — and is expected to be short. Allowing `_` would make the suffix
+  ambiguous: clusters `a` and `1_a` would both claim the tag `v1_1_a`
+- a reference whose suffixed tag would exceed 128 characters is truncated deterministically and a
+  hash of the full upstream tag is appended, giving **`<truncated>-<hash>_<clusterID>`**. The suffix
+  stays the **last** segment — which is what the cleanup sweep filters on — and the mapping stays
+  injective for the endless tags CI systems produce
 - the separator is `_`, and appending it is **unambiguous**: exactly one trailing `_<clusterID>` is
   added, so an upstream tag literally ending in `_cluster-a` is copied by cluster A to
   `…_cluster-a_cluster-a` rather than colliding with itself. What the suffix does *not* buy is a way
@@ -1014,8 +1018,9 @@ moved are re-phased from the reload, the others keep their phase, and no ring cu
 ```yaml
 # Identity of this cluster, appended to every tag an ImageMirror writes so that several clusters
 # can share one `destination.path` and deduplicate blobs, see "Multi-cluster: shared destination,
-# one tag per cluster". Required. Short, and limited to the alphabet below. Changing it orphans
-# every tag written under the previous one
+# one tag per cluster". Required, short, and matching `^[a-zA-Z0-9][a-zA-Z0-9.-]*$` (the OCI tag
+# alphabet without `_`, which is the suffix separator). Changing it orphans every tag written under
+# the previous one
 clusterID: cluster-a
 
 # Optional metrics, off by default because they cost more series than the rest of the metric surface
