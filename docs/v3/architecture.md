@@ -106,7 +106,7 @@ Cluster-wide unless stated otherwise. `kuik-system` stands for the install names
 | `secrets` in `kuik-system` | get, list, watch | get, list, watch | get, list, watch |
 | `secrets`, cluster-wide (read) | `permissive` only | `permissive` only | never |
 | `secrets`, cluster-wide (write) | — | — | **create, patch** |
-| `serviceaccounts/token` | create (for `auth.provider`) | create | create |
+| `serviceaccounts/token` | — | — | create (for `auth.provider`) |
 | `events` | — | create, patch | create, patch |
 | `leases` | — | leader election | leader election |
 
@@ -122,6 +122,8 @@ Three absences carry more weight than the entries:
 
 `serviceaccounts/token` is only needed where an `auth.provider` with a `serviceAccountRef` is
 declared; the token is requested for that ServiceAccount and exchanged for registry credentials.
+**Neither the webhook or reconciler performs that exchange.** They consumes the Secret the
+syncer has already materialised and renewed.
 
 > [!NOTE]
 > Per-platform selection is deferred (see the `platforms` note in [ImageMirror](./spec.md#imagemirror)),
