@@ -21,8 +21,8 @@ applies to, and a mirror's own destination, implicitly excluded from it (see
 
 ### What the webhook never rewrites
 
-Two gates sit ahead of every resource, and both are **per container**, carry no configuration, and
-cannot be opted into or out of by any resource.
+Three gates sit ahead of every resource. None carries any configuration, and no resource can opt
+into or out of them. Two are **per container**:
 
 - **a container whose current reference kuik produced itself** is never **rewritten** a second time.
   Rewriting it again would record kuik's own output as the origin and destroy the only way back to
@@ -32,8 +32,15 @@ cannot be opted into or out of by any resource.
   Rewriting its reference could only turn a working pod into a failing one, whatever the candidate
   ordering says
 
-The first cannot fire on a pod the webhook has not already been through, and how kuik tells its own
-output from anything else belongs to the admission path rather than to any resource:
+The third is **per pod**:
+
+- **a mirror pod**, one the kubelet mirrors into the API from a static manifest on the node, marked
+  by the `kubernetes.io/config.mirror` annotation. The kubelet runs the file rather than the API
+  object and rejects mutations to it, so a rewrite would change nothing that actually starts while
+  making every status and every mirror account for an image no container is pulling
+
+The first gate cannot fire on a pod the webhook has not already been through, and how kuik tells its
+own output from anything else belongs to the admission path rather than to any resource:
 [Reinvocation](./architecture.md#reinvocation).
 
 One consequence of the first gate is worth stating here, because it reaches well past the webhook.
@@ -48,7 +55,7 @@ the other webhook chose — rather than the origin kept in `conceded-rewrites.fr
 Everything else is a matter for the selectors. v2's global `skipLabels` / `skipAnnotations` have no
 v3 equivalent: excluding a workload is expressed on the resources that would otherwise apply to it,
 so an exclusion is visible on the object that owns the decision rather than in the operator's
-configuration. And v2's third gate is gone outright — digest-pinned containers are routed like any
+configuration. And v2's digest gate is gone outright — digest-pinned containers are routed like any
 other image, see [Digest-pinned images](#digest-pinned-images).
 
 ## ImageAlternative
