@@ -182,6 +182,11 @@ admission ([Candidate ordering](#candidate-ordering)), it is never read as a cop
 `ImageMirror` ([What an `ImageMirror` copies](#what-an-imagemirror-copies)), and
 [`monitorAlternatives`](#imagemonitor) does not track it.
 
+One case is different: an entry that names the **original image's own repository**. The original
+stays a candidate, because the pod carries that reference and nothing removes it. But it is tried
+**last** instead of at the pivot ([Candidate ordering](#candidate-ordering)), so the alternatives
+that still work are tried first.
+
 Matching is exactly what it is for. A repository that has been emptied or withdrawn is still the
 reference the cluster's pods carry, and if nothing in the CR names it, nothing recognises those pods:
 the CR does not apply, and none of its live entries is ever proposed. Declaring the dead source is
@@ -775,6 +780,9 @@ list:
 - the original appears **exactly once, at the pivot**, whatever its declared position in an
   `alternatives` list; a CR's other entries go to that CR's band in declared order. So `Always` on an
   `ImageAlternative` is never a no-op
+- an original matching an entry marked [`unavailable: true`](#unavailable) is **demoted to the end of
+  the list** instead of sitting at the pivot. The operator has declared that source gone, so probing
+  it first would spend an admission on a repository known to be dead. It is demoted, never dropped
 - an `ImageMirror` contributes **one** candidate, `destination.path` joined with the full original
   reference, the tag carrying this cluster's identity
   (`registry.example.com/mirror/` + `docker.io/library/nginx:1.27` + `_cluster-a`, see
