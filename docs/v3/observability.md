@@ -220,7 +220,7 @@ metric instead, where it stays visible and alertable without shouting.
 | ------ | ------ | ---- | ------------ |
 | `ImageFallback` | Pod | Normal | The original was unavailable and an alternative candidate answered. The message carries the original reference, the retained one, and the resource that supplied it — which is what makes an inter-resource ordering debuggable |
 | `NoAlternativeAvailable` | Pod | Warning | The original was unavailable and no alternative candidate answered. The pod is left untouched and may still start from the node's cache |
-| `PullSecretInjectionFailed` | Pod | Warning | The syncer could not materialise the secret the webhook referenced |
+| `PullSecretInjectionFailed` | the resource concerned | Warning | The syncer could not resolve a credential for a `(resource, namespace)` pair, with the reason it failed on — `SecretNotFound`, `Unauthorized` or `TokenRequestFailed` |
 | `RewriteConceded` | Pod | Warning | Another mutating webhook replaced the reference kuik had placed, and kuik stood down rather than write over it. The message carries the container, the origin, the reference kuik had placed, the resource it came from, and the image that won. It emits because it has a remedy: two components are disputing one field, and one of the two scopes has to move |
 | `ImageCopied` | `ImageMirror` | Normal | First copy of an image to the destination |
 | `ImageRecopied` | `ImageMirror` | **Warning** | A manifest that had been copied was found missing and copied again. This is the most valuable event of the set: it means something outside kuik deleted from the destination while pods may be routed to it |

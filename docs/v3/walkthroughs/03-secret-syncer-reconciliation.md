@@ -51,7 +51,7 @@ The result is usually one entry, sometimes two, almost never all the ones the CR
 - **`secretRef`** → read the named Secret from `kuik-system`. This is the one namespace the syncer may read, and referencing a credential means having been able to put it there.
 - **`provider`** → obtain a token from the cloud platform: request a ServiceAccount token for the referenced ServiceAccount, exchange it for registry credentials. The result is short-lived, which is what the refresh loop (Part B) exists for.
 
-A credential that cannot be resolved — missing source Secret, rejected token request — does not block the others: the entry is skipped, an event is emitted, and the Secret is written with what could be resolved. A partially useful pull secret is better than none.
+A credential that cannot be resolved — missing source Secret, rejected token request — does not block the others: the entry is skipped, `PullSecretInjectionFailed` is emitted on the routing CR, and the Secret is written with what could be resolved. A partially useful pull secret is better than none.
 
 ### A.4 Build the desired object
 
