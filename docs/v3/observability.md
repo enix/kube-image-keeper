@@ -241,6 +241,14 @@ A mirror's first synchronisation emits a burst of `ImageCopied`. That is accepte
 they document the ramp-up, and suppressing them would mean the one moment with the most to say is the
 quietest.
 
+> [!IMPORTANT]
+> **Events on a Pod are emitted only for pods created after the reconciler acquired its lease.**
+> They are derived from the pod's annotations by the reconciler
+> ([architecture v3](./architecture.md#data-flow)), whose informer replays every live pod at
+> start-up — so without that cut-off a restart or a leader change would re-emit one event per
+> annotated pod in the cluster. Pods admitted while no leader held the lease lose their event; the
+> annotations they carry are the durable record.
+
 > [!NOTE]
 > Skew is a strict sub-case of drift, not a parallel condition: two distinct digests cannot both equal
 > one `upstreamDigest`, so a skewed reference is always a drifted one. In
