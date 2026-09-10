@@ -9,6 +9,30 @@ other condition names an anomaly and stays `True` for as long as it lasts, so "i
 this resource?" is a single query — a condition whose `status` is `True` and whose `type` is not
 `Ready`.
 
+## Conditions and their reasons
+
+Every condition a v3 resource carries, and the reasons it may report:
+
+| Kind | Condition | `True` means | Reasons |
+| ---- | --------- | ------------ | ------- |
+| all three | `Ready` | the resource is usable as declared | `IsReady`. When `False`: `InvalidConfig`, `SecretNotFound`, `SecretMalformed`, `TokenRequestFailed`, and `RegistryDeleteUnsupported` on an `ImageMirror` |
+| `ImageAlternative`, `ImageMirror` | `FallbackActive` | a rewrite is standing in for an origin that failed | `OriginUnavailable` |
+| `ImageAlternative`, `ImageMirror` | `AlternativesExhausted` | a container was left untouched, no candidate having answered | `AllCandidatesFailed` |
+| `ImageMirror` | `DestinationOutOfSync` | the destination does not hold the desired state yet | `MissingImages` |
+| `ImageMonitor` | `ImagesUnavailable` | a tracked origin fails its check | `ChecksFailed` |
+| `ImageMonitor` | `AlternativesUnavailable` | a monitored alternative fails its check | `ChecksFailed` |
+| `ImageMonitor` | `ImagesDrifted` | a tracked tag moved upstream | `UpstreamDigestMoved` |
+
+**`Ready` answers a question about the resource, never about an image.** It goes `False` when the
+resource cannot work as declared: a `secretRef` naming a Secret that is absent or not a
+`dockerconfigjson`, a `provider` whose `TokenRequest` is refused, a configuration a loop cannot
+honour, or — with `cleanup.enabled` — a destination that refuses tag deletion.
+
+A failure on one image never touches it. An `Unauthorized` on one repository says a credential does
+not cover that path, not that the resource is broken — kuik does not extrapolate from a single
+request ([Reasons](./observability.md#reasons)) — so it lands in `unavailableImages`,
+`unavailableAlternatives` or `failedImageCopies`, and in the condition that names that anomaly.
+
 ## ImageAlternative
 
 ```yaml
