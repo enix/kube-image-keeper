@@ -1068,7 +1068,8 @@ registries:
       timeout: 10s
     copy:
       interval: 3m            # one image pulled from this host every 3 minutes, on its own windows
-      timeout: 10s
+      timeout: 0              # Default: 0 - no bound. A transfer takes what it takes, and a copy
+                              # that runs long already shows by outlasting its own `interval`
 
   private-registry.tld:
     copy:
@@ -1170,6 +1171,17 @@ says nothing about credentials.
 inherits every other one, so `private-registry.tld` above, which names only `copy.interval`, keeps
 `default.copy.timeout` and the whole of `default.check`. Anything else would make the three one-field
 host entries of the example silently drop three settings each.
+
+`timeout` bounds **the whole operation**, not one request: a check gets a budget for reaching a
+verdict, whatever number of requests the registry's auth flow costs it.
+
+**`copy.timeout` defaults to `0`, which means no bound at all.** How long an image legitimately
+takes to transfer is not something an operator should have to predict, and a copy cut off half-way
+costs the whole transfer without fixing anything — it is retried and cut off again. A copy that runs
+long is already visible without a deadline: it outlasts its own `copy.interval`, which shows up as
+windows going unused while a backlog is pending ([Scheduling](#scheduling)), and directly in
+`kuik_mirror_copy_duration_seconds` where [`metrics.copyDuration`](#global-config) is enabled.
+Setting a non-zero value is for operators who would rather abandon a copy than let it finish.
 
 ### Fallback credentials
 
