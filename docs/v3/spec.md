@@ -464,22 +464,17 @@ shared egress IP for anonymous pulls) hands that account or IP the sum of their 
   hazard is a *foreign* writer pushing a tag ending in `_<clusterID>` under `destination.path`, which
   cleanup would take for its own: a mirror destination is expected to be kuik's alone
 
-#### Sharing a destination requires `clusterID` everywhere
+#### `clusterID` is required, and changing it orphans tags
 
-`clusterID` is optional, and unset means unsuffixed tags, which is the right thing for a single
-cluster: references stay readable and nothing pays for a feature it does not use.
+`clusterID` is **required**, in a single-cluster install as much as in a shared destination. Every
+tag an `ImageMirror` writes carries it, and a cluster only ever creates, verifies and deletes the
+tags carrying its own suffix.
 
 > [!WARNING]
-> Sharing one `destination.path` between clusters requires `clusterID` to be set on **every** one of
-> them. A cluster without a `clusterID` owns the unsuffixed tags, and it cannot tell another
-> cluster's `v0.42.2_cluster-b` from an upstream tag it mirrored itself, so its `cleanup` deletes it.
-> kuik cannot see the other clusters, so this is a documented prerequisite and not something
-> admission can enforce.
-
-Turning `clusterID` on afterwards is cheap and needs no migration tooling: the suffixed tags are
-manifest `PUT`s against blobs already in place, and the unsuffixed ones drop out of the desired
-state, so the mirror's own `cleanup` removes them after `retention`. Mono-cluster is then the same
-code path with an empty suffix.
+> **Changing `clusterID` orphans every tag written under the previous one.** Those tags stop
+> matching the sweep's filter, so they never enter `status.pendingDeletion` and `cleanup` never
+> deletes them: they stay at the destination until someone removes them by hand. kuik keeps no
+> record of previous identities.
 
 ## ImageMonitor
 
@@ -937,9 +932,8 @@ moved are re-phased from the reload, the others keep their phase, and no ring cu
 ```yaml
 # Identity of this cluster, appended to every tag an ImageMirror writes so that several clusters
 # can share one `destination.path` and deduplicate blobs, see "Multi-cluster: shared destination,
-# one tag per cluster". Optional; unset (the default) means unsuffixed tags, which is correct for a
-# single cluster and unsafe as soon as a destination is shared. Short, and limited to
-# `[a-zA-Z0-9._-]` (OCI tag alphabet)
+# one tag per cluster". Required. Short, and limited to the alphabet below. Changing it orphans
+# every tag written under the previous one
 clusterID: cluster-a
 
 # Optional metrics, off by default because they cost more series than the rest of the metric surface
