@@ -318,8 +318,9 @@ deletion rules.
 A mirror destination is an OCI registry the operator points kuik at, and kuik assumes it holds up its
 end. Two requirements apply to every `ImageMirror`, cleanup or not:
 
-- **Conformance to the OCI Distribution spec** — `HEAD`/`GET` on manifests, `GET` on tag listings, `PUT`
-  to push: kuik calls nothing else, and assumes the spec's guarantees on each hold
+- **Conformance to the OCI Distribution spec** — `HEAD`/`GET` on manifests and blobs, `GET` on tag
+  listings, `POST`/`PATCH`/`PUT` to upload a blob and `PUT` to write the manifest that closes it:
+  kuik calls nothing else, and assumes the spec's guarantees on each hold
   (see [Availability probing](#availability-probing) and
   [walkthrough B.2](./walkthroughs/02-imagemirror-reconciliation.md#b2-ask-precisely-one-reference-at-a-time)).
 - **Deep repository paths** — the destination reference is `destination.path` joined with the *full*
