@@ -343,7 +343,7 @@ The `state` label repeats the field names of the corresponding status, so a dash
 | Metric | Status | `state` values |
 | ------ | ------ | -------------- |
 | `kuik_monitor_images` | `ImageMonitor.status.images` | `tracked`, `inUse`, `retained`, `available`, `unavailable`, `drifted` |
-| `kuik_monitor_alternatives` | `ImageMonitor.status.alternatives` | `tracked`, `unavailable` |
+| `kuik_monitor_alternatives` | `ImageMonitor.status.alternatives` | `tracked`, `available`, `unavailable` |
 | `kuik_mirror_images` | `ImageMirror.status.images` | `desired`, `copied`, `retained`, `drifted`, `missingSource` |
 
 Both monitor gauges count **origin** references — what the manifest carried, read from

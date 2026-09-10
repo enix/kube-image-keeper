@@ -191,11 +191,12 @@ status:
     available: 3226             # 11 short of `tracked`: those have not been checked yet, the
     unavailable: 4              # ring not having reached them since they entered it
     drifted: 2                  # image tag have digest different than the upstream one (only with driftDetection=true)
-  # Alternatives kuik would offer for a tracked image, from ImageAlternative entries and ImageMirror
-  # destinations alike (only with monitorAlternatives=true)
+  # Alternatives kuik would offer for a tracked image, from ImageAlternative entries
+  # (only with monitorAlternatives=true)
   alternatives:
     tracked: 214
-    unavailable: 2
+    available: 212             # short of `tracked` by the ones the ring has not reached yet, as
+    unavailable: 2             # for `images` above
   # Store retained images (ref+date+digest) as we can't recompute this information from informer
   retainedImages:
   - ref: ghcr.io/acme/report-job:v42
