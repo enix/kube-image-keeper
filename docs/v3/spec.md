@@ -437,7 +437,7 @@ Blobs and per-platform child manifests are shared in every case, so the second c
 finds the manifest already at the target repository, and its own tag costs one `PUT` of a few
 kilobytes, never a re-transfer.
 
-When we'll implement per-platform selection in future, this will change a bit: a filtered index
+Per-platform selection will change this: a filtered index
 has a digest of its own, so two clusters with different node pools could end up pushing different
 indices under the same repository.
 
@@ -824,7 +824,8 @@ list:
 - an `ImageAlternative` entry marked [`unavailable: true`](#unavailable) contributes **no**
   candidate; it only ever served to match the image
 - candidates are **deduplicated on (reference, resolved config), keeping the first occurrence**
-- sorting CR by name to handle possible overlapping config with deterministic alternatives order
+- CRs of the same kind and policy are sorted **by name**, so overlapping configurations produce a
+  deterministic candidate order
 
 `Always` exists for latency and quota reasons, so an `Always` mirror has to beat a distant upstream
 alternative; under `OnFailure` the upstreams are canonical and fresh, so the local copy sits behind
@@ -904,9 +905,9 @@ content.
 
 Two consequences on the mirror side:
 
-- a digest-pinned image is copied as the **complete manifest index**. This will remain when we'll
-  implement per-platform selection as a filtered index has a digest of its own, so the copy would
-  be unreachable by the very reference the pod declared. Platform selection and digest pinning will
+- a digest-pinned image is copied as the **complete manifest index**. This stays true once
+  per-platform selection ships: a filtered index has a digest of its own, so the copy would be
+  unreachable by the very reference the pod declared. Platform selection and digest pinning will
   be mutually exclusive on a given image, and pinning wins
 - when the original is unreachable and the controller sources the bytes from an `ImageAlternative`
   entry instead ([What an `ImageMirror` copies](#what-an-imagemirror-copies)), a digest-pinned image
@@ -1161,9 +1162,9 @@ waits for an answer. It is about registries that ration — a public registry wi
 says nothing about credentials.
 
 > [!IMPORTANT]
-> The pacing is only for background checks (from ImageMonitor and ImageMirror), the active check in
-> webhook always perform a check regardless the interval configured and have it's own timeout
-> defined in webhook.availabilityCheck.timeout
+> The pacing applies to background checks only — those of an `ImageMonitor` and of an `ImageMirror`.
+> The active check in the webhook always performs its request, whatever `interval` is configured,
+> and is bounded by its own `webhook.availabilityCheck.timeout`.
 
 `default` applies to every host **field by field**. A host entry overrides the fields it names and
 inherits every other one, so `private-registry.tld` above, which names only `copy.interval`, keeps

@@ -1,4 +1,4 @@
-# walkthrough: routing only (example 01)
+# ImageAlternative/ImageMirror — routing walkthrough
 
 This walkthrough follows [example 01](../examples/01-routing-only.yaml) through every component that
 touches it, in the order things happen. It defines nothing: the rules it invokes live in

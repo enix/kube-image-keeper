@@ -81,7 +81,8 @@ status:
 
 ## ImageMirror
 
-With rewritePolicy != None, we also have the same status as ImageAlternative in addition to the following:
+With `rewritePolicy` other than `None`, an `ImageMirror` carries the same status as an
+`ImageAlternative`, plus the following:
 
 ```yaml
 status:

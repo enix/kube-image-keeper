@@ -309,7 +309,8 @@ injected credential would therefore make the API server **reject the user's own 
 [`failurePolicy: Ignore`](#failing-open) does not cover it: the webhook succeeded, validation is
 what refuses.
 
-Relying only on CREATE make the admission cost is bound to pod churn and not on subsequent updates.
+Relying only on CREATE also bounds the admission cost to pod churn, rather than to every subsequent
+update.
 
 ### Reinvocation
 
