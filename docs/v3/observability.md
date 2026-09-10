@@ -365,7 +365,7 @@ each routing resource's own vantage point: not what the cluster runs, but where 
 | -------------- | ---- |
 | `kuik_check_cycle_duration_seconds{kind, name, registry}` | Wall-clock seconds taken by the last completed check lap over a registry's images. Produced by an ImageMonitor for the images it tracks, and by an ImageMirror under `driftPolicy: Warn` / `Sync` for the source tags it re-reads. Absent until a first lap completes |
 | `kuik_check_cycle_started_timestamp_seconds{kind, name, registry}` | Unix timestamp at which the lap currently in progress over a registry's images started |
-| `kuik_check_images_by_registry{kind, name, registry, state}` | Images a resource checks on a registry, by state: the images an ImageMonitor tracks there, and under `driftPolicy: Warn` / `Sync` the source tags an ImageMirror re-reads there. The size of the ring behind the lap above |
+| `kuik_check_images_by_registry{kind, name, registry}` | Images a resource checks on a registry: the images an ImageMonitor tracks there, and under `driftPolicy: Warn` / `Sync` the copied tags an ImageMirror re-reads there. The size of the ring behind the lap above |
 | `kuik_mirror_self_checked_timestamp_seconds{kind, name}` | Unix timestamp at which the last full comparison of the destination finished |
 | `kuik_registry_interval_seconds{registry, operation}` | Configured pace at which kuik reads a registry for this operation, as currently loaded: the window between two requests for `Check` and `Copy`, the period between two whole passes for `Scan` (a mirror destination) |
 
@@ -405,10 +405,10 @@ otherwise have to be hard-coded into alerting rules and then kept in sync with t
 - **expected lap length.** One image is checked per window, so a full lap ought to take
   `ring size × interval`. Comparing the measured `cycle_duration` to that product surfaces lost
   windows — failures, restarts, contention — as a ratio above 1 rather than as a number nobody can
-  interpret. Ring size is `kuik_check_images_by_registry`, which both kinds produce: `state="tracked"`
-  for an `ImageMonitor`, `state="copied"` for an `ImageMirror`, whose ring holds the tags it has
-  copied from that host. On a shared host the ratio also rises simply because the rings share the
-  budget, which is the same signal read one level up.
+  interpret. Ring size is `kuik_check_images_by_registry`, which both kinds produce — the images an
+  `ImageMonitor` tracks on that host, the copied tags an `ImageMirror` re-reads there. On a shared
+  host the ratio also rises simply because the rings share the budget, which is the same signal read
+  one level up.
 - **thresholds that follow the config.** "Alert if a lap takes twice what was asked for" becomes
   expressible, instead of a literal that silently drifts the day someone edits `interval`.
 

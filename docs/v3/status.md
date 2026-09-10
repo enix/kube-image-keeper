@@ -159,6 +159,7 @@ status:
   checks:
     registries:
     - registry: quay.io                    # a source host this mirror re-reads, never the destination
+      images: 41                           # size of the ring: the copied tags of this host it re-reads
       cursor: quay.io/thanos/thanos        # last tag re-read, the ring resumes at its successor
       cycleStarted: "2026-07-10T05:00:00Z"
       # measured lap: how often each mirrored tag of this host is re-read for drift, hence the delay
@@ -232,6 +233,7 @@ status:
   checks:
     registries:
     - registry: docker.io
+      images: 2140                         # size of the ring: images of this registry it tracks
       # last checked image, so the ring resumes at its successor on controller restart
       cursor: docker.io/library/nginx
       # datetime of the current lap start (cursor back to where it started)
@@ -242,6 +244,7 @@ status:
       # a value too high is a signal to lower the registry `interval`
       cycleDuration: 1426h40m              # 2140 images, docker.io `interval: 40m`, sole consumer
     - registry: quay.io
+      images: 1101
       cursor: quay.io/thanos/thanos
       cycleStarted: "2026-07-10T03:20:00Z"
       # measured well above the 183h30m this ring would lap in alone: another ImageMonitor tracks
