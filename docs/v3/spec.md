@@ -835,6 +835,13 @@ answers either `Available` or one of the check reasons of the
 [shared vocabulary](./observability.md#reasons) (`ManifestNotFound`, `Unauthorized`,
 `QuotaExceeded`, `Unreachable`).
 
+**An exhausted quota drops the candidate, however the registry says so.** A registry out of quota
+for kuik's identity either refuses the request — a `429`, reported as `QuotaExceeded` — or answers
+the `HEAD` normally and says so in its rate-limit headers (`ratelimit-remaining` and its
+neighbours). Both are read as a failure: retaining a candidate kuik can still reach but the node
+cannot leaves the pod in `ImagePullBackOff` when the runtime pulls it, which is worse than moving to
+the next candidate.
+
 `HEAD /v2/<name>/manifests/<reference>` is what every check uses, everywhere and without a knob:
 the OCI Distribution spec mandates it, it is the cheapest request that answers the question, and a
 registry answering it wrongly is a registry to fix rather than a case to configure around.

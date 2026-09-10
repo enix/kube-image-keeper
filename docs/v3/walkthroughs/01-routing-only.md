@@ -89,9 +89,11 @@ admission outcomes depend on apply order. Overlap is resolved at lookup time ins
    inject here: this CR declares no `auth`, and the `fallbackAuth` of step 6 is never injected
 
 > [!IMPORTANT]
-> That `fallbackAuth` entry is not cosmetic: anonymous Docker Hub `HEAD`s are the ones that
-> get 429'd, and a 429 on the *check* would read as "the original is down" and reroute the whole
-> cluster to ECR.
+> That `fallbackAuth` entry is not cosmetic: it is what keeps the cluster off Docker Hub's anonymous
+> quota. Once that quota is spent the original stops being usable — whether Docker Hub answers `429`
+> or reports it in its rate-limit headers, both drop the candidate
+> ([availability probing](../spec.md#availability-probing)) — and the whole cluster reroutes to ECR,
+> away from a registry that is perfectly healthy.
 
 Two properties worth noting for this CR. A pod that directly references
 `public.ecr.aws/docker/library/nginx:1.27` matches entry 1 of the same CR and gets the same three
