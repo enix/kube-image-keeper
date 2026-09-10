@@ -484,7 +484,7 @@ surprise.
 
 | Metric (gauge) | HELP |
 | -------------- | ---- |
-| `kuik_image_unavailable{kind, name, image, registry, reason}` | 1 while a tracked origin reference is failing its availability check |
+| `kuik_image_unavailable{kind, name, image, reason}` | 1 while a tracked origin reference is failing its availability check |
 | `kuik_alternative_unavailable{kind, name, image, derivedFrom, via, reason}` | 1 while a monitored alternative is failing its availability check. `image` is the alternative's own reference, `derivedFrom` the origin it would have served, `via` the resource that offered it |
 | `kuik_image_drifted{kind, name, image}` | 1 while the digest a resource accounts for differs from the upstream digest of that tag. `image` is the origin reference in both cases |
 | `kuik_mirror_image_failed{kind, name, image, reason}` | 1 while an image cannot be copied to the destination |
