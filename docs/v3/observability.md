@@ -333,7 +333,7 @@ series at the end.
 | Metric (gauge) | HELP |
 | -------------- | ---- |
 | `kuik_monitor_images{kind, name, state}` | Origin references an ImageMonitor is tracking, by state. States are not mutually exclusive and must not be summed |
-| `kuik_monitor_alternatives{kind, name, state}` | Alternative references an ImageMonitor is tracking on behalf of routing resources, by state |
+| `kuik_monitor_alternatives{kind, name, state}` | Alternative references an ImageMonitor is tracking on behalf of ImageAlternative resources, by state |
 | `kuik_mirror_images{kind, name, state}` | Images an ImageMirror accounts for, by state |
 | `kuik_rewrite_pods{kind, name}` | Live pods in which this routing resource rewrote a container |
 
