@@ -10,7 +10,7 @@ Only **live** pods count. A pod that is deleted leaves the scope immediately —
 
 ### A.2 Extract the image references
 
-From each in-scope pod, collect the image of every container: `containers`, `initContainers`, and `ephemeralContainers`. Keep the container name alongside each ref — it is the key used by the pod annotations, and it is needed to attribute a rewrite.
+From each in-scope pod, collect the image of every container: `containers` and `initContainers`. Keep the container name alongside each ref — it is the key used by the pod annotations, and it is needed to attribute a rewrite.
 
 Also collect `status.containerStatuses[].imageID` (the digest actually running). It is not needed for copying, but it is the baseline for drift detection and it costs nothing to read here.
 
