@@ -423,11 +423,18 @@ otherwise have to be hard-coded into alerting rules and then kept in sync with t
 
 | Metric | Type | HELP |
 | ------ | ---- | ---- |
-| `kuik_registry_requests_total{registry, operation, result}` | counter | Requests kuik sent to a registry, by operation (`Check`, `Copy`) and outcome (`Ok`, or the reason that request produced: `ManifestNotFound`, `Unauthorized`, `QuotaExceeded`, `Unreachable`, `PushRejected`) |
+| `kuik_registry_requests_total{registry, operation, result}` | counter | Requests kuik sent to a **source** registry, by operation (`Check`, `Copy`) and outcome (`Ok`, or the reason that request produced: `ManifestNotFound`, `Unauthorized`, `QuotaExceeded`, `Unreachable`, `PushRejected`) |
 
 `kuik_registry_requests_total` is what answers "is docker.io rate-limiting us" without looking at a
 single image: a rising `QuotaExceeded` result on one registry is the signal, and the `operation` label
-says whether it is the cheap checks or the expensive copies that are being refused. Its `result` uses
+says whether it is the cheap checks or the expensive copies that are being refused.
+
+It counts **source** registries only. A mirror destination is the operator's own and is not expected
+to ration anything, so the self-check `HEAD`s, the tag listings and the tag deletions issued against
+it are not counted here — what matters about a destination is whether it holds the desired state,
+which `kuik_mirror_images` and `kuik_mirror_image_failed` report.
+
+Its `result` uses
 the side-agnostic spellings of the [vocabulary](#reasons) — `ManifestNotFound` and `Unreachable`
 rather than `SourceNotFound` / `SourceUnreachable` — because the `registry` label already names which
 endpoint answered, so the reason has no side left to disambiguate.
