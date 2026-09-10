@@ -192,8 +192,8 @@ bury everything else.
 
 **Emit transitions, and emit the inverse when it matters.** An event fires when something becomes
 true, not while it stays true. The inverse fires when the condition could have persisted and blocked
-something — an image that stops answering gets its recovery, a resource that stops working gets its
-return — so that following the stream tells you an incident ended without re-reading a status. It
+something — a resource that stops working gets its return, `ResourceNotReady` then `ResourceReady`
+— so that following the stream tells you an incident ended without re-reading a status. It
 does not fire when the condition resolves through ordinary operation: a drift that ends because the
 cluster caught up, or a copy failure that ends because the next attempt worked, are not news, and the
 event that succeeds already says so.
