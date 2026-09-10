@@ -106,7 +106,7 @@ Then perform the copy:
 
 - **Success** → `ImageCopied` event on the CR; `status.images.copied` reflects the new count on the next status write.
 - **Failure** → an entry in `status.failedImageCopies` with a stable reason and `lastAttempt`. Each reason records what the request returned: `SourceNotFound` (404), `PushRejected`, `Unauthorized` (401/403), `QuotaExceeded` (429), and `SourceUnreachable` / `DestinationUnreachable` when the endpoint did not answer at all. The image stays in the desired state and will be retried; nothing is removed because a copy failed.
-- **No source available at all** → counted in `status.images.missingSource`. This is the "we cannot protect this image" signal.
+- **No source available at all** → that same entry, with reason `SourceNotFound`, and the image is also counted in `status.images.missingSource`. This is the "we cannot protect this image" signal: the `failedImageCopies` entry names the image, the count says how many there are. It is a sub-case of the failure above rather than a separate outcome, and the one that will not clear on its own — a `429` or an unreachable endpoint may, a `404` on every source will not.
 - Status writes happen **on transitions**, not per copy.
 
 ## Part B — The self-check loop

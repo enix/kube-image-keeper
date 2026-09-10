@@ -73,7 +73,9 @@ status:
                                 # always copied (see the note on `platforms` in ImageMirror). Comes
                                 # back once per-platform selection ships, to report a copy that
                                 # missed a platform it should have had
-    missingSource: 1           # no source available to copy image to destination (if not already copied)
+    missingSource: 1           # no source can supply the image any more: the `failedImageCopies`
+                               # entries whose reason is `SourceNotFound`. Those entries are what
+                               # name the images this counts
   # Tags whose upstream digest moved away from the copy held at the destination (`Warn` and `Sync`,
   # never `Ignore`). The bounded list behind `kuik_image_drifted`, and the counterpart of
   # `driftedImages` on ImageMonitor — that one compares the upstream against what the *cluster* runs,

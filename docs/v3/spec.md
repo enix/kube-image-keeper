@@ -929,7 +929,8 @@ re-copy alike, so an image whose origin registry
 disappeared for good stays re-copyable, which is the scenario alternatives exist for. The destination is
 the one derived from the origin in every case, never from the source actually read
 ([walkthrough A.8](./walkthroughs/02-imagemirror-reconciliation.md#a8-record-the-repository-choose-the-source-then-push)).
-If no source answers, nothing is copied and the image is counted in `status.images.missingSource`.
+If no source answers, nothing is copied: the image gets a `status.failedImageCopies` entry with
+reason `SourceNotFound`, which is what names it, and is counted in `status.images.missingSource`.
 
 > [!IMPORTANT]
 > Alternatives are asserted equivalent by the operator, not verified to be byte-identical, so a
