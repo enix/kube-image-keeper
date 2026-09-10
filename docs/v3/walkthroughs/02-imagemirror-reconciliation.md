@@ -138,7 +138,6 @@ What bounds the cost is the size of the desired state, one `HEAD` per desired re
 | --- | --- | --- |
 | Manifest absent | Something deleted the copy (external GC, purge, retention policy on the registry) | **Re-copy, with priority over initial copies** — pods may be routed here right now, this is an active availability hole. Emit `ImageRecopied` (a warning: it reveals an infrastructure problem) |
 | Manifest present, **this cluster's tag** missing | Another cluster's tag holds the manifest; ours was removed | Just `PUT` the tag again — no blob transfer |
-| Manifest present but incomplete | An earlier copy was interrupted mid-push | Re-copy the missing parts |
 | Upstream tag now resolves to a different digest | Only meaningful with `driftPolicy` ≠ `Ignore` | See B.5 |
 
 When a re-copy is needed, the source is the origin ref recorded in the desired state. It is also the self-check that covers the crash window of A.8 (repository recorded, copy never performed): the image is simply seen as missing and copied.

@@ -316,7 +316,7 @@ deletion rules.
 ### Destination registry requirements
 
 A mirror destination is an OCI registry the operator points kuik at, and kuik assumes it holds up its
-end. Two requirements apply to every `ImageMirror`, cleanup or not:
+end. Three requirements apply to every `ImageMirror`, cleanup or not:
 
 - **Conformance to the OCI Distribution spec** — `HEAD`/`GET` on manifests and blobs, `GET` on tag
   listings, `POST`/`PATCH`/`PUT` to upload a blob and `PUT` to write the manifest that closes it:
@@ -328,6 +328,11 @@ end. Two requirements apply to every `ImageMirror`, cleanup or not:
   ([walkthrough A.6](./walkthroughs/02-imagemirror-reconciliation.md#a6-compute-the-destination-reference)),
   so the registry has to accept arbitrarily nested repository paths
   (`registry.tld/mirror/quay.io/thanos/thanos`), not a flat or shallow namespace.
+- **Rejecting an incomplete manifest** — a manifest `PUT` referencing blobs the registry does not
+  hold must be refused, as the OCI Distribution spec suggest (spec say MAY, not MUST) and as
+  registries do in practice. That is what makes a manifest's presence sufficient evidence that the
+  image behind it is whole, so the self-check can settle a reference with a single `HEAD`
+  ([walkthrough B.2](./walkthroughs/02-imagemirror-reconciliation.md#b2-ask-precisely-one-reference-at-a-time)).
 
 With `cleanup.enabled: true`, two more requirements apply, because **kuik only ever deletes tags, never
 manifests or blobs**:
