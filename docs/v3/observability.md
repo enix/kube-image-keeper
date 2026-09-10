@@ -335,7 +335,7 @@ series at the end.
 | `kuik_monitor_images{kind, name, state}` | Origin references an ImageMonitor is tracking, by state. States are not mutually exclusive and must not be summed |
 | `kuik_monitor_alternatives{kind, name, state}` | Alternative references an ImageMonitor is tracking on behalf of ImageAlternative resources, by state |
 | `kuik_mirror_images{kind, name, state}` | Images an ImageMirror accounts for, by state |
-| `kuik_rewrite_pods{kind, name}` | Live pods in which this routing resource rewrote a container |
+| `kuik_rewritten_pods{kind, name}` | Live pods in which this routing resource rewrote a container |
 
 The `state` label repeats the field names of the corresponding status, so a dashboard and a
 `kubectl get -o yaml` never disagree. Which status, field for field:
@@ -356,7 +356,7 @@ and `retained` partition why an image is tracked, while `available`, `unavailabl
 the outcome of its last check. Hence the warning not to sum — `tracked` is the total, the others
 overlap it.
 
-`kuik_rewrite_pods` answers a neighbouring question, in **pods** rather than in references and from
+`kuik_rewritten_pods` answers a neighbouring question, in **pods** rather than in references and from
 each routing resource's own vantage point: not what the cluster runs, but where a rewrite happened.
 
 #### Scheduling health — is the configured pace keeping up
@@ -489,9 +489,9 @@ surprise.
 | `kuik_image_drifted{kind, name, image}` | 1 while the digest a resource accounts for differs from the upstream digest of that tag. `image` is the origin reference in both cases |
 | `kuik_mirror_image_failed{kind, name, image, reason}` | 1 while an image cannot be copied to the destination |
 | `kuik_image_cluster_skew{kind, name, image}` | Number of distinct digests running for one image reference. Present only while pods disagree, so its value is always 2 or more |
-| `kuik_rewrite_conceded{kind, name, image}` | Live pods carrying a container this resource had rewritten and another mutating webhook replaced. `image` is the origin reference |
-| `kuik_alternatives_exhausted{kind, name, image}` | Live pods carrying a container no candidate could serve. `image` is the origin reference. Every resource that offered a candidate counts the pod, so these series must not be summed |
-| `kuik_fallback_active{kind, name, image}` | Live pods routed to a fallback because the origin did not answer, under `rewritePolicy: OnFailure`. `image` is the origin reference |
+| `kuik_rewrite_conceded_pods{kind, name, image}` | Live pods carrying a container this resource had rewritten and another mutating webhook replaced. `image` is the origin reference |
+| `kuik_alternatives_exhausted_pods{kind, name, image}` | Live pods carrying a container no candidate could serve. `image` is the origin reference. Every resource that offered a candidate counts the pod, so these series must not be summed |
+| `kuik_fallback_active_pods{kind, name, image}` | Live pods routed to a fallback because the origin did not answer, under `rewritePolicy: OnFailure`. `image` is the origin reference |
 | `kuik_resource_not_ready{kind, name, reason}` | 1 while a resource's `Ready` condition is `False`, carrying that condition's reason |
 
 Each one has its counterpart in a status:
@@ -503,9 +503,9 @@ Each one has its counterpart in a status:
 | `kuik_image_drifted` | `ImageMonitor` / `ImageMirror` `.status.driftedImages` |
 | `kuik_mirror_image_failed` | `ImageMirror.status.failedImageCopies` |
 | `kuik_image_cluster_skew` | `ImageMonitor.status.driftedImages[].runningDigests`, whose length it is |
-| `kuik_rewrite_conceded` | `ImageAlternative` / `ImageMirror` `.status.concededRewrites` |
-| `kuik_alternatives_exhausted` | `ImageAlternative` / `ImageMirror` `.status.noAlternatives` |
-| `kuik_fallback_active` | `ImageAlternative` / `ImageMirror` `.status.activeFallbacks` |
+| `kuik_rewrite_conceded_pods` | `ImageAlternative` / `ImageMirror` `.status.concededRewrites` |
+| `kuik_alternatives_exhausted_pods` | `ImageAlternative` / `ImageMirror` `.status.noAlternatives` |
+| `kuik_fallback_active_pods` | `ImageAlternative` / `ImageMirror` `.status.activeFallbacks` |
 | `kuik_resource_not_ready` | the `Ready` condition, on any kind |
 
 Eight mirror a bounded list and `kuik_resource_not_ready` mirrors a condition. It holds in the other
@@ -524,8 +524,11 @@ Their values differ accordingly. Five carry the constant `1`, because presence i
 The other four carry a count, because once the series exists there is no reason to spend its value on
 a constant: an image running two digests and one running six are the same condition but not the same
 urgency, and one pod stranded is not fifty. So `kuik_image_cluster_skew` counts digests, while
-`kuik_rewrite_conceded`, `kuik_alternatives_exhausted` and `kuik_fallback_active` count the pods affected.
-Alerting is written the same way for all nine, on presence and never on the value.
+`kuik_rewrite_conceded_pods`, `kuik_alternatives_exhausted_pods` and `kuik_fallback_active_pods`
+count the pods affected. That is what the `_pods` suffix is for: the population is in the name, so
+`kuik_alternatives_exhausted_pods` cannot be read as an aggregation of
+`kuik_alternatives_exhausted_total`, which counts containers at admission and is exported by another
+process altogether. Alerting is written the same way for all ten, on presence and never on the value.
 
 `kuik_image_drifted` is the one series both kinds produce, which is why its `image` label is the
 **origin** reference on either — the destination reference would say the same thing in a form only one
