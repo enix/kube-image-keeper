@@ -117,7 +117,7 @@ Four outcomes, four disjoint places to look:
   original, not "a preferred candidate failed" — and why nothing else records it either. What the
   candidates answered is not a property of the pod; an alternative that stopped answering is an
   `ImageMonitor` concern (`status.unavailableAlternatives`, `AlternativeUnusable`), and a destination
-  that stopped answering is an `ImageMirror` concern (`status.failedImageCopies`, `DestinationOutOfSync`)
+  that stopped answering is an `ImageMirror` concern (`status.failedImageCopies`, `ImageCopyFailed`)
 - a container that was **rewritten** appears in the three maps: the reference it came from, the
   resource that supplied the new one, and under which policy
 - a container **no candidate could serve** appears in `no-alternatives`, and in none of the other
