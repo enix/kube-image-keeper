@@ -328,7 +328,7 @@ Each metric below is listed with the `HELP` text it should carry. Labels are sho
 label value is drawn either from configuration or from an enumerated set, except on the anomaly
 series at the end.
 
-#### Aggregates — one series per resource and state, mirroring status v3 field for field
+#### Aggregates — one series per resource, mirroring status v3 field for field
 
 | Metric (gauge) | HELP |
 | -------------- | ---- |
@@ -345,6 +345,7 @@ The `state` label repeats the field names of the corresponding status, so a dash
 | `kuik_monitor_images` | `ImageMonitor.status.images` | `tracked`, `inUse`, `retained`, `available`, `unavailable`, `drifted` |
 | `kuik_monitor_alternatives` | `ImageMonitor.status.alternatives` | `tracked`, `available`, `unavailable` |
 | `kuik_mirror_images` | `ImageMirror.status.images` | `desired`, `copied`, `retained`, `drifted`, `missingSource` |
+| `kuik_rewritten_pods` | `ImageAlternative` / `ImageMirror` `.status.pods.rewritten` | — |
 
 Both monitor gauges count **origin** references — what the manifest carried, read from
 [`kuik.enix.io/original-images`](#annotations) for a container the webhook rewrote and from the live
@@ -358,6 +359,15 @@ overlap it.
 
 `kuik_rewritten_pods` answers a neighbouring question, in **pods** rather than in references and from
 each routing resource's own vantage point: not what the cluster runs, but where a rewrite happened.
+It carries no `state`, because it reports one field rather than a block of them.
+
+The other three fields of `status.pods` have no aggregate gauge, and are read **per image** on the
+anomaly series instead: `noAlternatives` on `kuik_alternatives_exhausted_pods`, `conceded` on
+`kuik_rewrite_conceded_pods`. Neither is recoverable from them as a resource total — those series
+are keyed by image and their value is a pod count, so summing double-counts a pod carrying two such
+containers and counting them yields images rather than pods. `pods.tracked` is not exposed at all:
+it counts what a `podSelector` selects, which is a property of the configuration rather than an
+outcome.
 
 #### Scheduling health — is the configured pace keeping up
 
