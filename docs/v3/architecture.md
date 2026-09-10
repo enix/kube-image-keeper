@@ -75,9 +75,11 @@ only channel in the other direction. They are what lets the reconciler attribute
 re-running the resolution, and what tells the syncer which entry actually served.
 
 One asymmetry follows and is worth knowing: a probe made at admission can contradict a monitor's
-status for a while, since the two are refreshed on different clocks —
-`availabilityCheck.activeCheckCache.ttl` on one side, the registry's `check.interval` on the other.
-That is intended: routing needs a verdict now, alerting needs one that lasts.
+status, for two reasons. They are refreshed on different clocks —
+`availabilityCheck.activeCheckCache.ttl` on one side, the registry's `check.interval` on the other —
+and they do not probe with the same credentials, the webhook deliberately skipping
+[`fallbackAuth`](./spec.md#no-auth-at-all) so that its verdict predicts what the node can pull. Both
+are intended: routing needs a verdict that matches the pull, alerting needs one that lasts.
 
 > [!NOTE]
 > The events of [observability v3](./observability.md) are emitted by the **reconciler** and by the

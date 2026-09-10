@@ -70,9 +70,9 @@ admission outcomes depend on apply order. Overlap is resolved at lookup time ins
    2. mirror.gcr.io/library/nginx:1.27
    ```
 
-6. **probing** — [availability probing](../spec.md#availability-probing). All three registries are
-   public so probes are anonymous, except on `docker.io` where the global `fallbackAuth`
-   supplies credentials
+6. **probing** — [availability probing](../spec.md#availability-probing). All three probes are
+   anonymous: the registries are public, and the webhook does not use `fallbackAuth`
+   ([No `auth` at all](../spec.md#no-auth-at-all)) even though an entry covers `docker.io`
 7. **rewrite and annotate** — nothing to do if the original answers; otherwise the container is
    patched and [annotated](../observability.md#annotations):
 
@@ -86,14 +86,21 @@ admission outcomes depend on apply order. Overlap is resolved at lookup time ins
    ([`injectPullSecret`](../spec.md#injectpullsecret)), the webhook appends the syncer's Secret name
    for that CR to `spec.imagePullSecrets`, computed from identity alone and never read back
    ([the name of an injected Secret](../architecture.md#the-name-of-an-injected-secret)). Nothing to
-   inject here: this CR declares no `auth`, and the `fallbackAuth` of step 6 is never injected
+   inject here: this CR declares no `auth`, and a `fallbackAuth` entry is never injected — which is
+   exactly why step 6 did not use one
 
 > [!IMPORTANT]
-> That `fallbackAuth` entry is not cosmetic: it is what keeps the cluster off Docker Hub's anonymous
-> quota. Once that quota is spent the original stops being usable — whether Docker Hub answers `429`
-> or reports it in its rate-limit headers, both drop the candidate
-> ([availability probing](../spec.md#availability-probing)) — and the whole cluster reroutes to ECR,
-> away from a registry that is perfectly healthy.
+> That `fallbackAuth` entry serves the `ImageMonitor` checks and the `ImageMirror` copies, never this
+> probe. Admission therefore stays on Docker Hub's anonymous quota, and that is the point: the node
+> will pull anonymously too, so once the quota is spent the probe sees it — a `429` or a depleted
+> rate-limit header, both drop the candidate
+> ([availability probing](../spec.md#availability-probing)) — and the cluster reroutes to ECR. A
+> probe that had used the credential would have called `docker.io` healthy and handed the kubelet an
+> image it cannot pull.
+>
+> Expect the two to disagree: an `ImageMonitor` probing the same image *with* the credential reports
+> it available while the webhook routes away from it. `demoteKnownFailures` does not bridge that —
+> the monitor has no failure to publish.
 
 Two properties worth noting for this CR. A pod that directly references
 `public.ecr.aws/docker/library/nginx:1.27` matches entry 1 of the same CR and gets the same three

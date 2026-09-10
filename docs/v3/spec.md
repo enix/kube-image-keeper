@@ -765,13 +765,19 @@ registry: one credential fits both and only whether to inject it differs, hence 
 kuik injects nothing: the pod is expected to carry its own `imagePullSecrets`, or the kubelet's
 credential provider handles it.
 
-What kuik itself reads an image with follows **one order**, the same for every resource and every
-loop:
+What kuik itself reads an image with follows **one order**:
 
 1. the entry's own **`auth`**, when it declares one
 2. the **pod's `imagePullSecrets`**
 3. the matching **[`fallbackAuth`](#fallback-credentials)** entry, most specific first
 4. **anonymous**
+
+**The webhook stops at step 2.** Its active check probes only with credentials the kubelet will also
+have, because its verdict is a prediction of the pull: an entry's `auth` is either injected or backed
+by a node identity, and a pod's own `imagePullSecrets` are by definition what the node holds.
+`fallbackAuth` is neither — it is never injected ([`injectPullSecret`](#injectpullsecret)) — so a
+candidate answering only thanks to it would pass admission and then fail to pull. The reconciler's
+background checks and copies use all four steps.
 
 **The order is the same in every mode**; what
 [`secretAccess.mode`](./architecture.md#two-modes-one-clusterrole-apart) decides is whether step 2
@@ -1085,12 +1091,12 @@ registries:
     check:
       interval: 5m            # slower still: a ring of 300 images here comes back once a day
 
-# Credentials used to read an image when no CR declares any, by ImageMonitor, ImageAlternative and
-# ImageMirror alike. KuiK is designed not to depend on a pod's imagePullSecrets — under
-# `secretAccess.mode: restricted` it is refused that read in most namespaces (see "Authentication")
-# — so this is how it gets credentials for a private registry nobody declared `auth` for. Entries
-# match exactly as
-# `ImageAlternative.alternatives` do, see "Fallback credentials"
+# Credentials the reconciler reads an image with when no CR declares any: its ImageMonitor checks and
+# its ImageMirror copies. Never used by the webhook's active check, and never injected — see
+# "Fallback credentials". KuiK is designed not to depend on a pod's imagePullSecrets: under
+# `secretAccess.mode: restricted` it is refused that read in most namespaces (see "Authentication"),
+# so this is how it gets credentials for a private registry nobody declared `auth` for. Entries
+# match exactly as `ImageAlternative.alternatives` do
 fallbackAuth:
 - repositoryGroup: private-registry.tld/project1
   secretRef:
@@ -1156,6 +1162,11 @@ list, sending what is known to be failing to the end. Three status lists feed it
 **A demoted candidate is still probed.** Nothing is dropped: it moves to the end of the list and is
 tried once everything above it has failed, active check in webhook have the final decision.
 
+**The reverse does not hold.** A candidate a monitor reports *available* is never promoted, and
+could not be: the monitor may have reached that verdict with a `fallbackAuth` credential the webhook
+does not use ([No `auth` at all](#no-auth-at-all)), so its success says nothing about what a node
+can pull. Only failures are reused, and only to reorder.
+
 ### `registries`: pacing what kuik pulls from
 
 `registries` holds **pacing and nothing else**: how often kuik may read from a host, and how long it
@@ -1205,4 +1216,7 @@ Two rules differ from `alternatives`, both because `fallbackAuth` only ever *sel
 - **the most specific match wins**: a `repository` beats a `repositoryGroup`, and a deeper group
   beats a shallower one. An image matching no entry is read anonymously
 
-Those secrets are only used for controller checks and never used as injected pull secrets.
+Those secrets serve the reconciler's checks and copies, and nothing else. They are never injected as
+pull secrets, and for that same reason never used by the webhook's active check
+([No `auth` at all](#no-auth-at-all)): a verdict obtained with a credential the node will not have is
+worse than no verdict.
