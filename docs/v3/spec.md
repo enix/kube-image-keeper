@@ -247,7 +247,10 @@ spec:
         injectPullSecret: true
 
   cleanup:
-    enabled: true              # Default: true - Delete image tag no longer referenced by any pod
+    enabled: true              # Default: true - Delete image tag no longer referenced by any pod.
+                               # With `false` nothing is deleted and `retention` has no effect: a
+                               # reference leaves the desired state with its last pod, and the tag
+                               # already written stays at the destination until someone removes it
     retention: 168h            # Default: 168h (7 days) - Image tag hold duration before deleting
                                # them, to deal with cronjob for instance
                                # Tags waiting out their retention are listed in

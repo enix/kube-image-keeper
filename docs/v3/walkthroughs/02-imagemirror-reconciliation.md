@@ -40,7 +40,7 @@ desired = { origin refs of in-scope live pods }
         ∪ { refs inside the retention window that carry an origin }
 ```
 
-The second term is what keeps a CronJob's image mirrored between two runs (see C.1). A tag the sweep found carries no origin, so it stays out of this set: it is held for its retention, then deleted (C.2). The set is recomputed from informers and persisted state — never accumulated incrementally.
+The second term is what keeps a CronJob's image mirrored between two runs (see C.1), and it exists **only with `cleanup.enabled`**: retaining a reference nobody will ever delete buys nothing, so without cleanup there is no retention window, a reference leaves the desired state with its last pod, and the tag already at the destination simply stays there. A tag the sweep found carries no origin, so it stays out of this set: it is held for its retention, then deleted (C.2). The set is recomputed from informers and persisted state — never accumulated incrementally.
 
 **Everything is copied, for every architecture**: a verbatim copy of the full index and all its children. A verbatim copy **preserves the digest**, which is what keeps the rest simple — pinned refs resolve identically on the mirror, drift comparison is a straight digest equality, and the cross-cluster fast path (A.8) can recognise an already-pushed manifest.
 
