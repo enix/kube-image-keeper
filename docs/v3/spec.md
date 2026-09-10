@@ -787,11 +787,11 @@ The four policy combinations, for one mirror candidate `M` and alternatives decl
 
 ### Availability probing
 
-Candidates are probed in list order with a manifest `HEAD`, concurrently but resolving to the **first
-success in list order**, so worst case latency is one `availabilityCheck.timeout` rather than their
-sum and a fast mirror never beats a healthy higher-priority entry. A probe answers either
-`Available` or one of the check reasons of the [shared vocabulary](./observability.md#reasons)
-(`ManifestNotFound`, `Unauthorized`, `QuotaExceeded`, `Unreachable`).
+Candidates are probed **sequentially, in list order**, with a manifest `HEAD` bounded by
+`availabilityCheck.timeout`, so a fast mirror never beats a healthy higher-priority entry. A probe
+answers either `Available` or one of the check reasons of the
+[shared vocabulary](./observability.md#reasons) (`ManifestNotFound`, `Unauthorized`,
+`QuotaExceeded`, `Unreachable`).
 
 `HEAD /v2/<name>/manifests/<reference>` is what every check uses, everywhere and without a knob:
 the OCI Distribution spec mandates it, it is the cheapest request that answers the question, and a
