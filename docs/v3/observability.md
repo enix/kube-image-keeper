@@ -494,14 +494,14 @@ surprise.
 
 | Metric (gauge) | HELP |
 | -------------- | ---- |
-| `kuik_image_unavailable{kind, name, image, reason}` | 1 while a tracked origin reference is failing its availability check |
-| `kuik_alternative_unavailable{kind, name, image, derivedFrom, via, reason}` | 1 while a monitored alternative is failing its availability check. `image` is the alternative's own reference, `derivedFrom` the origin it would have served, `via` the resource that offered it |
-| `kuik_image_drifted{kind, name, image}` | 1 while the digest a resource accounts for differs from the upstream digest of that tag. `image` is the origin reference in both cases |
-| `kuik_mirror_image_failed{kind, name, image, reason}` | 1 while an image cannot be copied to the destination |
-| `kuik_image_cluster_skew{kind, name, image}` | Number of distinct digests running for one image reference. Present only while pods disagree, so its value is always 2 or more |
-| `kuik_rewrite_conceded_pods{kind, name, image}` | Live pods carrying a container this resource had rewritten and another mutating webhook replaced. `image` is the origin reference |
-| `kuik_alternatives_exhausted_pods{kind, name, image}` | Live pods carrying a container no candidate could serve. `image` is the origin reference. Every resource that offered a candidate counts the pod, so these series must not be summed |
-| `kuik_fallback_active_pods{kind, name, image}` | Live pods routed to a fallback because the origin did not answer, under `rewritePolicy: OnFailure`. `image` is the origin reference |
+| `kuik_image_unavailable{kind, name, image, registry, reason}` | 1 while a tracked origin reference is failing its availability check |
+| `kuik_alternative_unavailable{kind, name, image, registry, derivedFrom, via, reason}` | 1 while a monitored alternative is failing its availability check. `image` is the alternative's own reference, `derivedFrom` the origin it would have served, `via` the resource that offered it |
+| `kuik_image_drifted{kind, name, image, registry}` | 1 while the digest a resource accounts for differs from the upstream digest of that tag. `image` is the origin reference in both cases |
+| `kuik_mirror_image_failed{kind, name, image, registry, reason}` | 1 while an image cannot be copied to the destination |
+| `kuik_image_cluster_skew{kind, name, image, registry}` | Number of distinct digests running for one image reference. Present only while pods disagree, so its value is always 2 or more |
+| `kuik_rewrite_conceded_pods{kind, name, image, registry}` | Live pods carrying a container this resource had rewritten and another mutating webhook replaced. `image` is the origin reference |
+| `kuik_alternatives_exhausted_pods{kind, name, image, registry}` | Live pods carrying a container no candidate could serve. `image` is the origin reference. Every resource that offered a candidate counts the pod, so these series must not be summed |
+| `kuik_fallback_active_pods{kind, name, image, registry}` | Live pods routed to a fallback because the origin did not answer, under `rewritePolicy: OnFailure`. `image` is the origin reference |
 | `kuik_resource_not_ready{kind, name, reason}` | 1 while a resource's `Ready` condition is `False`, carrying that condition's reason |
 
 Each one has its counterpart in a status:
@@ -526,6 +526,14 @@ Four of them carry a `reason`. Three take it from the [shared vocabulary](#reaso
 hence safe on a series, and identical to the one the corresponding status entry carries. The fourth,
 `kuik_resource_not_ready`, carries the `Ready` condition's own reason.
 
+**All but `kuik_resource_not_ready` carry `registry`**, the host the anomaly was observed on — for
+`kuik_mirror_image_failed`, the side that failed: the source on `SourceNotFound`,
+`SourceUnreachable` or `QuotaExceeded`, the destination on `PushRejected` or
+`DestinationUnreachable`. It costs no cardinality, the host being already a prefix of `image`, and it
+buys two things: anomalies aggregate per registry, and they join `kuik_registry_requests_total` and
+`kuik_registry_interval_seconds` — which carry that label already — without a `label_replace` over
+the reference. `kuik_resource_not_ready` has none, being about a resource rather than an image.
+
 What unites these nine is not their value but the fact that **the series exists only while the
 anomaly does**: an alert fires on presence and resolves when the series goes away, without ever
 comparing a number to a threshold.
@@ -538,7 +546,7 @@ urgency, and one pod stranded is not fifty. So `kuik_image_cluster_skew` counts 
 count the pods affected. That is what the `_pods` suffix is for: the population is in the name, so
 `kuik_alternatives_exhausted_pods` cannot be read as an aggregation of
 `kuik_alternatives_exhausted_total`, which counts containers at admission and is exported by another
-process altogether. Alerting is written the same way for all ten, on presence and never on the value.
+process altogether. Alerting is written the same way for all nine, on presence and never on the value.
 
 `kuik_image_drifted` is the one series both kinds produce, which is why its `image` label is the
 **origin** reference on either — the destination reference would say the same thing in a form only one
