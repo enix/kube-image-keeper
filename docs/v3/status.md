@@ -16,6 +16,7 @@ Every condition a v3 resource carries, and the reasons it may report:
 | Kind | Condition | `True` means | Reasons |
 | ---- | --------- | ------------ | ------- |
 | all three | `Ready` | the resource is usable as declared | `IsReady`. When `False`: `InvalidConfig`, `SecretNotFound`, `SecretMalformed`, `TokenRequestFailed`, and `RegistryDeleteUnsupported` on an `ImageMirror` |
+| all three | `StatusTruncated` | a capped list is at or over its limit | `ListNearCapacity` from 80% of the cap, `ListTruncated` once entries are actually left out |
 | `ImageAlternative`, `ImageMirror` | `FallbackActive` | a rewrite is standing in for an origin that failed | `OriginUnavailable` |
 | `ImageAlternative`, `ImageMirror` | `AlternativesExhausted` | a container was left untouched, no candidate having answered | `AllCandidatesFailed` |
 | `ImageMirror` | `DestinationOutOfSync` | the destination does not hold the desired state yet | `MissingImages` |
@@ -32,6 +33,40 @@ A failure on one image never touches it. An `Unauthorized` on one repository say
 not cover that path, not that the resource is broken — kuik does not extrapolate from a single
 request ([Reasons](./observability.md#reasons)) — so it lands in `unavailableImages`,
 `unavailableAlternatives` or `failedImageCopies`, and in the condition that names that anomaly.
+
+## Bounded lists
+
+Every anomaly list below carries a **cap of 500 entries**, so no status object grows without limit.
+Three things follow, and all three are part of the contract.
+
+**Only anomaly lists are capped.** `unavailableImages`, `unavailableAlternatives`, `driftedImages`,
+`failedImageCopies`, `activeFallbacks`, `noAlternatives` and `concededRewrites` are samples: the
+matching [metric series](./observability.md#anomalies-signal-by-presence) carries every affected
+image, so a status holding 500 of them loses visibility and nothing else.
+
+The operational inventories are **not** capped — `repositories`, `pendingDeletion`,
+`checks.registries`, `retainedImages`. Truncating those loses correctness rather than visibility: a
+repository missing from `repositories` is one the cleanup sweep never visits again, hence a permanent
+leak ([walkthrough 02](./walkthroughs/02-imagemirror-reconciliation.md#cross-cutting-invariants)).
+Their size follows the workload, and one approaching what etcd accepts per object is a capacity
+problem to solve elsewhere — a cap would only hide it.
+
+**The oldest entries are kept.** Truncation drops the newest, ordering on the entry's `since`, which
+is stamped once and never refreshed — so the order is stable from one reconcile to the next and the
+list does not churn. What stays visible is what has been wrong longest.
+
+**Nothing is dropped silently.** `StatusTruncated` goes `True` from 80% of the cap, before anything
+is lost, and a `truncated` map records what was left out once it is:
+
+```yaml
+status:
+  # Present only once a cap was reached, keyed by list name: entries it left out
+  truncated:
+    unavailableImages: 12
+```
+
+Alerting reads it from `kuik_status_list_entries` and its two neighbours, in
+[observability v3](./observability.md#metrics).
 
 ## ImageAlternative
 
@@ -121,7 +156,8 @@ status:
     # QuotaExceeded (429)
     # SourceUnreachable / DestinationUnreachable (the endpoint did not answer at all)
     reason: SourceNotFound
-    lastAttempt: "2026-07-10T06:12:00Z"
+    since: "2026-07-09T22:41:00Z"        # first failure, stamped once
+    lastAttempt: "2026-07-10T06:12:00Z"  # refreshed at every retry
   # Destination tags no longer referenced by any pod, held for `cleanup.retention` before being
   # deleted (if cleanup enabled). Fed both by pod events and by the tag listing every destination
   # pass starts with, so tags that stopped being used while the controller was down are collected at
@@ -218,12 +254,14 @@ status:
     derivedFrom: quay.io/thanos/thanos:v0.42.2
     via: "ImageAlternative/thanos"
     reason: Unauthorized
+    since: "2026-07-08T09:12:00Z"
   # Images with a running digest that differs from the upstream one (e.g. tag `latest` or similar).
   # Pods referencing the same tag can be pulled at different times, so more than one digest can be
   # running for the same ref at once (skew); runningDigests lists each one seen with its own pod count
   driftedImages:
   - ref: docker.io/acme/app:prod
     upstreamDigest: sha256:bbbb…
+    since: "2026-07-11T04:15:00Z"
     runningDigests:
     - digest: sha256:aaaa…
       pods: 5

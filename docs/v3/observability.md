@@ -369,6 +369,25 @@ containers and counting them yields images rather than pods. `pods.tracked` is n
 it counts what a `podSelector` selects, which is a property of the configuration rather than an
 outcome.
 
+#### Status capacity — is a capped list about to lose entries
+
+| Metric | Type | HELP |
+| ------ | ---- | ---- |
+| `kuik_status_list_entries{kind, name, list}` | gauge | Entries currently written in a capped status list |
+| `kuik_status_list_capacity{kind, name, list}` | gauge | The cap that list is subject to |
+| `kuik_status_list_dropped_total{kind, name, list}` | counter | Entries a capped status list could not hold |
+
+Anomaly lists are capped ([bounded lists](./status.md#bounded-lists)), so an operator has to learn
+that one is filling up *before* it starts losing entries. The ratio is the signal —
+`kuik_status_list_entries / kuik_status_list_capacity` — and the capacity is exposed for the same
+reason `kuik_registry_interval_seconds` is: an alerting rule can then be written against the cap
+rather than against a literal that drifts the day the cap moves.
+
+The counter answers the other question, after the fact. A gauge back under the cap says a list is
+healthy *now*; only `kuik_status_list_dropped_total` says whether anything was lost while it was not.
+
+`list` carries the status field name, so it joins the `truncated` map of the object itself.
+
 #### Scheduling health — is the configured pace keeping up
 
 | Metric (gauge) | HELP |
@@ -563,7 +582,10 @@ in place makes the last value linger for the staleness window and alerts resolve
 
 Their cardinality is the number of things currently wrong, which is small by definition and returns
 to zero on its own. This is the deliberate exception to the rule above: an image reference in a label
-is acceptable precisely because an anomaly list is bounded, where an inventory is not.
+is acceptable precisely because an anomaly list stays small in normal operation, where an inventory
+does not. The series are **not** subject to the status cap
+([bounded lists](./status.md#bounded-lists)): the status holds a sample, the series hold all of them,
+which is exactly what makes capping the status safe.
 
 ### Where a label may come from
 
