@@ -647,9 +647,13 @@ nothing to transfer.
 ## Authentication
 
 `auth` is a discriminated union — exactly one of `secretRef` or `provider`, enforced at admission —
-and the same schema everywhere credentials appear: `ImageAlternative` entries, `ImageMirror`
-`destination.push` / `destination.pull`, and the entries of
-[`fallbackAuth`](#fallback-credentials).
+and the same schema everywhere credentials appear **on a custom resource**: `ImageAlternative`
+entries, and `ImageMirror`'s `destination.push` / `destination.pull`.
+
+[`fallbackAuth`](#fallback-credentials) deliberately does not use it. Its entries carry `secretRef`
+or `provider` directly, with no `auth` wrapper, because they serve kuik's own reads and are never
+injected into a namespace — so the one field `auth` adds beyond the union, `injectPullSecret`, would
+have nothing to mean there.
 
 ```yaml
 auth:
@@ -716,7 +720,8 @@ namespace. That is the price of `Always` having no first-pull race
 and a `namespaceSelector` is what bounds it.
 
 `ImageMirror`'s `destination.push` ignores the field entirely: push credentials are only ever used by
-the controller. [`fallbackAuth`](#fallback-credentials) ignores it too, for a different reason: the
+the controller. [`fallbackAuth`](#fallback-credentials) has nothing to ignore — it carries no `auth`
+block at all ([Authentication](#authentication)) — and could not usefully have one: the
 injected Secret is named after the identity of the resource that asked for it
 ([the name of an injected Secret](./architecture.md#the-name-of-an-injected-secret)), and a global
 fallback credential belongs to no resource. It serves the controllers' own reads; injection is
