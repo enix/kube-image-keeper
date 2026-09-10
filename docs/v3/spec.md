@@ -24,8 +24,8 @@ applies to, and a mirror's own destination, implicitly excluded from it (see
 Two gates sit ahead of every resource, and both are **per container**, carry no configuration, and
 cannot be opted into or out of by any resource.
 
-- **a container whose current reference kuik produced itself** is never resolved a second time.
-  Resolving it again would record kuik's own output as the origin and destroy the only way back to
+- **a container whose current reference kuik produced itself** is never **rewritten** a second time.
+  Rewriting it again would record kuik's own output as the origin and destroy the only way back to
   the real one
   ([Why the record lives on the pod](./observability.md#why-the-record-lives-on-the-pod))
 - **a container with `imagePullPolicy: Never`** is told to use the node's cache and nothing else.
@@ -41,8 +41,9 @@ When another mutating webhook replaces the reference kuik placed, kuik does not 
 stands down, and withdraws its own record with it. The container then reads, to every part of kuik
 that looks at a pod, like one kuik never touched — no attribution, no origin to mirror, no injected
 pull secret — which is what it now is
-([What conceding removes](./architecture.md#what-conceding-removes)). Nothing in any of this is what
-prevents a mirror from mirroring an image.
+([What conceding removes](./architecture.md#what-conceding-removes)). A mirror therefore treats it
+like any other container it never touched, and copies the reference the pod now carries — the one
+the other webhook chose — rather than the origin kept in `conceded-rewrites.from`.
 
 Everything else is a matter for the selectors. v2's global `skipLabels` / `skipAnnotations` have no
 v3 equivalent: excluding a workload is expressed on the resources that would otherwise apply to it,
@@ -919,9 +920,12 @@ If no source answers, nothing is copied and the image is counted in `status.imag
 The `pods` gauges of [status v3](./status.md) fall into two regimes, and telling them apart is what
 makes them readable:
 
-- **attributed** — `pods.rewritten` and `pods.conceded`. The CR that supplied the retained reference
-  is the one named in [`kuik.enix.io/rewritten-by`](./observability.md#annotations), and the only one
-  to count the pod, so these two are disjoint between CRs and between kinds and sum consistently
+- **attributed** — `pods.rewritten` and `pods.conceded`. Exactly one CR counts the pod in each, so
+  the two are disjoint between CRs and between kinds and sum consistently. They read different
+  annotations: `pods.rewritten` comes from
+  [`kuik.enix.io/rewritten-by`](./observability.md#annotations), `pods.conceded` from
+  `conceded-rewrites.by` — a conceded container leaves `rewritten-by` altogether
+  ([what conceding removes](./architecture.md#what-conceding-removes))
 - **shared** — `pods.tracked` and `pods.noAlternatives`, which overlap between CRs and must not be
   summed across them
 
