@@ -215,7 +215,7 @@ status:
   unavailableAlternatives:
   - ref: ghcr.io/thanos-io/thanos:v0.42.2
     derivedFrom: quay.io/thanos/thanos:v0.42.2
-    via: "ImageAlternative/thanos[2]"
+    via: "ImageAlternative/thanos"
     reason: Unauthorized
   # Images with a running digest that differs from the upstream one (e.g. tag `latest` or similar).
   # Pods referencing the same tag can be pulled at different times, so more than one digest can be
