@@ -39,7 +39,7 @@ spec:
       - key: cnpg.io/cluster
         operator: DoesNotExist
   excludeImages:
-    - dev-registry.tld/huge-image-repo/*
+    - dev-registry.tld/huge-image-repo/**
   destination:
     path: registry.example.com/mirror/
     push:

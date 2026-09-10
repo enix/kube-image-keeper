@@ -1044,9 +1044,10 @@ webhook:
   # See "imagePullPolicy: Always demotes a mirror"
   demoteMirrorWithPullPolicyAlways: true
   availabilityCheck:
-    timeout: 2s              # max time before considering a registry as unavailable
-    # Cache per controller replica to avoid querying registry multiple time on burst
-    # A single image used by 50 pods scheduled in a short period should result in 1 check, not 50
+    timeout: 2s              # max time before considering a candidate as unavailable
+    # Cache per webhook replica to avoid querying registry multiple time on burst
+    # A single image used by 50 pods scheduled in a short period should result in 1 check per
+    # replica, not 50
     activeCheckCache:
       ttl: 10s
     # Default: true - Reuse what the background loops already know: a candidate an ImageMonitor or

@@ -47,7 +47,7 @@ status:
   # Store the list of fallback images (only with `rewritePolicy: OnFailure`)
   activeFallbacks:
   - image: quay.io/thanos/thanos:v0.42.2
-    routedTo: registry.tld/mirror/quay.io/thanos/thanos:v0.42.2
+    routedTo: ghcr.io/thanos-io/thanos:v0.42.2
     pods: 12
     since: "2026-07-10T06:40:00Z"
   noAlternatives:
