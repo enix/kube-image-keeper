@@ -206,7 +206,7 @@ status:
   - ref: docker.io/foo/bar:1.2
     reason: ManifestNotFound
     since: "2026-07-08T14:00:00Z"
-    referencedBy: 3
+    pods: 3
   # `via` names the ImageAlternative the alternative came from. Mirror destinations never appear
   # here: a mirror verifies its own destination and reports it in its own status (see ImageMonitor
   # in spec.md)
@@ -223,9 +223,9 @@ status:
     upstreamDigest: sha256:bbbb…
     runningDigests:
     - digest: sha256:aaaa…
-      referencedBy: 5
+      pods: 5
     - digest: sha256:cccc…
-      referencedBy: 2
+      pods: 2
   # Health of the check schedule: one image checked per `interval` window of a registry, taken from
   # this resource's own ring of that registry (see "Scheduling" in spec.md)
   checks:
