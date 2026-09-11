@@ -16,7 +16,7 @@ Every condition a v3 resource carries, and the reasons it may report:
 | Kind | Condition | `True` means | Reasons |
 | ---- | --------- | ------------ | ------- |
 | all three | `Ready` | the resource is usable as declared | `IsReady`. When `False`: `InvalidConfig`, `SecretNotFound`, `SecretMalformed`, `TokenRequestFailed`, and `RegistryDeleteUnsupported` on an `ImageMirror` |
-| all three | `StatusTruncated` | a capped list is at or over its limit | `ListNearCapacity` from 80% of the cap, `ListTruncated` once entries are actually left out |
+| all three | `ListCapacityPressure` | a capped list is approaching or over its limit | `ListNearCapacity` from 80% of the cap, `ListTruncated` once entries are actually left out |
 | `ImageAlternative`, `ImageMirror` | `FallbackActive` | a rewrite is standing in for an origin that failed | `OriginUnavailable` |
 | `ImageAlternative`, `ImageMirror` | `AlternativesExhausted` | a container was left untouched, no candidate having answered | `AllCandidatesFailed` |
 | `ImageMirror` | `DestinationOutOfSync` | the destination does not hold the desired state yet | `MissingImages` |
@@ -55,7 +55,7 @@ problem to solve elsewhere — a cap would only hide it.
 is stamped once and never refreshed — so the order is stable from one reconcile to the next and the
 list does not churn. What stays visible is what has been wrong longest.
 
-**Nothing is dropped silently.** `StatusTruncated` goes `True` from 80% of the cap, before anything
+**Nothing is dropped silently.** `ListCapacityPressure` goes `True` from 80% of the cap, before anything
 is lost, and a `truncated` map records what was left out once it is:
 
 ```yaml
