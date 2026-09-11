@@ -341,7 +341,7 @@ series at the end.
 | -------------- | ---- |
 | `kuik_monitor_images{kind, name, state}` | Origin references an ImageMonitor is tracking, by state. States are not mutually exclusive and must not be summed |
 | `kuik_monitor_alternatives{kind, name, state}` | Alternative references an ImageMonitor is tracking on behalf of ImageAlternative resources, by state |
-| `kuik_mirror_images{kind, name, state}` | Images an ImageMirror accounts for, by state |
+| `kuik_mirror_images{kind, name, state}` | Images an ImageMirror accounts for, by state. States are not mutually exclusive and must not be summed |
 | `kuik_routing_pods{kind, name, state}` | Live pods a routing resource accounts for, by state. States are not mutually exclusive and must not be summed |
 
 The `state` label repeats the field names of the corresponding status, so a dashboard and a

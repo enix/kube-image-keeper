@@ -126,8 +126,10 @@ status:
   images:
     desired: 312               # images used in running pod + retained ones carrying an `origin`
     copied: 309                # images effectively copied to destination registry
-    retained: 2                # tags pending deletion (if cleanup.retention > 0), origin-less ones
-                               # among them are held then deleted, never copied again
+    retained: 2                # entries of `pendingDeletion` (if cleanup.enabled) — a reference
+                               # pinned by digest produces two of them, its tag and its anchor.
+                               # Origin-less ones among them are held then deleted, never copied
+                               # again
     drifted: 0                 # with driftPolicy=Warn or Sync - image tag whose upstream digest moved
                                # away from the copied one. Sync queues them for a resync, Warn leaves
                                # the copy as it is and only reports
