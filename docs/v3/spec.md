@@ -1161,8 +1161,9 @@ list, sending what is known to be failing to the end. Three status lists feed it
   is a candidate in its own right
 - [`ImageMonitor.status.unavailableAlternatives`](./status.md#imagemonitor) — one particular
   alternative. Only populated with [`monitorAlternatives`](#imagemonitor) enabled
-- [`ImageMirror.status.failedImageCopies`](./status.md#imagemirror) — a destination whose copy has not
-  succeeded, so the mirror knows the reference is not there to be served
+- [`ImageMirror.status.failedImageCopies`](./status.md#imagemirror) — an origin whose copy has not
+  succeeded; the webhook demotes the mirror candidate it computes for that origin, the reference not
+  being there to be served
 
 **A demoted candidate is still probed.** Nothing is dropped: it moves to the end of the list and is
 tried once everything above it has failed, active check in webhook have the final decision.
