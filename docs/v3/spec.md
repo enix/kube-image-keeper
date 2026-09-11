@@ -981,21 +981,25 @@ reason `SourceNotFound`, which is what names it, and is counted in `status.image
 
 ### Attribution
 
-The `pods` gauges of [status v3](./status.md) fall into two regimes, and telling them apart is what
-makes them readable:
+The `pods` gauges of [status v3](./status.md) all count **pods**, and none of them sums across CRs.
+What is attributed sits one level down: **exactly one CR counts each rewritten or conceded
+container**. A pod has many containers, so two CRs serving two of them both count that pod, and one
+CR may count the same pod in `rewritten` and in `conceded` at once.
 
-- **attributed** — `pods.rewritten` and `pods.conceded`. Exactly one CR counts the pod in each, so
-  the two are disjoint between CRs and between kinds and sum consistently. They read different
-  annotations: `pods.rewritten` comes from
+Where a count comes from still differs, and telling the two apart is what makes them readable:
+
+- `pods.rewritten` and `pods.conceded` come off an attribution the webhook left on the pod, and from
+  two different annotations: `pods.rewritten` from
   [`kuik.enix.io/rewritten-by`](./observability.md#annotations), `pods.conceded` from
   `conceded-rewrites.by` — a conceded container leaves `rewritten-by` altogether
   ([what conceding removes](./architecture.md#what-conceding-removes))
-- **shared** — `pods.tracked` and `pods.noAlternatives`, which overlap between CRs and must not be
-  summed across them
+- `pods.tracked` and `pods.noAlternatives` carry no attribution: the first counts what the selectors
+  retain, the second every CR that offered a candidate
 
 `pods.tracked` counts the pods a CR's `podSelector` and `namespaceSelector` select. The overlap is
 deliberate: it answers "does this CR watch this pod?". It is emphatically not a claim of ownership —
-what a CR *did* is what `rewritten` reports, and the annotation is what settles it.
+what a CR *did* is what `rewritten` reports, and the annotation is what settles it. It stays the
+denominator the other three are read against **inside one CR**; only the sum across CRs breaks.
 
 `pods.noAlternatives` overlaps for a different reason: no candidate won, so every CR that contributed
 one counts the pod. It is read from

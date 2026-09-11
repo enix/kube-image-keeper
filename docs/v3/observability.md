@@ -144,8 +144,7 @@ edited between admission and reconcile. Recording it verbatim removes the questi
 keeps `from` on a conceded entry rather than dropping it with the rest: a rewrite kuik gave up still
 had an origin, and it is the one part of the story the pod would otherwise hold no trace of.
 
-`rewritten-by` is what makes attribution disjoint — one resource owns each rewritten container, so the
-`rewritten` and `conceded` gauges of different resources never double-count
+`rewritten-by` is what makes attribution disjoint — one resource owns each rewritten container
 ([Attribution](./spec.md#attribution)) — and it
 is also what the secret syncer watches to learn that an `OnFailure` resource is being used for real
 ([walkthrough 03](./walkthroughs/03-secret-syncer-reconciliation.md)).
@@ -362,17 +361,19 @@ overlap it.
 each routing resource's own vantage point: not what the cluster runs, but what a rewrite did to the
 workloads.
 
-Its `state` spans the two regimes of [Attribution](./spec.md#attribution), and confusing them is the
-one way to read this gauge wrong. `rewritten` and `conceded` are **attributed** — exactly one
-resource counts a pod in each — so they sum across resources. `tracked` and `noAlternatives` are
-**shared**: several resources legitimately select the same pod, and several may offer a candidate for
-the same container, so summing those across resources double-counts.
+**None of its four states sums across resources**, and reading one of them as if it did is the one
+way to get this gauge wrong. What exactly one resource owns is a rewritten or conceded *container*
+([Attribution](./spec.md#attribution)), and a pod has many: two resources each serving one container
+of the same pod both count it, and one resource may count a pod in `rewritten` and in `conceded` at
+once. The other two overlap for their own reasons — several resources legitimately select the same
+pod, and several may offer a candidate for the same container — so the rule is uniform across the
+four.
 
 The per-image anomaly series do not substitute for it. `kuik_alternatives_exhausted_pods` and
 `kuik_rewrite_conceded_pods` are keyed by image and valued in pods, so they answer "which images",
 where `state="noAlternatives"` and `state="conceded"` answer "how many pods, de-duplicated".
 `state="tracked"` has no other source at all, and it is the denominator the other three are read
-against.
+against inside one resource.
 
 #### Status capacity — is a capped list about to lose entries
 
