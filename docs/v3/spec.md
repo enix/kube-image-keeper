@@ -314,6 +314,13 @@ rather than a prefix of them:
 Where [`repository`/`repositoryGroup`](#alternatives-matching) are structural, an exclusion only
 answers "do I mirror this?", so it stays a pattern and produces no reference.
 
+> [!WARNING]
+> **Excluding an image also removes the copy already made.** The reference leaves the desired state,
+> so the next sweep finds its tags outside the expected set: they enter `status.pendingDeletion` and
+> are deleted once `cleanup.retention` has elapsed, far enough from the edit that the cause is easy
+> to miss. Narrowing a `podSelector` or a `namespaceSelector` does the same, and `cleanup.enabled:
+> false` is what stops it.
+
 ### Collecting unused tags
 
 With `cleanup.enabled`, every destination pass of an `ImageMirror`
