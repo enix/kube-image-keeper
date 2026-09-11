@@ -712,8 +712,7 @@ resource namespace*, configurable by an operator flag), exactly as cert-manager 
 
 ### `provider`
 
-The enum is **closed** (`aws`, `gcp`, `azure`). Region and project are derived from the registry
-hostname.
+The enum is **closed** (`aws`, `gcp`, `azure`).
 
 `serviceAccountRef` is optional and requests a token for that ServiceAccount, so a CR can carry its
 own IAM role instead of borrowing the controller's global identity.
