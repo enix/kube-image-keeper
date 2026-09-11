@@ -259,6 +259,10 @@ secretAccess:
                           # using RoleBinding instead of ClusterRoleBinding
 ```
 
+Those two are **chart values**, not keys of the [global config](./spec.md#global-config) file. They
+decide whether a `ClusterRole` is rendered at all, which is settled at install time and never read by
+a running process.
+
 **`permissive`** deploys it. The webhook's admission-time probes, the `ImageMonitor` checks and the
 `ImageMirror` checks and copies can then read the `imagePullSecrets` of the pods they concern, and
 resolve credentials for a private registry with nothing declared anywhere. This is how kuik behaved
