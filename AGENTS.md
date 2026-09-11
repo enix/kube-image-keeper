@@ -19,6 +19,20 @@ Code, chart, CI and tooling are re-added milestone by milestone
 `git show main:<path>` and lifted on purpose, never copied by reflex
 ([0001](./notes/0001-v2-reuse-analysis.md)).
 
+## Writing
+
+Everything written here is read under time pressure. Be concise and go straight to the
+point, in commit messages, PR and issue descriptions, review comments, notes,
+documentation, specification and answers to questions alike.
+
+- **Lead with the answer**: the decision, the conclusion, what changed. Context comes
+  after, and only if it changes what the reader does.
+- **One idea per sentence.** Short and plain beats clause chains and jargon.
+- **Cut what adds nothing**: restating the title, narrating the diff, announcing what you
+  are about to say, closing summaries, filler adjectives.
+- **Never pad to look thorough.** Length follows content, not effort.
+- Concise is not incomplete: keep every fact the reader needs to act, drop the rest.
+
 ## Decision log
 
 The "why" of a change lives in its commit body by default. Write a note under `notes/`
