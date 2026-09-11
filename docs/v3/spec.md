@@ -237,7 +237,9 @@ spec:
   destination:
     path: registry.tld/mirror/
     insecure: false            # Default: false - Allow HTTP registry
-    push:                      # Controller credentials to push images and delete unused tags
+    manage:                    # Controller credentials to read, write and delete tags at the
+                               # destination: the pushes, the self-check HEADs, the tag listings
+                               # the sweep reads and the deletions it issues
       auth:                    # see "Authentication" (`injectPullSecret` is ignored here)
         secretRef:
           name: mirror-write-credentials
@@ -327,7 +329,9 @@ deletion rules.
 ### Destination registry requirements
 
 A mirror destination is an OCI registry the operator points kuik at, and kuik assumes it holds up its
-end. Three requirements apply to every `ImageMirror`, cleanup or not:
+end. `destination.manage` is the credential every one of those calls is made with, so it needs read
+access as much as write: the self-check `HEAD`s and the sweep's tag listings are reads. Three
+requirements apply to every `ImageMirror`, cleanup or not:
 
 - **Conformance to the OCI Distribution spec** — `HEAD`/`GET` on manifests and blobs, `GET` on tag
   listings, `POST`/`PATCH`/`PUT` to upload a blob and `PUT` to write the manifest that closes it:
@@ -675,7 +679,7 @@ nothing to transfer.
 
 `auth` is a discriminated union — exactly one of `secretRef` or `provider`, enforced at admission —
 and the same schema everywhere credentials appear **on a custom resource**: `ImageAlternative`
-entries, and `ImageMirror`'s `destination.push` / `destination.pull`.
+entries, and `ImageMirror`'s `destination.manage` / `destination.pull`.
 
 [`fallbackAuth`](#fallback-credentials) deliberately does not use it. Its entries carry `secretRef`
 or `provider` directly, with no `auth` wrapper, because they serve kuik's own reads and are never
@@ -745,8 +749,8 @@ namespace. That is the price of `Always` having no first-pull race
 ([walkthrough 03, A.7](./walkthroughs/03-secret-syncer-reconciliation.md#a7-the-first-pull-race-onfailure-only)),
 and a `namespaceSelector` is what bounds it.
 
-`ImageMirror`'s `destination.push` ignores the field entirely: push credentials are only ever used by
-the controller. [`fallbackAuth`](#fallback-credentials) has nothing to ignore — it carries no `auth`
+`ImageMirror`'s `destination.manage` ignores the field entirely: those credentials are only ever
+used by the controller. [`fallbackAuth`](#fallback-credentials) has nothing to ignore — it carries no `auth`
 block at all ([Authentication](#authentication)) — and could not usefully have one: the
 injected Secret is named after the identity of the resource that asked for it
 ([the name of an injected Secret](./architecture.md#the-name-of-an-injected-secret)), and a global
@@ -758,7 +762,9 @@ declared on the CR that routes the image.
 An `ImageAlternative` entry has a single `auth` and no separate pull credential, because the
 controller's availability check and the kubelet's pull are both **read** operations against the same
 registry: one credential fits both and only whether to inject it differs, hence the boolean.
-`ImageMirror` splits `push` and `pull` because there the two are privileges different in nature.
+`ImageMirror` splits `manage` and `pull` because there the two are privileges different in nature:
+`pull` is the read the kubelet needs, `manage` is what kuik itself does to the destination — read,
+write, and delete under `cleanup.enabled`.
 
 ### No `auth` at all
 

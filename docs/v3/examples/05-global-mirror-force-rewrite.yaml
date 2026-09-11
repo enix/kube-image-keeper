@@ -42,12 +42,12 @@ spec:
     - dev-registry.tld/huge-image-repo/**
   destination:
     path: registry.example.com/mirror/
-    push:
+    manage:
       auth:
         secretRef:
           name: registry-global
-    # v3 splits push and pull credentials, so the mirror can be pushed to with a write enabled
-    # account while namespaces only get a read only one injected. v2 had a single
+    # v3 splits the controller's credential from the injected one, so the mirror is managed with a
+    # read/write/delete account while namespaces only get a read only one. v2 had a single
     # `credentialSecret` used for both, reusing `registry-global` here would also be valid.
     pull:
       auth:

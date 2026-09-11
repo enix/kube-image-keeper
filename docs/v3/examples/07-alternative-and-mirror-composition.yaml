@@ -89,7 +89,7 @@ spec:
         operator: DoesNotExist
   destination:
     path: registry.example.com/mirror/
-    push:
+    manage:
       auth:
         secretRef:
           name: registry-global

@@ -203,7 +203,7 @@ derive a name from: it serves the controllers' own reads and is never injected
 
 An `auth.provider` is an ambient cloud identity, and turning it into registry credentials costs a
 `TokenRequest` and a cloud exchange only the syncer performs. Three declarations need those
-credentials with no Secret injected anywhere: `ImageMirror`'s `destination.push`, which never injects
+credentials with no Secret injected anywhere: `ImageMirror`'s `destination.manage`, which never injects
 by construction; a [`fallbackAuth`](./spec.md#fallback-credentials) entry, which belongs to no
 resource and so has no injected Secret to carry it; and an `ImageAlternative` entry with
 `injectPullSecret: false` — the default — whose background check still has to be made with that
