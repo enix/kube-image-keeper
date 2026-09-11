@@ -270,15 +270,17 @@ status:
     tracked: 3241               # images tracked by this CR
     inUse: 3180                 # images associated for running pod
     retained: 61                # images no longer running but still monitored for `unusedImageRetention`
-    available: 3226             # 11 short of `tracked`: those have not been checked yet, the
-    unavailable: 4              # ring not having reached them since they entered it
+    # `available` + `unavailable` is 11 short of `tracked`: the ring has not reached those yet
+    available: 3226
+    unavailable: 4
     drifted: 2                  # image tag have digest different than the upstream one (only with driftDetection=true)
   # Alternatives kuik would offer for a tracked image, from ImageAlternative entries
   # (only with monitorAlternatives=true)
   alternatives:
+    # `available` + `unavailable` is 1 short of `tracked`, as for `images` above
     tracked: 214
-    available: 212             # short of `tracked` by the ones the ring has not reached yet, as
-    unavailable: 2             # for `images` above
+    available: 211
+    unavailable: 2
   # Store retained images (ref+date+digest) as we can't recompute this information from informer
   retainedImages:
   - ref: ghcr.io/acme/report-job:v42
