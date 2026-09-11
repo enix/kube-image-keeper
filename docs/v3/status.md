@@ -201,7 +201,7 @@ status:
     registries:
     - registry: quay.io                    # a source host this mirror re-reads, never the destination
       images: 41                           # size of the ring: the copied tags of this host it re-reads
-      cursor: quay.io/thanos/thanos        # last tag re-read, the ring resumes at its successor
+      cursor: quay.io/thanos/thanos:v0.42.2  # last tag re-read, ring resumes at its successor
       cycleStarted: "2026-07-10T05:00:00Z"
       # measured lap: how often each mirrored tag of this host is re-read for drift, hence the delay
       # before a `Warn` is reported or a `Sync` is queued. Absent until a first lap completes, and
@@ -320,7 +320,7 @@ status:
     - registry: docker.io
       images: 2140                         # size of the ring: images of this registry it tracks
       # last checked image, so the ring resumes at its successor on controller restart
-      cursor: docker.io/library/nginx
+      cursor: docker.io/library/nginx:1.27
       # datetime of the current lap start (cursor back to where it started)
       cycleStarted: "2026-07-10T04:00:00Z"
       # measured duration of the last completed lap: how often each image of this registry comes
@@ -330,7 +330,7 @@ status:
       cycleDuration: 35h40m                # 2140 images, docker.io `interval: 1m`, sole consumer
     - registry: quay.io
       images: 1101
-      cursor: quay.io/thanos/thanos
+      cursor: quay.io/thanos/thanos:v0.42.2
       cycleStarted: "2026-07-10T03:20:00Z"
       # measured three times the 18h21m this ring would lap in alone: another ImageMonitor and an
       # ImageMirror's drift ring take their share of quay.io's windows
