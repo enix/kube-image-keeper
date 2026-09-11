@@ -965,7 +965,11 @@ When the origin is unreachable at copy time, the controller may pull the bytes f
 `ImageAlternative` entry covering that image, skipping the entries marked
 [`unavailable: true`](#unavailable), and push them to that same destination — a first copy and a
 re-copy alike, so an image whose origin registry
-disappeared for good stays re-copyable, which is the scenario alternatives exist for. The destination is
+disappeared for good stays re-copyable, which is the scenario alternatives exist for. An origin that
+itself matches an entry marked [`unavailable: true`](#unavailable) is tried **last** among the
+sources rather than first, exactly as it is demoted to the end of the candidate list at admission
+([Candidate ordering](#candidate-ordering)): opening with it would spend a window of its host on a
+repository the operator has declared dead. The destination is
 the one derived from the origin in every case, never from the source actually read
 ([walkthrough A.8](./walkthroughs/02-imagemirror-reconciliation.md#a8-record-the-repository-choose-the-source-then-push)).
 If no source answers, nothing is copied: the image gets a `status.failedImageCopies` entry with
