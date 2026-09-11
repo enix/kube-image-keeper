@@ -977,6 +977,13 @@ would make `status.repositories` and the cleanup GC depend on routing decisions 
 An origin image already living under this mirror's own `destination.path` is not copied at all
 ([Mirror loop prevention](#mirror-loop-prevention)).
 
+**A mirror fills reactively.** An image enters the desired state only once a pod referencing it has
+been admitted, and the copy then waits for a window of its source host ([Scheduling](#scheduling)).
+So the first pod of a new image is never served by the mirror: under `rewritePolicy: Always` it
+probes the mirror candidate, gets `ManifestNotFound` and falls back to the upstream, which is also
+what [`demoteKnownFailures`](#demoteknownfailures-reusing-what-the-loops-already-know) reorders on
+until the copy lands. A mirror protects the pulls after the first one.
+
 When the origin is unreachable at copy time, the controller may pull the bytes from any
 `ImageAlternative` entry covering that image, skipping the entries marked
 [`unavailable: true`](#unavailable), and push them to that same destination — a first copy and a
