@@ -378,14 +378,22 @@ to do, and the two invocations of a reinvocation are milliseconds apart, so it i
 [`activeCheckCache`](./spec.md#global-config) on all but a cold replica — which pays real probes,
 bounded by `availabilityCheck.timeout`.
 
-Every container then falls in one of four states:
+Every container then falls in one of four states, and the test reads the **four annotation maps**
+together — a container the pod holds a record for is named by exactly one of them
+([where a container appears](./observability.md#where-a-container-appears-says-what-happened-to-it)):
 
 | State | Test | What kuik does |
 | ----- | ---- | -------------- |
-| **new** | the pod holds no record for it | resolves it like any other container |
-| **intact** | its reference is **one of** the candidates for that origin and that resource | nothing at all, and the record stands |
-| **conceded** | its reference is **none of** them | withdraws, and records what it lost |
+| **new** | no map names it | resolves it like any other container |
+| **intact** | `original-images` names it and its reference is **one of** the candidates for that origin and that resource — or `no-alternatives` names it | nothing at all, and the record stands |
+| **conceded** | `original-images` names it and its reference is **none of** them — or `conceded-rewrites` already names it | withdraws, and records what it lost |
 | **gone** | the container is no longer in the pod | drops the entry, silently |
+
+**A container listed in `no-alternatives` is never a concession candidate.** It holds a record but no
+origin: kuik offered candidates, none answered, and the live reference is still the original one.
+Reading the table on `original-images` alone would call it *conceded* the moment another webhook
+changed its image, and kuik would record a `was` it never placed — a gauge and an event for a rewrite
+that never happened.
 
 **Membership** is what decides, not equality with the candidate the resolution returns now. The two
 part ways in a case that is not exotic: a spec replayed days later, whose origin has become
