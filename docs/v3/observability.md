@@ -145,7 +145,8 @@ keeps `from` on a conceded entry rather than dropping it with the rest: a rewrit
 had an origin, and it is the one part of the story the pod would otherwise hold no trace of.
 
 `rewritten-by` is what makes attribution disjoint — one resource owns each rewritten container, so the
-`pods` gauges of different resources never double-count ([Attribution](./spec.md#attribution)) — and it
+`rewritten` and `conceded` gauges of different resources never double-count
+([Attribution](./spec.md#attribution)) — and it
 is also what the secret syncer watches to learn that an `OnFailure` resource is being used for real
 ([walkthrough 03](./walkthroughs/03-secret-syncer-reconciliation.md)).
 
@@ -328,14 +329,14 @@ Each metric below is listed with the `HELP` text it should carry. Labels are sho
 label value is drawn either from configuration or from an enumerated set, except on the anomaly
 series at the end.
 
-#### Aggregates — one series per resource, mirroring status v3 field for field
+#### Aggregates — one series per resource and state, mirroring status v3 field for field
 
 | Metric (gauge) | HELP |
 | -------------- | ---- |
 | `kuik_monitor_images{kind, name, state}` | Origin references an ImageMonitor is tracking, by state. States are not mutually exclusive and must not be summed |
 | `kuik_monitor_alternatives{kind, name, state}` | Alternative references an ImageMonitor is tracking on behalf of ImageAlternative resources, by state |
 | `kuik_mirror_images{kind, name, state}` | Images an ImageMirror accounts for, by state |
-| `kuik_rewritten_pods{kind, name}` | Live pods in which this routing resource rewrote a container |
+| `kuik_routing_pods{kind, name, state}` | Live pods a routing resource accounts for, by state. States are not mutually exclusive and must not be summed |
 
 The `state` label repeats the field names of the corresponding status, so a dashboard and a
 `kubectl get -o yaml` never disagree. Which status, field for field:
@@ -345,7 +346,7 @@ The `state` label repeats the field names of the corresponding status, so a dash
 | `kuik_monitor_images` | `ImageMonitor.status.images` | `tracked`, `inUse`, `retained`, `available`, `unavailable`, `drifted` |
 | `kuik_monitor_alternatives` | `ImageMonitor.status.alternatives` | `tracked`, `available`, `unavailable` |
 | `kuik_mirror_images` | `ImageMirror.status.images` | `desired`, `copied`, `retained`, `drifted`, `missingSource` |
-| `kuik_rewritten_pods` | `ImageAlternative` / `ImageMirror` `.status.pods.rewritten` | — |
+| `kuik_routing_pods` | `ImageAlternative` / `ImageMirror` `.status.pods` | `tracked`, `rewritten`, `noAlternatives`, `conceded` |
 
 Both monitor gauges count **origin** references — what the manifest carried, read from
 [`kuik.enix.io/original-images`](#annotations) for a container the webhook rewrote and from the live
@@ -357,17 +358,21 @@ and `retained` partition why an image is tracked, while `available`, `unavailabl
 the outcome of its last check. Hence the warning not to sum — `tracked` is the total, the others
 overlap it.
 
-`kuik_rewritten_pods` answers a neighbouring question, in **pods** rather than in references and from
-each routing resource's own vantage point: not what the cluster runs, but where a rewrite happened.
-It carries no `state`, because it reports one field rather than a block of them.
+`kuik_routing_pods` answers a neighbouring question, in **pods** rather than in references and from
+each routing resource's own vantage point: not what the cluster runs, but what a rewrite did to the
+workloads.
 
-The other three fields of `status.pods` have no aggregate gauge, and are read **per image** on the
-anomaly series instead: `noAlternatives` on `kuik_alternatives_exhausted_pods`, `conceded` on
-`kuik_rewrite_conceded_pods`. Neither is recoverable from them as a resource total — those series
-are keyed by image and their value is a pod count, so summing double-counts a pod carrying two such
-containers and counting them yields images rather than pods. `pods.tracked` is not exposed at all:
-it counts what a `podSelector` selects, which is a property of the configuration rather than an
-outcome.
+Its `state` spans the two regimes of [Attribution](./spec.md#attribution), and confusing them is the
+one way to read this gauge wrong. `rewritten` and `conceded` are **attributed** — exactly one
+resource counts a pod in each — so they sum across resources. `tracked` and `noAlternatives` are
+**shared**: several resources legitimately select the same pod, and several may offer a candidate for
+the same container, so summing those across resources double-counts.
+
+The per-image anomaly series do not substitute for it. `kuik_alternatives_exhausted_pods` and
+`kuik_rewrite_conceded_pods` are keyed by image and valued in pods, so they answer "which images",
+where `state="noAlternatives"` and `state="conceded"` answer "how many pods, de-duplicated".
+`state="tracked"` has no other source at all, and it is the denominator the other three are read
+against.
 
 #### Status capacity — is a capped list about to lose entries
 
