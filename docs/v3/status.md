@@ -165,9 +165,9 @@ status:
                                # away from the copied one. Sync queues them for a resync, Warn leaves
                                # the copy as it is and only reports
     # platformsMissing: 8      # Meaningless in v3.0: every platform of a multi-platform image is
-                                # always copied (see the note on `platforms` in ImageMirror). Comes
-                                # back once per-platform selection ships, to report a copy that
-                                # missed a platform it should have had
+                               # always copied (see the note on `platforms` in ImageMirror). Comes
+                               # back once per-platform selection ships, to report a copy that
+                               # missed a platform it should have had
     missingSource: 1           # no source can supply the image any more: the `failedImageCopies`
                                # entries whose reason is `SourceNotFound`. Those entries are what
                                # name the images this counts
@@ -275,7 +275,7 @@ status:
     status: "True"
     reason: MissingImages
     message: "3 images not copied yet"
-  - type: Ready                # Conf valid and working credentials
+  - type: Ready                # Valid configuration and working credentials
     status: "True"
     reason: IsReady
     # status: "False", reason: RegistryDeleteUnsupported when cleanup.enabled and the destination
@@ -367,7 +367,7 @@ status:
       # ImageMirror's drift ring take their share of quay.io's windows
       cycleDuration: 55h                   # 1101 images, quay.io `interval: 1m`
   conditions:
-  - {type: Ready, status: "True", reason: IsReady}                            # Conf valid and working credentials
+  - {type: Ready, status: "True", reason: IsReady}                            # Valid configuration and working credentials
   - {type: ImagesUnavailable, status: "True", reason: ChecksFailed}              # a tracked image is unavailable
   - {type: AlternativesUnavailable, status: "True", reason: ChecksFailed}        # an alternative of a tracked image is unavailable
   - {type: ImagesDrifted, status: "True", reason: UpstreamDigestMoved}           # digest drift detected

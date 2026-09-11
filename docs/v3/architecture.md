@@ -124,7 +124,7 @@ Three absences carry more weight than the entries:
 
 `serviceaccounts/token` is only needed where an `auth.provider` with a `serviceAccountRef` is
 declared; the token is requested for that ServiceAccount and exchanged for registry credentials.
-**Neither the webhook or reconciler performs that exchange.** They consumes the Secret the
+**Neither the webhook nor the reconciler performs that exchange.** They consume the Secret the
 syncer has already materialised and renewed.
 
 > [!NOTE]

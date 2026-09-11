@@ -69,7 +69,7 @@ metadata:
 spec:
   # Generic Kubernetes labels selector field to restrict pods where this CR apply
   # https://kubernetes.io/docs/reference/generated/kubernetes-api/latest/#labelselector-v1-meta
-  # Empty/Nothing match all pod
+  # Empty or absent matches all pods
   podSelector: {}
   namespaceSelector: {}
 
@@ -78,7 +78,7 @@ spec:
   #   Always: These entries first (bypass quota, latency, network cost, …)
   rewritePolicy: OnFailure    # OnFailure | Always
 
-  # Ordered list of equivalent repository (or repository groups) that could be used if one is
+  # Ordered list of equivalent repositories (or repository groups) that could be used if one is
   # unavailable. All entries of a list must use the same form, see "Alternatives matching"
   # Every field besides `repository`/`repositoryGroup` is optional, and with public registries
   # only that one is usually needed
@@ -225,7 +225,7 @@ metadata:
 spec:
   # Generic Kubernetes labels selector field to restrict pods where this CR apply
   # https://kubernetes.io/docs/reference/generated/kubernetes-api/latest/#labelselector-v1-meta
-  # Empty/Nothing match all pod
+  # Empty or absent matches all pods
   podSelector: {}
   namespaceSelector: {}
   # Globs matching images to keep out of this mirror (e.g. huge images), see "Excluding images
@@ -256,7 +256,7 @@ spec:
         injectPullSecret: true
 
   cleanup:
-    enabled: true              # Default: true - Delete image tag no longer referenced by any pod.
+    enabled: true              # Default: true - Delete image tags no longer referenced by any pod.
                                # With `false` nothing is deleted and `retention` has no effect: a
                                # reference leaves the desired state with its last pod, and the tag
                                # already written stays at the destination until someone removes it
@@ -357,7 +357,7 @@ requirements apply to every `ImageMirror`, cleanup or not:
   so the registry has to accept arbitrarily nested repository paths
   (`registry.tld/mirror/quay.io/thanos/thanos`), not a flat or shallow namespace.
 - **Rejecting an incomplete manifest** — a manifest `PUT` referencing blobs the registry does not
-  hold must be refused, as the OCI Distribution spec suggest (spec say MAY, not MUST) and as
+  hold must be refused, as the OCI Distribution spec suggests (it says MAY, not MUST) and as
   registries do in practice. That is what makes a manifest's presence sufficient evidence that the
   image behind it is whole, so the self-check can settle a reference with a single `HEAD`
   ([walkthrough B.2](./walkthroughs/02-imagemirror-reconciliation.md#b2-ask-precisely-one-reference-at-a-time)).
@@ -530,14 +530,15 @@ metadata:
 spec:
   # Generic Kubernetes labels selector field to restrict pods where this CR apply
   # https://kubernetes.io/docs/reference/generated/kubernetes-api/latest/#labelselector-v1-meta
-  # Empty/Nothing match all pod
+  # Empty or absent matches all pods
   podSelector: {}
   namespaceSelector: {}
 
   unusedImageRetention: 168h   # Default: 168h (7 days) - keep monitoring for a given time after no
                                # longer used in cluster, useful for cronjob
 
-  driftDetection: true         # Default: true - Detect if an image tag digest differ from pod running in cluster
+  driftDetection: true         # Default: true - Report tracked tags whose upstream digest differs
+                               # from the one running in the cluster
 
   monitorAlternatives: false   # Default: false - Also monitor the alternatives kuik would offer for
                                # each tracked image, from ImageAlternative entries only: a mirror
@@ -745,7 +746,7 @@ Whether kuik copies a pull secret into the pod namespace, so the kubelet can pul
 | `provider` | `false` | the majority case is same-cloud, where the kubelet is already authorized natively |
 
 Set to `true` with a `provider`, kuik materializes, **renews** and injects a docker-registry secret —
-the cross-cloud case, and what makes cloud-provider registries short lived tokens usable.
+the cross-cloud case, and what makes the short-lived tokens of cloud-provider registries usable.
 
 **Where the Secret lands depends on `rewritePolicy`, and under `Always` it does not wait for a pod.**
 Under `OnFailure` a rewrite only happens when an origin fails, so the need is discovered: the Secret
@@ -1168,7 +1169,7 @@ list, sending what is known to be failing to the end. Three status lists feed it
   being there to be served
 
 **A demoted candidate is still probed.** Nothing is dropped: it moves to the end of the list and is
-tried once everything above it has failed, active check in webhook have the final decision.
+tried once everything above it has failed, the webhook's active check having the final decision.
 
 **The reverse does not hold.** A candidate a monitor reports *available* is never promoted, and
 could not be: the monitor may have reached that verdict with a `fallbackAuth` credential the webhook
