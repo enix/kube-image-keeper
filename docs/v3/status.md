@@ -116,11 +116,13 @@ status:
 
 ## ImageMirror
 
-With `rewritePolicy` other than `None`, an `ImageMirror` carries the same status as an
-`ImageAlternative`, plus the following:
+An `ImageMirror` copies, and — with `rewritePolicy` other than `None` — routes as well. Its status
+holds both, in that order: the copy side, specific to this kind, then the routing side, which is
+field for field an `ImageAlternative`'s.
 
 ```yaml
 status:
+  # ============ Copy side, specific to an ImageMirror ============
   images:
     desired: 312               # images used in running pod + retained ones carrying an `origin`
     copied: 309                # images effectively copied to destination registry
@@ -204,6 +206,37 @@ status:
       # not derived from `images * interval` — this ring would lap in 41m alone, and shares quay.io's
       # windows with the ImageMonitors tracking it
       cycleDuration: 2h
+
+  # ============ Routing side, the same fields as an ImageAlternative ============
+  # Each one means exactly what it means there, and is documented there rather than twice. What
+  # differs is only that this kind routes to its own destination. Under `rewritePolicy: None` an
+  # ImageMirror copies without ever routing, so none of these are populated
+  pods:
+    tracked: 480
+    rewritten: 455
+    noAlternatives: 1
+    conceded: 1
+  # `routedTo` is this mirror's own destination — where an ImageAlternative names one of its upstream
+  # entries instead
+  activeFallbacks:
+  - image: quay.io/thanos/thanos:v0.42.2
+    routedTo: registry.tld/mirror/quay.io/thanos/thanos:v0.42.2_cluster-a
+    pods: 12
+    since: "2026-07-10T06:40:00Z"
+  # The mirror had nothing to offer either: no source ever answered for this image, so it was never
+  # copied (`images.missingSource` above) and the origin is gone too
+  noAlternatives:
+  - image: quay.io/acme/gone:1.0
+    pods: 1
+    since: "2026-07-09T22:41:00Z"
+  concededRewrites:
+  - image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1
+    routedTo: registry.tld/mirror/quay.io/oauth2-proxy/oauth2-proxy:v7.7.1_cluster-a
+    replacedBy: internal.tld/oauth2-proxy:v7.7.1
+    pods: 1
+    since: "2026-07-11T11:02:00Z"
+
+  # ============ Conditions, both sides ============
   conditions:
   - type: DestinationOutOfSync # True = the destination does not hold the desired state (yet)
     status: "True"
@@ -215,6 +248,15 @@ status:
     # status: "False", reason: RegistryDeleteUnsupported when cleanup.enabled and the destination
     # registry rejects tag deletion (e.g. responds 405 to DELETE /v2/<name>/manifests/<tag>) — cleanup
     # cannot make progress until this is fixed, see "Destination registry requirements" in spec.md
+  # The routing ones, identical to an ImageAlternative's and absent under `rewritePolicy: None`
+  - type: FallbackActive
+    status: "True"
+    reason: OriginUnavailable
+    message: "1 image routed to the mirror (12 pods)"
+  - type: AlternativesExhausted
+    status: "True"
+    reason: AllCandidatesFailed
+    message: "1 image unavailable (1 pod)"
 ```
 
 ## ImageMonitor
