@@ -465,7 +465,7 @@ otherwise have to be hard-coded into alerting rules and then kept in sync with t
 
 | Metric | Type | HELP |
 | ------ | ---- | ---- |
-| `kuik_registry_requests_total{registry, operation, result}` | counter | Requests kuik sent to a **source** registry, by operation (`Check`, `Copy`) and outcome (`Ok`, or the reason that request produced: `ManifestNotFound`, `Unauthorized`, `QuotaExceeded`, `Unreachable`, `PushRejected`) |
+| `kuik_registry_requests_total{registry, operation, result}` | counter | Requests kuik sent to a **source** registry, by operation (`Check`, `Copy`) and outcome (`Ok`, or the reason that request produced: `ManifestNotFound`, `Unauthorized`, `QuotaExceeded`, `Unreachable`) |
 
 `kuik_registry_requests_total` is what answers "is docker.io rate-limiting us" without looking at a
 single image: a rising `QuotaExceeded` result on one registry is the signal, and the `operation` label
