@@ -62,7 +62,7 @@ One Secret, fully determined by the pair:
 | `name` | `kuik-inject-<kind>-<CR name>` — derived from **identity**, never from configuration, and computed the same way by the webhook when it injects the reference ([the name of an injected Secret](../architecture.md#the-name-of-an-injected-secret)) |
 | `namespace` | the target namespace |
 | `type` | `kubernetes.io/dockerconfigjson` |
-| `.dockerconfigjson` | one `auths` entry per credential from A.2/A.3, keyed by the entry's `repository` / `repositoryGroup` value |
+| `.dockerconfigjson` | one `auths` entry per credential from A.2/A.3, keyed by the **registry path** that credential covers — see below |
 | labels | the `managed-by` marker the admission policy requires |
 | `ownerReferences` | the cluster-scoped routing CR |
 
@@ -72,6 +72,8 @@ Two properties are worth understanding rather than just implementing.
 
 **Keys are repository-scoped, not host-scoped.** One CR may cover `quay.io/acme/*` and
 `quay.io/other/*` with two different credentials. Keyed by host those would be one `auths` entry overwriting the other, and whichever was written last would fail to pull half the images. The kubelet accepts a path in a key and takes the most specific match, so `quay.io/acme` and `quay.io/other` coexist and each image is pulled with the credential declared for it.
+
+The registry path a credential covers is read off the CR that declared it: an `ImageAlternative` entry gives its `repository` or `repositoryGroup` value verbatim, an `ImageMirror` gives its `destination.path` without the trailing slash. Both are already fully qualified, hostname included, which is the form the kubelet matches an image against.
 
 **The owner is the CR, not the pod.** A namespaced object may legally have a cluster-scoped owner. This is what makes deletion free (Part C) and, just as importantly, what keeps the Secret alive across pod churn: pods come and go, the CR persists.
 
