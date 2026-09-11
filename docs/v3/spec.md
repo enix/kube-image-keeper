@@ -101,6 +101,12 @@ spec:
       injectPullSecret: true       # Default: true (for secretRef), false for `provider`
 ```
 
+> [!NOTE]
+> `insecure: true` describes what **kuik** does: it probes and pulls that registry over HTTP. It says
+> nothing to the kubelet, which refuses an HTTP registry unless the node's container runtime was
+> configured for it (`insecure-registries` or its equivalent). Configuring the runtime is an operator
+> prerequisite, here as much as on `ImageMirror`'s `destination.insecure`.
+
 ### Alternatives matching
 
 An entry matches either a **single repository** (`repository`) or every repository **located
