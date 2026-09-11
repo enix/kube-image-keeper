@@ -144,11 +144,11 @@ Three conditions, all required:
 | --------- | --- |
 | `type == "kubernetes.io/dockerconfigjson"` | a pull secret is the only thing the syncer produces |
 | carries the `managed-by` label | makes the objects it owns identifiable without reading them |
-| `metadata.name` starts with the reserved `kuik-inject-` prefix | confines it to a namespace of names it owns |
+| `metadata.name` starts with a reserved prefix — `kuik-inject-` in any namespace, `kuik-provider-` in `kuik-system` only | confines it to a namespace of names it owns |
 
-The prefix is reserved **both ways**: the syncer may write only under it, and no other identity may
-write under it at all. The second half is what keeps the names it owns from being squatted or
-tampered with — the syncer applies blind, so it would otherwise overwrite, or be overwritten by,
+Both prefixes are reserved **both ways**: the syncer may write only under them, and no other
+identity may write under them at all. The second half is what keeps the names it owns from being
+squatted or tampered with — the syncer applies blind, so it would otherwise overwrite, or be overwritten by,
 whatever else happened to use that name.
 
 What remains possible if the syncer is compromised or buggy is bounded to writing a useless pull
@@ -198,6 +198,31 @@ derive a name from: it serves the controllers' own reads and is never injected
 > [!NOTE]
 > A pod rewritten by two different CRs gets two references in its `imagePullSecrets`. That is fine —
 > it is a list, and the kubelet aggregates all of them when pulling.
+
+### Provider credentials the controllers read
+
+An `auth.provider` is an ambient cloud identity, and turning it into registry credentials costs a
+`TokenRequest` and a cloud exchange only the syncer performs. Three declarations need those
+credentials with no Secret injected anywhere: `ImageMirror`'s `destination.push`, which never injects
+by construction; a [`fallbackAuth`](./spec.md#fallback-credentials) entry, which belongs to no
+resource and so has no injected Secret to carry it; and an `ImageAlternative` entry with
+`injectPullSecret: false` — the default — whose background check still has to be made with that
+identity.
+
+The syncer materialises those too, under a second reserved prefix and only in `kuik-system`:
+
+```text
+kuik-provider-<kind>-<CR name>        e.g. kuik-provider-imagemirror-prod-mirror
+```
+
+The name is derived from the identity that declared the credential and from nothing else — the CR
+for an `auth.provider` carried by a CR, the matched `repository` / `repositoryGroup` for a
+`fallbackAuth` entry — truncated and hashed past the limit exactly as an injected name is. The
+webhook and the reconciler read it from `kuik-system`, which they already may, and compute it rather
+than look it up, for the reason that makes the injected name computable.
+
+It is never copied into a user namespace: these serve kuik's own reads, where an injected Secret
+serves the kubelet's pull.
 
 ## Least privilege, and the one place it costs something
 
