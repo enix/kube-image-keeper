@@ -339,6 +339,13 @@ what refuses.
 Relying only on CREATE also bounds the admission cost to pod churn, rather than to every subsequent
 update.
 
+It decides which containers are routed, too. **`initContainers` are routed like any other
+container** — they pull from the same registries and fail the same way, and the mirror collects them
+alongside `containers`
+([walkthrough 02, A.2](./walkthroughs/02-imagemirror-reconciliation.md#a2-extract-the-image-references)).
+**`ephemeralContainers` never are**: they are added through a subresource `UPDATE`, which this rule
+does not match, so `kubectl debug` attaches an unrouted image to a pod kuik has already served.
+
 ### Reinvocation
 
 A mutating webhook that declares `IfNeeded` may be called again when another admission plugin has
