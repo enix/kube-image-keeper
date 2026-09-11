@@ -2,6 +2,8 @@
 # realistic combination (upstream alternatives for Docker Hub library images, plus a catch-all
 # mirror). A pod with `image: nginx:1.27` matches both resources, which is the case behind
 # "Candidate ordering" in spec.md.
+#
+# The global config sets `clusterID: cluster-a`, the suffix every tag an ImageMirror writes carries.
 
 ############
 # v2       #
@@ -104,7 +106,7 @@ spec:
 # v3 candidate order, per spec.md: the mirror says `Always` so it leads, the ImageAlternative
 # defaults to `OnFailure` so its entries follow the original.
 #
-#   1. registry.example.com/mirror/docker.io/library/nginx:1.27
+#   1. registry.example.com/mirror/docker.io/library/nginx:1.27_cluster-a
 #   2. docker.io/library/nginx:1.27
 #   3. public.ecr.aws/docker/library/nginx:1.27
 #   4. mirror.gcr.io/library/nginx:1.27
