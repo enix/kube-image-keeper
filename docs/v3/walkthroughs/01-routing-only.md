@@ -128,7 +128,7 @@ high. Per [status v3](../status.md) it makes **no registry calls at all**, and t
 
 Per reconcile: select pods with the selectors, match each container's original reference the same way
 the webhook did, classify from `rewritten-by`, `reason` and `no-alternatives` per
-[attribution](../spec.md#attribution), then aggregate into `activeFallbacks` and `noAlternatives` and
+[attribution](../status.md#attribution), then aggregate into `activeFallbacks` and `noAlternatives` and
 patch only on change.
 
 Steady state here: `rewritten: 0`, `activeFallbacks: []`, conditions green. During a Docker Hub

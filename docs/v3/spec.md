@@ -549,7 +549,7 @@ spec:
 What an `ImageMonitor` tracks is the **origin** reference of every container of every pod its
 `podSelector` and `namespaceSelector` select — read from
 [`kuik.enix.io/original-images`](./observability.md#annotations) for pods the webhook already
-rewrote, per [Attribution](#attribution). A monitor therefore never sees a mirror's reference in
+rewrote, per [Attribution](./status.md#attribution). A monitor therefore never sees a mirror's reference in
 place of the origin it replaced, whatever any routing resource did to the pod.
 
 `monitorAlternatives: true` adds, for each of those images, **every candidate an `ImageAlternative`
@@ -1012,37 +1012,6 @@ reason `SourceNotFound`, which is what names it, and is counted in `status.image
 > `Sync` converges on the original upstream — an argument for revisiting the `driftPolicy` default.
 > This only concerns tags: a [digest-pinned image](#digest-pinned-images) fetched from an alternative
 > is byte-identical by construction.
-
-### Attribution
-
-The `pods` gauges of [status v3](./status.md) all count **pods**, and none of them sums across CRs.
-What is attributed sits one level down: **exactly one CR counts each rewritten or conceded
-container**. A pod has many containers, so two CRs serving two of them both count that pod, and one
-CR may count the same pod in `rewritten` and in `conceded` at once.
-
-Where a count comes from still differs, and telling the two apart is what makes them readable:
-
-- `pods.rewritten` and `pods.conceded` come off an attribution the webhook left on the pod, and from
-  two different annotations: `pods.rewritten` from
-  [`kuik.enix.io/rewritten-by`](./observability.md#annotations), `pods.conceded` from
-  `conceded-rewrites.by` — a conceded container leaves `rewritten-by` altogether
-  ([what conceding removes](./architecture.md#what-conceding-removes))
-- `pods.tracked` and `pods.noAlternatives` carry no attribution: the first counts what the selectors
-  retain, the second every CR that offered a candidate
-
-`pods.tracked` counts the pods a CR's `podSelector` and `namespaceSelector` select. The overlap is
-deliberate: it answers "does this CR watch this pod?". It is emphatically not a claim of ownership —
-what a CR *did* is what `rewritten` reports, and the annotation is what settles it. It stays the
-denominator the other three are read against **inside one CR**; only the sum across CRs breaks.
-
-`pods.noAlternatives` overlaps for a different reason: no candidate won, so every CR that contributed
-one counts the pod. It is read from
-[`kuik.enix.io/no-alternatives`](./observability.md#annotations), which maps each container no
-candidate could serve to the resources that offered one — so the count comes off the pod rather than
-from replaying the matching, which a CR edited since admission would answer wrongly.
-
-Status controllers read the original reference from `kuik.enix.io/original-images`, falling back to
-the live container image for pods that were never rewritten and therefore carry no annotation.
 
 ## Global config
 

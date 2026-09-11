@@ -114,7 +114,7 @@ Four outcomes, four disjoint places to look:
 - a container kuik **left alone because the original answered** appears nowhere. Nothing happened, so
   there is nothing to record — which is why a pod with no kuik annotation at all is the normal case
   under `OnFailure`, and why the status controllers fall back to the live container image for such pods
-  ([Attribution](./spec.md#attribution)).
+  ([Attribution](./status.md#attribution)).
 
   This covers `Always` too, and deliberately. `Always` does not promise a particular candidate: it
   moves the resource's candidates *ahead* of the original in one list that is still probed in order
@@ -152,7 +152,7 @@ keeps `from` on a conceded entry rather than dropping it with the rest: a rewrit
 had an origin, and it is the one part of the story the pod would otherwise hold no trace of.
 
 `rewritten-by` is what makes attribution disjoint — one resource owns each rewritten container
-([Attribution](./spec.md#attribution)) — and it
+([Attribution](./status.md#attribution)) — and it
 is also what the secret syncer watches to learn that an `OnFailure` resource is being used for real
 ([walkthrough 03](./walkthroughs/03-secret-syncer-reconciliation.md)).
 
@@ -370,7 +370,7 @@ workloads.
 
 **None of its four states sums across resources**, and reading one of them as if it did is the one
 way to get this gauge wrong. What exactly one resource owns is a rewritten or conceded *container*
-([Attribution](./spec.md#attribution)), and a pod has many: two resources each serving one container
+([Attribution](./status.md#attribution)), and a pod has many: two resources each serving one container
 of the same pod both count it, and one resource may count a pod in `rewritten` and in `conceded` at
 once. The other two overlap for their own reasons — several resources legitimately select the same
 pod, and several may offer a candidate for the same container — so the rule is uniform across the

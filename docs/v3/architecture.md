@@ -449,7 +449,7 @@ had placed.
 The container leaves `original-images`, `rewritten-by` and `reason`, and does not enter
 `no-alternatives`. Downstream it becomes indistinguishable from a container kuik never touched,
 which is what it now is: the status controllers fall back to the live reference
-([Attribution](./spec.md#attribution)). `conceded-rewrites` has exactly one reader, the reconciler,
+([Attribution](./status.md#attribution)). `conceded-rewrites` has exactly one reader, the reconciler,
 which turns it into an event and a metric series ([observability](./observability.md#annotations)).
 
 The entry is also what makes the state stable: a container listed there is never taken up again, so
