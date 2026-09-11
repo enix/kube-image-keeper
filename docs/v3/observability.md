@@ -164,7 +164,7 @@ Two vocabularies share the word, at two different levels, and neither is a subst
 - `kuik.enix.io/reason` says under which policy a container was **rewritten** — `Always` or
   `OnFailure`
 
-The second is exactly the enum carried by `kuik_rewrites_total{reason}`, which is what makes the
+The second is exactly the enum carried by `kuik_rewrites_total{policy}`, which is what makes the
 annotation and the counter agree by construction rather than by convention — and what lets
 [`Always` emit no event at all](#noise-is-not-configurable-it-follows-rewritepolicy) without losing
 traceability.
@@ -410,7 +410,7 @@ out and turn "12 entries lost" into a number nobody can read.
 | -------------- | ---- |
 | `kuik_check_cycle_duration_seconds{kind, name, registry}` | Wall-clock seconds taken by the last completed check lap over a registry's images. Produced by an ImageMonitor for the images it tracks, and by an ImageMirror under `driftPolicy: Warn` / `Sync` for the source tags it re-reads. Absent until a first lap completes |
 | `kuik_check_cycle_started_timestamp_seconds{kind, name, registry}` | Unix timestamp at which the lap currently in progress over a registry's images started |
-| `kuik_check_images_by_registry{kind, name, registry}` | Images a resource checks on a registry: the images an ImageMonitor tracks there, and under `driftPolicy: Warn` / `Sync` the copied tags an ImageMirror re-reads there. The size of the ring behind the lap above |
+| `kuik_check_images{kind, name, registry}` | Images a resource checks on a registry: the images an ImageMonitor tracks there, and under `driftPolicy: Warn` / `Sync` the copied tags an ImageMirror re-reads there. The size of the ring behind the lap above |
 | `kuik_mirror_self_checked_timestamp_seconds{kind, name}` | Unix timestamp at which the last full comparison of the destination finished |
 | `kuik_registry_interval_seconds{registry, operation}` | Configured pace at which kuik reads a registry for this operation, as currently loaded: the window between two requests for `Check` and `Copy`, the period between two whole passes for `Scan` (a mirror destination) |
 
@@ -450,7 +450,7 @@ otherwise have to be hard-coded into alerting rules and then kept in sync with t
 - **expected lap length.** One image is checked per window, so a full lap ought to take
   `ring size × interval`. Comparing the measured `cycle_duration` to that product surfaces lost
   windows — failures, restarts, contention — as a ratio above 1 rather than as a number nobody can
-  interpret. Ring size is `kuik_check_images_by_registry`, which both kinds produce — the images an
+  interpret. Ring size is `kuik_check_images`, which both kinds produce — the images an
   `ImageMonitor` tracks on that host, the copied tags an `ImageMirror` re-reads there. On a shared
   host the ratio also rises simply because the rings share the budget, which is the same signal read
   one level up.
@@ -488,7 +488,7 @@ endpoint answered, so the reason has no side left to disambiguate.
 
 | Metric (counter) | HELP |
 | ---------------- | ---- |
-| `kuik_rewrites_total{kind, name, reason}` | Container images rewritten at admission, by the routing resource that supplied the reference and the policy that placed it (`Always`, `OnFailure`) |
+| `kuik_rewrites_total{kind, name, policy}` | Container images rewritten at admission, by the routing resource that supplied the reference and the policy that placed it (`Always`, `OnFailure`) |
 | `kuik_alternatives_exhausted_total{kind, name}` | Containers left untouched at admission because no candidate answered, counted once per routing resource that offered one. Several resources count the same container, so these series must not be summed |
 | `kuik_mirror_copies_total{kind, name, reason}` | Images pushed to a destination, by why (`Initial`, `Recopy` after a manifest went missing, `Resync` after an upstream digest moved) |
 | `kuik_mirror_tags_deleted_total{kind, name, reason}` | Destination tags deleted by an ImageMirror, by why they were removed (`Unused` once their retention elapsed, `Orphan` when the sweep found a tag no origin accounts for) |
@@ -530,7 +530,7 @@ surprise.
 | Metric (gauge) | HELP |
 | -------------- | ---- |
 | `kuik_image_unavailable{kind, name, image, registry, reason}` | 1 while a tracked origin reference is failing its availability check |
-| `kuik_alternative_unavailable{kind, name, image, registry, derivedFrom, via, reason}` | 1 while a monitored alternative is failing its availability check. `image` is the alternative's own reference, `derivedFrom` the origin it would have served, `via` the resource that offered it |
+| `kuik_alternative_unavailable{kind, name, image, registry, derived_from, via, reason}` | 1 while a monitored alternative is failing its availability check. `image` is the alternative's own reference, `derived_from` the origin it would have served, `via` the resource that offered it |
 | `kuik_image_drifted{kind, name, image, registry}` | 1 while the digest a resource accounts for differs from the upstream digest of that tag. `image` is the origin reference in both cases |
 | `kuik_mirror_image_failed{kind, name, image, registry, reason}` | 1 while an image cannot be copied to the destination |
 | `kuik_image_cluster_skew{kind, name, image, registry}` | Number of distinct digests running for one image reference. Present only while pods disagree, so its value is always 2 or more |
@@ -613,10 +613,13 @@ The dividing line worth stating once, since every future metric will be an insta
 - **labels drawn from content** — image references above all — are bounded by nothing, and may appear
   only on anomaly series, which disappear on their own
 
-Four label names are reserved throughout, so that a query written against one metric reads the same
-against another: `kind` and `name` always denote the Kubernetes resource a series is about, never a
-category of anything else. Anything that classifies *why* something happened is a `reason`, and
-anything that classifies *what state* something is in is a `state`.
+Label names are `snake_case` throughout, and four of them are reserved, so that a query written
+against one metric reads the same against another: `kind` and `name` always denote the Kubernetes
+resource a series is about, never a category of anything else. Anything that classifies *why*
+something failed is a `reason`, and anything that classifies *what state* something is in is a
+`state`. A label that classifies neither takes a name of its own — `policy` on
+`kuik_rewrites_total`, which carries a `rewritePolicy` rather than a cause, so that a
+`sum by (reason)` spanning several metrics never mixes the two.
 
 **Which population a series counts is not a label — it is the metric name.** That is why
 `kuik_monitor_images` and `kuik_monitor_alternatives` are two names rather than one discriminated by a
