@@ -34,8 +34,8 @@ into or out of them. Two are **per container**:
 
 The third is **per pod**:
 
-- **a mirror pod**, one the kubelet mirrors into the API from a static manifest on the node, marked
-  by the `kubernetes.io/config.mirror` annotation. The kubelet runs the file rather than the API
+- **a static pod** — the *mirror pod* the kubelet publishes into the API from a manifest on the
+  node, marked by the `kubernetes.io/config.mirror` annotation. The kubelet runs the file rather than the API
   object and rejects mutations to it, so a rewrite would change nothing that actually starts while
   making every status and every mirror account for an image no container is pulling
 

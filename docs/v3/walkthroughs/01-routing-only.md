@@ -44,7 +44,7 @@ admission outcomes depend on apply order. Overlap is resolved at lookup time ins
 
 ## 2. Pod admission, mutating webhook
 
-1. **gates** — the pod as a whole is skipped if it is a mirror pod; then, per container, one whose
+1. **gates** — the pod as a whole is skipped if it is a static pod; then, per container, one whose
    reference kuik produced itself or one with `imagePullPolicy: Never` is left alone
    ([what the webhook never rewrites](../spec.md#what-the-webhook-never-rewrites)). The
    kuik-output gate cannot fire on a first admission: it decides what happens on a
