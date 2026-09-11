@@ -46,9 +46,10 @@ own output from anything else belongs to the admission path rather than to any r
 One consequence of the first gate is worth stating here, because it reaches well past the webhook.
 When another mutating webhook replaces the reference kuik placed, kuik does not write over it: it
 stands down, and withdraws its own record with it. The container then reads, to every part of kuik
-that looks at a pod, like one kuik never touched — no attribution, no origin to mirror, no injected
-pull secret — which is what it now is
-([What conceding removes](./architecture.md#what-conceding-removes)). A mirror therefore treats it
+that *acts* on a pod — routing, mirroring, secret injection — like one kuik never touched: no
+attribution, no origin to mirror, no injected pull secret
+([What conceding removes](./architecture.md#what-conceding-removes)). What the concession itself
+cost is still reported, attributed to the resource that made the rewrite. A mirror therefore treats it
 like any other container it never touched, and copies the reference the pod now carries — the one
 the other webhook chose — rather than the origin kept in `conceded-rewrites.from`.
 
