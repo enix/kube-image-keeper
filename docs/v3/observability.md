@@ -398,6 +398,9 @@ rather than against a literal that drifts the day the cap moves.
 
 The counter answers the other question, after the fact. A gauge back under the cap says a list is
 healthy *now*; only `kuik_status_list_dropped_total` says whether anything was lost while it was not.
+It counts an **entry**, once, the first time that entry is left out — never the size of the overflow
+at each status write, which would re-count the same entry on every reconcile for as long as it stays
+out and turn "12 entries lost" into a number nobody can read.
 
 `list` carries the status field name, so it joins the `truncated` map of the object itself.
 
