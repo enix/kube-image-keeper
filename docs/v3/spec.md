@@ -874,6 +874,10 @@ answers either `Available` or one of the check reasons of the
 [shared vocabulary](./observability.md#reasons) (`ManifestNotFound`, `Unauthorized`,
 `QuotaExceeded`, `Unreachable`).
 
+**Sequential describes one image's candidate list.** A pod is resolved as its set of **distinct
+images**, probed concurrently: an image two containers share is resolved once, and the admission
+costs the slowest image rather than the sum of them.
+
 **An exhausted quota drops the candidate, however the registry says so.** A registry out of quota
 for kuik's identity either refuses the request — a `429`, reported as `QuotaExceeded` — or answers
 the `HEAD` normally and says so in its rate-limit headers (`ratelimit-remaining` and its
