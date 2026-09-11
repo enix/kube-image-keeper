@@ -40,6 +40,13 @@ surfaces:
 A check touches one endpoint where a copy touches two, and that is the whole of the naming
 difference: when both sides can fail the same way, the reason names the side that did.
 
+All of that is about a **request**. Conditions carry a second vocabulary, about a **resource** —
+`InvalidConfig`, `SecretNotFound`, `SecretMalformed`, `TokenRequestFailed` and
+`RegistryDeleteUnsupported`, enumerated in
+[status v3](./status.md#conditions-and-their-reasons). It says why a resource cannot work as
+declared, never what one request returned, and the two never substitute for each other. It surfaces
+in exactly two places, the `ResourceNotReady` event and `kuik_resource_not_ready`.
+
 The *About* column is how far an observation reaches, and the answer is never further than the request
 it came from. **kuik must not extrapolate.** A `401` usually says a credential is missing for one
 project, not that the registry is closed — credentials are commonly scoped to a sub-path. A `404` on
@@ -234,7 +241,7 @@ metric instead, where it stays visible and alertable without shouting.
 | `AlternativeUnusable` | `ImageMonitor` | Warning | A monitored alternative cannot be offered as a candidate for a reason that has a remedy — today `Unauthorized`, a credential missing from `fallbackAuth` or rejected. Only remediable causes emit: an alternative that is merely gone stays in the status, per the section above |
 | `ImageTagDrifted` | `ImageMonitor` | Warning | The **upstream** digest moved under a tag the cluster is running. Remediation is to follow it or to pin |
 | `ImageClusterSkew` | `ImageMonitor` | Warning | Pods run the **same tag** with different `imageID`s — part of the cluster has not caught up with a tag that moved. Remediation is a rollout restart or a forced re-pull, where drift alone would call for deciding whether to follow the upstream |
-| `ResourceNotReady` / `ResourceReady` | the resource concerned | Warning / Normal | `Ready` flipped. The message carries the condition's reason — `Unauthorized` for a credential that is missing, malformed or rejected, and whatever else makes a resource unusable |
+| `ResourceNotReady` / `ResourceReady` | the resource concerned | Warning / Normal | `Ready` flipped. The message carries the condition's reason — `SecretMalformed` for a credential that is not a `dockerconfigjson`, and whatever else makes a resource unusable |
 | `TokenRefreshFailed` | the resource concerned | Warning | A provider token could not be renewed **while the previous one is still valid** — the window in which an operator can still act |
 
 A mirror's first synchronisation emits a burst of `ImageCopied`. That is accepted: they are `Normal`,
