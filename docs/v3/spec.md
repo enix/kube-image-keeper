@@ -51,7 +51,7 @@ attribution, no origin to mirror, no injected pull secret
 ([What conceding removes](./architecture.md#what-conceding-removes)). What the concession itself
 cost is still reported, attributed to the resource that made the rewrite. A mirror therefore treats it
 like any other container it never touched, and copies the reference the pod now carries — the one
-the other webhook chose — rather than the origin kept in `conceded-rewrites.from`.
+the other webhook chose — rather than the origin kept in `conceded-rewrites.origin`.
 
 Everything else is a matter for the selectors. v2's global `skipLabels` / `skipAnnotations` have no
 v3 equivalent: excluding a workload is expressed on the resources that would otherwise apply to it,
@@ -393,8 +393,8 @@ can verify or enforce.
 
 Two rules keep mirroring bounded, and both are unconditional:
 
-- a mirror copies the **origin** image, read from `kuik.enix.io/original-images` or, absent the
-  annotation, from the pod spec — never a reference another mirror produced
+- a mirror copies the **origin** image, read from the `origin` field of `kuik.enix.io/rewrites` or,
+  absent the annotation, from the pod spec — never a reference another mirror produced
 - a mirror excludes its **own** `destination.path`, on top of its `excludeImages` and whatever its
   selectors say
 
@@ -549,8 +549,9 @@ spec:
 
 What an `ImageMonitor` tracks is the **origin** reference of every container of every pod its
 `podSelector` and `namespaceSelector` select — read from
-[`kuik.enix.io/original-images`](./observability.md#annotations) for pods the webhook already
-rewrote, per [Attribution](./status.md#attribution). A monitor therefore never sees a mirror's reference in
+the `origin` field of
+[`kuik.enix.io/rewrites`](./observability.md#annotations) for pods the webhook already rewrote, per
+[Attribution](./status.md#attribution). A monitor therefore never sees a mirror's reference in
 place of the origin it replaced, whatever any routing resource did to the pod.
 
 `monitorAlternatives: true` adds, for each of those images, **every candidate an `ImageAlternative`
@@ -979,8 +980,8 @@ reference to the tags pushed for it lives in
 
 ### What an `ImageMirror` copies
 
-A mirror copies the **origin** image — `kuik.enix.io/original-images` when the pod carries it, the pod
-spec otherwise — to the single destination computed above, never one destination per alternative, which
+A mirror copies the **origin** image — the `origin` field of `kuik.enix.io/rewrites` when the pod
+carries it, the pod spec otherwise — to the single destination computed above, never one destination per alternative, which
 would make `status.repositories` and the cleanup GC depend on routing decisions taken in the webhook.
 An origin image already living under this mirror's own `destination.path` is not copied at all
 ([Mirror loop prevention](#mirror-loop-prevention)).

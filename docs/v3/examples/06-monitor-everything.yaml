@@ -23,7 +23,7 @@ metadata:
 spec:
   # The v2 imageFilter excluded `registry.example.com/mirror/.+` so that mirrored references would
   # not be monitored alongside the originals they replaced. v3 needs no counterpart: a monitor
-  # tracks the *origin* reference of every container, read from `kuik.enix.io/original-images` for
+  # tracks the *origin* reference of every container, read from `kuik.enix.io/rewrites` for
   # pods the webhook rewrote, so a mirrored reference never entered its scope in the first place.
   # What remains below is a plain label opt-out, for workloads that should not be monitored at all
   podSelector:

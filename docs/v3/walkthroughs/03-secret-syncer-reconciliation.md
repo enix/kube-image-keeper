@@ -23,7 +23,7 @@ The trigger depends on the CR's `rewritePolicy`, and the difference is not cosme
 - **`Always`** — a namespace entering the CR's scope is enough. The CR's candidates are probed ahead of the original for every matched pod there, so the credentials are known to be needed before any pod exists. The syncer reacts to namespace label changes and to CR selector changes.
 
   **Scope here means `namespaceSelector`, and nothing else.** A namespace it selects gets the Secret whether or not a single pod there matches the `podSelector` — the pod selector decides what is rewritten, not where credentials are provisioned. An absent or empty `namespaceSelector` therefore selects every namespace in the cluster, including those with nothing to pull. That is the cost of `Always` having no first-pull race (A.7), and a `namespaceSelector` is what bounds it.
-- **`OnFailure`** — a rewrite has to actually happen first. Whether an alternative is used at all depends on an origin registry being unavailable at admission time, which nothing can predict. The syncer watches pods and reacts to the first one whose `kuik.enix.io/rewritten-by` annotation names this CR.
+- **`OnFailure`** — a rewrite has to actually happen first. Whether an alternative is used at all depends on an origin registry being unavailable at admission time, which nothing can predict. The syncer watches pods and reacts to the first one whose `kuik.enix.io/rewrites` annotation carries an entry naming this CR.
 
 In both cases the pair `(C, N)` comes into existence for the syncer at that moment, and stops being reconciled only when the CR or the namespace goes away.
 
@@ -36,10 +36,10 @@ In both cases the pair `(C, N)` comes into existence for the syncer at that mome
 
 Under **`Always`**, no observation is required: if the namespace is in scope, its pods may land on any of the CR's alternatives, so all of them are provisioned up front. The set is stable across pod churn — a scale-to-zero, a rollout, an evicted node change nothing.
 
-Under **`OnFailure`**, the set has to be read off the pods. For each relevant pod, and for each of its containers that `rewritten-by` attributes to `C`:
+Under **`OnFailure`**, the set has to be read off the pods. For each relevant pod, and for each of its containers that `rewrites` attributes to `C`:
 
-1. Look at the container's **current** image — the rewritten one, as it stands in the pod spec.
-2. Match it against `C`'s alternatives (or, for an `ImageMirror`, against its destination path) to identify **which entry** served that rewrite.
+1. Take the entry's `rewrittenTo` — the reference kuik placed. If the container's **current** image differs from it, the record is stale and the container is skipped entirely ([when a record goes stale](../architecture.md#when-a-record-goes-stale)).
+2. Match that reference against `C`'s alternatives (or, for an `ImageMirror`, against its destination path) to identify **which entry** served that rewrite.
 3. If that entry carries an `auth` and injection is enabled for it, add the entry to the set.
 
 The result is usually one entry, sometimes two, almost never all the ones the CR declares: a CR with five authenticated alternatives whose pods in this namespace only ever landed on one of them contributes exactly one credential here. Entries that were in the set recently are kept for a while longer — see C.1.

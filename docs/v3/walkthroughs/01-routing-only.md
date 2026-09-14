@@ -77,9 +77,7 @@ admission outcomes depend on apply order. Overlap is resolved at lookup time ins
    patched and [annotated](../observability.md#annotations):
 
    ```yaml
-   kuik.enix.io/original-images: '{"nginx":"docker.io/library/nginx:1.27"}'
-   kuik.enix.io/rewritten-by:    '{"nginx":"ImageAlternative/docker-library"}'
-   kuik.enix.io/reason:          '{"nginx":"OnFailure"}'
+   kuik.enix.io/rewrites: '{"nginx":{"by":"ImageAlternative/docker-library","origin":"docker.io/library/nginx:1.27","rewrittenTo":"public.ecr.aws/docker/library/nginx:1.27","policy":"OnFailure"}}'
    ```
 
 8. **pull secret** — if the retained candidate's `auth` asks for an injection
@@ -126,8 +124,8 @@ Leader-elected and informer-driven, triggered by pod and CR events and debounced
 high. Per [status v3](../status.md) it makes **no registry calls at all**, and the webhook writes
 **no status**: the annotations from step 2 are the entire channel between the two.
 
-Per reconcile: select pods with the selectors, match each container's original reference the same way
-the webhook did, classify from `rewritten-by`, `reason` and `no-alternatives` per
+Per reconcile: select pods with the selectors, read each container's origin reference off `rewrites`
+rather than re-deriving it, classify from `rewrites`, `conceded-rewrites` and `no-alternatives` per
 [attribution](../status.md#attribution), then aggregate into `activeFallbacks` and `noAlternatives` and
 patch only on change.
 
@@ -138,7 +136,7 @@ incident:
 status:
   activeFallbacks:
     - image: docker.io/library/nginx:1.27
-      routedTo: public.ecr.aws/docker/library/nginx:1.27
+      rewrittenTo: public.ecr.aws/docker/library/nginx:1.27
       pods: 12
       since: "2026-07-31T09:14:00Z"
   conditions:

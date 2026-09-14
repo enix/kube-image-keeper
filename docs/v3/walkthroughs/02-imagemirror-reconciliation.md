@@ -18,7 +18,7 @@ Also collect `status.containerStatuses[].imageID` (the digest actually running).
 
 The webhook may have rewritten the pod, in which case the image currently in the spec points at a mirror, not at the image the user asked for. One rule resolves this:
 
-> **If the pod carries `kuik.enix.io/original-images` with an entry for this container, that entry is the reference to use. Otherwise, use the ref as observed.**
+> **If the pod carries `kuik.enix.io/rewrites` with an entry for this container, that entry's `origin` is the reference to use. Otherwise, use the ref as observed.**
 
 That's the whole step. Nothing is derived by reverse-engineering a mirror ref: the destination layout is a **one-way function** (long tags get truncated and hashed to fit the 128-character limit, A.6), so reading it backwards is not generally possible — and not needed, since the annotation carries the answer verbatim.
 

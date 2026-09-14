@@ -61,7 +61,7 @@ Everything the processes share travels through the API server, in one direction:
 
 ```text
   reconciler ──(status: unavailable images, drift)──▶  webhook
-  webhook    ──(pod annotations: original-images, rewritten-by, reason, conceded-rewrites, no-alternatives)──▶  reconciler, syncer
+  webhook    ──(pod annotations: rewrites, conceded-rewrites, no-alternatives)──▶  reconciler, syncer
 ```
 
 The reconciler **publishes** what it observed; the webhook **consumes** it, through informers, to try
@@ -382,43 +382,47 @@ those two situations, and the rest of this section is how they hold.
 
 #### Recognising kuik's own output
 
-Nothing is stored for it. Picking a candidate is deterministic given the candidate list and the
-availability of each entry, so kuik finds its own output by **running the resolution again** from
-the origin recorded in `kuik.enix.io/original-images`. It is the resolution kuik already knows how
-to do, and the two invocations of a reinvocation are milliseconds apart, so it is answered from
-[`activeCheckCache`](./spec.md#global-config) on all but a cold replica — which pays real probes,
-bounded by `availabilityCheck.timeout`.
+Nothing has to be re-derived for it. The reference kuik placed is on the pod, in the `rewrittenTo`
+field of [`kuik.enix.io/rewrites`](./observability.md#annotations), so kuik recognises its own output
+by **comparing two strings**: no candidate list rebuilt, no registry probed, no cache consulted.
 
-Every container then falls in one of four states, and the test reads the **four annotation maps**
+Every container then falls in one of four states, and the test reads the **three annotation maps**
 together — a container the pod holds a record for is named by exactly one of them
 ([where a container appears](./observability.md#where-a-container-appears-says-what-happened-to-it)):
 
 | State | Test | What kuik does |
 | ----- | ---- | -------------- |
 | **new** | no map names it | resolves it like any other container |
-| **intact** | `original-images` names it and its reference is **one of** the candidates for that origin and that resource — or `no-alternatives` names it | nothing at all, and the record stands |
-| **conceded** | `original-images` names it and its reference is **none of** them — or `conceded-rewrites` already names it | withdraws, and records what it lost |
+| **intact** | `rewrites` names it and its reference **equals** that entry's `rewrittenTo` — or `no-alternatives` names it | nothing at all, and the record stands |
+| **conceded** | `rewrites` names it and its reference **differs** from that entry's `rewrittenTo` — or `conceded-rewrites` already names it | withdraws, and records what it lost |
 | **gone** | the container is no longer in the pod | drops the entry, silently |
 
-**A container listed in `no-alternatives` is never a concession candidate.** It holds a record but no
-origin: kuik offered candidates, none answered, and the live reference is still the original one.
-Reading the table on `original-images` alone would call it *conceded* the moment another webhook
-changed its image, and kuik would record a `was` it never placed — a gauge and an event for a rewrite
-that never happened.
+**A container listed in `no-alternatives` is never resolved a second time.** It holds a record but no
+rewrite: kuik offered candidates, none answered, and the live reference is still the original one.
+Reading the table on `rewrites` alone would call it *new* and send it back through the resolution —
+re-probing candidates that have already declined, and counting the container a second time in
+`kuik_alternatives_exhausted_total`.
 
-**Membership** is what decides, not equality with the candidate the resolution returns now. The two
-part ways in a case that is not exotic: a spec replayed days later, whose origin has become
-available again in the meantime. The resolution answers "I would take the origin" while the pod
-carries the mirror — the same candidate list, a different element of it. Equality would read a
-conflict where there is none, drop the attribution and report a concession that never happened;
-membership recognises kuik's own output and leaves it where it is. It is the same rule as
-[the rewrite is not sticky](./walkthroughs/01-routing-only.md#2-pod-admission-mutating-webhook),
-read from the other end: a live pod is never un-rewritten, and an origin that comes back is followed
-on the next rollout.
+**Equality against the recorded reference is what decides**, and not against what a resolution would
+return now. Replaying one would answer the same question a second time, at the price of the probes
+the first round already paid — and it is not even guaranteed to answer it the same way. The rounds of
+one admission are milliseconds apart, but nothing in that gap is pinned: an
+[`activeCheckCache`](./spec.md#global-config) entry can expire between them, a cold replica probes
+for real, and a registry can decline a candidate it had just served. Any of those makes the
+resolution say "I would take the origin" while the pod carries the mirror — the same candidate list,
+a different element of it — and the gate would read a conflict where there is none, drop the
+attribution and report a concession that never happened.
 
-A rewrite to **another entry of the same resource** is *intact* for that reason too. Deliberately:
-nothing lies — the origin is right and so is the attribution — and the only fact lost is one nobody
-acts on.
+The recorded `rewrittenTo` cannot drift that way: it is what kuik placed, so it identifies kuik's own
+output whatever any candidate answers afterwards. Re-deciding on fresher availability is not this
+gate's job in any case — it is
+[the rewrite is not sticky](./walkthroughs/01-routing-only.md#2-pod-admission-mutating-webhook), read
+from the other end: a live pod is never un-rewritten, and an origin that comes back is followed on
+the next rollout rather than on a second admission round.
+
+A reference kuik did not place is *conceded* **even when it is another candidate of the same
+resource**. Something other than kuik wrote that field, which is what conceding is for, and the
+record follows the fact rather than guessing at intent.
 
 A container the pod holds no record for is *new* even when another webhook has just written its
 image. kuik rewrites the reference it finds and only refuses to play over its own; anything else and
@@ -426,10 +430,11 @@ it would stop rewriting altogether as soon as a sidecar injector runs before it.
 all of this is read per container rather than per pod: the sidecar just injected is routed like any
 other image, while the containers kuik already served are left exactly as they are.
 
-**kuik rewrites a container at most once per admission.** Once rewritten, its reference belongs to
-kuik's own candidates, so every later round reads it as *intact* or *conceded* and never as *new* —
-whatever the other webhook does, and however many rounds the API server runs. That sentence is the
-whole termination argument, and it assumes nothing about the other webhook.
+**kuik rewrites a container at most once per admission.** Once rewritten, its reference equals the
+`rewrittenTo` just recorded, so every later round reads it as *intact* — or as *conceded*, if another
+webhook has changed it since — and never as *new*, whatever the other webhook does and however many
+rounds the API server runs. That sentence is the whole termination argument, and it assumes nothing
+beyond a string comparison.
 
 #### What conceding removes
 
@@ -438,15 +443,16 @@ produce a result that depends on invocation order, and that order is not kuik's 
 withdraws, and records what it lost:
 
 ```yaml
-kuik.enix.io/conceded-rewrites: '{"nginx":{"from":"docker.io/library/nginx:1.27","was":"registry.tld/mirror/docker.io/library/nginx:1.27_cluster-a","by":"ImageMirror/prod-mirror"}}'
+kuik.enix.io/conceded-rewrites: '{"nginx":{"by":"ImageMirror/prod-mirror","origin":"docker.io/library/nginx:1.27","rewrittenTo":"registry.tld/mirror/docker.io/library/nginx:1.27_cluster-a","policy":"OnFailure"}}'
 ```
 
-Three fields, and the image that won is not among them: it is on the container, where duplicating it
-would only give it a chance to diverge. `was` is what the resolution above returns, which in the
-case this is written for — a reinvocation, milliseconds after the rewrite — is the reference kuik
-had placed.
+The entry is the one that was in `rewrites`, **moved unchanged**: same four fields, nothing dropped,
+nothing recomputed. `rewrittenTo` is the reference kuik had placed, recorded at admission rather than
+derived after the fact — which is what makes it true in the case this is written for and in every
+other one. The image that won is not among the fields: it is on the container, where duplicating it
+would only give it a chance to diverge.
 
-The container leaves `original-images`, `rewritten-by` and `reason`, and does not enter
+The container leaves `rewrites` for `conceded-rewrites`, and does not enter
 `no-alternatives`. Downstream it becomes indistinguishable from a container kuik never touched,
 which is what it now is: the status controllers fall back to the live reference
 ([Attribution](./status.md#attribution)). `conceded-rewrites` has exactly one reader, the reconciler,
@@ -457,7 +463,7 @@ a further round reaches the same decision and produces no patch.
 
 **The pull secret follows as an invariant, not as an action.** When the pass ends, the pod carries a
 kuik-injected name (`kuik-inject-<kind>-<name>`) **if and only if** a container still attributed to
-that resource in `rewritten-by` needs an injected credential
+that resource in `rewrites` needs an injected credential
 ([`injectPullSecret`](./spec.md#injectpullsecret)). Put that way it is idempotent across
 reinvocations, self-healing on a replayed spec, and it settles on its own the pod whose *other*
 containers that resource still serves. The only name it ever removes is the one the syncer
@@ -466,3 +472,23 @@ and that secret has no business serving an image another webhook chose, since it
 of an alternative kuik no longer supplies. Leaving it behind would leave a dangling reference, the
 syncer collecting the Secret as soon as the attribution is gone
 ([walkthrough 03](./walkthroughs/03-secret-syncer-reconciliation.md)).
+
+### When a record goes stale
+
+The rule above matches [only on `CREATE`](#only-on-create), so a write that changes a container's
+image on a **live** pod — a `kubectl set image` on the Pod object, a controller patching the spec —
+never reaches kuik. The pod keeps the record of a rewrite that no longer describes what it runs.
+
+`rewrittenTo` is what makes that detectable, and the test is the one the admission path already
+uses: a container named by `rewrites` whose live reference differs from its `rewrittenTo` is no
+longer kuik's. Everything that acts on a pod then treats it as one kuik never touched — the mirror
+stops holding its origin in the desired state, the monitor stops tracking it, the syncer stops
+counting its entry as needed — which is the same conclusion conceding reaches, by the same test.
+
+**The same comparison, read by two processes, yields two different verdicts**, and both are right.
+The webhook reads it during admission, where the only useful answer is to stand down:
+it records a [concession](#what-conceding-removes). The reconciler reads it on a live pod that will
+**never** return to admission, where standing down is not an action but an observation: it records a
+**stale** record, in `status.staleRewrites`. The two never compete for the same container — a
+conceded one is named by `conceded-rewrites`, a stale one by `rewrites` — so nothing arbitrates
+between them.

@@ -40,7 +40,8 @@ Every anomaly list below carries a **cap of 500 entries**, so no status object g
 Three things follow, and all three are part of the contract.
 
 **Only anomaly lists are capped.** `unavailableImages`, `unavailableAlternatives`, `driftedImages`,
-`failedImageCopies`, `activeFallbacks`, `noAlternatives` and `concededRewrites` are samples: the
+`failedImageCopies`, `activeFallbacks`, `noAlternatives`, `concededRewrites` and `staleRewrites` are
+samples: the
 matching [metric series](./observability.md#anomalies-signal-by-presence) carries every affected
 image, so a status holding 500 of them loses visibility and nothing else.
 
@@ -71,24 +72,27 @@ Alerting reads it from `kuik_status_list_entries` and its two neighbours, in
 ## Attribution
 
 The `pods` gauges below all count **pods**, and none of them sums across CRs. What is attributed sits
-one level down: **exactly one CR counts each rewritten or conceded container**. A pod has many
+one level down: **exactly one CR counts each rewritten, conceded or stale container**. A pod has many
 containers, so two CRs serving two of them both count that pod, and one CR may count the same pod in
 `rewritten` and in `conceded` at once.
 
 Where a count comes from still differs, and telling the two apart is what makes them readable:
 
-- `pods.rewritten` and `pods.conceded` come off an attribution the webhook left on the pod, and from
-  two different annotations: `pods.rewritten` from
-  [`kuik.enix.io/rewritten-by`](./observability.md#annotations), `pods.conceded` from
-  `conceded-rewrites.by` — a conceded container leaves `rewritten-by` altogether
-  ([what conceding removes](./architecture.md#what-conceding-removes))
+- `pods.rewritten`, `pods.conceded` and `pods.stale` come off an attribution the webhook left on the
+  pod, in the `by` field of an entry of
+  [`kuik.enix.io/rewrites`](./observability.md#annotations) or of `conceded-rewrites`. A conceded
+  container leaves `rewrites` for `conceded-rewrites`
+  ([what conceding removes](./architecture.md#what-conceding-removes)); a stale one stays in
+  `rewrites` but its live reference no longer matches the `rewrittenTo` recorded there
+  ([when a record goes stale](./architecture.md#when-a-record-goes-stale)), so it leaves
+  `pods.rewritten` for `pods.stale` — the two never count the same container
 - `pods.tracked` and `pods.noAlternatives` carry no attribution: the first counts what the selectors
   retain, the second every CR that offered a candidate
 
 `pods.tracked` counts the pods a CR's `podSelector` and `namespaceSelector` select. The overlap is
 deliberate: it answers "does this CR watch this pod?". It is emphatically not a claim of ownership —
 what a CR *did* is what `rewritten` reports, and the annotation is what settles it. It stays the
-denominator the other three are read against **inside one CR**; only the sum across CRs breaks.
+denominator the other four are read against **inside one CR**; only the sum across CRs breaks.
 
 `pods.noAlternatives` overlaps for a different reason: no candidate won, so every CR that contributed
 one counts the pod. It is read from
@@ -96,8 +100,9 @@ one counts the pod. It is read from
 candidate could serve to the resources that offered one — so the count comes off the pod rather than
 from replaying the matching, which a CR edited since admission would answer wrongly.
 
-Status controllers read the original reference from `kuik.enix.io/original-images`, falling back to
-the live container image for pods that were never rewritten and therefore carry no annotation.
+Status controllers read the origin reference from the `origin` field of `kuik.enix.io/rewrites`,
+falling back to the live container image for pods that were never rewritten and therefore carry no
+annotation.
 
 ## ImageAlternative
 
@@ -110,27 +115,40 @@ status:
     rewritten: 12      # Number of pods effectively rewritten (either by `OnFailure` or `Always` policy)
     noAlternatives: 2  # Number of pods left untouched as no alternatives image was available
     conceded: 1        # Number of pods where another mutating webhook replaced what KuiK had placed
+    stale: 0           # Number of pods edited after admission, whose record no longer describes what
+                       # they run. Counted out of `rewritten`, never alongside it
   # Store the list of fallback images (only with `rewritePolicy: OnFailure`)
   activeFallbacks:
   - image: quay.io/thanos/thanos:v0.42.2
-    routedTo: ghcr.io/thanos-io/thanos:v0.42.2
+    rewrittenTo: ghcr.io/thanos-io/thanos:v0.42.2
     pods: 12
     since: "2026-07-10T06:40:00Z"
   noAlternatives:
   - image: quay.io/thanos/thanos:v0.42.2-debug
     pods: 2
     since: "2026-07-11T07:27:36Z"
-  # Rewrites this CR made and another mutating webhook overwrote. `image`, `routedTo` and the
+  # Rewrites this CR made and another mutating webhook overwrote. `image`, `rewrittenTo` and the
   # attribution come from the pods' `kuik.enix.io/conceded-rewrites` annotation; `replacedBy` is read
   # from the live container, where the annotation deliberately leaves it (see "What conceding
   # removes" in architecture.md), and `since` is carried forward like `activeFallbacks.since`, the
   # annotation being untimestamped.
   concededRewrites:
   - image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1              # origin, as the metric labels it
-    routedTo: registry.tld/mirror/quay.io/oauth2-proxy/oauth2-proxy:v7.7.1_cluster-a
+    rewrittenTo: registry.tld/mirror/quay.io/oauth2-proxy/oauth2-proxy:v7.7.1_cluster-a
     replacedBy: internal.tld/oauth2-proxy:v7.7.1                 # what the pod actually runs now
     pods: 1
     since: "2026-07-11T11:02:00Z"
+  # Rewrites this CR made and something replaced *after* admission, the webhook running on CREATE
+  # only. Same four fields as `concededRewrites` and read the same way, the difference being when it
+  # happened and what fixes it: rolling the workload sends the pod back through admission. An entry
+  # appearing here is what emits `RewriteStale`, once — which is why the list is persisted rather
+  # than recomputed at every reconcile (see "When a record goes stale" in architecture.md)
+  staleRewrites:
+  - image: quay.io/thanos/thanos:v0.42.2
+    rewrittenTo: ghcr.io/thanos-io/thanos:v0.42.2
+    replacedBy: quay.io/thanos/thanos:v0.43.0                    # what the pod actually runs now
+    pods: 1
+    since: "2026-07-11T15:40:00Z"
   conditions:
   - type: Ready                   # Valid config and could read secrets (if provided)
     status: "True"
@@ -249,11 +267,12 @@ status:
     rewritten: 455
     noAlternatives: 1
     conceded: 1
-  # `routedTo` is this mirror's own destination — where an ImageAlternative names one of its upstream
+    stale: 0
+  # `rewrittenTo` is this mirror's own destination — where an ImageAlternative names one of its upstream
   # entries instead
   activeFallbacks:
   - image: quay.io/thanos/thanos:v0.42.2
-    routedTo: registry.tld/mirror/quay.io/thanos/thanos:v0.42.2_cluster-a
+    rewrittenTo: registry.tld/mirror/quay.io/thanos/thanos:v0.42.2_cluster-a
     pods: 12
     since: "2026-07-10T06:40:00Z"
   # The mirror had nothing to offer either: no source ever answered for this image, so it was never
@@ -264,10 +283,16 @@ status:
     since: "2026-07-09T22:41:00Z"
   concededRewrites:
   - image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1
-    routedTo: registry.tld/mirror/quay.io/oauth2-proxy/oauth2-proxy:v7.7.1_cluster-a
+    rewrittenTo: registry.tld/mirror/quay.io/oauth2-proxy/oauth2-proxy:v7.7.1_cluster-a
     replacedBy: internal.tld/oauth2-proxy:v7.7.1
     pods: 1
     since: "2026-07-11T11:02:00Z"
+  staleRewrites:
+  - image: quay.io/thanos/thanos:v0.42.2
+    rewrittenTo: registry.tld/mirror/quay.io/thanos/thanos:v0.42.2_cluster-a
+    replacedBy: quay.io/thanos/thanos:v0.43.0
+    pods: 1
+    since: "2026-07-11T15:40:00Z"
 
   # ============ Conditions, both sides ============
   conditions:

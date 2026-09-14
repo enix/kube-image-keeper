@@ -82,34 +82,38 @@ itself carries no such judgement.
 
 These ride along in the **mutation the webhook returns**, the patch travels back in the `AdmissionResponse` and the API server applies it to the object it was already writing.
 
-Five annotations, all JSON objects keyed by **container name** — a pod has many containers and each
-one is decided independently:
+Three annotations, all JSON objects keyed by **container name** — a pod has many containers and each
+one is decided independently. Between them and their absence, they cover the four things that can
+happen to a container:
+
+| Annotation | What happened to the container | Value, per container |
+| ---------- | ------------------------------ | -------------------- |
+| *(none)* | the original answered, so kuik did nothing | — |
+| `kuik.enix.io/rewrites` | kuik rewrote it, and the rewrite stands | `{by, origin, rewrittenTo, policy}` |
+| `kuik.enix.io/conceded-rewrites` | kuik rewrote it, another mutating webhook took the field over | the same four fields, moved unchanged |
+| `kuik.enix.io/no-alternatives` | no candidate answered, so it was left untouched | `["<kind>/<name>", …]`, every resource that offered one |
 
 ```yaml
 metadata:
   annotations:
-    # Original reference of each container whose image was replaced, so nothing ever has to be
-    # un-computed from a rewritten reference
-    kuik.enix.io/original-images: '{"prometheus":"quay.io/prometheus/prometheus:v3.13.1-distroless","thanos-sidecar":"quay.io/thanos/thanos:v0.42.2"}'
-    # Which resource supplied the retained reference, as `<kind>/<name>`
-    kuik.enix.io/rewritten-by: '{"prometheus":"ImageAlternative/prometheus","thanos-sidecar":"ImageMirror/prod-mirror"}'
-    # Under which policy each rewrite happened
-    #   Always:    a `rewritePolicy: Always` resource asked for the rewrite
-    #   OnFailure: the original did not answer, rewritten to the first candidate that did
-    kuik.enix.io/reason: '{"prometheus":"Always","thanos-sidecar":"OnFailure"}'
-    # Rewrites kuik withdrew: another mutating webhook replaced the reference kuik had placed, and
-    # kuik stood down rather than write over it. Holds the three things the pod no longer shows —
-    # the origin, the reference kuik had placed, the resource that supplied it
-    kuik.enix.io/conceded-rewrites: '{"oauth-proxy":{"from":"quay.io/oauth2-proxy/oauth2-proxy:v7.7.1","was":"registry.tld/mirror/quay.io/oauth2-proxy/oauth2-proxy:v7.7.1_cluster-a","by":"ImageMirror/prod-mirror"}}'
-    # Containers no candidate could serve, left untouched, each mapped to the resources that offered
-    # one. There is no reference to preserve — the original is still the live image — but the
-    # offering resources are what `pods.noAlternatives` is counted from
+    # The four fields of a rewrite entry, in `rewrites` and in `conceded-rewrites` alike:
+    #   by:          which resource supplied the reference, as `<kind>/<name>`
+    #   origin:      the reference the container came from, so nothing ever has to be un-computed
+    #                from a rewritten one
+    #   rewrittenTo: the reference kuik placed, so recognising kuik's own output costs a string
+    #                comparison rather than a resolution
+    #   policy:      Always    — a `rewritePolicy: Always` resource asked for the rewrite
+    #                OnFailure — the origin did not answer, rewritten to the first candidate that did
+    kuik.enix.io/rewrites: '{"prometheus":{"by":"ImageAlternative/prometheus","origin":"quay.io/prometheus/prometheus:v3.13.1-distroless","rewrittenTo":"public.ecr.aws/docker/library/prometheus:v3.13.1-distroless","policy":"Always"},"thanos-sidecar":{"by":"ImageMirror/prod-mirror","origin":"quay.io/thanos/thanos:v0.42.2","rewrittenTo":"registry.tld/mirror/quay.io/thanos/thanos:v0.42.2_cluster-a","policy":"OnFailure"}}'
+    kuik.enix.io/conceded-rewrites: '{"oauth-proxy":{"by":"ImageMirror/prod-mirror","origin":"quay.io/oauth2-proxy/oauth2-proxy:v7.7.1","rewrittenTo":"registry.tld/mirror/quay.io/oauth2-proxy/oauth2-proxy:v7.7.1_cluster-a","policy":"OnFailure"}}'
+    # No reference to preserve — the origin is still the live image — but the offering resources
+    # are what `pods.noAlternatives` is counted from
     kuik.enix.io/no-alternatives: '{"config-reloader":["ImageAlternative/prometheus","ImageMirror/prod-mirror"]}'
 ```
 
 ### Where a container appears says what happened to it
 
-Four outcomes, four disjoint places to look:
+The same four outcomes, and why each sits where it does:
 
 - a container kuik **left alone because the original answered** appears nowhere. Nothing happened, so
   there is nothing to record — which is why a pod with no kuik annotation at all is the normal case
@@ -125,46 +129,59 @@ Four outcomes, four disjoint places to look:
   candidates answered is not a property of the pod; an alternative that stopped answering is an
   `ImageMonitor` concern (`status.unavailableAlternatives`, `AlternativeUnusable`), and a destination
   that stopped answering is an `ImageMirror` concern (`status.failedImageCopies`, `ImageCopyFailed`)
-- a container that was **rewritten** appears in the three maps: the reference it came from, the
-  resource that supplied the new one, and under which policy
-- a container **no candidate could serve** appears in `no-alternatives`, and in none of the other
-  maps. Its spec was not touched, so the original is still the live image and there is nothing to
+- a container that was **rewritten** appears in `rewrites`, and everything about that rewrite is in
+  the one entry: where it came from, where it went, which resource supplied it, under which policy
+- a container **no candidate could serve** appears in `no-alternatives`, and in neither of the other
+  maps. Its spec was not touched, so the origin is still the live image and there is nothing to
   preserve; what the entry holds instead is every resource that offered a candidate, which is what
   `pods.noAlternatives` and `kuik_alternatives_exhausted_total` are counted from. Without it the
   container would be indistinguishable from one kuik never looked at
-- a container kuik rewrote and then **conceded** appears in `conceded-rewrites`, and in none of the
+- a container kuik rewrote and then **conceded** appears in `conceded-rewrites`, and in neither of the
   other maps. Another mutating webhook replaced the reference kuik had placed and kuik stood down
   rather than write over it
-  ([what conceding removes](./architecture.md#what-conceding-removes)), so the entry holds
-  what the pod no longer shows anywhere: the origin, the reference kuik had placed, and the resource
-  that supplied it. Being out of the other three maps is exactly what makes the container invisible
-  to attribution, to the syncer and to the mirror — for all of them it is one kuik never touched,
-  which is what it now is
+  ([what conceding removes](./architecture.md#what-conceding-removes)), so the entry is the one that
+  was in `rewrites`, moved unchanged — it holds what the pod no longer shows anywhere. Being out of
+  the other two maps is exactly what makes the container invisible to attribution, to the syncer and
+  to the mirror — for all of them it is one kuik never touched, which is what it now is
+
+The three key sets are **pairwise disjoint**, so a container the pod holds a record for is named by
+exactly one map. That is not a convention to maintain but the shape of the data: the four outcomes
+are decided per container, and a container reaches exactly one of them.
+
+A fifth state exists that no map names, because it is not the webhook's to record: a container whose
+entry in `rewrites` no longer matches what the pod runs, something having edited the pod after
+admission. It is read off the entry rather than off a key, by comparing the live reference against
+`rewrittenTo` ([when a record goes stale](./architecture.md#when-a-record-goes-stale)).
 
 ### Why the record lives on the pod
 
-`original-images` is the **only** way back to the origin reference. A mirror reference cannot be
+`origin` is the **only** way back to the reference the manifest carried. A mirror reference cannot be
 un-computed — the destination layout is one-way, long tags being truncated and hashed
 ([walkthrough A.3](./walkthroughs/02-imagemirror-reconciliation.md#a3-resolve-the-origin-reference))
 — and re-deriving it by replaying the matching would give the wrong answer as soon as a resource is
 edited between admission and reconcile. Recording it verbatim removes the question. The same reason
-keeps `from` on a conceded entry rather than dropping it with the rest: a rewrite kuik gave up still
+keeps it on a conceded entry rather than dropping it with the rest: a rewrite kuik gave up still
 had an origin, and it is the one part of the story the pod would otherwise hold no trace of.
 
-`rewritten-by` is what makes attribution disjoint — one resource owns each rewritten container
+`rewrittenTo` is the same argument applied to the other end of the rewrite. The reference is on the
+container at admission, so recording it duplicates a live value — deliberately, because the
+divergence *is* the signal. It buys three things nothing else does: the admission path recognises
+kuik's own output by comparing two strings instead of replaying the resolution
+([Recognising kuik's own output](./architecture.md#recognising-kuiks-own-output)); a conceded entry
+states the reference kuik had placed rather than recomputing something close to it; and any reader
+can tell that a record has gone stale, the pod having been edited after admission
+([When a record goes stale](./architecture.md#when-a-record-goes-stale)). The rule it follows is
+narrow — duplicate a live value only where the divergence is what you need to detect — which is why
+`conceded-rewrites` still does not record the image that won.
+
+`by` is what makes attribution disjoint — one resource owns each rewritten container
 ([Attribution](./status.md#attribution)) — and it
 is also what the secret syncer watches to learn that an `OnFailure` resource is being used for real
-([walkthrough 03](./walkthroughs/03-secret-syncer-reconciliation.md)).
+([walkthrough 03](./walkthroughs/03-secret-syncer-reconciliation.md)). It is singular for that
+reason, where `no-alternatives` holds a list: one resource *served* the reference, several may have
+*offered* one.
 
-### `reason` here is not a reason from the table above
-
-Two vocabularies share the word, at two different levels, and neither is a substitute for the other:
-
-- the [shared vocabulary](#reasons) says why one **request** failed
-- `kuik.enix.io/reason` says under which policy a container was **rewritten** — `Always` or
-  `OnFailure`
-
-The second is exactly the enum carried by `kuik_rewrites_total{policy}`, which is what makes the
+`policy` is exactly the enum carried by `kuik_rewrites_total{policy}`, which is what makes the
 annotation and the counter agree by construction rather than by convention — and what lets
 [`Always` emit no event at all](#noise-is-not-configurable-it-follows-rewritepolicy) without losing
 traceability.
@@ -229,6 +246,7 @@ metric instead, where it stays visible and alertable without shouting.
 | `NoAlternativeAvailable` | Pod | Warning | The original was unavailable and no alternative candidate answered. The pod is left untouched and may still start from the node's cache |
 | `PullSecretInjectionFailed` | the resource concerned | Warning | The syncer could not resolve a credential for a `(resource, namespace)` pair, with the reason it failed on — `SecretNotFound`, `Unauthorized` or `TokenRequestFailed` |
 | `RewriteConceded` | Pod | Warning | Another mutating webhook replaced the reference kuik had placed, and kuik stood down rather than write over it. The message carries the container, the origin, the reference kuik had placed, the resource it came from, and the image that won. It emits because it has a remedy: two components are disputing one field, and one of the two scopes has to move |
+| `RewriteStale` | Pod | Warning | A container this resource had rewritten no longer carries the reference kuik placed, and kuik was never called on the change — the pod was edited after admission. The record on the pod no longer describes what runs, so the mirror, the monitor and the syncer all stop acting on it. The message carries the container, the origin, the reference kuik had placed, the resource it came from, and the image the pod runs now. Remediation is to roll the workload, which sends it back through admission |
 | `ImageCopied` | `ImageMirror` | Normal | First copy of an image to the destination |
 | `ImageRecopied` | `ImageMirror` | **Warning** | A manifest that had been copied was found missing and copied again. This is the most valuable event of the set: it means something outside kuik deleted from the destination while pods may be routed to it |
 | `ImageResynced` | `ImageMirror` | Normal | `driftPolicy: Sync` moved a destination tag onto the upstream's new digest |
@@ -257,6 +275,13 @@ quietest.
 > annotations they carry are the durable record.
 
 > [!NOTE]
+> **`RewriteStale` is the one Pod event that does not follow that cut-off**, because staleness is
+> unrelated to when the pod was created: a pod admitted last month can go stale tonight. It fires
+> when the entry enters `status.staleRewrites` instead, once, exactly as `OrphanTagFound` fires on
+> entry into `status.pendingDeletion` — the persisted entry is what keeps a restart or a leader
+> change from re-announcing every stale pod in the cluster.
+
+> [!NOTE]
 > Skew is a strict sub-case of drift, not a parallel condition: two distinct digests cannot both equal
 > one `upstreamDigest`, so a skewed reference is always a drifted one. In
 > [status v3](./status.md#imagemonitor) it is the `driftedImages` entry whose `runningDigests` holds
@@ -272,8 +297,8 @@ rollout, forever — so it emits **nothing**. Its traceability is the pod's own
 [annotations](#annotations), which say what was rewritten and why, and the
 `kuik_rewrites_total` counter, which says how often.
 
-The distinction is already carried by `kuik.enix.io/reason`, so the two channels agree by
-construction rather than by convention.
+The distinction is already carried by the `policy` field of `kuik.enix.io/rewrites`, so the two
+channels agree by construction rather than by convention.
 
 ### Why availability is not evented
 
@@ -352,10 +377,10 @@ The `state` label repeats the field names of the corresponding status, so a dash
 | `kuik_monitor_images` | `ImageMonitor.status.images` | `tracked`, `inUse`, `retained`, `available`, `unavailable`, `drifted` |
 | `kuik_monitor_alternatives` | `ImageMonitor.status.alternatives` | `tracked`, `available`, `unavailable` |
 | `kuik_mirror_images` | `ImageMirror.status.images` | `desired`, `copied`, `retained`, `drifted`, `missingSource` |
-| `kuik_routing_pods` | `ImageAlternative` / `ImageMirror` `.status.pods` | `tracked`, `rewritten`, `noAlternatives`, `conceded` |
+| `kuik_routing_pods` | `ImageAlternative` / `ImageMirror` `.status.pods` | `tracked`, `rewritten`, `noAlternatives`, `conceded`, `stale` |
 
 Both monitor gauges count **origin** references — what the manifest carried, read from
-[`kuik.enix.io/original-images`](#annotations) for a container the webhook rewrote and from the live
+the `origin` field of [`kuik.enix.io/rewrites`](#annotations) for a container the webhook rewrote, and from the live
 container otherwise. That is what an `ImageMonitor` tracks
 ([ImageMonitor](./spec.md#imagemonitor)).
 
@@ -368,19 +393,23 @@ overlap it.
 each routing resource's own vantage point: not what the cluster runs, but what a rewrite did to the
 workloads.
 
-**None of its four states sums across resources**, and reading one of them as if it did is the one
-way to get this gauge wrong. What exactly one resource owns is a rewritten or conceded *container*
-([Attribution](./status.md#attribution)), and a pod has many: two resources each serving one container
-of the same pod both count it, and one resource may count a pod in `rewritten` and in `conceded` at
-once. The other two overlap for their own reasons — several resources legitimately select the same
-pod, and several may offer a candidate for the same container — so the rule is uniform across the
-four.
+**None of its five states sums across resources**, and reading one of them as if it did is the one
+way to get this gauge wrong. What exactly one resource owns is a rewritten, conceded or stale
+*container* ([Attribution](./status.md#attribution)), and a pod has many: two resources each serving
+one container of the same pod both count it, and one resource may count a pod in `rewritten` and in
+`conceded` at once. The other two overlap for their own reasons — several resources legitimately
+select the same pod, and several may offer a candidate for the same container — so the rule is
+uniform across the five.
 
-The per-image anomaly series do not substitute for it. `kuik_alternatives_exhausted_pods` and
-`kuik_rewrite_conceded_pods` are keyed by image and valued in pods, so they answer "which images",
-where `state="noAlternatives"` and `state="conceded"` answer "how many pods, de-duplicated".
-`state="tracked"` has no other source at all, and it is the denominator the other three are read
-against inside one resource.
+`stale` is a residue of `rewritten` rather than a dimension beside it: a container whose live
+reference no longer matches the `rewrittenTo` kuik recorded leaves `rewritten` and is counted here
+instead ([When a record goes stale](./architecture.md#when-a-record-goes-stale)).
+
+The per-image anomaly series do not substitute for it. `kuik_alternatives_exhausted_pods`,
+`kuik_rewrite_conceded_pods` and `kuik_rewrite_stale_pods` are keyed by image and valued in pods, so
+they answer "which images", where `state="noAlternatives"`, `state="conceded"` and `state="stale"`
+answer "how many pods, de-duplicated". `state="tracked"` has no other source at all, and it is the
+denominator the other four are read against inside one resource.
 
 #### Status capacity — is a capped list about to lose entries
 
@@ -535,6 +564,7 @@ surprise.
 | `kuik_mirror_image_failed{kind, name, image, registry, reason}` | 1 while an image cannot be copied to the destination |
 | `kuik_image_cluster_skew{kind, name, image, registry}` | Number of distinct digests running for one image reference. Present only while pods disagree, so its value is always 2 or more |
 | `kuik_rewrite_conceded_pods{kind, name, image, registry}` | Live pods carrying a container this resource had rewritten and another mutating webhook replaced. `image` is the origin reference |
+| `kuik_rewrite_stale_pods{kind, name, image, registry}` | Live pods carrying a container this resource had rewritten and something replaced **after** admission, so the record no longer describes what runs. `image` is the origin reference |
 | `kuik_alternatives_exhausted_pods{kind, name, image, registry}` | Live pods carrying a container no candidate could serve. `image` is the origin reference. Every resource that offered a candidate counts the pod, so these series must not be summed |
 | `kuik_fallback_active_pods{kind, name, image, registry}` | Live pods routed to a fallback because the origin did not answer, under `rewritePolicy: OnFailure`. `image` is the origin reference |
 | `kuik_resource_not_ready{kind, name, reason}` | 1 while a resource's `Ready` condition is `False`, carrying that condition's reason |
@@ -549,11 +579,12 @@ Each one has its counterpart in a status:
 | `kuik_mirror_image_failed` | `ImageMirror.status.failedImageCopies` |
 | `kuik_image_cluster_skew` | `ImageMonitor.status.driftedImages[].runningDigests`, whose length it is |
 | `kuik_rewrite_conceded_pods` | `ImageAlternative` / `ImageMirror` `.status.concededRewrites` |
+| `kuik_rewrite_stale_pods` | `ImageAlternative` / `ImageMirror` `.status.staleRewrites` |
 | `kuik_alternatives_exhausted_pods` | `ImageAlternative` / `ImageMirror` `.status.noAlternatives` |
 | `kuik_fallback_active_pods` | `ImageAlternative` / `ImageMirror` `.status.activeFallbacks` |
 | `kuik_resource_not_ready` | the `Ready` condition, on any kind |
 
-Eight mirror a bounded list and `kuik_resource_not_ready` mirrors a condition. It holds in the other
+Nine mirror a bounded list and `kuik_resource_not_ready` mirrors a condition. It holds in the other
 direction too: every bounded anomaly list in [status v3](./status.md) now names a series here — a claim
 that did not hold for `unavailableAlternatives` until `kuik_alternative_unavailable` existed.
 
@@ -574,14 +605,14 @@ anomaly does**: an alert fires on presence and resolves when the series goes awa
 comparing a number to a threshold.
 
 Their values differ accordingly. Five carry the constant `1`, because presence is the whole message.
-The other four carry a count, because once the series exists there is no reason to spend its value on
+The other five carry a count, because once the series exists there is no reason to spend its value on
 a constant: an image running two digests and one running six are the same condition but not the same
 urgency, and one pod stranded is not fifty. So `kuik_image_cluster_skew` counts digests, while
-`kuik_rewrite_conceded_pods`, `kuik_alternatives_exhausted_pods` and `kuik_fallback_active_pods`
-count the pods affected. That is what the `_pods` suffix is for: the population is in the name, so
+`kuik_rewrite_conceded_pods`, `kuik_rewrite_stale_pods`, `kuik_alternatives_exhausted_pods` and
+`kuik_fallback_active_pods` count the pods affected. That is what the `_pods` suffix is for: the population is in the name, so
 `kuik_alternatives_exhausted_pods` cannot be read as an aggregation of
 `kuik_alternatives_exhausted_total`, which counts containers at admission and is exported by another
-process altogether. Alerting is written the same way for all nine, on presence and never on the value.
+process altogether. Alerting is written the same way for all ten, on presence and never on the value.
 
 `kuik_image_drifted` is the one series both kinds produce, which is why its `image` label is the
 **origin** reference on either — the destination reference would say the same thing in a form only one
@@ -655,8 +686,11 @@ left out of a query — but it makes the join key identical across the whole sur
 soon as one resource shows up in two families, which is the normal case for an `ImageMirror` with a
 `rewritePolicy` other than `None`: it both routes and copies, so comparing what it routed to what it
 copied is a plain join rather than a `label_replace` to reconcile two spellings of the same identity.
-It also lines the metrics up with how resources are named everywhere else — `rewritten-by` reads
-`ImageAlternative/thanos`, events say `via <kind>/<name>`.
+It also lines the metrics up with how resources are named everywhere else — a `by` or `via` field
+reads `ImageAlternative/thanos`, events say `via <kind>/<name>`. Those two are not one word spelled
+twice: **`by` names the resource that served, `via` the one that offered.** A rewrite has exactly one
+`by`; an alternative reported unavailable names the `via` it would have come from, and a container no
+candidate could serve names every resource that offered one.
 
 > [!WARNING]
 > Because `name` alone is not unique across kinds, aggregate on **`(kind, name)`**, never on `name`.
