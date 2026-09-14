@@ -36,14 +36,16 @@ request ([Reasons](./observability.md#reasons)) — so it lands in `unavailableI
 
 ## Bounded lists
 
-Every anomaly list below carries a **cap of 500 entries**, so no status object grows without limit.
+Every anomaly list below carries a **fixed cap on its number of entries**, the same for every list,
+so no status object grows without limit.
+
 Three things follow, and all three are part of the contract.
 
 **Only anomaly lists are capped.** `unavailableImages`, `unavailableAlternatives`, `driftedImages`,
 `failedImageCopies`, `activeFallbacks`, `noAlternatives`, `concededRewrites` and `staleRewrites` are
 samples: the
 matching [metric series](./observability.md#anomalies-signal-by-presence) carries every affected
-image, so a status holding 500 of them loses visibility and nothing else.
+image, so a status that hits the cap loses visibility and nothing else.
 
 The operational inventories are **not** capped — `repositories`, `pendingDeletion`,
 `checks.registries`, `retainedImages`. Truncating those loses correctness rather than visibility: a
