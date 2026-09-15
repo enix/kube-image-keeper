@@ -4,18 +4,29 @@ on:
   pull_request:
   workflow_call:
 
+permissions: {}
+
 jobs:
   lint:
     name: Run on Ubuntu
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Clone the code
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+
+      - name: Check go.mod and go.sum
+        run: |
+          go mod tidy
+          git diff --exit-code
 
       - name: Check generated files
         run: |
@@ -26,6 +37,9 @@ jobs:
         run: |
           make fmt
           git diff --exit-code
+
+      - name: Check linter configuration
+        run: make lint-config
 
       - name: Run lint
         run: make lint
