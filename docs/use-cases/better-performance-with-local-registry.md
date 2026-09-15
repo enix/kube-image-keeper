@@ -22,24 +22,8 @@ Kubernetes image pull will be quicker and more stable.
 
 ### Kuik custom resource to use
 
-- [ClusterImageSetMirror](../crds.md#clusterimagesetmirror)
+TODO
 
 ### Configuration example
 
-```yaml
-apiVersion: kuik.enix.io/v1alpha1
-kind: ClusterImageSetMirror
-metadata:
-  name: mirror-and-reroute-local
-spec:
-  priority: -10 # negative value to prefer mirrored images
-  filter:
-    include:
-    - image: .* # will match all images
-  mirrors:
-  - registry: local.custom.domain # your local, already existing registry
-    path: /mirror
-    credentialSecret:
-      name: local-registry-secret
-      namespace: default
-```
+TODO
