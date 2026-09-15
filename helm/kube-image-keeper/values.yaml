@@ -1,0 +1,6 @@
+# Default values for kube-image-keeper.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+#
+# The chart is being rebuilt for v3 and deploys nothing yet. Values are added along with the
+# templates that consume them.

@@ -1,0 +1,3 @@
+kube-image-keeper {{ .Chart.AppVersion }} installed as release {{ .Release.Name }} in namespace {{ .Release.Namespace }}.
+
+Documentation: https://kuik.enix.io

@@ -63,6 +63,18 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
 	"$(CONTROLLER_GEN)" object paths="./..."
 
+.PHONY: generate-helm-docs
+generate-helm-docs: helm-docs ## Generate the chart README from README.md.gotmpl, README.md (up to HELM_DOCS_END) and LICENSE.
+	mkdir -p ./helm/kube-image-keeper/repo
+	cp LICENSE ./helm/kube-image-keeper/repo
+	sed -e '/<!-- HELM_DOCS_END -->/,$$d' README.md > ./helm/kube-image-keeper/repo/README.md
+	"$(HELM_DOCS)"
+	rm -rf ./helm/kube-image-keeper/repo
+
+.PHONY: helm-lint
+helm-lint: ## Lint the Helm chart.
+	helm lint ./helm/kube-image-keeper
+
 .PHONY: fmt
 fmt: ## Run go fmt against code.
 	go fmt ./...
@@ -208,6 +220,7 @@ CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
 CONFORM ?= $(LOCALBIN)/conform
+HELM_DOCS ?= $(LOCALBIN)/helm-docs
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.8.1
@@ -225,6 +238,7 @@ ENVTEST_K8S_VERSION ?= $(shell v='$(call gomodver,k8s.io/api)'; \
 
 GOLANGCI_LINT_VERSION ?= v2.13.1
 CONFORM_VERSION ?= v0.1.0-alpha.31
+HELM_DOCS_VERSION ?= v1.14.2
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
@@ -258,6 +272,11 @@ $(GOLANGCI_LINT): $(LOCALBIN)
 		$(GOLANGCI_LINT) custom --destination $(LOCALBIN) --name golangci-lint-custom && \
 		mv -f $(LOCALBIN)/golangci-lint-custom $(GOLANGCI_LINT); \
 	} || true
+
+.PHONY: helm-docs
+helm-docs: $(HELM_DOCS) ## Download helm-docs locally if necessary.
+$(HELM_DOCS): $(LOCALBIN)
+	$(call go-install-tool,$(HELM_DOCS),github.com/norwoodj/helm-docs/cmd/helm-docs,$(HELM_DOCS_VERSION))
 
 BASE_BRANCH ?= origin/main
 
