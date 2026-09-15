@@ -73,52 +73,69 @@ Alerting reads it from `kuik_status_list_entries` and its two neighbours, in
 
 ## Attribution
 
-The `pods` gauges below all count **pods**, and none of them sums across CRs. What is attributed sits
-one level down: **exactly one CR counts each rewritten, conceded or stale container**. A pod has many
-containers, so two CRs serving two of them both count that pod, and one CR may count the same pod in
-`rewritten` and in `conceded` at once.
+**Exactly one CR counts each rewritten, conceded or stale container.** That is the unit attribution
+works in, and the `containers` block below reports it without loss: its five states partition the
+containers of the pods a CR selects, and three of them sum across CRs.
 
-Where a count comes from still differs, and telling the two apart is what makes them readable:
-
-- `pods.rewritten`, `pods.conceded` and `pods.stale` come off an attribution the webhook left on the
-  pod, in the `by` field of an entry of
-  [`kuik.enix.io/rewrites`](./observability.md#annotations) or of `conceded-rewrites`. A conceded
-  container leaves `rewrites` for `conceded-rewrites`
+- `containers.rewritten`, `containers.conceded` and `containers.stale` come off the `by` field of an
+  entry of [`kuik.enix.io/rewrites`](./observability.md#annotations) or of `conceded-rewrites`. A
+  conceded container leaves `rewrites` for `conceded-rewrites`
   ([what conceding removes](./architecture.md#what-conceding-removes)); a stale one stays in
   `rewrites` but its live reference no longer matches the `rewrittenTo` recorded there
   ([when a record goes stale](./architecture.md#when-a-record-goes-stale)), so it leaves
-  `pods.rewritten` for `pods.stale` — the two never count the same container
-- `pods.tracked` and `pods.noAlternatives` carry no attribution: the first counts what the selectors
-  retain, the second every CR that offered a candidate
+  `containers.rewritten` for `containers.stale` — the two never count the same container
+- `containers.noAlternatives` is read from
+  [`kuik.enix.io/no-alternatives`](./observability.md#annotations), which maps each container no
+  candidate could serve to the resources that offered one. Several CRs may have offered, so this one
+  does overlap between them — the count still comes off the pod rather than from replaying the
+  matching, which a CR edited since admission would answer wrongly
+- `containers.untouched` is the remainder: containers of selected pods that no annotation names
 
-`pods.tracked` counts the pods a CR's `podSelector` and `namespaceSelector` select. The overlap is
-deliberate: it answers "does this CR watch this pod?". It is emphatically not a claim of ownership —
-what a CR *did* is what `rewritten` reports, and the annotation is what settles it. It stays the
-denominator the other four are read against **inside one CR**; only the sum across CRs breaks.
+The `pods` block answers a different question, and **neither of its two fields sums across CRs**:
 
-`pods.noAlternatives` overlaps for a different reason: no candidate won, so every CR that contributed
-one counts the pod. It is read from
-[`kuik.enix.io/no-alternatives`](./observability.md#annotations), which maps each container no
-candidate could serve to the resources that offered one — so the count comes off the pod rather than
-from replaying the matching, which a CR edited since admission would answer wrongly.
+- `pods.tracked` counts the pods a CR's `podSelector` and `namespaceSelector` select. The overlap is
+  deliberate: it answers "does this CR watch this pod?". It is emphatically not a claim of ownership —
+  what a CR *did* is what the `containers` block reports. It stays the denominator `pods.rewritten` is
+  read against **inside one CR**
+- `pods.rewritten` counts the pods carrying at least one container this CR rewrote whose rewrite still
+  stands. It is the reach of a CR where the `containers` block is its extent: a pod with three
+  rewritten containers counts once here and three times there, and neither number derives from the
+  other
 
-Status controllers read the origin reference from the `origin` field of `kuik.enix.io/rewrites`,
-falling back to the live container image for pods that were never rewritten and therefore carry no
-annotation.
+**The origin of a container is the reference its spec declares, except where a standing kuik rewrite
+put it there**: a container named by `kuik.enix.io/rewrites` whose live reference still matches the
+entry's `rewrittenTo` takes that entry's `origin` instead.
+
+- `untouched` and `noAlternatives` — no reference was ever rewritten, so the spec still declares the
+  origin ([where a container appears](./observability.md#where-a-container-appears-says-what-happened-to-it))
+- `conceded` — the live reference is the other webhook's, and that is the origin now; the
+  `conceded-rewrites.origin` field is kept for reporting (`concededRewrites[].image`), not for
+  attribution ([what conceding removes](./architecture.md#what-conceding-removes))
+- `stale` — the record no longer describes what the pod runs
+  ([when a record goes stale](./architecture.md#when-a-record-goes-stale))
+
+The same test — does a container of a **non-terminal pod** (`Pending` or `Running`; every mention of
+"pod" below means this) still carry this exact reference — also decides whether that reference counts
+as `running` or `standby` below.
 
 ## ImageAlternative
 
 ```yaml
 status:
-  # Gauge on living pods computed with informers
+  # Gauges on living pods and their containers, computed with informers
   pods:
     tracked: 123       # Number of pods selected by `podSelector` and `namespaceSelector`. Overlaps
                        # between CRs by design, so never sum it across them (see "Attribution" above)
-    rewritten: 12      # Number of pods effectively rewritten (either by `OnFailure` or `Always` policy)
-    noAlternatives: 2  # Number of pods left untouched as no alternatives image was available
-    conceded: 1        # Number of pods where another mutating webhook replaced what KuiK had placed
-    stale: 0           # Number of pods edited after admission, whose record no longer describes what
-                       # they run. Counted out of `rewritten`, never alongside it
+    rewritten: 12      # Number of pods carrying at least one container this CR rewrote, whose rewrite
+                       # still stands. The reach of the CR, where `containers` below is its extent
+  containers:
+    tracked: 281       # = untouched + rewritten + conceded + stale + noAlternatives
+    untouched: 265     # No kuik annotation names them: the original answered and nothing was done
+    rewritten: 13      # Rewritten by this CR (either by `OnFailure` or `Always` policy)
+    conceded: 1        # Another mutating webhook replaced what KuiK had placed
+    stale: 0           # Edited after admission, the record no longer describing what they run.
+                       # Counted out of `rewritten`, never alongside it
+    noAlternatives: 2  # Left untouched as no alternatives image was available
   # Store the list of fallback images (only with `rewritePolicy: OnFailure`)
   activeFallbacks:
   - image: quay.io/thanos/thanos:v0.42.2
@@ -174,23 +191,36 @@ field for field an `ImageAlternative`'s.
 ```yaml
 status:
   # ============ Copy side, specific to an ImageMirror ============
+  # The references this mirror holds at its destination. `copy` is the population name, the same way
+  # an ImageMonitor nests `origin` and `alternatives` (see ImageMonitor below)
   images:
-    desired: 312               # images used in running pod + retained ones carrying an `origin`
-    copied: 309                # images effectively copied to destination registry
-    retained: 2                # entries of `pendingDeletion` (if cleanup.enabled) — a reference
-                               # pinned by digest produces two of them, its tag and its anchor.
-                               # Origin-less ones among them are held then deleted, never copied
-                               # again
-    drifted: 0                 # with driftPolicy=Warn or Sync - image tag whose upstream digest moved
+    copy:
+      tracked: 312             # = running + standby + retained
+      running: 305             # a container carries this exact destination reference
+      standby: 5               # copied and held, but no container carries it: under
+                               # `rewritePolicy: OnFailure` the origin still answers, and under
+                               # `None` the mirror copies without ever routing — `running` is 0 there
+                               # by construction
+      retained: 2              # no pod declares the origin it derives from any more, kept for
+                               # `cleanup.retention` (if cleanup.enabled)
+      # A whole pass covers every tracked reference, so unlike an ImageMonitor's ring these two
+      # always add up to `tracked`
+      available: 309           # held by the destination, as of the last self-check
+      unavailable: 3           # not copied yet, or whose copy is failing
+      drifted: 0               # with driftPolicy=Warn or Sync - image tag whose upstream digest moved
                                # away from the copied one. Sync queues them for a resync, Warn leaves
                                # the copy as it is and only reports
-    # platformsMissing: 8      # Meaningless in v3.0: every platform of a multi-platform image is
+      # platformsMissing: 8    # Meaningless in v3.0: every platform of a multi-platform image is
                                # always copied (see the note on `platforms` in ImageMirror). Comes
                                # back once per-platform selection ships, to report a copy that
                                # missed a platform it should have had
-    missingSource: 1           # no source can supply the image any more: the `failedImageCopies`
+      missingSource: 1         # no source can supply the image any more: the `failedImageCopies`
                                # entries whose reason is `SourceNotFound`. Those entries are what
                                # name the images this counts
+      orphanTags: 3            # entries of `pendingDeletion` carrying no `origin`: destination tags
+                               # the sweep found that no tracked reference accounts for. Counted in
+                               # tags rather than references — an anchor is a tag — hence outside
+                               # `tracked`, and hence the unit in the name
   # Tags whose upstream digest moved away from the copy held at the destination (`Warn` and `Sync`,
   # never `Ignore`). The bounded list behind `kuik_image_drifted`, and the counterpart of
   # `driftedImages` on ImageMonitor — that one compares the upstream against what the *cluster* runs,
@@ -218,7 +248,9 @@ status:
   # pass starts with, so tags that stopped being used while the controller was down are collected at
   # startup. `unusedSince` is stamped when the entry appears and never refreshed afterwards.
   # `origin` is the reference the image was copied from, known when a pod event created the entry
-  # and absent for a tag found by listing (the destination layout is one-way, see walkthrough 02)
+  # and absent for a tag found by listing (the destination layout is one-way, see walkthrough 02).
+  # Entries carrying one are counted in `images.copy.retained`, those without in
+  # `images.copy.orphanTags`
   pendingDeletion:
   - ref: registry.tld/mirror/ghcr.io/acme/report-job:v42_cluster-a
     origin: ghcr.io/acme/report-job:v42
@@ -267,9 +299,13 @@ status:
   pods:
     tracked: 480
     rewritten: 455
-    noAlternatives: 1
+  containers:
+    tracked: 1104
+    untouched: 620
+    rewritten: 481
     conceded: 1
-    stale: 0
+    stale: 1
+    noAlternatives: 1
   # `rewrittenTo` is this mirror's own destination — where an ImageAlternative names one of its upstream
   # entries instead
   activeFallbacks:
@@ -278,7 +314,7 @@ status:
     pods: 12
     since: "2026-07-10T06:40:00Z"
   # The mirror had nothing to offer either: no source ever answered for this image, so it was never
-  # copied (`images.missingSource` above) and the origin is gone too
+  # copied (`images.copy.missingSource` above) and the origin is gone too
   noAlternatives:
   - image: quay.io/acme/gone:1.0
     pods: 1
@@ -323,22 +359,36 @@ status:
 
 ```yaml
 status:
-  # Origin images seen on pods
+  # The two populations this CR tracks, each under its own name. `tracked`, `available` and
+  # `unavailable` are properties of the reference itself; `retained` is inherited from the origin, an
+  # alternative being tracked because its origin is, never for itself. `running` and `standby` are not
+  # inherited: an alternative is `running` only where it is the one actually replacing its origin, and
+  # an origin is `standby` precisely because one of its alternatives is `running`
   images:
-    tracked: 3241               # images tracked by this CR
-    inUse: 3180                 # images associated for running pod
-    retained: 61                # images no longer running but still monitored for `unusedImageRetention`
-    # `available` + `unavailable` is 11 short of `tracked`: the ring has not reached those yet
-    available: 3226
-    unavailable: 4
-    drifted: 2                  # image tag have digest different than the upstream one (only with driftDetection=true)
-  # Alternatives kuik would offer for a tracked image, from ImageAlternative entries
-  # (only with monitorAlternatives=true)
-  alternatives:
-    # `available` + `unavailable` is 1 short of `tracked`, as for `images` above
-    tracked: 214
-    available: 211
-    unavailable: 2
+    # Origin images declared by pods (see "Attribution" above for what counts as the origin)
+    origin:
+      tracked: 3241      # = running + standby + retained
+      running: 3168      # a container carries this exact reference
+      standby: 12        # a pod still declares it, but kuik routed the container elsewhere. Tracked
+                        # and checked for exactly that: its return is what lets the fallback be lifted
+      retained: 61       # no pod declares it any more, kept for `unusedImageRetention`
+      # `available` + `unavailable` is 11 short of `tracked`: the ring has not reached those yet
+      available: 3226
+      unavailable: 4
+      drifted: 2                # image tag have digest different than the upstream one (only with driftDetection=true)
+    # Alternatives kuik would offer for a tracked image, from ImageAlternative entries
+    # (only with monitorAlternatives=true)
+    alternatives:
+      tracked: 214
+      running: 9         # the one actually standing in for its origin. Smaller than `origin.standby`
+                         # above: some of those origins were routed to an ImageMirror destination
+                         # instead, which `monitorAlternatives` never tracks (see ImageMonitor in
+                         # spec.md)
+      standby: 201       # checked candidates that were never served
+      retained: 4        # the origin they derive from is `retained`
+      # `available` + `unavailable` is 1 short of `tracked`, as for `origin` above
+      available: 211
+      unavailable: 2
   # Store retained images (ref+date+digest) as we can't recompute this information from informer
   retainedImages:
   - ref: ghcr.io/acme/report-job:v42

@@ -70,9 +70,9 @@ are worth using:
 
 | Condition | Status | Metric | Event |
 | --------- | ------ | ------ | ----- |
-| a tracked image fails its check | `ImageMonitor.status.unavailableImages[].reason` | `kuik_image_unavailable{reason}` | none, deliberately — see [Why availability is not evented](#why-availability-is-not-evented) |
-| a monitored alternative fails its check | `ImageMonitor.status.unavailableAlternatives[].reason` | `kuik_alternative_unavailable{reason}` | `AlternativeUnusable`, and only when the cause has a remedy |
-| a copy fails | `ImageMirror.status.failedImageCopies[].reason` | `kuik_mirror_image_failed{reason}` | `ImageCopyFailed`, coalesced by prefix — see [below](#a-copy-failure-is-coalesced-never-generalised) |
+| a tracked image fails its check | `ImageMonitor.status.unavailableImages[].reason` | `kuik_image_origin_unavailable{reason}` | none, deliberately — see [Why availability is not evented](#why-availability-is-not-evented) |
+| a monitored alternative fails its check | `ImageMonitor.status.unavailableAlternatives[].reason` | `kuik_image_alternative_unavailable{reason}` | `AlternativeUnusable`, and only when the cause has a remedy |
+| a copy fails | `ImageMirror.status.failedImageCopies[].reason` | `kuik_image_copy_failed{reason}` | `ImageCopyFailed`, coalesced by prefix — see [below](#a-copy-failure-is-coalesced-never-generalised) |
 
 An unavailable image and a failed copy are the same observation about the same kind of request; they
 differ in what an operator can do about it, which is why one emits and the other does not. The reason
@@ -107,7 +107,7 @@ metadata:
     kuik.enix.io/rewrites: '{"prometheus":{"by":"ImageAlternative/prometheus","origin":"quay.io/prometheus/prometheus:v3.13.1-distroless","rewrittenTo":"public.ecr.aws/docker/library/prometheus:v3.13.1-distroless","policy":"Always"},"thanos-sidecar":{"by":"ImageMirror/prod-mirror","origin":"quay.io/thanos/thanos:v0.42.2","rewrittenTo":"registry.tld/mirror/quay.io/thanos/thanos:v0.42.2_cluster-a","policy":"OnFailure"}}'
     kuik.enix.io/conceded-rewrites: '{"oauth-proxy":{"by":"ImageMirror/prod-mirror","origin":"quay.io/oauth2-proxy/oauth2-proxy:v7.7.1","rewrittenTo":"registry.tld/mirror/quay.io/oauth2-proxy/oauth2-proxy:v7.7.1_cluster-a","policy":"OnFailure"}}'
     # No reference to preserve — the origin is still the live image — but the offering resources
-    # are what `pods.noAlternatives` is counted from
+    # are what `containers.noAlternatives` is counted from
     kuik.enix.io/no-alternatives: '{"config-reloader":["ImageAlternative/prometheus","ImageMirror/prod-mirror"]}'
 ```
 
@@ -134,7 +134,7 @@ The same four outcomes, and why each sits where it does:
 - a container **no candidate could serve** appears in `no-alternatives`, and in neither of the other
   maps. Its spec was not touched, so the origin is still the live image and there is nothing to
   preserve; what the entry holds instead is every resource that offered a candidate, which is what
-  `pods.noAlternatives` and `kuik_alternatives_exhausted_total` are counted from. Without it the
+  `containers.noAlternatives` and `kuik_routing_alternatives_exhausted_total` are counted from. Without it the
   container would be indistinguishable from one kuik never looked at
 - a container kuik rewrote and then **conceded** appears in `conceded-rewrites`, and in neither of the
   other maps. Another mutating webhook replaced the reference kuik had placed and kuik stood down
@@ -181,7 +181,7 @@ is also what the secret syncer watches to learn that an `OnFailure` resource is 
 reason, where `no-alternatives` holds a list: one resource *served* the reference, several may have
 *offered* one.
 
-`policy` is exactly the enum carried by `kuik_rewrites_total{policy}`, which is what makes the
+`policy` is exactly the enum carried by `kuik_routing_rewrites_total{policy}`, which is what makes the
 annotation and the counter agree by construction rather than by convention — and what lets
 [`Always` emit no event at all](#noise-is-not-configurable-it-follows-rewritepolicy) without losing
 traceability.
@@ -190,7 +190,7 @@ traceability.
 
 Annotations are the shortest-lived channel of the four: no pod, no record. Like events they are
 therefore **not an audit log** — a rollout replaces every pod and takes its decisions with it. What
-survives a pod is the counter, which is why `kuik_rewrites_total` and `kuik_alternatives_exhausted_total`
+survives a pod is the counter, which is why `kuik_routing_rewrites_total` and `kuik_routing_alternatives_exhausted_total`
 exist rather than a persisted history of rewrites.
 
 ## Events
@@ -255,7 +255,7 @@ metric instead, where it stays visible and alertable without shouting.
 | `ImageDeleted` | `ImageMirror` | Normal | A tag was deleted after its retention elapsed |
 | `OrphanTagFound` | `ImageMirror` | Warning | The sweep found a tag belonging to this cluster that the desired state does not expect. It fires when the tag enters `status.pendingDeletion`, once — the entry persists there, so a restart or a leader change does not re-announce it. The tag is held for its retention and then deleted — the only thing kuik removes without knowing where it came from |
 | `ImageDeletionFailed` | `ImageMirror` | Warning | The destination refused a tag deletion |
-| `ImageUnrecoverable` | `ImageMirror` | **Warning** | An image is wanted, absent from the destination, and no source can supply it any more: its `status.failedImageCopies` entry carries reason `SourceNotFound`, and it is counted in `status.images.missingSource`. Alertable as `kuik_mirror_image_failed{reason="SourceNotFound"}`. Qualitatively different from the other copy failures: a `429` or an unreachable endpoint may clear on its own, a `404` on every source will not, and any pod still running the image does so from a node cache that will not survive a reschedule |
+| `ImageUnrecoverable` | `ImageMirror` | **Warning** | An image is wanted, absent from the destination, and no source can supply it any more: its `status.failedImageCopies` entry carries reason `SourceNotFound`, and it is counted in `status.images.copy.missingSource`. Alertable as `kuik_image_copy_failed{reason="SourceNotFound"}`. Qualitatively different from the other copy failures: a `429` or an unreachable endpoint may clear on its own, a `404` on every source will not, and any pod still running the image does so from a node cache that will not survive a reschedule |
 | `AlternativeUnusable` | `ImageMonitor` | Warning | A monitored alternative cannot be offered as a candidate for a reason that has a remedy — today `Unauthorized`, a credential missing from `fallbackAuth` or rejected. Only remediable causes emit: an alternative that is merely gone stays in the status, per the section above |
 | `ImageTagDrifted` | `ImageMonitor` | Warning | The **upstream** digest moved under a tag the cluster is running. Remediation is to follow it or to pin |
 | `ImageClusterSkew` | `ImageMonitor` | Warning | Pods run the **same tag** with different `imageID`s — part of the cluster has not caught up with a tag that moved. Remediation is a rollout restart or a forced re-pull, where drift alone would call for deciding whether to follow the upstream |
@@ -295,7 +295,7 @@ There is no verbosity knob. Under `OnFailure`, a rewrite means the original fail
 incident worth one event per pod. Under `Always`, a rewrite is the steady state — every pod of every
 rollout, forever — so it emits **nothing**. Its traceability is the pod's own
 [annotations](#annotations), which say what was rewritten and why, and the
-`kuik_rewrites_total` counter, which says how often.
+`kuik_routing_rewrites_total` counter, which says how often.
 
 The distinction is already carried by the `policy` field of `kuik.enix.io/rewrites`, so the two
 channels agree by construction rather than by convention.
@@ -303,7 +303,7 @@ channels agree by construction rather than by convention.
 ### Why availability is not evented
 
 An image the cluster runs going unavailable upstream is a **state**, not news. It gets a
-`status.unavailableImages` entry and a `kuik_image_unavailable` series, which is where an alert should
+`status.unavailableImages` entry and a `kuik_image_origin_unavailable` series, which is where an alert should
 read it from — but it gets no event, deliberately.
 
 Three reasons, the last of which settles it. It asks nothing of an operator: if the source is gone, it
@@ -360,56 +360,99 @@ Each metric below is listed with the `HELP` text it should carry. Labels are sho
 label value is drawn either from configuration or from an enumerated set, except on the anomaly
 series at the end.
 
-#### Aggregates — one series per resource and state, mirroring status v3 field for field
+#### Aggregates — three cardinalities, mirroring status v3 field for field
+
+Each level carries only what it alone can say: **images** are what a registry answers for,
+**containers** are what kuik decided, **pods** are what a resource watches and how far a failure
+reaches.
 
 | Metric (gauge) | HELP |
 | -------------- | ---- |
-| `kuik_monitor_images{kind, name, state}` | Origin references an ImageMonitor is tracking, by state. States are not mutually exclusive and must not be summed |
-| `kuik_monitor_alternatives{kind, name, state}` | Alternative references an ImageMonitor is tracking on behalf of ImageAlternative resources, by state |
-| `kuik_mirror_images{kind, name, state}` | Images an ImageMirror accounts for, by state. States are not mutually exclusive and must not be summed |
-| `kuik_routing_pods{kind, name, state}` | Live pods a routing resource accounts for, by state. States are not mutually exclusive and must not be summed |
+| `kuik_images_tracked{kind, name, reference, state}` | References a resource tracks, by what the cluster does with them |
+| `kuik_images_checked{kind, name, reference, state}` | References whose last check returned a verdict, by verdict |
+| `kuik_mirror_tags_orphan{kind, name}` | Destination tags an ImageMirror found that no tracked reference accounts for, held before deletion. Counted in tags, so a pinned manifest whose tag and anchor both dangle counts twice |
+| `kuik_routing_containers{kind, name, state}` | Containers of the pods a routing resource selects, by what it did to them |
+| `kuik_routing_pods_tracked{kind, name}` | Live pods a routing resource's selectors retain |
+| `kuik_routing_pods_rewritten{kind, name}` | Live pods carrying at least one container this resource rewrote, whose rewrite still stands |
 
-The `state` label repeats the field names of the corresponding status, so a dashboard and a
+`state` and `reference` both repeat field names of the corresponding status, so a dashboard and a
 `kubectl get -o yaml` never disagree. Which status, field for field:
 
-| Metric | Status | `state` values |
-| ------ | ------ | -------------- |
-| `kuik_monitor_images` | `ImageMonitor.status.images` | `tracked`, `inUse`, `retained`, `available`, `unavailable`, `drifted` |
-| `kuik_monitor_alternatives` | `ImageMonitor.status.alternatives` | `tracked`, `available`, `unavailable` |
-| `kuik_mirror_images` | `ImageMirror.status.images` | `desired`, `copied`, `retained`, `drifted`, `missingSource` |
-| `kuik_routing_pods` | `ImageAlternative` / `ImageMirror` `.status.pods` | `tracked`, `rewritten`, `noAlternatives`, `conceded`, `stale` |
+| Metric | Status | `reference` values | `state` values |
+| ------ | ------ | ------------------ | -------------- |
+| `kuik_images_tracked` | `ImageMonitor` / `ImageMirror` `.status.images` | `origin`, `alternatives`, `copy` | `running`, `standby`, `retained` |
+| `kuik_images_checked` | idem | idem | `available`, `unavailable` |
+| `kuik_mirror_tags_orphan` | `ImageMirror.status.images.copy.orphanTags` | — | — |
+| `kuik_routing_containers` | `ImageAlternative` / `ImageMirror` `.status.containers` | — | `untouched`, `rewritten`, `conceded`, `stale`, `noAlternatives` |
+| `kuik_routing_pods_tracked` | `…status.pods.tracked` | — | — |
+| `kuik_routing_pods_rewritten` | `…status.pods.rewritten` | — | — |
 
-Both monitor gauges count **origin** references — what the manifest carried, read from
-the `origin` field of [`kuik.enix.io/rewrites`](#annotations) for a container the webhook rewrote, and from the live
-container otherwise. That is what an `ImageMonitor` tracks
-([ImageMonitor](./spec.md#imagemonitor)).
+**Every series that carries a `state` survives a `sum()` over it**, and the three that carry none are
+single quantities. That is what splitting them buys: `tracked` is nowhere a state, because it is the
+sum rather than a peer of what it totals, and no series mixes a total with the parts that make it up.
 
-`state` mixes two dimensions on purpose, exactly as the status does: on `kuik_monitor_images`, `inUse`
-and `retained` partition why an image is tracked, while `available`, `unavailable` and `drifted` report
-the outcome of its last check. Hence the warning not to sum — `tracked` is the total, the others
-overlap it.
+- `sum without(state) (kuik_images_tracked)` is `tracked`, and `sum without(state) (kuik_routing_containers)`
+  is `containers.tracked` — neither needs a series of its own
+- `sum without(state) (kuik_images_checked)` is what a resource has a verdict for. It equals `tracked`
+  on an `ImageMirror`, whose self-check covers the whole desired state in one pass, and falls short of
+  it on an `ImageMonitor`, whose ring has not necessarily come round
+- `kuik_routing_pods_tracked` is a metric of its own precisely because it is *not* a sum: selection is
+  a fact about pods that nothing else reports
 
-`kuik_routing_pods` answers a neighbouring question, in **pods** rather than in references and from
-each routing resource's own vantage point: not what the cluster runs, but what a rewrite did to the
-workloads.
+What still does not sum is **across resources**, and for one reason only: selectors overlap. Several
+resources legitimately select the same pod, and several may offer a candidate for the same container.
+`kuik_routing_containers` is the exception that shows the rule — `rewritten`, `conceded` and `stale`
+*do* sum across resources, exactly one resource counting each such container
+([Attribution](./status.md#attribution)).
 
-**None of its five states sums across resources**, and reading one of them as if it did is the one
-way to get this gauge wrong. What exactly one resource owns is a rewritten, conceded or stale
-*container* ([Attribution](./status.md#attribution)), and a pod has many: two resources each serving
-one container of the same pod both count it, and one resource may count a pod in `rewritten` and in
-`conceded` at once. The other two overlap for their own reasons — several resources legitimately
-select the same pod, and several may offer a candidate for the same container — so the rule is
-uniform across the five.
+##### The three reference populations
+
+`reference` names which population a series counts, and takes the name of the status sub-block it is
+read from:
+
+| Value | What it counts | Produced by |
+| ----- | -------------- | ----------- |
+| `origin` | what the container's spec declares before any standing kuik rewrite ([Attribution](./status.md#attribution)) | `ImageMonitor` |
+| `alternatives` | every candidate an `ImageAlternative` would offer for one of those origins, under `monitorAlternatives: true` | `ImageMonitor` |
+| `copy` | what the mirror holds at its own destination, verified by its self-check | `ImageMirror` |
+
+The label is `reference` rather than `source` because *source* already names the upstream a mirror
+pulls from, everywhere else in this document.
+
+`running`, `standby` and `retained` partition `tracked` on all three populations, by the same test — a
+container carrying this exact reference: `running` when one does, `standby` when a pod still
+justifies tracking it without one doing so, `retained` when none does any more
+([status v3](./status.md#attribution)). Only `retained` is inherited on `alternatives` and
+`copy`, an alternative being retained because its origin is; `running` and `standby` are not —
+an alternative is `running` only where it is itself the one standing in for its origin, and an origin
+is `standby` precisely because one of its alternatives is `running`. `tracked`, `available` and
+`unavailable` stay properties of the reference itself throughout.
+
+`drifted` and `missingSource` stay status fields and have no gauge: `count(kuik_image_drifted) by
+(kind, name)` and `count(kuik_image_copy_failed{reason="SourceNotFound"}) by (kind, name)` answer them
+from series that already exist. The trade is the usual one for
+[anomalies](#anomalies-signal-by-presence) — no series at all rather than a `0`, so a panel plotting
+them writes `count(…) or vector(0)`. `unavailable` is not in that case and keeps its gauge: its
+complement `available` has no per-image series to count, and on an `ImageMirror` a reference the copy
+budget has not reached yet is not a failure and appears in none.
+
+##### Containers and pods answer different questions
+
+What happens to a container is decided **per container**, and a container reaches exactly one of the
+outcomes ([where a container appears](#where-a-container-appears-says-what-happened-to-it)). So
+`kuik_routing_containers` partitions, and `untouched` is what closes it.
+
+`kuik_routing_pods_rewritten` is not that number aggregated. A pod with three rewritten containers
+counts three times in `kuik_routing_containers` and once here, and neither number derives from the
+other: the pod count is the **reach** of a resource — how many workloads go down with it — where the
+container count is its **extent**. Only the reach is exposed in pods. The three anomaly outcomes are
+not, being exact per container already, and their per-image pod counts sitting in
+`status.activeFallbacks`, `status.concededRewrites`, `status.staleRewrites` and
+`status.noAlternatives` and in the series that mirror them.
 
 `stale` is a residue of `rewritten` rather than a dimension beside it: a container whose live
-reference no longer matches the `rewrittenTo` kuik recorded leaves `rewritten` and is counted here
+reference no longer matches the `rewrittenTo` kuik recorded leaves `rewritten` and is counted there
 instead ([When a record goes stale](./architecture.md#when-a-record-goes-stale)).
-
-The per-image anomaly series do not substitute for it. `kuik_alternatives_exhausted_pods`,
-`kuik_rewrite_conceded_pods` and `kuik_rewrite_stale_pods` are keyed by image and valued in pods, so
-they answer "which images", where `state="noAlternatives"`, `state="conceded"` and `state="stale"`
-answer "how many pods, de-duplicated". `state="tracked"` has no other source at all, and it is the
-denominator the other four are read against inside one resource.
 
 #### Status capacity — is a capped list about to lose entries
 
@@ -439,7 +482,7 @@ out and turn "12 entries lost" into a number nobody can read.
 | -------------- | ---- |
 | `kuik_check_cycle_duration_seconds{kind, name, registry}` | Wall-clock seconds taken by the last completed check lap over a registry's images. Produced by an ImageMonitor for the images it tracks, and by an ImageMirror under `driftPolicy: Warn` / `Sync` for the source tags it re-reads. Absent until a first lap completes |
 | `kuik_check_cycle_started_timestamp_seconds{kind, name, registry}` | Unix timestamp at which the lap currently in progress over a registry's images started |
-| `kuik_check_images{kind, name, registry}` | Images a resource checks on a registry: the images an ImageMonitor tracks there, and under `driftPolicy: Warn` / `Sync` the copied tags an ImageMirror re-reads there. The size of the ring behind the lap above |
+| `kuik_check_ring_images{kind, name, registry}` | Size of the ring a resource turns over a registry: the images an ImageMonitor tracks there, and under `driftPolicy: Warn` / `Sync` the copied tags an ImageMirror re-reads there. The denominator behind the lap above |
 | `kuik_mirror_self_checked_timestamp_seconds{kind, name}` | Unix timestamp at which the last full comparison of the destination finished |
 | `kuik_registry_interval_seconds{registry, operation}` | Configured pace at which kuik reads a registry for this operation, as currently loaded: the window between two requests for `Check` and `Copy`, the period between two whole passes for `Scan` (a mirror destination) |
 
@@ -470,7 +513,7 @@ otherwise have to be hard-coded into alerting rules and then kept in sync with t
   `operation="Copy"`, and `rate(kuik_mirror_copies_total[1h])` divided by it gives how much of the
   budget is actually being used. On its own that ratio means nothing — an idle mirror sits near zero
   and is perfectly healthy — so it is read *after* establishing there is a backlog, with
-  `kuik_mirror_images{state="desired"} - kuik_mirror_images{state="copied"}`. With a backlog present:
+  `kuik_images_checked{kind="ImageMirror", state="unavailable"}`. With a backlog present:
   a ratio near 1 means the budget is the binding constraint and only a shorter `interval` will drain
   it faster; a ratio well below 1 means windows are going unused despite work pending, which is
   either copies failing (`kuik_registry_requests_total{operation="Copy"}` with a `result` other than
@@ -479,7 +522,7 @@ otherwise have to be hard-coded into alerting rules and then kept in sync with t
 - **expected lap length.** One image is checked per window, so a full lap ought to take
   `ring size × interval`. Comparing the measured `cycle_duration` to that product surfaces lost
   windows — failures, restarts, contention — as a ratio above 1 rather than as a number nobody can
-  interpret. Ring size is `kuik_check_images`, which both kinds produce — the images an
+  interpret. Ring size is `kuik_check_ring_images`, which both kinds produce — the images an
   `ImageMonitor` tracks on that host, the copied tags an `ImageMirror` re-reads there. On a shared
   host the ratio also rises simply because the rings share the budget, which is the same signal read
   one level up.
@@ -506,7 +549,7 @@ says whether it is the cheap checks or the expensive copies that are being refus
 It counts **source** registries only. A mirror destination is the operator's own and is not expected
 to ration anything, so the self-check `HEAD`s, the tag listings and the tag deletions issued against
 it are not counted here — what matters about a destination is whether it holds the desired state,
-which `kuik_mirror_images` and `kuik_mirror_image_failed` report.
+which `kuik_images_checked{reference="copy"}` and `kuik_image_copy_failed` report.
 
 Its `result` uses
 the side-agnostic spellings of the [vocabulary](#reasons) — `ManifestNotFound` and `Unreachable`
@@ -517,15 +560,16 @@ endpoint answered, so the reason has no side left to disambiguate.
 
 | Metric (counter) | HELP |
 | ---------------- | ---- |
-| `kuik_rewrites_total{kind, name, policy}` | Container images rewritten at admission, by the routing resource that supplied the reference and the policy that placed it (`Always`, `OnFailure`) |
-| `kuik_alternatives_exhausted_total{kind, name}` | Containers left untouched at admission because no candidate answered, counted once per routing resource that offered one. Several resources count the same container, so these series must not be summed |
+| `kuik_routing_rewrites_total{kind, name, policy}` | Container images rewritten at admission, by the routing resource that supplied the reference and the policy that placed it (`Always`, `OnFailure`) |
+| `kuik_routing_alternatives_exhausted_total{kind, name}` | Containers left untouched at admission because no candidate answered, counted once per routing resource that offered one. Several resources count the same container, so these series must not be summed |
 | `kuik_mirror_copies_total{kind, name, reason}` | Images pushed to a destination, by why (`Initial`, `Recopy` after a manifest went missing, `Resync` after an upstream digest moved) |
 | `kuik_mirror_tags_deleted_total{kind, name, reason}` | Destination tags deleted by an ImageMirror, by why they were removed (`Unused` once their retention elapsed, `Orphan` when the sweep found a tag no origin accounts for) |
 | `kuik_secret_applies_total{result}` | Pull-secret applies performed by the syncer, by outcome (`Applied`, `Noop`, `Failed`) |
 
-The first two counters (`kuik_rewrites_total` and `kuik_alternatives_exhausted_total`) are the only ones
-exported by the **webhook**: they count the rewrites it made, and the containers it could not rewrite
-for want of an available candidate.
+The first two counters (`kuik_routing_rewrites_total` and `kuik_routing_alternatives_exhausted_total`)
+are the only ones exported by the **webhook**: they count the rewrites it made, and the containers it
+could not rewrite for want of an available candidate. They are the cumulative counterparts of
+`kuik_routing_containers{state="rewritten"}` and `{state="noAlternatives"}`, in the same unit.
 
 And `kuik_mirror_copies_total` separates `Recopy` from `Initial` for the same reason `ImageRecopied` is
 a `Warning` and `ImageCopied` is not: they cost the same bytes and mean entirely different things.
@@ -558,11 +602,11 @@ surprise.
 
 | Metric (gauge) | HELP |
 | -------------- | ---- |
-| `kuik_image_unavailable{kind, name, image, registry, reason}` | 1 while a tracked origin reference is failing its availability check |
-| `kuik_alternative_unavailable{kind, name, image, registry, derived_from, via, reason}` | 1 while a monitored alternative is failing its availability check. `image` is the alternative's own reference, `derived_from` the origin it would have served, `via` the resource that offered it |
+| `kuik_image_origin_unavailable{kind, name, image, registry, reason}` | 1 while a tracked origin reference is failing its availability check |
+| `kuik_image_alternative_unavailable{kind, name, image, registry, derived_from, via, reason}` | 1 while a monitored alternative is failing its availability check. `image` is the alternative's own reference, `derived_from` the origin it would have served, `via` the resource that offered it |
 | `kuik_image_drifted{kind, name, image, registry}` | 1 while the digest a resource accounts for differs from the upstream digest of that tag. `image` is the origin reference in both cases |
-| `kuik_mirror_image_failed{kind, name, image, registry, reason}` | 1 while an image cannot be copied to the destination |
-| `kuik_image_cluster_skew{kind, name, image, registry}` | Number of distinct digests running for one image reference. Present only while pods disagree, so its value is always 2 or more |
+| `kuik_image_copy_failed{kind, name, image, registry, reason}` | 1 while an image cannot be copied to the destination. `image` is the origin reference, the copy being what could not be made |
+| `kuik_image_cluster_skew_digests{kind, name, image, registry}` | Number of distinct digests running for one image reference. Present only while pods disagree, so its value is always 2 or more |
 | `kuik_rewrite_conceded_pods{kind, name, image, registry}` | Live pods carrying a container this resource had rewritten and another mutating webhook replaced. `image` is the origin reference |
 | `kuik_rewrite_stale_pods{kind, name, image, registry}` | Live pods carrying a container this resource had rewritten and something replaced **after** admission, so the record no longer describes what runs. `image` is the origin reference |
 | `kuik_alternatives_exhausted_pods{kind, name, image, registry}` | Live pods carrying a container no candidate could serve. `image` is the origin reference. Every resource that offered a candidate counts the pod, so these series must not be summed |
@@ -573,11 +617,11 @@ Each one has its counterpart in a status:
 
 | Metric | Status counterpart |
 | ------ | ------------------ |
-| `kuik_image_unavailable` | `ImageMonitor.status.unavailableImages` |
-| `kuik_alternative_unavailable` | `ImageMonitor.status.unavailableAlternatives` |
+| `kuik_image_origin_unavailable` | `ImageMonitor.status.unavailableImages` |
+| `kuik_image_alternative_unavailable` | `ImageMonitor.status.unavailableAlternatives` |
 | `kuik_image_drifted` | `ImageMonitor` / `ImageMirror` `.status.driftedImages` |
-| `kuik_mirror_image_failed` | `ImageMirror.status.failedImageCopies` |
-| `kuik_image_cluster_skew` | `ImageMonitor.status.driftedImages[].runningDigests`, whose length it is |
+| `kuik_image_copy_failed` | `ImageMirror.status.failedImageCopies` |
+| `kuik_image_cluster_skew_digests` | `ImageMonitor.status.driftedImages[].runningDigests`, whose length it is |
 | `kuik_rewrite_conceded_pods` | `ImageAlternative` / `ImageMirror` `.status.concededRewrites` |
 | `kuik_rewrite_stale_pods` | `ImageAlternative` / `ImageMirror` `.status.staleRewrites` |
 | `kuik_alternatives_exhausted_pods` | `ImageAlternative` / `ImageMirror` `.status.noAlternatives` |
@@ -586,14 +630,14 @@ Each one has its counterpart in a status:
 
 Nine mirror a bounded list and `kuik_resource_not_ready` mirrors a condition. It holds in the other
 direction too: every bounded anomaly list in [status v3](./status.md) now names a series here — a claim
-that did not hold for `unavailableAlternatives` until `kuik_alternative_unavailable` existed.
+that did not hold for `unavailableAlternatives` until `kuik_image_alternative_unavailable` existed.
 
 Four of them carry a `reason`. Three take it from the [shared vocabulary](#reasons) — enumerated,
 hence safe on a series, and identical to the one the corresponding status entry carries. The fourth,
 `kuik_resource_not_ready`, carries the `Ready` condition's own reason.
 
 **All but `kuik_resource_not_ready` carry `registry`**, the host the anomaly was observed on — for
-`kuik_mirror_image_failed`, the side that failed: the source on `SourceNotFound`,
+`kuik_image_copy_failed`, the side that failed: the source on `SourceNotFound`,
 `SourceUnreachable` or `QuotaExceeded`, the destination on `PushRejected` or
 `DestinationUnreachable`. It costs no cardinality, the host being already a prefix of `image`, and it
 buys two things: anomalies aggregate per registry, and they join `kuik_registry_requests_total` and
@@ -607,12 +651,13 @@ comparing a number to a threshold.
 Their values differ accordingly. Five carry the constant `1`, because presence is the whole message.
 The other five carry a count, because once the series exists there is no reason to spend its value on
 a constant: an image running two digests and one running six are the same condition but not the same
-urgency, and one pod stranded is not fifty. So `kuik_image_cluster_skew` counts digests, while
+urgency, and one pod stranded is not fifty. So `kuik_image_cluster_skew_digests` counts digests, while
 `kuik_rewrite_conceded_pods`, `kuik_rewrite_stale_pods`, `kuik_alternatives_exhausted_pods` and
-`kuik_fallback_active_pods` count the pods affected. That is what the `_pods` suffix is for: the population is in the name, so
-`kuik_alternatives_exhausted_pods` cannot be read as an aggregation of
-`kuik_alternatives_exhausted_total`, which counts containers at admission and is exported by another
-process altogether. Alerting is written the same way for all ten, on presence and never on the value.
+`kuik_fallback_active_pods` count the pods affected. That is what the `_digests` and `_pods` suffixes
+are for: the unit is in the name, so `kuik_alternatives_exhausted_pods` cannot be read as an
+aggregation of `kuik_routing_alternatives_exhausted_total`, which counts containers at admission and
+is exported by another process altogether. Alerting is written the same way for all ten, on presence
+and never on the value.
 
 `kuik_image_drifted` is the one series both kinds produce, which is why its `image` label is the
 **origin** reference on either — the destination reference would say the same thing in a form only one
@@ -644,20 +689,23 @@ The dividing line worth stating once, since every future metric will be an insta
 - **labels drawn from content** — image references above all — are bounded by nothing, and may appear
   only on anomaly series, which disappear on their own
 
-Label names are `snake_case` throughout, and four of them are reserved, so that a query written
+Label names are `snake_case` throughout, and five of them are reserved, so that a query written
 against one metric reads the same against another: `kind` and `name` always denote the Kubernetes
 resource a series is about, never a category of anything else. Anything that classifies *why*
-something failed is a `reason`, and anything that classifies *what state* something is in is a
-`state`. A label that classifies neither takes a name of its own — `policy` on
-`kuik_rewrites_total`, which carries a `rewritePolicy` rather than a cause, so that a
-`sum by (reason)` spanning several metrics never mixes the two.
+something failed is a `reason`, anything that classifies *what state* something is in is a `state`,
+and anything that names *which population* a series counts is a `reference`. A label that classifies
+none of those takes a name of its own — `policy` on `kuik_routing_rewrites_total`, which carries a
+`rewritePolicy` rather than a cause, so that a `sum by (reason)` spanning several metrics never mixes
+the two.
 
-**Which population a series counts is not a label — it is the metric name.** That is why
-`kuik_monitor_images` and `kuik_monitor_alternatives` are two names rather than one discriminated by a
-provenance label, and likewise `kuik_image_unavailable` and `kuik_alternative_unavailable`: one name
-maps to one status block, so its `state` vocabulary stays closed and no combination of labels is empty
-by construction. A label that would classify the population instead ends up naming neither the producer,
-which is `kind`'s job, nor the outcome, which is `state`'s.
+**A population is a label where the series agree on everything else, and a name where they do not.**
+The aggregates carry the same fields on all three populations, so they take the `reference` label.
+`kuik_image_origin_unavailable` and `kuik_image_alternative_unavailable` do not: `derived_from` and
+`via` exist only for an alternative.
+
+`kuik_image_copy_failed` is a third name because it is not the same condition. `unavailable` is a
+verdict on a reference, `failed` the outcome of an operation, and a reference the copy budget has not
+reached yet is `unavailable` without being a failure.
 
 **Every enumerated value is PascalCase**, on a metric label exactly as on a condition reason or a
 status entry — one spelling per cause, everywhere. A value that names a cause is taken from the
@@ -665,10 +713,10 @@ status entry — one spelling per cause, everywhere. A value that names a cause 
 `kuik_registry_requests_total` is the same `QuotaExceeded` a check reports and an event carries, so a
 `429` is greppable across the three channels without a translation table. Values that name something
 other than a cause — `Initial` / `Recopy` / `Resync`, `Unused` / `Orphan`, `Applied` / `Noop` /
-`Failed` — follow the same casing without joining that vocabulary. The one exception is `state`,
-whose values are **field names of the corresponding status** and therefore keep the lowerCamelCase of
-the YAML they mirror (`inUse`, `missingSource`); that is the whole point of the `state` label, and
-the reason it is a distinct label name rather than another `reason`.
+`Failed` — follow the same casing without joining that vocabulary. The exception is any label whose
+values are **names of status fields**, namely `state` and `reference`: they keep the lowerCamelCase of
+the YAML they mirror (`noAlternatives`, `alternatives`). That is the whole point of both
+labels, and the reason each is a distinct label name rather than another `reason`.
 
 **A metric name is not spelled like the status field it mirrors, and that is deliberate.** A status
 field is camelCase and [declarative rather than
@@ -678,10 +726,17 @@ A metric name lives in a flat, global namespace instead, and there Prometheus
 [allows either order](https://prometheus.io/docs/practices/naming/#metric-names) and names the
 trade-off: components ordered common-part-first sort related metrics together, where qualifier-first
 reads better in isolation but lets unrelated names sort in between. **This document takes the grouping
-side, throughout.**
+side, throughout**, in two families:
+
+- an **aggregate or a counter** is prefixed by its subsystem — `kuik_images*`, `kuik_routing_*`,
+  `kuik_mirror_*`, `kuik_check_*`, `kuik_registry_*`, `kuik_status_list_*`, `kuik_secret_*`
+- an **anomaly series** is named after its subject and then what is wrong with it, never after the
+  subsystem — that is what makes it recognisable as one on sight, and why
+  `kuik_image_origin_unavailable` sorts beside `kuik_image_drifted` rather than beside the monitor
+  gauges
 
 **Every metric about a resource carries `(kind, name)`**, including those a single kind can ever
-produce. On `kuik_monitor_images` the `kind` label is constant, which costs no cardinality and can be
+produce. On `kuik_images_checked{reference="copy"}` the `kind` label is constant, which costs no cardinality and can be
 left out of a query — but it makes the join key identical across the whole surface. That matters as
 soon as one resource shows up in two families, which is the normal case for an `ImageMirror` with a
 `rewritePolicy` other than `None`: it both routes and copies, so comparing what it routed to what it

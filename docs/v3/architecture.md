@@ -89,8 +89,8 @@ are intended: routing needs a verdict that matches the pull, alerting needs one 
 > the admission path a write it does not otherwise need.
 >
 > Metrics divide the other way. A counter belongs to the process that witnesses what it counts, and it
-> lives in that process's memory rather than in the API, so `kuik_rewrites_total` and
-> `kuik_alternatives_exhausted_total` are exported by the **webhook** — one increment per admission, by
+> lives in that process's memory rather than in the API, so `kuik_routing_rewrites_total` and
+> `kuik_routing_alternatives_exhausted_total` are exported by the **webhook** — one increment per admission, by
 > construction. Deriving them in the reconciler would mean counting from a state rather than from an
 > occurrence: the informer replays every live pod at start-up, which would re-count them all instead
 > of resetting the counter.
@@ -401,7 +401,7 @@ together — a container the pod holds a record for is named by exactly one of t
 rewrite: kuik offered candidates, none answered, and the live reference is still the original one.
 Reading the table on `rewrites` alone would call it *new* and send it back through the resolution —
 re-probing candidates that have already declined, and counting the container a second time in
-`kuik_alternatives_exhausted_total`.
+`kuik_routing_alternatives_exhausted_total`.
 
 **Equality against the recorded reference is what decides**, and not against what a resolution would
 return now. Replaying one would answer the same question a second time, at the price of the probes

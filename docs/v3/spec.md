@@ -548,9 +548,8 @@ spec:
 ```
 
 What an `ImageMonitor` tracks is the **origin** reference of every container of every pod its
-`podSelector` and `namespaceSelector` select — read from
-the `origin` field of
-[`kuik.enix.io/rewrites`](./observability.md#annotations) for pods the webhook already rewrote, per
+`podSelector` and `namespaceSelector` select — the reference the container's spec declares, except
+where a standing kuik rewrite put a different one there, per
 [Attribution](./status.md#attribution). A monitor therefore never sees a mirror's reference in
 place of the origin it replaced, whatever any routing resource did to the pod.
 
@@ -610,8 +609,8 @@ re-read the upstream tag — a paced read like any other, so it holds a ring of 
 reports its cursor and lap in [status](./status.md#imagemirror) exactly as a monitor does.
 
 **Copies** are paced by [`registries.<host>.copy.interval`](#global-config), on windows of their own.
-Where checks cycle a ring, copies drain a queue: the images the mirrors still owe (`images.desired`
-minus `images.copied` in status, plus what `driftPolicy: Sync` queues again once a check reports
+Where checks cycle a ring, copies drain a queue: the images the mirrors still owe (`images.copy.unavailable`
+in status, plus what `driftPolicy: Sync` queues again once a check reports
 drift). A source kept slow lengthens the drain rather than bursting.
 
 Windows pace what kuik **pulls from**, and nothing else. A quota is what an upstream enforces on
@@ -1005,7 +1004,7 @@ repository the operator has declared dead. The destination is
 the one derived from the origin in every case, never from the source actually read
 ([walkthrough A.8](./walkthroughs/02-imagemirror-reconciliation.md#a8-record-the-repository-choose-the-source-then-push)).
 If no source answers, nothing is copied: the image gets a `status.failedImageCopies` entry with
-reason `SourceNotFound`, which is what names it, and is counted in `status.images.missingSource`.
+reason `SourceNotFound`, which is what names it, and is counted in `status.images.copy.missingSource`.
 
 > [!IMPORTANT]
 > Alternatives are asserted equivalent by the operator, not verified to be byte-identical, so a
