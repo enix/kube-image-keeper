@@ -47,5 +47,8 @@ jobs:
       - name: Run lint
         run: task lint
 
+      - name: Lint the Helm chart
+        run: task helm-lint
+
       - name: Run markdownlint
         run: npx --yes --package markdownlint-cli2 --package markdownlint-rule-search-replace --package markdownlint-rule-relative-links markdownlint-cli2 "**/*.md"
