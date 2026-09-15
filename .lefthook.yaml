@@ -5,11 +5,11 @@ pre-commit:
   piped: true
   jobs:
     - name: generate manifests and code
-      run: make manifests generate
+      run: task manifests generate
       glob: "{api/**/*.go,internal/webhook/**/*.go,internal/controller/**/*.go,PROJECT}"
       stage_fixed: true
     - name: lint and fix
-      run: make lint-fix
+      run: task lint-fix
       glob: "**/*.go"
       stage_fixed: true
     - name: markdownlint
@@ -29,9 +29,9 @@ pre-commit:
 pre-push:
   jobs:
     - name: smoke tests
-      run: make test-short
+      run: task test-short
 
 commit-msg:
   jobs:
     - name: lint commit message
-      run: COMMIT_MSG_FILE={1} make conform
+      run: task conform COMMIT_MSG_FILE={1}

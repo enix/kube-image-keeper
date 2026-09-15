@@ -65,3 +65,6 @@ Rationale in [0005](./0005-decision-log-filter.md).
   `[]struct{}` + `t.Run`.
 - [0005 — notes only for decisions that outlive their commit](./0005-decision-log-filter.md):
   the commit body is the default; a note needs the filter above and stays short.
+- [0006 — Task replaces the Makefile](./0006-taskfile.md): commands live in
+  `Taskfile.yaml`; the `Makefile` is a shim forwarding to `task` for kubebuilder and the e2e
+  suite.

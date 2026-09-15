@@ -90,11 +90,17 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v6
 
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Setup Task
+        uses: ./.github/actions/setup-task
+
       - name: Generate README.md
-        env:
-          VERSION: ${{ inputs.VERSION }}
         run: |
-          make generate-helm-docs
+          task generate-helm-docs
           rm ./helm/kube-image-keeper/README.md.gotmpl
 
       - name: Set the prerelease artifacthub annotation

@@ -1,0 +1,337 @@
+# https://taskfile.dev
+#
+# Build, test and deployment tasks. `task --list` shows them.
+# Variables can be given as environment variables or on the command line: `task deploy IMG=...`.
+# The Makefile is a thin shim over this file for tools that call make on their own.
+
+version: '3'
+
+vars:
+  # Image URL used by the build and push tasks
+  IMG: '{{.IMG | default "controller:latest"}}'
+  # Container tool used to build images (docker, podman...)
+  CONTAINER_TOOL: '{{.CONTAINER_TOOL | default "docker"}}'
+  # Platforms built by docker-buildx
+  PLATFORMS: '{{.PLATFORMS | default "linux/arm64,linux/amd64,linux/s390x,linux/ppc64le"}}'
+  KUBECTL: '{{.KUBECTL | default "kubectl"}}'
+  KIND: '{{.KIND | default "kind"}}'
+  KIND_CLUSTER: '{{.KIND_CLUSTER | default "kube-image-keeper-test-e2e"}}'
+  # Pass IGNORE_NOT_FOUND=true to uninstall / undeploy to ignore missing resources
+  IGNORE_NOT_FOUND: '{{.IGNORE_NOT_FOUND | default "false"}}'
+  # Base branch for conform when no commit message file is given
+  BASE_BRANCH: '{{.BASE_BRANCH | default "origin/main"}}'
+
+  CHART: helm/kube-image-keeper
+  LOCALBIN: '{{.ROOT_DIR}}/bin'
+
+  # Tool versions. setup-envtest follows controller-runtime and the envtest binaries follow
+  # k8s.io/api, both read from go.mod.
+  KUSTOMIZE_VERSION: v5.8.1
+  CONTROLLER_TOOLS_VERSION: v0.22.0
+  GOLANGCI_LINT_VERSION: v2.13.1
+  CONFORM_VERSION: v0.1.0-alpha.31
+  HELM_DOCS_VERSION: v1.14.2
+  ENVTEST_VERSION:
+    sh: go list -m sigs.k8s.io/controller-runtime | awk '{print $NF}'
+  ENVTEST_K8S_VERSION:
+    sh: go list -m k8s.io/api | awk '{print $NF}' | sed -E 's/^v?[0-9]+\.([0-9]+).*/1.\1/'
+
+  # `task run` flags
+  RUN_FLAG_DEVEL: '{{.RUN_FLAG_DEVEL | default "true"}}'
+  METRICS_PORT: '{{.METRICS_PORT | default "8080"}}'
+  RUN_ARGS: >-
+    -metrics-bind-address=:{{.METRICS_PORT}} -metrics-secure=false
+    -zap-devel={{.RUN_FLAG_DEVEL}}
+    {{if .RUN_FLAG_LOG_LEVEL}}-zap-log-level={{.RUN_FLAG_LOG_LEVEL}}{{end}}
+    {{if .RUN_FLAG_ZAP_ENCODER}}-zap-encoder={{.RUN_FLAG_ZAP_ENCODER}}{{end}}
+    {{.RUN_ADDITIONAL_ARGS}}
+
+tasks:
+  default:
+    silent: true
+    cmds:
+      - '{{.TASK_EXE}} --list'
+
+  # ---------------------------------------------------------------------------------------------
+  # Development
+
+  manifests:
+    desc: Generate CRDs, RBAC and webhook manifests from the kubebuilder markers
+    deps: [tools:controller-gen]
+    sources:
+      - api/**/*.go
+      - cmd/**/*.go
+      - internal/**/*.go
+      - exclude: '**/*_test.go'
+      - exclude: '**/zz_generated.*.go'
+    generates:
+      - config/crd/bases/*.yaml
+      - config/rbac/role.yaml
+      - config/webhook/manifests.yaml
+    cmds:
+      - '{{.LOCALBIN}}/controller-gen rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases'
+
+  generate:
+    desc: Generate the DeepCopy methods of the API types
+    deps: [tools:controller-gen]
+    sources:
+      - api/**/*.go
+      - exclude: '**/zz_generated.*.go'
+    generates:
+      - api/**/zz_generated.deepcopy.go
+    cmds:
+      - '{{.LOCALBIN}}/controller-gen object paths="./..."'
+
+  fmt:
+    desc: Run go fmt
+    cmds:
+      - go fmt ./...
+
+  vet:
+    desc: Run go vet
+    cmds:
+      - go vet ./...
+
+  lint:
+    desc: Run golangci-lint
+    deps: [tools:golangci-lint]
+    cmds:
+      - '{{.LOCALBIN}}/golangci-lint run'
+
+  lint-fix:
+    desc: Run golangci-lint and apply the fixes
+    deps: [tools:golangci-lint]
+    cmds:
+      - '{{.LOCALBIN}}/golangci-lint run --fix'
+
+  lint-config:
+    desc: Verify the golangci-lint configuration
+    deps: [tools:golangci-lint]
+    cmds:
+      - '{{.LOCALBIN}}/golangci-lint config verify'
+
+  test:
+    desc: Run the unit and envtest suites
+    cmds:
+      - task: manifests
+      - task: generate
+      - task: fmt
+      - task: vet
+      - task: setup-envtest
+      - KUBEBUILDER_ASSETS="$({{.LOCALBIN}}/setup-envtest use {{.ENVTEST_K8S_VERSION}} --bin-dir {{.LOCALBIN}} -p path)" go test $(go list ./... | grep -v /e2e) -coverprofile cover.out
+
+  test-short:
+    desc: Run the fast tests only (slow suites opt out via testing.Short())
+    cmds:
+      - go test -short $(go list ./... | grep -v /e2e)
+
+  setup-test-e2e:
+    desc: Create the Kind cluster used by the e2e tests if it does not exist
+    preconditions:
+      - sh: command -v {{.KIND}}
+        msg: 'kind is not installed: https://kind.sigs.k8s.io'
+    status:
+      - '{{.KIND}} get clusters | grep -qx {{.KIND_CLUSTER}}'
+    cmds:
+      - '{{.KIND}} create cluster --name {{.KIND_CLUSTER}}'
+
+  test-e2e:
+    desc: Run the e2e tests on an isolated Kind cluster (created and deleted by the task)
+    cmds:
+      - task: setup-test-e2e
+      - task: manifests
+      - task: generate
+      - task: fmt
+      - task: vet
+      - defer: { task: cleanup-test-e2e }
+      - KIND={{.KIND}} KIND_CLUSTER={{.KIND_CLUSTER}} go test -tags=e2e ./test/e2e/ -v -ginkgo.v
+
+  cleanup-test-e2e:
+    desc: Delete the Kind cluster used by the e2e tests
+    cmds:
+      - '{{.KIND}} delete cluster --name {{.KIND_CLUSTER}}'
+
+  conform:
+    desc: Lint commit messages (COMMIT_MSG_FILE if set, commits since BASE_BRANCH otherwise)
+    deps: [tools:conform]
+    cmds:
+      - '{{.LOCALBIN}}/conform enforce {{if .COMMIT_MSG_FILE}}--commit-msg-file={{.COMMIT_MSG_FILE}}{{else}}--base-branch={{.BASE_BRANCH}}{{end}}'
+
+  # ---------------------------------------------------------------------------------------------
+  # Build
+
+  build:
+    desc: Build the manager binary into bin/manager
+    cmds:
+      - task: manifests
+      - task: generate
+      - task: fmt
+      - task: vet
+      - go build -o {{.LOCALBIN}}/manager cmd/main.go
+
+  run:
+    desc: Run the manager from the host against the current kubeconfig (see docs/guides/development.md)
+    cmds:
+      - task: manifests
+      - task: generate
+      - task: fmt
+      - task: vet
+      - go run ./cmd/main.go {{.RUN_ARGS}} {{.CLI_ARGS}}
+
+  docker-build:
+    desc: Build the manager image (IMG, optional BASE_IMAGE)
+    cmds:
+      - '{{.CONTAINER_TOOL}} build {{if .BASE_IMAGE}}--build-arg BASE_IMAGE={{.BASE_IMAGE}}{{end}} -t {{.IMG}} .'
+
+  docker-push:
+    desc: Push the manager image (IMG)
+    cmds:
+      - '{{.CONTAINER_TOOL}} push {{.IMG}}'
+
+  docker-buildx:
+    desc: Build and push the manager image for PLATFORMS with buildx (IMG)
+    cmds:
+      - defer: '{{.CONTAINER_TOOL}} buildx rm kube-image-keeper-builder || true'
+      - '{{.CONTAINER_TOOL}} buildx create --name kube-image-keeper-builder --use'
+      - '{{.CONTAINER_TOOL}} buildx build --push --platform={{.PLATFORMS}} {{if .BASE_IMAGE}}--build-arg BASE_IMAGE={{.BASE_IMAGE}}{{end}} --tag {{.IMG}} .'
+
+  build-installer:
+    desc: Render CRDs and deployment into dist/install.yaml (IMG)
+    deps: [tools:kustomize]
+    cmds:
+      - task: manifests
+      - task: generate
+      - mkdir -p dist
+      - cd config/manager && {{.LOCALBIN}}/kustomize edit set image controller={{.IMG}}
+      - '{{.LOCALBIN}}/kustomize build config/default > dist/install.yaml'
+
+  # ---------------------------------------------------------------------------------------------
+  # Helm
+
+  helm-lint:
+    desc: Lint the Helm chart
+    cmds:
+      - helm lint {{.CHART}}
+
+  generate-helm-docs:
+    desc: Generate the chart README from README.md.gotmpl, README.md (up to HELM_DOCS_END) and LICENSE
+    deps: [tools:helm-docs]
+    cmds:
+      - defer: rm -rf {{.CHART}}/repo
+      - mkdir -p {{.CHART}}/repo
+      - cp LICENSE {{.CHART}}/repo
+      - sed -e '/<!-- HELM_DOCS_END -->/,$d' README.md > {{.CHART}}/repo/README.md
+      - '{{.LOCALBIN}}/helm-docs'
+
+  # ---------------------------------------------------------------------------------------------
+  # Deployment with kustomize, against the current kubeconfig
+
+  install:
+    desc: Install the CRDs
+    deps: [tools:kustomize]
+    cmds:
+      - task: manifests
+      - |
+        out="$({{.LOCALBIN}}/kustomize build config/crd 2>/dev/null || true)"
+        if [ -n "$out" ]; then echo "$out" | {{.KUBECTL}} apply -f -; else echo "No CRDs to install; skipping."; fi
+
+  uninstall:
+    desc: Uninstall the CRDs (IGNORE_NOT_FOUND=true to ignore missing ones)
+    deps: [tools:kustomize]
+    cmds:
+      - task: manifests
+      - |
+        out="$({{.LOCALBIN}}/kustomize build config/crd 2>/dev/null || true)"
+        if [ -n "$out" ]; then echo "$out" | {{.KUBECTL}} delete --ignore-not-found={{.IGNORE_NOT_FOUND}} -f -; else echo "No CRDs to delete; skipping."; fi
+
+  deploy:
+    desc: Deploy the manager (IMG)
+    deps: [tools:kustomize]
+    cmds:
+      - task: manifests
+      - cd config/manager && {{.LOCALBIN}}/kustomize edit set image controller={{.IMG}}
+      - '{{.LOCALBIN}}/kustomize build config/default | {{.KUBECTL}} apply -f -'
+
+  undeploy:
+    desc: Undeploy the manager (IGNORE_NOT_FOUND=true to ignore missing resources)
+    deps: [tools:kustomize]
+    cmds:
+      - '{{.LOCALBIN}}/kustomize build config/default | {{.KUBECTL}} delete --ignore-not-found={{.IGNORE_NOT_FOUND}} -f -'
+
+  # ---------------------------------------------------------------------------------------------
+  # Tools, installed into bin/ as <name>-<version> with a <name> symlink
+
+  tools:
+    desc: Install every tool into bin/
+    deps:
+      - tools:kustomize
+      - tools:controller-gen
+      - tools:envtest
+      - tools:golangci-lint
+      - tools:conform
+      - tools:helm-docs
+
+  tools:go-install:
+    internal: true
+    requires:
+      vars: [NAME, PKG, VERSION]
+    status:
+      - test -x {{.LOCALBIN}}/{{.NAME}}-{{.VERSION}}
+      - test "$(readlink {{.LOCALBIN}}/{{.NAME}})" = {{.NAME}}-{{.VERSION}}
+    cmds:
+      - mkdir -p {{.LOCALBIN}}
+      - rm -f {{.LOCALBIN}}/{{.NAME}}
+      - GOBIN={{.LOCALBIN}} go install {{.PKG}}@{{.VERSION}}
+      - mv {{.LOCALBIN}}/{{.NAME}} {{.LOCALBIN}}/{{.NAME}}-{{.VERSION}}
+      - ln -sf {{.NAME}}-{{.VERSION}} {{.LOCALBIN}}/{{.NAME}}
+
+  tools:kustomize:
+    internal: true
+    cmds:
+      - task: tools:go-install
+        vars: { NAME: kustomize, PKG: sigs.k8s.io/kustomize/kustomize/v5, VERSION: '{{.KUSTOMIZE_VERSION}}' }
+
+  tools:controller-gen:
+    internal: true
+    cmds:
+      - task: tools:go-install
+        vars: { NAME: controller-gen, PKG: sigs.k8s.io/controller-tools/cmd/controller-gen, VERSION: '{{.CONTROLLER_TOOLS_VERSION}}' }
+
+  tools:envtest:
+    internal: true
+    cmds:
+      - task: tools:go-install
+        vars: { NAME: setup-envtest, PKG: sigs.k8s.io/controller-runtime/tools/setup-envtest, VERSION: '{{.ENVTEST_VERSION}}' }
+
+  setup-envtest:
+    desc: Download the envtest binaries for the Kubernetes version of go.mod
+    deps: [tools:envtest]
+    cmds:
+      - '{{.LOCALBIN}}/setup-envtest use {{.ENVTEST_K8S_VERSION}} --bin-dir {{.LOCALBIN}} -p path'
+
+  tools:golangci-lint:
+    # A custom binary is built with the module plugins of .custom-gcl.yml and rebuilt when
+    # that file changes.
+    internal: true
+    vars:
+      CUSTOM: golangci-lint-{{.GOLANGCI_LINT_VERSION}}-custom
+    status:
+      - test {{.LOCALBIN}}/{{.CUSTOM}} -nt .custom-gcl.yml
+      - test "$(readlink {{.LOCALBIN}}/golangci-lint)" = {{.CUSTOM}}
+    cmds:
+      - task: tools:go-install
+        vars: { NAME: golangci-lint, PKG: github.com/golangci/golangci-lint/v2/cmd/golangci-lint, VERSION: '{{.GOLANGCI_LINT_VERSION}}' }
+      - '{{.LOCALBIN}}/golangci-lint-{{.GOLANGCI_LINT_VERSION}} custom --destination {{.LOCALBIN}} --name {{.CUSTOM}}'
+      - ln -sf {{.CUSTOM}} {{.LOCALBIN}}/golangci-lint
+
+  tools:conform:
+    internal: true
+    cmds:
+      - task: tools:go-install
+        vars: { NAME: conform, PKG: github.com/siderolabs/conform/cmd/conform, VERSION: '{{.CONFORM_VERSION}}' }
+
+  tools:helm-docs:
+    internal: true
+    cmds:
+      - task: tools:go-install
+        vars: { NAME: helm-docs, PKG: github.com/norwoodj/helm-docs/cmd/helm-docs, VERSION: '{{.HELM_DOCS_VERSION}}' }

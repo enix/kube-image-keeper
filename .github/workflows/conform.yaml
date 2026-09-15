@@ -23,5 +23,8 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Setup Task
+        uses: ./.github/actions/setup-task
+
       - name: Lint commits
-        run: make conform BASE_BRANCH=origin/${{ github.event.pull_request.base.ref }}
+        run: task conform BASE_BRANCH=origin/${{ github.event.pull_request.base.ref }}

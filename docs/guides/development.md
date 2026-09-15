@@ -13,34 +13,37 @@ sidebar:
 
 kuik uses [cert-manager](https://cert-manager.io/docs/installation/) to issue and configure its webhook certificate, so you need it installed on your cluster first.
 
+Commands are [Task](https://taskfile.dev) tasks; `task --list` shows them all.
+
 ```bash
 # generate CRDs definitions from go code and install them on the cluster you're connected to
-make install
+task install
 # run the manager locally against the cluster you're connected to and export metrics to :8080
-make run
+task run
 ```
 
-## Makefile options
+## `task run` options
 
-The way kuik is run using the Makefile can be configured through environment variables:
+`task run` can be configured through variables, given as environment variables or as `task run VAR=value`:
 
 - `RUN_FLAG_DEVEL`: sets the `-zap-devel` flag, defaults to `true`
 - `RUN_FLAG_LOG_LEVEL`: sets the `-zap-log-level` flag if present
 - `RUN_FLAG_ZAP_ENCODER`: sets the `-zap-encoder` flag if present
 - `METRICS_PORT`: sets the port to bind for the metrics, defaults to `8080`
 - `RUN_ADDITIONAL_ARGS`: add any additional argument to the `go run ./cmd/main.go` command (you can even `| grep` here)
-- `RUN_ARGS`: default arguments to the `go run ./cmd/main.go` command, it combines all previous variables together. Don't touch it if you don't need to.
+
+Arguments after `--` are passed to the manager as well: `task run -- -zap-log-level=debug`.
 
 I highly suggest that you try [github.com/pamburus/hl](https://github.com/pamburus/hl), an awesome tool to make json logs human readable. It can be setup with kuik like this:
 
 ```bash
 export RUN_FLAG_ZAP_ENCODER=json RUN_ADDITIONAL_ARGS="2>&1 | hl --paging=never"
-make run
+task run
 ```
 
 ## Local webhook for remote cluster
 
-There are several ways of developing a webhook for kubernetes and depending on your situation you may prefer one over another. One of them consists of running your webhook locally (using `make run` command) and expose it as a service in your kubernetes cluster using a tool like [github.com/omrikiei/ktunnel](https://github.com/omrikiei/ktunnel) for instance. Since `MutatingWebhookConfiguration` requires a certificate for authentication, you will need to create one using cert-manager.
+There are several ways of developing a webhook for kubernetes and depending on your situation you may prefer one over another. One of them consists of running your webhook locally (using `task run` command) and expose it as a service in your kubernetes cluster using a tool like [github.com/omrikiei/ktunnel](https://github.com/omrikiei/ktunnel) for instance. Since `MutatingWebhookConfiguration` requires a certificate for authentication, you will need to create one using cert-manager.
 
 You will need:
 
