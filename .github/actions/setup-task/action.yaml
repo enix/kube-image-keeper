@@ -1,0 +1,8 @@
+name: Setup Task
+description: Install Task (https://taskfile.dev), the task runner of this repository. Requires Go.
+runs:
+  using: composite
+  steps:
+    - name: Install Task
+      shell: bash
+      run: go install github.com/go-task/task/v3/cmd/task@v3.53.1

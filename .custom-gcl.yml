@@ -1,5 +1,5 @@
 # This file configures golangci-lint with module plugins.
-# When you run 'make lint', it will automatically build a custom golangci-lint binary
+# When you run 'task lint', it will automatically build a custom golangci-lint binary
 # with all the plugins listed below.
 #
 # See: https://golangci-lint.run/plugins/module-plugins/

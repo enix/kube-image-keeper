@@ -23,6 +23,9 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Setup Task
+        uses: ./.github/actions/setup-task
+
       - name: Check go.mod and go.sum
         run: |
           go mod tidy
@@ -30,7 +33,7 @@ jobs:
 
       - name: Check generated files
         run: |
-          make manifests generate
+          task manifests generate
           git diff --exit-code
 
       - name: Check formatting
@@ -39,10 +42,10 @@ jobs:
           git diff --exit-code
 
       - name: Check linter configuration
-        run: make lint-config
+        run: task lint-config
 
       - name: Run lint
-        run: make lint
+        run: task lint
 
       - name: Run markdownlint
         run: npx --yes --package markdownlint-cli2 --package markdownlint-rule-search-replace --package markdownlint-rule-relative-links markdownlint-cli2 "**/*.md"

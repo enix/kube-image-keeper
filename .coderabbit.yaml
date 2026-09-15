@@ -56,8 +56,8 @@ reviews:
 
   # Auto-generated files: don't waste tokens reviewing them, the source
   # of truth is elsewhere.
-  #   - zz_generated.deepcopy.go: produced by `make generate` (controller-gen)
-  #   - config/crd/bases & helm crds: produced by `make manifests`
+  #   - zz_generated.deepcopy.go: produced by `task generate` (controller-gen)
+  #   - config/crd/bases & helm crds: produced by `task manifests`
   #     (the helm copy is a verbatim mirror of config/crd/bases)
   #   - helm clusterrole-*.yaml: sliced out of config/rbac by the Makefile
   path_filters:

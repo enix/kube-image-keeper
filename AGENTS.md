@@ -36,9 +36,9 @@ test/e2e/                     End-to-end suite, runs on a Kind cluster
 PROJECT                       Kubebuilder metadata
 ```
 
-**Generated, never edit by hand**: `**/zz_generated.*.go` (`make generate`),
+**Generated, never edit by hand**: `**/zz_generated.*.go` (`task generate`),
 `config/crd/bases/*.yaml`, `config/rbac/role.yaml`, `config/webhook/manifests.yaml`
-(`make manifests`), `PROJECT` (kubebuilder CLI). Edit the markers in the Go sources and
+(`task manifests`), `PROJECT` (kubebuilder CLI). Edit the markers in the Go sources and
 regenerate.
 
 **Keep the scaffold intact**: never delete `// +kubebuilder:scaffold:*` comments, the
@@ -46,18 +46,21 @@ CLI injects code there. Do not move files: the CLI expects this layout. Scaffold
 kinds and webhooks with `kubebuilder create api` / `kubebuilder create webhook`, never
 by hand.
 
-**After a change**, before committing:
+**Commands** are [Task](https://taskfile.dev) tasks in `Taskfile.yaml` (`task --list`), see
+[0006](./notes/0006-taskfile.md). The `Makefile` is a shim that forwards `make <target>`
+to `task <target>` for the kubebuilder CLI and the e2e suite; do not add targets to it.
+After a change, before committing:
 
 ```sh
-make manifests generate   # after editing *_types.go or any kubebuilder marker
-make lint-fix             # after editing *.go
-make test                 # unit and envtest suites
+task manifests generate   # after editing *_types.go or any kubebuilder marker
+task lint-fix             # after editing *.go
+task test                 # unit and envtest suites
 ```
 
 The pre-commit hook runs the first two on staged files (`.lefthook.yaml`); CI fails on
 any drift in generated files.
 
-**e2e tests** (`make test-e2e`) need an isolated Kind cluster. Never run them against a
+**e2e tests** (`task test-e2e`) need an isolated Kind cluster. Never run them against a
 real cluster.
 
 ## Conventions
