@@ -14,6 +14,17 @@ Pull requests targeting v2 must be opened against the `2.3.x` branch.
 
 Before contributing to kube-image-keeper, you need a Kubernetes cluster with [cert-manager](https://cert-manager.io/docs/installation/) installed (kuik uses it to issue its webhook certificate). See the [development guide](./docs/guides/development.md) for how to run kube-image-keeper locally.
 
+### Devcontainer
+
+The repository ships a [devcontainer](https://containers.dev/) (`.devcontainer/`) with Go, Docker, Kind, kubectl, Helm, kubebuilder, Node.js, Task and lefthook pre-installed, and the git hooks registered. Use it with the [devcontainer CLI](https://github.com/devcontainers/cli) (`npm install -g @devcontainers/cli`) or any editor that supports devcontainers:
+
+```sh
+devcontainer up --workspace-folder .              # build and start the container
+devcontainer exec --workspace-folder . task test  # run a command in it
+```
+
+The repository is bind-mounted, so you can keep editing with your own editor on the host. Everything below is already set up inside the container.
+
 ### Task
 
 Build, test and deployment commands are [Task](https://taskfile.dev) tasks, listed by `task --list` and defined in [`Taskfile.yaml`](./Taskfile.yaml). Install it with `go install github.com/go-task/task/v3/cmd/task@latest` (or see [taskfile.dev/installation](https://taskfile.dev/installation/)). The `Makefile` is only a shim for tools that call `make` themselves (the kubebuilder CLI, the e2e suite): `make <target>` forwards to `task <target>`.
