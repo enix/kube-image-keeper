@@ -20,26 +20,8 @@ Kuik will manage the burden of rerouting calls to your proxy cache
 
 ### Kuik custom resource to use
 
-- [ClusterReplicatedImageSet](../crds.md#clusterreplicatedimageset)
+TODO
 
 ### Configuration example
 
-```yaml
-apiVersion: kuik.enix.io/v1alpha1
-kind: ClusterReplicatedImageSet
-metadata:
-  name: dockerhub-proxy-cache
-spec:
-  priority: -1 # prefer alternative images (proxy cached on gitlab in this example) rather than original one
-  upstreams:
-  - registry: docker.io
-    imageFilter:
-      include:
-      - /library/[^/]+
-    path: /library/
-  - registry: gitlab.example.com
-    imageFilter:
-      include:
-      - /my-group/dependency_proxy/containers/library/.+
-    path: /my-group/dependency_proxy/containers/
-```
+TODO
