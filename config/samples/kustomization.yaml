@@ -1,0 +1,6 @@
+## Append samples of your project ##
+resources:
+- kuik_v1alpha1_imagealternative.yaml
+- kuik_v1alpha1_imagemirror.yaml
+- kuik_v1alpha1_imagemonitor.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples
