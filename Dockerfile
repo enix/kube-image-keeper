@@ -3,7 +3,7 @@ FROM --platform=${BUILDPLATFORM} golang:1.26-alpine3.24 AS builder
 
 WORKDIR /workspace
 
-RUN go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.17.2
+RUN go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.22.0
 
 # Copy the Go Modules manifests
 COPY go.mod go.mod
@@ -16,9 +16,6 @@ RUN go mod download
 COPY api/ api/
 COPY cmd/ cmd/
 COPY internal/ internal/
-
-# Copy the makefile
-COPY Makefile Makefile
 
 ARG TARGETOS
 ARG TARGETARCH

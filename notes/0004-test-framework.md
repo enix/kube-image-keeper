@@ -10,9 +10,7 @@ One runner, one assertion vocabulary, no demarcation rule to apply per file.
 - **Gomega is the only assertion grammar.** Where a plain `func TestX(t *testing.T)`
   remains, it asserts through `g := NewWithT(t)`; the target shape for new tests is a
   Ginkgo spec.
-- **Table-driven tests are written as `DescribeTable` / `Entry`**, not `[]struct{}` +
-  `t.Run`. This is already the shape used in
-  [`internal/controller/kuik/mirror_reconciler_test.go`](../internal/controller/kuik/mirror_reconciler_test.go).
+- **Table-driven tests are written as `DescribeTable` / `Entry`**, not `[]struct{}` + `t.Run`.
 - **Fast feedback comes from Ginkgo labels**, not from `testing.Short()`:
   `Label("envtest")` / `Label("e2e")` plus `-ginkgo.label-filter` (details below).
 
