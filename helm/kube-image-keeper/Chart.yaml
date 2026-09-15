@@ -1,0 +1,41 @@
+apiVersion: v2
+name: kube-image-keeper
+description: The keeper of your images in your cluster!
+type: application
+# version and appVersion are set by the release pipeline, see .github/workflows/build.yaml
+version: 0.0.0
+appVersion: 0.0.0
+home: https://github.com/enix/kube-image-keeper
+icon: https://raw.githubusercontent.com/enix/kube-image-keeper/main/website/src/assets/logo.svg
+sources:
+  - https://github.com/enix/kube-image-keeper
+keywords:
+  - kubernetes
+  - operator
+  - container-images
+  - registry
+  - mirror
+  - webhook
+annotations:
+  artifacthub.io/containsSecurityUpdates: "false"
+  artifacthub.io/prerelease: "false"
+  artifacthub.io/license: MIT
+  artifacthub.io/changes: ""
+  artifacthub.io/links: |
+    - name: Chart Sources
+      url: https://github.com/enix/kube-image-keeper/tree/main/helm/kube-image-keeper
+    - name: Helm Repository
+      url: https://charts.enix.io
+maintainers:
+  - name: Enix
+    email: contact@enix.fr
+    url: https://github.com/enixsas
+  - name: Paul Laffitte
+    email: paul.laffitte@enix.fr
+    url: https://github.com/paullaffitte
+  - name: David Donchez
+    email: david.donchez@enix.fr
+    url: https://github.com/donch
+  - name: Aurélien Dunand
+    email: aurelien.dunand@enix.fr
+    url: https://github.com/Tassatux
