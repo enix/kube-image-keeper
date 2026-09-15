@@ -42,10 +42,38 @@ app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
+{{- define "kube-image-keeper.manager-labels" -}}
+{{ include "kube-image-keeper.labels" . }}
+app.kubernetes.io/component: manager
+{{- end }}
+
 {{/*
 Selector labels
 */}}
 {{- define "kube-image-keeper.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "kube-image-keeper.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{- define "kube-image-keeper.manager-selectorLabels" -}}
+{{ include "kube-image-keeper.selectorLabels" . }}
+app.kubernetes.io/component: manager
+{{- end }}
+
+{{/*
+Create the name of the ClusterRole to use
+*/}}
+{{- define "kube-image-keeper.clusterRoleName" -}}
+{{- printf "%s-%s" (include "kube-image-keeper.fullname" .) "manager" }}
+{{- end }}
+
+{{/*
+Create the name of the service account to use
+*/}}
+{{- define "kube-image-keeper.serviceAccountName" -}}
+{{- if .Values.serviceAccount.create -}}
+  {{- default (include "kube-image-keeper.clusterRoleName" .) .Values.serviceAccount.name }}
+{{- else -}}
+  {{- default "default" .Values.serviceAccount.name }}
+{{- end -}}
 {{- end }}

@@ -7,8 +7,9 @@
 version: '3'
 
 vars:
-  # Image URL used by the build and push tasks
-  IMG: '{{.IMG | default "controller:latest"}}'
+  # Image used by the build, push and deploy tasks, as repository:tag
+  IMG: '{{.IMG | default "kube-image-keeper:dev"}}'
+  HELM_IMAGE_ARGS: --set manager.image.repository={{regexReplaceAll ":[^:/]+$" .IMG ""}} --set manager.image.tag={{regexFind "[^:/]+$" .IMG}}
   # Container tool used to build images (docker, podman...)
   CONTAINER_TOOL: '{{.CONTAINER_TOOL | default "docker"}}'
   # Platforms built by docker-buildx
@@ -21,12 +22,16 @@ vars:
   # Base branch for conform when no commit message file is given
   BASE_BRANCH: '{{.BASE_BRANCH | default "origin/main"}}'
 
+  # Helm release used by deploy / undeploy
+  NAMESPACE: '{{.NAMESPACE | default "kuik-system"}}'
+  RELEASE: '{{.RELEASE | default "kube-image-keeper"}}'
+
   CHART: helm/kube-image-keeper
+  CRDS: config/crd/bases
   LOCALBIN: '{{.ROOT_DIR}}/bin'
 
   # Tool versions. setup-envtest follows controller-runtime and the envtest binaries follow
   # k8s.io/api, both read from go.mod.
-  KUSTOMIZE_VERSION: v5.8.1
   CONTROLLER_TOOLS_VERSION: v0.22.0
   GOLANGCI_LINT_VERSION: v2.13.1
   CONFORM_VERSION: v0.1.0-alpha.31
@@ -56,20 +61,29 @@ tasks:
   # Development
 
   manifests:
-    desc: Generate CRDs, RBAC and webhook manifests from the kubebuilder markers
+    desc: Generate CRDs, RBAC and webhook manifests from the kubebuilder markers, and copy them into the chart
     deps: [tools:controller-gen]
     sources:
       - api/**/*.go
       - cmd/**/*.go
       - internal/**/*.go
+      - config/rbac/leader_election_role.yaml
       - exclude: '**/*_test.go'
       - exclude: '**/zz_generated.*.go'
     generates:
-      - config/crd/bases/*.yaml
+      - '{{.CRDS}}/*.yaml'
       - config/rbac/role.yaml
       - config/webhook/manifests.yaml
+      - '{{.CHART}}/crds/*.yaml'
+      - '{{.CHART}}/files/*.yaml'
     cmds:
-      - '{{.LOCALBIN}}/controller-gen rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases'
+      - '{{.LOCALBIN}}/controller-gen rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config={{.CRDS}}'
+      - mkdir -p {{.CHART}}/crds {{.CHART}}/files
+      - rm -f {{.CHART}}/crds/*.yaml
+      - for f in {{.CRDS}}/*.yaml; do sed '1{/^---$/d}' "$f" > {{.CHART}}/crds/$(basename "$f"); done
+      # The chart templates only need the rules, they carry their own metadata
+      - sed -n '/^rules:/,$p' config/rbac/role.yaml | tail -n +2 > {{.CHART}}/files/manager-rules.yaml
+      - sed -n '/^rules:/,$p' config/rbac/leader_election_role.yaml | tail -n +2 > {{.CHART}}/files/leader-election-rules.yaml
 
   generate:
     desc: Generate the DeepCopy methods of the API types
@@ -196,14 +210,11 @@ tasks:
       - '{{.CONTAINER_TOOL}} buildx build --push --platform={{.PLATFORMS}} {{if .BASE_IMAGE}}--build-arg BASE_IMAGE={{.BASE_IMAGE}}{{end}} --tag {{.IMG}} .'
 
   build-installer:
-    desc: Render CRDs and deployment into dist/install.yaml (IMG)
-    deps: [tools:kustomize]
+    desc: Render the chart with its CRDs into dist/install.yaml (IMG)
     cmds:
       - task: manifests
-      - task: generate
       - mkdir -p dist
-      - cd config/manager && {{.LOCALBIN}}/kustomize edit set image controller={{.IMG}}
-      - '{{.LOCALBIN}}/kustomize build config/default > dist/install.yaml'
+      - helm template {{.RELEASE}} {{.CHART}} --namespace {{.NAMESPACE}} --include-crds {{.HELM_IMAGE_ARGS}} > dist/install.yaml
 
   # ---------------------------------------------------------------------------------------------
   # Helm
@@ -224,39 +235,37 @@ tasks:
       - '{{.LOCALBIN}}/helm-docs'
 
   # ---------------------------------------------------------------------------------------------
-  # Deployment with kustomize, against the current kubeconfig
+  # Deployment with the Helm chart, against the current kubeconfig. cert-manager must be installed.
 
   install:
-    desc: Install the CRDs
-    deps: [tools:kustomize]
+    desc: Install the CRDs only
     cmds:
       - task: manifests
-      - |
-        out="$({{.LOCALBIN}}/kustomize build config/crd 2>/dev/null || true)"
-        if [ -n "$out" ]; then echo "$out" | {{.KUBECTL}} apply -f -; else echo "No CRDs to install; skipping."; fi
+      - '{{.KUBECTL}} apply --server-side -f {{.CRDS}}'
 
   uninstall:
     desc: Uninstall the CRDs (IGNORE_NOT_FOUND=true to ignore missing ones)
-    deps: [tools:kustomize]
     cmds:
       - task: manifests
-      - |
-        out="$({{.LOCALBIN}}/kustomize build config/crd 2>/dev/null || true)"
-        if [ -n "$out" ]; then echo "$out" | {{.KUBECTL}} delete --ignore-not-found={{.IGNORE_NOT_FOUND}} -f -; else echo "No CRDs to delete; skipping."; fi
+      - '{{.KUBECTL}} delete --ignore-not-found={{.IGNORE_NOT_FOUND}} -f {{.CRDS}}'
 
   deploy:
-    desc: Deploy the manager (IMG)
-    deps: [tools:kustomize]
+    desc: Install or upgrade the chart with image IMG in NAMESPACE (release RELEASE)
     cmds:
       - task: manifests
-      - cd config/manager && {{.LOCALBIN}}/kustomize edit set image controller={{.IMG}}
-      - '{{.LOCALBIN}}/kustomize build config/default | {{.KUBECTL}} apply -f -'
+      - helm upgrade --install {{.RELEASE}} {{.CHART}} --namespace {{.NAMESPACE}} --create-namespace {{.HELM_IMAGE_ARGS}} {{.CLI_ARGS}}
 
   undeploy:
-    desc: Undeploy the manager (IGNORE_NOT_FOUND=true to ignore missing resources)
-    deps: [tools:kustomize]
+    desc: Uninstall the chart release (CRDs stay, see uninstall)
     cmds:
-      - '{{.LOCALBIN}}/kustomize build config/default | {{.KUBECTL}} delete --ignore-not-found={{.IGNORE_NOT_FOUND}} -f -'
+      - helm uninstall {{.RELEASE}} --namespace {{.NAMESPACE}} {{if eq .IGNORE_NOT_FOUND "true"}}--ignore-not-found{{end}}
+
+  kind-deploy:
+    desc: Build the image, load it into the Kind cluster KIND_CLUSTER and deploy the chart
+    cmds:
+      - task: docker-build
+      - '{{.KIND}} load docker-image {{.IMG}} --name {{.KIND_CLUSTER}}'
+      - task: deploy
 
   # ---------------------------------------------------------------------------------------------
   # Tools, installed into bin/ as <name>-<version> with a <name> symlink
@@ -264,7 +273,6 @@ tasks:
   tools:
     desc: Install every tool into bin/
     deps:
-      - tools:kustomize
       - tools:controller-gen
       - tools:envtest
       - tools:golangci-lint
@@ -284,12 +292,6 @@ tasks:
       - GOBIN={{.LOCALBIN}} go install {{.PKG}}@{{.VERSION}}
       - mv {{.LOCALBIN}}/{{.NAME}} {{.LOCALBIN}}/{{.NAME}}-{{.VERSION}}
       - ln -sf {{.NAME}}-{{.VERSION}} {{.LOCALBIN}}/{{.NAME}}
-
-  tools:kustomize:
-    internal: true
-    cmds:
-      - task: tools:go-install
-        vars: { NAME: kustomize, PKG: sigs.k8s.io/kustomize/kustomize/v5, VERSION: '{{.KUSTOMIZE_VERSION}}' }
 
   tools:controller-gen:
     internal: true

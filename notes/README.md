@@ -68,3 +68,6 @@ Rationale in [0005](./0005-decision-log-filter.md).
 - [0006 — Task replaces the Makefile](./0006-taskfile.md): commands live in
   `Taskfile.yaml`; the `Makefile` is a shim forwarding to `task` for kubebuilder and the e2e
   suite.
+- [0007 — Helm is the only deployment path](./0007-helm-only.md): the chart deploys kuik in
+  dev, CI and production; `config/` is controller-gen output only; the kubebuilder Helm plugin
+  is rejected.

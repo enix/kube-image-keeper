@@ -31,13 +31,15 @@ cmd/main.go                   Manager entry: registers controllers and webhooks
 api/kuik/v1alpha1/*_types.go  CRD schemas and kubebuilder markers
 internal/controller/kuik/*    Reconcilers, one per kind
 internal/webhook/core/v1/*    Pod mutating webhook (image routing)
-config/                       Kustomize manifests
+config/                       controller-gen output (CRDs, RBAC, webhook), read by envtest
+helm/kube-image-keeper/       The Helm chart, the only deployment path (crds/ and files/ generated)
 test/e2e/                     End-to-end suite, runs on a Kind cluster
 PROJECT                       Kubebuilder metadata
 ```
 
 **Generated, never edit by hand**: `**/zz_generated.*.go` (`task generate`),
-`config/crd/bases/*.yaml`, `config/rbac/role.yaml`, `config/webhook/manifests.yaml`
+`config/crd/bases/*.yaml`, `config/rbac/role.yaml`, `config/webhook/manifests.yaml`,
+`helm/kube-image-keeper/crds/*.yaml`, `helm/kube-image-keeper/files/*.yaml`
 (`task manifests`), `PROJECT` (kubebuilder CLI). Edit the markers in the Go sources and
 regenerate.
 
@@ -59,6 +61,10 @@ task test                 # unit and envtest suites
 
 The pre-commit hook runs the first two on staged files (`.lefthook.yaml`); CI fails on
 any drift in generated files.
+
+**Deploying** goes through the Helm chart only ([0007](./notes/0007-helm-only.md)):
+`task deploy IMG=...` or `task kind-deploy` on a Kind cluster. `config/` holds no
+deployment overlay; do not add kustomize bases or patches.
 
 **e2e tests** (`task test-e2e`) need an isolated Kind cluster. Never run them against a
 real cluster.

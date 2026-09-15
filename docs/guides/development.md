@@ -15,12 +15,29 @@ kuik uses [cert-manager](https://cert-manager.io/docs/installation/) to issue an
 
 Commands are [Task](https://taskfile.dev) tasks; `task --list` shows them all.
 
+## Deploy on a Kind cluster
+
+The Helm chart is the only deployment path, for development as for production.
+
+```bash
+kind create cluster --name kuik-dev
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
+# build the image, load it into the Kind cluster and install the chart in kuik-system
+task kind-deploy IMG=kuik:dev KIND_CLUSTER=kuik-dev
+```
+
+`task deploy IMG=...` alone runs `helm upgrade --install` against the current kubeconfig; arguments after `--` go to Helm (`task deploy -- --set manager.verbosity=DEBUG`). `task undeploy` removes the release, `task uninstall` the CRDs.
+
+## Run the manager on your host
+
 ```bash
 # generate CRDs definitions from go code and install them on the cluster you're connected to
 task install
 # run the manager locally against the cluster you're connected to and export metrics to :8080
-task run
+ENABLE_WEBHOOKS=false task run
 ```
+
+Without `ENABLE_WEBHOOKS=false` the manager also starts the webhook server, which needs a certificate in `/tmp/k8s-webhook-server/serving-certs`: see [Local webhook for remote cluster](#local-webhook-for-remote-cluster).
 
 ## `task run` options
 
