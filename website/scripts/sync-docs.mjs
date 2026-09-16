@@ -42,9 +42,23 @@ export const SOURCE_ROOTS = [
   path.join(websiteRoot, 'src/content/overlay'),
 ];
 const OVERLAY_ROOT = SOURCE_ROOTS[SOURCE_ROOTS.length - 1];
+const DOCS_ROOT = SOURCE_ROOTS[0];
+// Subtrees of ../docs that stay GitHub-only and are never published on the
+// site: design documents that are not user documentation (they link to
+// non-page files such as YAML examples, which the site cannot serve). Relative
+// to ../docs; nothing under them is copied, on a full sync or by the dev watcher.
+export const UNPUBLISHED_DOCS = ['v3'];
 // Per-version config file shipped inside each version's docs/ tree; lifted into
 // the `versions` collection rather than rendered as a page.
 const VERSION_CONFIG_FILE = 'version-config.json';
+
+// True when `rel` (a path relative to `root`) falls under an unpublished
+// subtree. Only ../docs has such subtrees; the overlay and archived versions
+// are published whole.
+function isUnpublished(root, rel) {
+  if (root !== DOCS_ROOT) return false;
+  return UNPUBLISHED_DOCS.some((dir) => rel === dir || rel.startsWith(dir + path.sep));
+}
 
 // Starlight requires the page title in frontmatter (`title:`) and would render
 // a duplicate heading if the body also opened with an H1. We author docs the
@@ -221,7 +235,11 @@ export function syncDocs() {
 
   // Current version (../docs + overlay).
   for (const root of SOURCE_ROOTS) {
-    if (existsSync(root)) cpSync(root, DEST_ROOT, { recursive: true });
+    if (!existsSync(root)) continue;
+    cpSync(root, DEST_ROOT, {
+      recursive: true,
+      filter: (src) => !isUnpublished(root, path.relative(root, src)),
+    });
   }
   // Archived versions (one git ref each).
   const built = versions.map((v) => `${v.slug} (${syncVersion(v)})`);
@@ -239,6 +257,7 @@ function destForSource(file) {
   for (const root of SOURCE_ROOTS) {
     const rel = path.relative(root, abs);
     if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) {
+      if (isUnpublished(root, rel)) return null;
       return { root, rel, dest: path.join(DEST_ROOT, rel) };
     }
   }
