@@ -1,13 +1,17 @@
 package registry
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/distribution/reference"
 	"github.com/enix/kube-image-keeper/internal/registry/credentialprovider/secrets"
 	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/authn/k8schain"
 	corev1 "k8s.io/api/core/v1"
 )
+
+var newFallbackKeychain = k8schain.NewNoClient
 
 type authConfigKeychain struct {
 	authn.AuthConfig
@@ -21,12 +25,18 @@ func (a *authConfigKeychain) Resolve(target authn.Resource) (authn.Authenticator
 	return authn.FromConfig(a.AuthConfig), nil
 }
 
-func GetKeychains(repositoryName string, pullSecrets []corev1.Secret) ([]authn.Keychain, error) {
+func GetKeychains(ctx context.Context, repositoryName string, pullSecrets []corev1.Secret) ([]authn.Keychain, error) {
 	if keychains, err := getKeychainsFromSecrets(repositoryName, pullSecrets); err != nil {
 		return nil, err
-	} else {
+	} else if len(keychains) > 0 {
 		return keychains, nil
 	}
+
+	fallback, err := newFallbackKeychain(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("could not construct registry fallback keychain: %w", err)
+	}
+	return []authn.Keychain{fallback}, nil
 }
 
 func getKeychainsFromSecrets(repositoryName string, pullSecrets []corev1.Secret) ([]authn.Keychain, error) {

@@ -89,7 +89,7 @@ spec:
 
 ## (Cluster)ImageSetMirror
 
-The `ImageSetMirror` and `ClusterImageSetMirror` resources define the actual mirroring implementation for your cluster. They determine which images are selected for synchronization, specify the target destination, and manage the authentication via push secrets.
+The `ImageSetMirror` and `ClusterImageSetMirror` resources define the actual mirroring implementation for your cluster. They determine which images are selected for synchronization, specify the target destination, and optionally select credentials for registry operations.
 
 Image path is always [normalized](https://github.com/distribution/reference/blob/main/normalize.go) by kuik, so use full path in `imageFilter`. For instance `busybox:stable` will be seen as `docker.io/library/busybox:stable`.
 
@@ -115,7 +115,7 @@ Image path is always [normalized](https://github.com/distribution/reference/blob
 
 ### Example
 
-In this example, the `ClusterImageSetMirror` ensures that all images are mirrored to a private registry. It uses a specific `credentialSecret` to authenticate against the destination.
+In this example, the `ClusterImageSetMirror` ensures that all images are mirrored to a private registry. It uses a specific `credentialSecret` to authenticate against the destination; this reference is optional when the manager uses Docker or cloud workload identity instead.
 
 ```yaml
 apiVersion: kuik.enix.io/v1alpha1
@@ -137,11 +137,51 @@ spec:
     retention: 24h
 ```
 
-The registry secret must be a `docker-registry` type secret. You could create it with:
+The registry Secret must contain Docker registry credentials (`kubernetes.io/dockerconfigjson`); the `docker-registry` kubectl command creates this type. You could create it with:
 
 ```bash
 kubectl -n kuik-system create secret docker-registry registry-secret --docker-server=registry.example.com --docker-username=username --docker-password=password
 ```
+
+### Registry authentication
+
+Kuik applies the same authentication policy to source reads, availability checks, mirror pushes, destination checks after an uncertain copy, and mirror cleanup:
+
+1. Matching credentials from Kubernetes Docker-config Secrets supplied for the operation. These can come from Pod `imagePullSecrets`, a CRD `credentialSecret`, or `monitoring.registries.items.<registry>.fallbackCredentialSecret`.
+2. Credentials from the manager Pod's Docker configuration.
+3. Google credentials for Google Artifact Registry or GCR.
+4. AWS credentials for ECR.
+5. Azure credentials for ACR.
+6. Anonymous access, for public or authentication-disabled registries.
+
+All matching credentials from Kubernetes Secrets remain available in their existing lookup order, which supports credential rotation. If matching Secret credentials are present but the registry rejects them, kuik returns the registry error after those matching credentials are exhausted; it does not fall through to Docker configuration, cloud workload identity, or anonymous access. Empty or unrelated Secret data does not count as a match and follows the normal fallback path. Malformed supported Secret data remains an error.
+
+#### Workload identity setup
+
+Cloud authentication uses the identity of the kuik manager Pod. Bind the manager's Kubernetes ServiceAccount to a cloud identity and grant that cloud identity access to the required registry repositories. The operator owns the cloud-side IAM, trust, federation, and Pod-identity configuration:
+
+| Platform | Manager identity binding |
+| --- | --- |
+| GKE Workload Identity | Bind the manager Kubernetes ServiceAccount to a Google Service Account and grant that Google Service Account access to Artifact Registry or GCR. |
+| EKS with IRSA | Annotate the manager Kubernetes ServiceAccount with the IAM role ARN and configure the role trust policy for the cluster's OIDC provider. |
+| EKS Pod Identity | Create an EKS Pod Identity association from the manager namespace/ServiceAccount to an IAM role. |
+| Azure Workload Identity | Configure the federated identity credential, annotate the manager Kubernetes ServiceAccount with the client ID, and satisfy the Azure Workload Identity webhook's Pod label/injection requirements. |
+
+The Helm chart selects the manager ServiceAccount through `serviceAccount.name`, can create it with `serviceAccount.create`, and passes through `serviceAccount.annotations`. The chart does not create cloud IAM roles, trust policies, workload-identity associations, or registry permissions. Cloud authentication does not require copying cloud credentials into Kubernetes Secrets or adding a cluster-wide Secret grant. Kuik still needs its existing Kubernetes RBAC for reading Pod `imagePullSecrets` and explicitly referenced `credentialSecret` objects.
+
+#### Registry permissions
+
+Grant only the permissions required by the images and features enabled in your deployment:
+
+| Operation | Used for | Required access |
+| --- | --- | --- |
+| Pull/read | Source image pulls, availability checks, and destination verification | Registry manifest and layer read access. |
+| Push/write | Copying images to `spec.mirrors[]` destinations | Registry upload and manifest-write access on mirror repositories. |
+| Delete | Cleanup of unused mirror images and finalizer-driven cleanup | Registry image-delete access on mirror repositories only; omit it when cleanup is disabled. |
+
+For Google Artifact Registry, the Writer role covers repository reads and uploads; deletion requires an additional repository-level permission, such as a narrowly scoped custom role or the repository administration role where that broader permission set is acceptable. For ECR, grant the equivalent repository-scoped read, upload, and, only when needed, `ecr:BatchDeleteImage` actions. Use the corresponding pull, push, and delete permissions for ACR or other registries. Do not grant delete access to source repositories when kuik only mirrors from them.
+
+The manager identity is used for registry operations performed by kuik; the workload Pod still needs permission to pull the final image reference. If kuik rewrites an image to a private mirror, configure the resulting Pod's `imagePullSecrets` or node/workload identity separately.
 
 When cleanup is enabled, kuik only delete mirror image reference once an image is no longer running in the cluster since more than `retention` time (useful to deal with image used by CronJobs). You still have to configure garbage collection on your registry to actually reclaim space.
 

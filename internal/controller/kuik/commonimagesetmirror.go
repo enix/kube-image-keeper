@@ -107,7 +107,7 @@ func (r *ImageSetMirrorBaseReconciler) mirrorImage(ctx context.Context, namespac
 	defer func() {
 		if err != nil {
 			client := registry.NewClient(nil, nil).WithPullSecrets(destSecrets)
-			_, destErr := client.GetDescriptor(to.Image)
+			_, destErr := client.GetDescriptor(ctx, to.Image)
 			if destErr == nil {
 				logf.FromContext(ctx).V(1).Info("could not mirror image, but the image seems to be already mirrored")
 				err = nil
@@ -118,7 +118,7 @@ func (r *ImageSetMirrorBaseReconciler) mirrorImage(ctx context.Context, namespac
 	}()
 
 	client := registry.NewClient(nil, nil).WithPullSecrets(srcSecrets)
-	srcDesc, err := client.GetDescriptor(from)
+	srcDesc, err := client.GetDescriptor(ctx, from)
 	if err != nil {
 		return err
 	}
@@ -134,6 +134,14 @@ func (r *ImageSetMirrorBaseReconciler) mirrorImage(ctx context.Context, namespac
 	return nil
 }
 
+var deleteMirrorImage = func(ctx context.Context, image string, secret *corev1.Secret) error {
+	deleteClient := registry.NewClient(nil, nil)
+	if secret != nil {
+		deleteClient.WithPullSecrets([]corev1.Secret{*secret})
+	}
+	return deleteClient.DeleteImage(ctx, image)
+}
+
 func (r *ImageSetMirrorBaseReconciler) cleanupMirror(ctx context.Context, image, namespace string, mirrors kuikv1alpha1.Mirrors) (success bool) {
 	log := logf.FromContext(ctx)
 
@@ -141,12 +149,9 @@ func (r *ImageSetMirrorBaseReconciler) cleanupMirror(ctx context.Context, image,
 	if err != nil {
 		log.Error(err, "could not read secret for image deletion")
 		return false
-	} else if secret == nil {
-		log.V(1).Info("no secret is configured for deleting image, ignoring")
-		return true
 	}
 
-	if err := registry.NewClient(nil, nil).WithPullSecrets([]corev1.Secret{*secret}).DeleteImage(image); err != nil {
+	if err := deleteMirrorImage(ctx, image, secret); err != nil {
 		log.Error(err, "could not delete image")
 		return false
 	}
