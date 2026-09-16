@@ -36,7 +36,7 @@ func CheckImageAvailability(ctx context.Context, reference string, method string
 		WithTimeout(timeout).
 		WithPullSecrets(pullSecrets)
 
-	desc, headers, err := client.ReadDescriptor(method, reference)
+	desc, headers, err := client.ReadDescriptor(ctx, method, reference)
 
 	if IsRateLimited(headers) {
 		return kuikv1alpha1.ImageAvailabilityQuotaExceeded, fmt.Errorf("rate limit exceeded")
@@ -47,7 +47,7 @@ func CheckImageAvailability(ctx context.Context, reference string, method string
 	}
 
 	if resolveDigest {
-		return checkDigestPath(client, method, reference, desc)
+		return checkDigestPath(ctx, client, method, reference, desc)
 	}
 
 	return kuikv1alpha1.ImageAvailabilityAvailable, nil
@@ -60,7 +60,7 @@ func CheckImageAvailability(ctx context.Context, reference string, method string
 //
 // The same HTTP method used for the tag request is used for the digest request so
 // that registries requiring GET for manifest-by-digest are handled correctly.
-func checkDigestPath(client *Client, method string, reference string, desc *v1.Descriptor) (kuikv1alpha1.ImageAvailabilityStatus, error) {
+func checkDigestPath(ctx context.Context, client *Client, method string, reference string, desc *v1.Descriptor) (kuikv1alpha1.ImageAvailabilityStatus, error) {
 	ref, err := name.ParseReference(reference)
 	if err != nil {
 		// the initial request already succeeded for this reference, so this
@@ -77,7 +77,7 @@ func checkDigestPath(client *Client, method string, reference string, desc *v1.D
 	}
 
 	digestReference := ref.Context().Name() + "@" + desc.Digest.String()
-	_, headers, err := client.ReadDescriptor(method, digestReference)
+	_, headers, err := client.ReadDescriptor(ctx, method, digestReference)
 
 	if IsRateLimited(headers) {
 		return kuikv1alpha1.ImageAvailabilityQuotaExceeded, fmt.Errorf("rate limit exceeded")

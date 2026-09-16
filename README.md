@@ -90,6 +90,8 @@ While both Custom Resources generate alternatives, their behavior differs slight
 - A collection of documented [use cases](#when-to-use-kube-image-keeper)
 - A [development guide](./docs/guides/development.md)
 
+Registry authentication follows this order: matching Kubernetes Secret credentials, the manager Pod's Docker configuration, Google, AWS, Azure, and finally anonymous access. This applies to availability checks, mirroring, destination verification, and cleanup. A matching explicit Secret remains authoritative; rejected credentials are not replaced with another identity. See the [CRD reference](./docs/crds.md#registry-authentication) for Secret and workload-identity setup.
+
 ## 📅 Releases & Roadmap
 
 ### Already available

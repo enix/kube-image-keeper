@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -40,7 +41,7 @@ func TestRateLimitedRequestIsNotRetried(t *testing.T) {
 	reference := strings.TrimPrefix(server.URL, "http://") + "/test/image:latest"
 	client := NewClient([]string{strings.TrimPrefix(server.URL, "http://")}, nil)
 
-	_, headers, err := client.ReadDescriptor(http.MethodHead, reference)
+	_, headers, err := client.ReadDescriptor(context.Background(), http.MethodHead, reference)
 	if err == nil {
 		t.Fatal("expected an error from the rate-limited registry, got nil")
 	}
