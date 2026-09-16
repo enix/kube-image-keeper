@@ -13,35 +13,39 @@ mirroring and monitoring, rebuilt from a clean tree. The branch holds:
   with [`notes/README.md`](./notes/README.md); its index states each decision in one
   line. Open a note only when it matters for the task, never the whole folder.
 - The kubebuilder scaffold (multi-group layout, see [Code](#code)) with empty
-  reconcilers and an empty Pod webhook, plus the CI, hooks and release tooling.
+  reconcilers and an empty Pod webhook, plus the chart, CI, hooks and release tooling.
 - [`CONTRIBUTING.md`](./CONTRIBUTING.md) — hooks, commit conventions and scopes,
   release process. Follow it; it is not repeated here.
 
 Code, chart and tooling are re-added milestone by milestone
-([0002](./notes/0002-development-pipeline.md)). v2 code is retrieved from history with
-`git show main:<path>` and lifted on purpose, never copied by reflex
-([0001](./notes/0001-v2-reuse-analysis.md)).
+([0002](./notes/0002-development-pipeline.md)). v2 lives on the `2.3.x` maintenance
+branch: read it with `git show 2.3.x:<path>` and lift on purpose, never copy by reflex.
+[0001](./notes/0001-v2-reuse-analysis.md) lists what is worth lifting: `internal/registry`
+and its availability statuses, `internal/parallel.FirstSuccessful`, `SecretOwnerReconciler`,
+the config merge, `internal/info`, the envtest suite bootstrap.
 
 ## Code
 
 Layout, group `kuik`, version `v1alpha1`:
 
 ```text
-cmd/main.go                   Manager entry: registers controllers and webhooks
+cmd/main.go                   Manager entry: webhook server, metrics, leader election, reconcilers
 api/kuik/v1alpha1/*_types.go  CRD schemas and kubebuilder markers
 internal/controller/kuik/*    Reconcilers, one per kind
 internal/webhook/core/v1/*    Pod mutating webhook (image routing)
 config/                       controller-gen output (CRDs, RBAC, webhook), read by envtest
 helm/kube-image-keeper/       The Helm chart, the only deployment path (crds/ and files/ generated)
 test/e2e/                     End-to-end suite, runs on a Kind cluster
+website/                      The docs site (Astro Starlight), see Docs below
 PROJECT                       Kubebuilder metadata
 ```
 
 **Generated, never edit by hand**: `**/zz_generated.*.go` (`task generate`),
 `config/crd/bases/*.yaml`, `config/rbac/role.yaml`, `config/webhook/manifests.yaml`,
 `helm/kube-image-keeper/crds/*.yaml`, `helm/kube-image-keeper/files/*.yaml`
-(`task manifests`), `PROJECT` (kubebuilder CLI). Edit the markers in the Go sources and
-regenerate.
+(`task manifests`), `helm/kube-image-keeper/README.md` (`task generate-helm-docs`, from the
+`# --` comments of `values.yaml`), `PROJECT` (kubebuilder CLI). Edit the markers or the
+comments in the sources and regenerate.
 
 **Keep the scaffold intact**: never delete `// +kubebuilder:scaffold:*` comments, the
 CLI injects code there. Do not move files: the CLI expects this layout. Scaffold new
@@ -57,14 +61,18 @@ After a change, before committing:
 task manifests generate   # after editing *_types.go or any kubebuilder marker
 task lint-fix             # after editing *.go
 task test                 # unit and envtest suites
+# one spec only: the suites are Ginkgo, so filter on the It text, not on -run
+go test ./internal/controller/kuik -v -ginkgo.focus 'text of the It'
 ```
 
-The pre-commit hook runs the first two on staged files (`.lefthook.yaml`); CI fails on
-any drift in generated files.
+CI fails on any drift in generated files, formatting or `go mod tidy`.
 
 **Deploying** goes through the Helm chart only ([0007](./notes/0007-helm-only.md)):
-`task deploy IMG=...` or `task kind-deploy` on a Kind cluster. `config/` holds no
-deployment overlay; do not add kustomize bases or patches.
+`task deploy IMG=...`, or `task kind-deploy` on a Kind cluster. `config/` holds no
+deployment overlay; do not add kustomize bases or patches. The webhook serving
+certificate comes from cert-manager (`templates/webhook.yaml`: Certificate, Issuer and
+`cert-manager.io/inject-ca-from` on the MutatingWebhookConfiguration); a cluster without
+cert-manager cannot run kuik.
 
 **e2e tests** (`task test-e2e`) need an isolated Kind cluster. Never run them against a
 real cluster.
@@ -72,19 +80,76 @@ real cluster.
 ## Conventions
 
 - **Tests**: Ginkgo + Gomega only ([0004](./notes/0004-test-framework.md)). The `It`
-  and `Entry` strings are the reviewed test cases from the issue, verbatim.
+  and `Entry` strings are the reviewed test cases from the issue, verbatim. Suites are
+  `suite_test.go` files on envtest and load the CRDs from `config/crd/bases/`, so run
+  `task manifests` before testing a type change.
 - **Reconcilers**: idempotent; re-fetch the object before updating it; report state
   with `metav1.Condition`; watch secondary resources with `Owns()` / `Watches()` rather
   than polling with `RequeueAfter`; use finalizers only for external resources.
 - **API types**: follow the
   [Kubernetes API conventions](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md);
   `metav1.Time` for dates, validation and default markers on fields.
+- **Image references**: canonicalize with `github.com/distribution/reference`
+  (`ParseNormalizedNamed`, as v2 did) before any comparison; `nginx`, `docker.io/nginx`
+  and `docker.io/library/nginx:latest` are the same image.
 - **Logging**: structured, `log := logf.FromContext(ctx)`. Messages follow the
   [Kubernetes style](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-instrumentation/logging.md#message-style-guidelines):
   capitalised, no trailing period, past tense, object type named
   (`"Created Deployment"`, not `"Created"`), balanced key-value pairs.
 - **RBAC**: declared with `// +kubebuilder:rbac` markers on the reconciler, never in
   `config/rbac/role.yaml` directly.
+- **Every behaviour change ships with its tests and its documentation** in the same PR:
+  the page under `docs/`, the `# --` comments of `values.yaml` for chart values, this
+  file when the layout or the rules change.
+
+## Docs
+
+User documentation lives under [`docs/`](./docs/) and is published from `main` at
+[kuik.enix.io](https://kuik.enix.io) by [`.github/workflows/website.yaml`](./.github/workflows/website.yaml):
+a broken page ships as soon as it is merged. The markdown is the single source of truth;
+read it alongside the code. Today: [`docs/crds.md`](./docs/crds.md) (CRD reference, to be
+written with the API types), [`docs/configuration.md`](./docs/configuration.md),
+[`docs/guides/development.md`](./docs/guides/development.md) (local workflow) and the
+use cases. The v2 user docs are served from the `2.3.x` branch, not from here.
+
+[`docs/v3/`](./docs/v3/) (the design documents) is listed in `UNPUBLISHED_DOCS` of
+[`website/scripts/sync-docs.mjs`](./website/scripts/sync-docs.mjs) and renders on GitHub
+only. `notes/` is never published.
+
+### Markdown conventions
+
+The same files render on GitHub and on the Astro Starlight site. Write for GitHub first;
+the build adapts:
+
+- The page title is a leading `# H1`, never a frontmatter `title:`; the build lifts it
+  into the frontmatter Starlight needs and strips it from the body. Add a frontmatter
+  `description:`: it is the SEO description and the text of the use-case cards.
+- Links between pages are relative markdown links with the `.md` extension
+  (`./crds.md#imagemirror`); the build rewrites them to site routes. Never write a site
+  route like `/crds/`: it breaks on GitHub. markdownlint checks that targets and anchors
+  exist.
+- Callouts use GitHub alerts (`> [!NOTE]`, `> [!TIP]`, `> [!WARNING]`, `> [!IMPORTANT]`,
+  `> [!CAUTION]`); the build converts them to Starlight asides. Never use Starlight's
+  `:::note`, it renders as raw text on GitHub.
+- A new file under `docs/use-cases/` is picked up by the use-cases index and the sidebar
+  automatically.
+
+### How the site is built
+
+Starlight only reads `website/src/content/docs/`, so a `sync-docs` integration
+([`website/astro.config.mjs`](./website/astro.config.mjs)) generates it (gitignored) before
+content loads: it copies `docs/`, then [`website/src/content/overlay/`](./website/src/content/overlay/)
+(website-only pages, copied last so they win), lifts the H1 titles and skips
+`UNPUBLISHED_DOCS`. Two plugins bridge the syntaxes: `remark-github-admonitions-to-directives`
+for alerts and `astro-rehype-relative-markdown-links` for links. Archived versions come from
+[`website/versions.mjs`](./website/versions.mjs): each one is sourced with `git archive` from
+its maintenance branch (`2.3.x`...), whose `docs/` tree holds its markdown and sidebar, with
+`slug:` injected on the fly. The full workflow is in
+[`website/README.md`](./website/README.md#documentation-versioning).
+
+Local preview: `cd website && npm install && npm run dev` (Node.js 24). A watcher mirrors
+`docs/` edits into the generated directory. Run one `astro dev` at a time; editing
+`astro.config.mjs` or `sync-docs.mjs` restarts it.
 
 ## Writing
 
@@ -109,6 +174,14 @@ commit to live in. Notes record deliberation that actually happened; do not inve
 alternatives to fill the template. Decision notes stay under 25 lines and are
 append-only: supersede with a new note, never rewrite. A commit that implements a
 decision references its note.
+
+## Git hooks
+
+[lefthook](./.lefthook.yaml) runs on pre-commit `task manifests generate` (when API,
+controller or webhook sources are staged), `task lint-fix` and markdownlint (skipped
+without Node.js ≥ 22); on pre-push `task test-short`; on commit-msg `task conform`.
+Conventional commits with the scopes of `.conform.yaml`, see
+[`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
 ## References
 
