@@ -6,4 +6,6 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: imagemonitor-sample
 spec:
-  # TODO(user): Add fields here
+  unusedImageRetention: 168h
+  driftDetection: true
+  monitorAlternatives: false

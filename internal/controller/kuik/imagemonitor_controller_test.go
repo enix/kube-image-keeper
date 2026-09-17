@@ -17,15 +17,13 @@ import (
 var _ = Describe("ImageMonitor Controller", func() {
 	Context("When reconciling a resource", func() {
 		const (
-			resourceName      = "test-resource"
-			resourceNamespace = "default"
+			resourceName = "test-resource"
 		)
 
 		ctx := context.Background()
 
 		typeNamespacedName := types.NamespacedName{
-			Name:      resourceName,
-			Namespace: resourceNamespace,
+			Name: resourceName,
 		}
 		imagemonitor := &kuikv1alpha1.ImageMonitor{}
 
@@ -35,8 +33,7 @@ var _ = Describe("ImageMonitor Controller", func() {
 			if err != nil && errors.IsNotFound(err) {
 				resource := &kuikv1alpha1.ImageMonitor{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
-						Namespace: resourceNamespace,
+						Name: resourceName,
 					},
 					// TODO(user): Specify other spec details if needed.
 				}

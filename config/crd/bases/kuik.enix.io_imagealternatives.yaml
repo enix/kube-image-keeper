@@ -14,10 +14,28 @@ spec:
     singular: imagealternative
   scope: Cluster
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .spec.rewritePolicy
+      name: Policy
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="FallbackActive")].status
+      name: Fallback
+      type: string
+    - jsonPath: .status.containers.rewritten
+      name: Rewritten
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: ImageAlternative is the Schema for the imagealternatives API
+        description: |-
+          ImageAlternative routes images to alternative repositories holding the same images, as
+          fallbacks when the original fails or ahead of it.
         properties:
           apiVersion:
             description: |-
@@ -39,25 +57,289 @@ spec:
           spec:
             description: spec defines the desired state of ImageAlternative
             properties:
-              foo:
-                description: foo is an example field of ImageAlternative. Edit imagealternative_types.go
-                  to remove/update
+              alternatives:
+                description: |-
+                  alternatives is the ordered list of equivalent repositories, or repository groups. Every
+                  entry of a list uses the same form.
+                items:
+                  description: |-
+                    Alternative is one entry of an ImageAlternative's list: a repository, or every repository
+                    under a path, that holds the same images as the other entries of the list.
+                  properties:
+                    auth:
+                      description: auth is the credential kuik and, when injected,
+                        the kubelet pull this repository with.
+                      properties:
+                        injectPullSecret:
+                          description: |-
+                            injectPullSecret copies a pull secret into the namespaces of the pods this credential
+                            serves, so the kubelet can pull the image. Defaults to true with secretRef and to false
+                            with provider; with a provider and true, kuik materialises and renews a docker-registry
+                            Secret from the provider's short-lived token.
+                          type: boolean
+                        provider:
+                          description: provider is an ambient cloud identity (aws,
+                            gcp or azure).
+                          properties:
+                            name:
+                              description: name of the cloud provider.
+                              enum:
+                              - aws
+                              - gcp
+                              - azure
+                              type: string
+                            serviceAccountRef:
+                              description: |-
+                                serviceAccountRef requests a token for that ServiceAccount instead of using the
+                                controller's own identity.
+                              properties:
+                                name:
+                                  description: name of the ServiceAccount, in kuik's
+                                    install namespace.
+                                  minLength: 1
+                                  type: string
+                              required:
+                              - name
+                              type: object
+                          required:
+                          - name
+                          type: object
+                        secretRef:
+                          description: secretRef names a docker-registry Secret in
+                            kuik's install namespace.
+                          properties:
+                            name:
+                              description: name of the Secret, in kuik's install namespace.
+                              minLength: 1
+                              type: string
+                          required:
+                          - name
+                          type: object
+                      type: object
+                      x-kubernetes-validations:
+                      - message: exactly one of secretRef or provider must be set
+                        rule: has(self.secretRef) != has(self.provider)
+                    insecure:
+                      description: |-
+                        insecure makes kuik probe and pull this registry over HTTP. The container runtime of the
+                        nodes must be configured for it separately.
+                      type: boolean
+                    repository:
+                      description: |-
+                        repository matches that exact repository, whatever the tag or digest, and rewrites to it
+                        preserving the tag or digest. Fully qualified, hostname included, with at least one path
+                        component and no tag and no digest: `docker.io/library/nginx`, never `docker.io` alone.
+                      pattern: ^(localhost(:[0-9]+)?|[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)+(:[0-9]+)?|[a-zA-Z0-9-]+:[0-9]+)(/[a-z0-9]+((\.|_|__|-+)[a-z0-9]+)*)+$
+                      type: string
+                    repositoryGroup:
+                      description: |-
+                        repositoryGroup matches every repository located under that path, at any depth, and
+                        rewrites to it preserving the remainder of the path and the tag or digest. Fully
+                        qualified, hostname included, with no tag and no digest.
+                      pattern: ^(localhost(:[0-9]+)?|[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)+(:[0-9]+)?|[a-zA-Z0-9-]+:[0-9]+)(/[a-z0-9]+((\.|_|__|-+)[a-z0-9]+)*)*$
+                      type: string
+                    unavailable:
+                      description: |-
+                        unavailable declares that this source is gone: the entry still matches images, so the
+                        resource applies to them, but it is never offered as a candidate, never read as a copy
+                        source and never monitored. An original image matching such an entry is tried last.
+                      type: boolean
+                  type: object
+                  x-kubernetes-validations:
+                  - message: exactly one of repository or repositoryGroup must be
+                      set
+                    rule: has(self.repository) != has(self.repositoryGroup)
+                minItems: 1
+                type: array
+                x-kubernetes-list-type: atomic
+                x-kubernetes-validations:
+                - message: alternatives must all be repository entries or all be repositoryGroup
+                    entries
+                  rule: self.all(a, has(a.repository)) || self.all(a, has(a.repositoryGroup))
+              namespaceSelector:
+                description: |-
+                  namespaceSelector restricts the namespaces this resource applies to. Empty or absent
+                  matches every namespace.
+                properties:
+                  matchExpressions:
+                    description: matchExpressions is a list of label selector requirements.
+                      The requirements are ANDed.
+                    items:
+                      description: |-
+                        A label selector requirement is a selector that contains values, a key, and an operator that
+                        relates the key and values.
+                      properties:
+                        key:
+                          description: key is the label key that the selector applies
+                            to.
+                          type: string
+                        operator:
+                          description: |-
+                            operator represents a key's relationship to a set of values.
+                            Valid operators are In, NotIn, Exists and DoesNotExist.
+                          type: string
+                        values:
+                          description: |-
+                            values is an array of string values. If the operator is In or NotIn,
+                            the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                            the values array must be empty. This array is replaced during a strategic
+                            merge patch.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                      map is equivalent to an element of matchExpressions, whose key field is "key", the
+                      operator is "In", and the values array contains only "value". The requirements are ANDed.
+                    type: object
+                type: object
+                x-kubernetes-map-type: atomic
+              podSelector:
+                description: |-
+                  podSelector restricts the pods this resource applies to. Empty or absent matches every
+                  pod.
+                properties:
+                  matchExpressions:
+                    description: matchExpressions is a list of label selector requirements.
+                      The requirements are ANDed.
+                    items:
+                      description: |-
+                        A label selector requirement is a selector that contains values, a key, and an operator that
+                        relates the key and values.
+                      properties:
+                        key:
+                          description: key is the label key that the selector applies
+                            to.
+                          type: string
+                        operator:
+                          description: |-
+                            operator represents a key's relationship to a set of values.
+                            Valid operators are In, NotIn, Exists and DoesNotExist.
+                          type: string
+                        values:
+                          description: |-
+                            values is an array of string values. If the operator is In or NotIn,
+                            the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                            the values array must be empty. This array is replaced during a strategic
+                            merge patch.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                      map is equivalent to an element of matchExpressions, whose key field is "key", the
+                      operator is "In", and the values array contains only "value". The requirements are ANDed.
+                    type: object
+                type: object
+                x-kubernetes-map-type: atomic
+              rewritePolicy:
+                default: OnFailure
+                description: |-
+                  rewritePolicy says where the entries sit relative to the original image: OnFailure tries
+                  the original first and the entries as fallbacks, Always tries the entries first.
+                enum:
+                - OnFailure
+                - Always
                 type: string
+            required:
+            - alternatives
             type: object
           status:
             description: status defines the observed state of ImageAlternative
             properties:
+              activeFallbacks:
+                description: |-
+                  activeFallbacks lists the origin images this resource is currently standing in for.
+                  Only populated under rewritePolicy OnFailure. Capped, see ListCapacityPressure.
+                items:
+                  description: ActiveFallback is an origin image the resource is currently
+                    standing in for.
+                  properties:
+                    image:
+                      description: image is the origin reference.
+                      type: string
+                    pods:
+                      description: pods counts the pods currently carrying the rewrite.
+                      format: int32
+                      type: integer
+                    rewrittenTo:
+                      description: rewrittenTo is the candidate serving in its place.
+                      type: string
+                    since:
+                      description: since is when the fallback was first observed.
+                        Stamped once, never refreshed.
+                      format: date-time
+                      type: string
+                  required:
+                  - image
+                  - pods
+                  - rewrittenTo
+                  - since
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
+              concededRewrites:
+                description: |-
+                  concededRewrites lists the rewrites another mutating webhook overwrote at admission.
+                  Capped, see ListCapacityPressure.
+                items:
+                  description: |-
+                    ReplacedRewrite is a rewrite this resource made and something replaced: another mutating
+                    webhook at admission (conceded), or an edit after admission (stale).
+                  properties:
+                    image:
+                      description: image is the origin reference.
+                      type: string
+                    pods:
+                      description: pods counts the pods concerned.
+                      format: int32
+                      type: integer
+                    replacedBy:
+                      description: replacedBy is the reference the pod actually runs
+                        now.
+                      type: string
+                    rewrittenTo:
+                      description: rewrittenTo is the reference kuik had placed.
+                      type: string
+                    since:
+                      description: since is when it was first observed. Stamped once,
+                        never refreshed.
+                      format: date-time
+                      type: string
+                  required:
+                  - image
+                  - pods
+                  - replacedBy
+                  - rewrittenTo
+                  - since
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
               conditions:
                 description: |-
-                  conditions represent the current state of the ImageAlternative resource.
-                  Each condition has a unique type and reflects the status of a specific aspect of the resource.
-
-                  Standard condition types include:
-                  - "Available": the resource is fully functional
-                  - "Progressing": the resource is being created or updated
-                  - "Degraded": the resource failed to reach or maintain its desired state
-
-                  The status of each condition is one of True, False, or Unknown.
+                  conditions report the state of the resource. Ready is the only one that is True when
+                  things are well; FallbackActive, AlternativesExhausted and ListCapacityPressure each name
+                  an anomaly and stay True as long as it lasts.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -116,6 +398,139 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              containers:
+                description: containers partition the containers of the selected pods
+                  by what happened to them.
+                properties:
+                  conceded:
+                    description: conceded counts the containers another mutating webhook
+                      rewrote after kuik did.
+                    format: int32
+                    type: integer
+                  noAlternatives:
+                    description: noAlternatives counts the containers left untouched
+                      because no candidate answered.
+                    format: int32
+                    type: integer
+                  rewritten:
+                    description: rewritten counts the containers this resource rewrote,
+                      under either policy.
+                    format: int32
+                    type: integer
+                  stale:
+                    description: |-
+                      stale counts the containers edited after admission, whose record no longer describes
+                      what they run. Counted out of rewritten, never alongside it.
+                    format: int32
+                    type: integer
+                  tracked:
+                    description: tracked is untouched + rewritten + conceded + stale
+                      + noAlternatives.
+                    format: int32
+                    type: integer
+                  untouched:
+                    description: 'untouched counts the containers no kuik annotation
+                      names: the original answered.'
+                    format: int32
+                    type: integer
+                required:
+                - conceded
+                - noAlternatives
+                - rewritten
+                - stale
+                - tracked
+                - untouched
+                type: object
+              noAlternatives:
+                description: |-
+                  noAlternatives lists the images no candidate could serve, that were left untouched.
+                  Capped, see ListCapacityPressure.
+                items:
+                  description: NoAlternative is an image no candidate of this resource
+                    could serve.
+                  properties:
+                    image:
+                      description: image is the origin reference.
+                      type: string
+                    pods:
+                      description: pods counts the pods left untouched for it.
+                      format: int32
+                      type: integer
+                    since:
+                      description: since is when it was first observed. Stamped once,
+                        never refreshed.
+                      format: date-time
+                      type: string
+                  required:
+                  - image
+                  - pods
+                  - since
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
+              pods:
+                description: pods are gauges on the living pods this resource selects.
+                properties:
+                  rewritten:
+                    description: |-
+                      rewritten counts the pods carrying at least one container this resource rewrote whose
+                      rewrite still stands.
+                    format: int32
+                    type: integer
+                  tracked:
+                    description: tracked counts the pods selected by podSelector and
+                      namespaceSelector.
+                    format: int32
+                    type: integer
+                required:
+                - rewritten
+                - tracked
+                type: object
+              staleRewrites:
+                description: |-
+                  staleRewrites lists the rewrites something replaced after admission. Rolling the workload
+                  sends the pod back through admission. Capped, see ListCapacityPressure.
+                items:
+                  description: |-
+                    ReplacedRewrite is a rewrite this resource made and something replaced: another mutating
+                    webhook at admission (conceded), or an edit after admission (stale).
+                  properties:
+                    image:
+                      description: image is the origin reference.
+                      type: string
+                    pods:
+                      description: pods counts the pods concerned.
+                      format: int32
+                      type: integer
+                    replacedBy:
+                      description: replacedBy is the reference the pod actually runs
+                        now.
+                      type: string
+                    rewrittenTo:
+                      description: rewrittenTo is the reference kuik had placed.
+                      type: string
+                    since:
+                      description: since is when it was first observed. Stamped once,
+                        never refreshed.
+                      format: date-time
+                      type: string
+                  required:
+                  - image
+                  - pods
+                  - replacedBy
+                  - rewrittenTo
+                  - since
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
+              truncated:
+                additionalProperties:
+                  format: int32
+                  type: integer
+                description: |-
+                  truncated records, per capped list that reached its cap, how many entries were left
+                  out. Present only once a cap was reached.
+                type: object
             type: object
         required:
         - spec

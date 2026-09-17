@@ -17,15 +17,13 @@ import (
 var _ = Describe("ImageAlternative Controller", func() {
 	Context("When reconciling a resource", func() {
 		const (
-			resourceName      = "test-resource"
-			resourceNamespace = "default"
+			resourceName = "test-resource"
 		)
 
 		ctx := context.Background()
 
 		typeNamespacedName := types.NamespacedName{
-			Name:      resourceName,
-			Namespace: resourceNamespace,
+			Name: resourceName,
 		}
 		imagealternative := &kuikv1alpha1.ImageAlternative{}
 
@@ -35,10 +33,11 @@ var _ = Describe("ImageAlternative Controller", func() {
 			if err != nil && errors.IsNotFound(err) {
 				resource := &kuikv1alpha1.ImageAlternative{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
-						Namespace: resourceNamespace,
+						Name: resourceName,
 					},
-					// TODO(user): Specify other spec details if needed.
+					Spec: kuikv1alpha1.ImageAlternativeSpec{
+						Alternatives: []kuikv1alpha1.Alternative{{Repository: "quay.io/acme/foo"}},
+					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 			}

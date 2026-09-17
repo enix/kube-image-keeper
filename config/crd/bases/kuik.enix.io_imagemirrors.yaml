@@ -14,10 +14,31 @@ spec:
     singular: imagemirror
   scope: Cluster
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .spec.destination.path
+      name: Destination
+      type: string
+    - jsonPath: .spec.rewritePolicy
+      name: Policy
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="DestinationOutOfSync")].status
+      name: OutOfSync
+      type: string
+    - jsonPath: .status.images.copy.tracked
+      name: Tracked
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: ImageMirror is the Schema for the imagemirrors API
+        description: |-
+          ImageMirror copies the images of the pods it selects to a destination registry, and routes
+          to that copy according to its rewritePolicy.
         properties:
           apiVersion:
             description: |-
@@ -39,25 +60,412 @@ spec:
           spec:
             description: spec defines the desired state of ImageMirror
             properties:
-              foo:
-                description: foo is an example field of ImageMirror. Edit imagemirror_types.go
-                  to remove/update
+              cleanup:
+                default: {}
+                description: cleanup deletes the destination tags no pod references
+                  any more.
+                properties:
+                  enabled:
+                    default: true
+                    description: |-
+                      enabled deletes the tags no longer referenced by any pod once their retention elapsed.
+                      With false nothing is deleted and retention has no effect.
+                    type: boolean
+                  retention:
+                    default: 168h
+                    description: |-
+                      retention is how long an unused tag is held before deletion, so that a CronJob's image
+                      survives between runs.
+                    pattern: ^(0|([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$
+                    type: string
+                type: object
+              destination:
+                description: destination is where images are copied.
+                properties:
+                  insecure:
+                    description: |-
+                      insecure makes kuik push to and read this registry over HTTP. The container runtime of
+                      the nodes must be configured for it separately.
+                    type: boolean
+                  manage:
+                    description: |-
+                      manage is the controller's credential at the destination: the pushes, the self-check
+                      reads, the tag listings and the deletions. Its injectPullSecret is ignored.
+                    properties:
+                      auth:
+                        description: auth is the credential, see Auth.
+                        properties:
+                          injectPullSecret:
+                            description: |-
+                              injectPullSecret copies a pull secret into the namespaces of the pods this credential
+                              serves, so the kubelet can pull the image. Defaults to true with secretRef and to false
+                              with provider; with a provider and true, kuik materialises and renews a docker-registry
+                              Secret from the provider's short-lived token.
+                            type: boolean
+                          provider:
+                            description: provider is an ambient cloud identity (aws,
+                              gcp or azure).
+                            properties:
+                              name:
+                                description: name of the cloud provider.
+                                enum:
+                                - aws
+                                - gcp
+                                - azure
+                                type: string
+                              serviceAccountRef:
+                                description: |-
+                                  serviceAccountRef requests a token for that ServiceAccount instead of using the
+                                  controller's own identity.
+                                properties:
+                                  name:
+                                    description: name of the ServiceAccount, in kuik's
+                                      install namespace.
+                                    minLength: 1
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                            required:
+                            - name
+                            type: object
+                          secretRef:
+                            description: secretRef names a docker-registry Secret
+                              in kuik's install namespace.
+                            properties:
+                              name:
+                                description: name of the Secret, in kuik's install
+                                  namespace.
+                                minLength: 1
+                                type: string
+                            required:
+                            - name
+                            type: object
+                        type: object
+                        x-kubernetes-validations:
+                        - message: exactly one of secretRef or provider must be set
+                          rule: has(self.secretRef) != has(self.provider)
+                    required:
+                    - auth
+                    type: object
+                  path:
+                    description: |-
+                      path is the registry path the full original reference is appended to, hostname
+                      included: `registry.tld/mirror/` turns `docker.io/library/nginx:1.27` into
+                      `registry.tld/mirror/docker.io/library/nginx:1.27_<clusterID>`.
+                    pattern: ^(localhost(:[0-9]+)?|[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)+(:[0-9]+)?|[a-zA-Z0-9-]+:[0-9]+)(/[a-z0-9]+((\.|_|__|-+)[a-z0-9]+)*)*/?$
+                    type: string
+                  pull:
+                    description: |-
+                      pull is the credential the kubelet pulls the mirrored images with, injected in the
+                      namespaces that need it.
+                    properties:
+                      auth:
+                        description: auth is the credential, see Auth.
+                        properties:
+                          injectPullSecret:
+                            description: |-
+                              injectPullSecret copies a pull secret into the namespaces of the pods this credential
+                              serves, so the kubelet can pull the image. Defaults to true with secretRef and to false
+                              with provider; with a provider and true, kuik materialises and renews a docker-registry
+                              Secret from the provider's short-lived token.
+                            type: boolean
+                          provider:
+                            description: provider is an ambient cloud identity (aws,
+                              gcp or azure).
+                            properties:
+                              name:
+                                description: name of the cloud provider.
+                                enum:
+                                - aws
+                                - gcp
+                                - azure
+                                type: string
+                              serviceAccountRef:
+                                description: |-
+                                  serviceAccountRef requests a token for that ServiceAccount instead of using the
+                                  controller's own identity.
+                                properties:
+                                  name:
+                                    description: name of the ServiceAccount, in kuik's
+                                      install namespace.
+                                    minLength: 1
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                            required:
+                            - name
+                            type: object
+                          secretRef:
+                            description: secretRef names a docker-registry Secret
+                              in kuik's install namespace.
+                            properties:
+                              name:
+                                description: name of the Secret, in kuik's install
+                                  namespace.
+                                minLength: 1
+                                type: string
+                            required:
+                            - name
+                            type: object
+                        type: object
+                        x-kubernetes-validations:
+                        - message: exactly one of secretRef or provider must be set
+                          rule: has(self.secretRef) != has(self.provider)
+                    required:
+                    - auth
+                    type: object
+                required:
+                - path
+                type: object
+              driftPolicy:
+                default: Ignore
+                description: |-
+                  driftPolicy says what to do when the upstream digest of a copied tag moves: Ignore it,
+                  Warn about it, or Sync the copy.
+                enum:
+                - Ignore
+                - Warn
+                - Sync
                 type: string
+              excludeImages:
+                description: |-
+                  excludeImages keeps the images matching any of these globs out of the mirror: no copy,
+                  no candidate, no tag at the destination. A glob is matched whole against the normalized
+                  reference, `*` matches inside one path segment and `**` across segments; a `:tag` part
+                  narrows it to matching tags. The mirror's own destination.path is excluded on top.
+                items:
+                  type: string
+                type: array
+                x-kubernetes-list-type: atomic
+              namespaceSelector:
+                description: |-
+                  namespaceSelector restricts the namespaces this resource applies to. Empty or absent
+                  matches every namespace.
+                properties:
+                  matchExpressions:
+                    description: matchExpressions is a list of label selector requirements.
+                      The requirements are ANDed.
+                    items:
+                      description: |-
+                        A label selector requirement is a selector that contains values, a key, and an operator that
+                        relates the key and values.
+                      properties:
+                        key:
+                          description: key is the label key that the selector applies
+                            to.
+                          type: string
+                        operator:
+                          description: |-
+                            operator represents a key's relationship to a set of values.
+                            Valid operators are In, NotIn, Exists and DoesNotExist.
+                          type: string
+                        values:
+                          description: |-
+                            values is an array of string values. If the operator is In or NotIn,
+                            the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                            the values array must be empty. This array is replaced during a strategic
+                            merge patch.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                      map is equivalent to an element of matchExpressions, whose key field is "key", the
+                      operator is "In", and the values array contains only "value". The requirements are ANDed.
+                    type: object
+                type: object
+                x-kubernetes-map-type: atomic
+              podSelector:
+                description: |-
+                  podSelector restricts the pods this resource applies to. Empty or absent matches every
+                  pod.
+                properties:
+                  matchExpressions:
+                    description: matchExpressions is a list of label selector requirements.
+                      The requirements are ANDed.
+                    items:
+                      description: |-
+                        A label selector requirement is a selector that contains values, a key, and an operator that
+                        relates the key and values.
+                      properties:
+                        key:
+                          description: key is the label key that the selector applies
+                            to.
+                          type: string
+                        operator:
+                          description: |-
+                            operator represents a key's relationship to a set of values.
+                            Valid operators are In, NotIn, Exists and DoesNotExist.
+                          type: string
+                        values:
+                          description: |-
+                            values is an array of string values. If the operator is In or NotIn,
+                            the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                            the values array must be empty. This array is replaced during a strategic
+                            merge patch.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                      map is equivalent to an element of matchExpressions, whose key field is "key", the
+                      operator is "In", and the values array contains only "value". The requirements are ANDed.
+                    type: object
+                type: object
+                x-kubernetes-map-type: atomic
+              rewritePolicy:
+                default: OnFailure
+                description: |-
+                  rewritePolicy says where the mirrored image sits relative to the original: OnFailure
+                  puts it last, behind the original and every alternative, Always puts it ahead of
+                  everything, None never routes to it and only copies.
+                enum:
+                - OnFailure
+                - Always
+                - None
+                type: string
+            required:
+            - destination
             type: object
           status:
             description: status defines the observed state of ImageMirror
             properties:
+              activeFallbacks:
+                description: |-
+                  activeFallbacks lists the origin images this resource is currently standing in for.
+                  Only populated under rewritePolicy OnFailure. Capped, see ListCapacityPressure.
+                items:
+                  description: ActiveFallback is an origin image the resource is currently
+                    standing in for.
+                  properties:
+                    image:
+                      description: image is the origin reference.
+                      type: string
+                    pods:
+                      description: pods counts the pods currently carrying the rewrite.
+                      format: int32
+                      type: integer
+                    rewrittenTo:
+                      description: rewrittenTo is the candidate serving in its place.
+                      type: string
+                    since:
+                      description: since is when the fallback was first observed.
+                        Stamped once, never refreshed.
+                      format: date-time
+                      type: string
+                  required:
+                  - image
+                  - pods
+                  - rewrittenTo
+                  - since
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
+              checks:
+                description: |-
+                  checks is the health of the drift check schedule, one ring per source host. Present
+                  under Warn or Sync only; the destination never appears here.
+                properties:
+                  registries:
+                    description: registries holds one ring per source host. A mirror
+                      destination never appears here.
+                    items:
+                      description: RegistryCheck is the health of the check schedule
+                        of one (resource, registry host) ring.
+                      properties:
+                        cursor:
+                          description: cursor is the last reference checked; the ring
+                            resumes at its successor on restart.
+                          type: string
+                        cycleDuration:
+                          description: |-
+                            cycleDuration is the measured duration of the last completed lap, hence how often each
+                            image of this host comes back. Absent until a first lap completes.
+                          type: string
+                        cycleStarted:
+                          description: cycleStarted is when the current lap started.
+                          format: date-time
+                          type: string
+                        images:
+                          description: images is the size of the ring.
+                          format: int32
+                          type: integer
+                        registry:
+                          description: registry is the host the ring reads from.
+                          type: string
+                      required:
+                      - images
+                      - registry
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - registry
+                    x-kubernetes-list-type: map
+                type: object
+              concededRewrites:
+                description: |-
+                  concededRewrites lists the rewrites another mutating webhook overwrote at admission.
+                  Capped, see ListCapacityPressure.
+                items:
+                  description: |-
+                    ReplacedRewrite is a rewrite this resource made and something replaced: another mutating
+                    webhook at admission (conceded), or an edit after admission (stale).
+                  properties:
+                    image:
+                      description: image is the origin reference.
+                      type: string
+                    pods:
+                      description: pods counts the pods concerned.
+                      format: int32
+                      type: integer
+                    replacedBy:
+                      description: replacedBy is the reference the pod actually runs
+                        now.
+                      type: string
+                    rewrittenTo:
+                      description: rewrittenTo is the reference kuik had placed.
+                      type: string
+                    since:
+                      description: since is when it was first observed. Stamped once,
+                        never refreshed.
+                      format: date-time
+                      type: string
+                  required:
+                  - image
+                  - pods
+                  - replacedBy
+                  - rewrittenTo
+                  - since
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
               conditions:
                 description: |-
-                  conditions represent the current state of the ImageMirror resource.
-                  Each condition has a unique type and reflects the status of a specific aspect of the resource.
-
-                  Standard condition types include:
-                  - "Available": the resource is fully functional
-                  - "Progressing": the resource is being created or updated
-                  - "Degraded": the resource failed to reach or maintain its desired state
-
-                  The status of each condition is one of True, False, or Unknown.
+                  conditions report the state of the resource. Ready is the only one that is True when
+                  things are well; DestinationOutOfSync, FallbackActive, AlternativesExhausted and
+                  ListCapacityPressure each name an anomaly and stay True as long as it lasts.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -116,6 +524,315 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              containers:
+                description: containers partition the containers of the selected pods
+                  by what happened to them.
+                properties:
+                  conceded:
+                    description: conceded counts the containers another mutating webhook
+                      rewrote after kuik did.
+                    format: int32
+                    type: integer
+                  noAlternatives:
+                    description: noAlternatives counts the containers left untouched
+                      because no candidate answered.
+                    format: int32
+                    type: integer
+                  rewritten:
+                    description: rewritten counts the containers this resource rewrote,
+                      under either policy.
+                    format: int32
+                    type: integer
+                  stale:
+                    description: |-
+                      stale counts the containers edited after admission, whose record no longer describes
+                      what they run. Counted out of rewritten, never alongside it.
+                    format: int32
+                    type: integer
+                  tracked:
+                    description: tracked is untouched + rewritten + conceded + stale
+                      + noAlternatives.
+                    format: int32
+                    type: integer
+                  untouched:
+                    description: 'untouched counts the containers no kuik annotation
+                      names: the original answered.'
+                    format: int32
+                    type: integer
+                required:
+                - conceded
+                - noAlternatives
+                - rewritten
+                - stale
+                - tracked
+                - untouched
+                type: object
+              driftedImages:
+                description: |-
+                  driftedImages lists the tags whose upstream digest moved away from the copy, under Warn
+                  or Sync. Capped, see ListCapacityPressure.
+                items:
+                  description: MirrorDriftedImage is a copied tag whose upstream digest
+                    moved away from the copy.
+                  properties:
+                    copiedDigest:
+                      description: copiedDigest is the digest held at the destination.
+                      type: string
+                    ref:
+                      description: ref is the origin reference.
+                      type: string
+                    since:
+                      description: since is when the drift was first observed. Stamped
+                        once, never refreshed.
+                      format: date-time
+                      type: string
+                    upstreamDigest:
+                      description: upstreamDigest is the digest the upstream tag points
+                        at now.
+                      type: string
+                  required:
+                  - copiedDigest
+                  - ref
+                  - since
+                  - upstreamDigest
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
+              failedImageCopies:
+                description: |-
+                  failedImageCopies lists the origin references whose copy has not succeeded. Capped, see
+                  ListCapacityPressure.
+                items:
+                  description: FailedImageCopy is an origin reference whose copy has
+                    not succeeded.
+                  properties:
+                    lastAttempt:
+                      description: lastAttempt is refreshed at every retry.
+                      format: date-time
+                      type: string
+                    reason:
+                      description: reason is what the last attempt observed.
+                      enum:
+                      - SourceNotFound
+                      - PushRejected
+                      - Unauthorized
+                      - QuotaExceeded
+                      - SourceUnreachable
+                      - DestinationUnreachable
+                      type: string
+                    ref:
+                      description: ref is the origin reference.
+                      type: string
+                    since:
+                      description: since is the first failure. Stamped once, never
+                        refreshed.
+                      format: date-time
+                      type: string
+                  required:
+                  - reason
+                  - ref
+                  - since
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
+              images:
+                description: images are gauges on the references this mirror holds
+                  at its destination.
+                properties:
+                  copy:
+                    description: copy are the references this mirror holds at its
+                      destination.
+                    properties:
+                      available:
+                        description: available counts the references held by the destination,
+                          as of the last self-check.
+                        format: int32
+                        type: integer
+                      drifted:
+                        description: |-
+                          drifted counts the tags whose upstream digest moved away from the copy, under Warn or
+                          Sync.
+                        format: int32
+                        type: integer
+                      missingSource:
+                        description: |-
+                          missingSource counts the references no source can supply any more: the
+                          failedImageCopies entries with reason SourceNotFound.
+                        format: int32
+                        type: integer
+                      orphanTags:
+                        description: |-
+                          orphanTags counts the destination tags the sweep found that no tracked reference
+                          accounts for: the pendingDeletion entries carrying no origin.
+                        format: int32
+                        type: integer
+                      retained:
+                        description: |-
+                          retained counts the references whose origin no pod declares any more, held for
+                          cleanup.retention.
+                        format: int32
+                        type: integer
+                      running:
+                        description: running counts the references a container carries.
+                        format: int32
+                        type: integer
+                      standby:
+                        description: standby counts the references copied and held
+                          that no container carries.
+                        format: int32
+                        type: integer
+                      tracked:
+                        description: tracked is running + standby + retained.
+                        format: int32
+                        type: integer
+                      unavailable:
+                        description: unavailable counts the references not copied
+                          yet, or whose copy is failing.
+                        format: int32
+                        type: integer
+                    required:
+                    - available
+                    - drifted
+                    - missingSource
+                    - orphanTags
+                    - retained
+                    - running
+                    - standby
+                    - tracked
+                    - unavailable
+                    type: object
+                type: object
+              noAlternatives:
+                description: |-
+                  noAlternatives lists the images no candidate could serve, that were left untouched.
+                  Capped, see ListCapacityPressure.
+                items:
+                  description: NoAlternative is an image no candidate of this resource
+                    could serve.
+                  properties:
+                    image:
+                      description: image is the origin reference.
+                      type: string
+                    pods:
+                      description: pods counts the pods left untouched for it.
+                      format: int32
+                      type: integer
+                    since:
+                      description: since is when it was first observed. Stamped once,
+                        never refreshed.
+                      format: date-time
+                      type: string
+                  required:
+                  - image
+                  - pods
+                  - since
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
+              pendingDeletion:
+                description: |-
+                  pendingDeletion lists the destination tags waiting out cleanup.retention. Not capped:
+                  a missing entry would be a tag never deleted.
+                items:
+                  description: PendingDeletion is a destination tag no pod references
+                    any more, held for cleanup.retention.
+                  properties:
+                    origin:
+                      description: |-
+                        origin is the reference the image was copied from. Known when a pod event created the
+                        entry, absent for a tag found by listing the destination.
+                      type: string
+                    ref:
+                      description: ref is the destination reference, tag included.
+                      type: string
+                    unusedSince:
+                      description: unusedSince is when the entry appeared. Never refreshed
+                        afterwards.
+                      format: date-time
+                      type: string
+                  required:
+                  - ref
+                  - unusedSince
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
+              pods:
+                description: pods are gauges on the living pods this resource selects.
+                properties:
+                  rewritten:
+                    description: |-
+                      rewritten counts the pods carrying at least one container this resource rewrote whose
+                      rewrite still stands.
+                    format: int32
+                    type: integer
+                  tracked:
+                    description: tracked counts the pods selected by podSelector and
+                      namespaceSelector.
+                    format: int32
+                    type: integer
+                required:
+                - rewritten
+                - tracked
+                type: object
+              repositories:
+                description: |-
+                  repositories lists the destination repositories this mirror wrote to, for the cleanup
+                  sweep. Written before the first push, removed when no tag of this cluster remains. Not
+                  capped: a missing entry would be a repository the sweep never visits again.
+                items:
+                  type: string
+                type: array
+                x-kubernetes-list-type: set
+              selfChecked:
+                description: selfChecked is the end of the last full comparison against
+                  the destination.
+                format: date-time
+                type: string
+              staleRewrites:
+                description: |-
+                  staleRewrites lists the rewrites something replaced after admission. Rolling the workload
+                  sends the pod back through admission. Capped, see ListCapacityPressure.
+                items:
+                  description: |-
+                    ReplacedRewrite is a rewrite this resource made and something replaced: another mutating
+                    webhook at admission (conceded), or an edit after admission (stale).
+                  properties:
+                    image:
+                      description: image is the origin reference.
+                      type: string
+                    pods:
+                      description: pods counts the pods concerned.
+                      format: int32
+                      type: integer
+                    replacedBy:
+                      description: replacedBy is the reference the pod actually runs
+                        now.
+                      type: string
+                    rewrittenTo:
+                      description: rewrittenTo is the reference kuik had placed.
+                      type: string
+                    since:
+                      description: since is when it was first observed. Stamped once,
+                        never refreshed.
+                      format: date-time
+                      type: string
+                  required:
+                  - image
+                  - pods
+                  - replacedBy
+                  - rewrittenTo
+                  - since
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
+              truncated:
+                additionalProperties:
+                  format: int32
+                  type: integer
+                description: |-
+                  truncated records, per capped list that reached its cap, how many entries were left
+                  out. Present only once a cap was reached.
+                type: object
             type: object
         required:
         - spec
