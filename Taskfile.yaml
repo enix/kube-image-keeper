@@ -139,6 +139,11 @@ tasks:
     cmds:
       - go test -short $(go list ./... | grep -v /e2e)
 
+  test-outline:
+    desc: Print the Ginkgo specs as a plain-English tree, or with DIFF=<ref> only the cases added and removed since that ref (paths after --, default the whole repository)
+    cmds:
+      - go run ./hack/testoutline {{if .DIFF}}-diff {{.DIFF}}{{end}} {{.CLI_ARGS}}
+
   setup-test-e2e:
     desc: Create the Kind cluster used by the e2e tests if it does not exist
     preconditions:
