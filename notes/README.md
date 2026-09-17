@@ -55,11 +55,11 @@ Rationale in [0005](./0005-decision-log-filter.md).
   probing spine, `SecretOwnerReconciler` and the config-merge pattern are lifted, the
   rest is replaced.
 - [0002 — development pipeline and milestones](./0002-development-pipeline.md): spec
-  review, then architecture, then issues carrying reviewed test cases, then the agent
-  loop; milestones ordered by dependency, API types first, e2e last.
-- [0003 — agent orchestration and guardrails](./0003-agent-orchestration.md): the agent
-  loop runs in the private `enix/kuik-v3` repository behind branch protection, with the
-  test-writer / implementer split enforced mechanically.
+  review, then architecture, then the build milestone by milestone; milestones ordered by
+  dependency, API types first, e2e last.
+- [0003 — how the work is driven](./0003-agent-orchestration.md): Paul drives every task
+  with an agent in front of him and tracks progress in the shared artefact; nothing runs
+  unattended, he alone commits, opens and merges.
 - [0004 — Ginkgo everywhere as the single test framework](./0004-test-framework.md):
   Ginkgo/Gomega is the only test framework, `DescribeTable` for tables, no
   `[]struct{}` + `t.Run`.
