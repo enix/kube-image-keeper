@@ -80,7 +80,7 @@ real cluster.
 ## Conventions
 
 - **Tests**: Ginkgo + Gomega only ([0004](./notes/0004-test-framework.md)). The `It`
-  and `Entry` strings are the reviewed test cases from the issue, verbatim. Suites are
+  and `Entry` strings are natural-language test cases, one per behaviour. Suites are
   `suite_test.go` files on envtest and load the CRDs from `config/crd/bases/`, so run
   `task manifests` before testing a type change.
 - **Reconcilers**: idempotent; re-fetch the object before updating it; report state
