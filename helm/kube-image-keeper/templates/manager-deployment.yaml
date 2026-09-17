@@ -27,6 +27,9 @@ spec:
       {{- end }}
       labels:
         {{- include "kube-image-keeper.manager-selectorLabels" . | nindent 8 }}
+      {{- with .Values.manager.podLabels }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
     spec:
       {{- with .Values.manager.imagePullSecrets }}
       imagePullSecrets:
