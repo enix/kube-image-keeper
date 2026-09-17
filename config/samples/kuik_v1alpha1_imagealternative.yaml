@@ -6,4 +6,7 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: imagealternative-sample
 spec:
-  # TODO(user): Add fields here
+  rewritePolicy: OnFailure
+  alternatives:
+    - repository: quay.io/thanos/thanos
+    - repository: docker.io/thanosio/thanos

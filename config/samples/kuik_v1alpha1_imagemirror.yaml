@@ -6,4 +6,18 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: imagemirror-sample
 spec:
-  # TODO(user): Add fields here
+  rewritePolicy: OnFailure
+  destination:
+    path: registry.example.com/mirror/
+    manage:
+      auth:
+        secretRef:
+          name: mirror-write-credentials
+    pull:
+      auth:
+        secretRef:
+          name: mirror-read-credentials
+  cleanup:
+    enabled: true
+    retention: 168h
+  driftPolicy: Ignore

@@ -5,38 +5,46 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
-// ImageAlternativeSpec defines the desired state of ImageAlternative
+// ImageAlternativeSpec defines the desired state of ImageAlternative.
 type ImageAlternativeSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// The following markers will use OpenAPI v3 schema to validate the value
-	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
-
-	// foo is an example field of ImageAlternative. Edit imagealternative_types.go to remove/update
+	// podSelector restricts the pods this resource applies to. Empty or absent matches every
+	// pod.
 	// +optional
-	Foo *string `json:"foo,omitempty"`
+	PodSelector *metav1.LabelSelector `json:"podSelector,omitempty"`
+
+	// namespaceSelector restricts the namespaces this resource applies to. Empty or absent
+	// matches every namespace.
+	// +optional
+	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
+
+	// rewritePolicy says where the entries sit relative to the original image: OnFailure tries
+	// the original first and the entries as fallbacks, Always tries the entries first.
+	// +kubebuilder:validation:Enum=OnFailure;Always
+	// +kubebuilder:default=OnFailure
+	// +optional
+	RewritePolicy RewritePolicy `json:"rewritePolicy,omitempty"`
+
+	// alternatives is the ordered list of equivalent repositories, or repository groups. Every
+	// entry of a list uses the same form.
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:XValidation:rule="self.all(a, has(a.repository)) || self.all(a, has(a.repositoryGroup))",message="alternatives must all be repository entries or all be repositoryGroup entries"
+	// +listType=atomic
+	// +required
+	Alternatives []Alternative `json:"alternatives"`
 }
 
 // ImageAlternativeStatus defines the observed state of ImageAlternative.
 type ImageAlternativeStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	RoutingStatus `json:",inline"`
 
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
+	// truncated records, per capped list that reached its cap, how many entries were left
+	// out. Present only once a cap was reached.
+	// +optional
+	Truncated map[string]int32 `json:"truncated,omitempty"`
 
-	// conditions represent the current state of the ImageAlternative resource.
-	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
-	//
-	// Standard condition types include:
-	// - "Available": the resource is fully functional
-	// - "Progressing": the resource is being created or updated
-	// - "Degraded": the resource failed to reach or maintain its desired state
-	//
-	// The status of each condition is one of True, False, or Unknown.
+	// conditions report the state of the resource. Ready is the only one that is True when
+	// things are well; FallbackActive, AlternativesExhausted and ListCapacityPressure each name
+	// an anomaly and stay True as long as it lasts.
 	// +listType=map
 	// +listMapKey=type
 	// +optional
@@ -46,8 +54,14 @@ type ImageAlternativeStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster
+// +kubebuilder:printcolumn:name="Policy",type=string,JSONPath=`.spec.rewritePolicy`
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
+// +kubebuilder:printcolumn:name="Fallback",type=string,JSONPath=`.status.conditions[?(@.type=="FallbackActive")].status`
+// +kubebuilder:printcolumn:name="Rewritten",type=integer,JSONPath=`.status.containers.rewritten`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
-// ImageAlternative is the Schema for the imagealternatives API
+// ImageAlternative routes images to alternative repositories holding the same images, as
+// fallbacks when the original fails or ahead of it.
 type ImageAlternative struct {
 	metav1.TypeMeta `json:",inline"`
 
