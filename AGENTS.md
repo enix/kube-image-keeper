@@ -107,8 +107,8 @@ real cluster.
 User documentation lives under [`docs/`](./docs/) and is published from `main` at
 [kuik.enix.io](https://kuik.enix.io) by [`.github/workflows/website.yaml`](./.github/workflows/website.yaml):
 a broken page ships as soon as it is merged. The markdown is the single source of truth;
-read it alongside the code. Today: [`docs/crds.md`](./docs/crds.md) (CRD reference, to be
-written with the API types), [`docs/configuration.md`](./docs/configuration.md),
+read it alongside the code. Today: [`docs/crds.md`](./docs/crds.md) (CRD reference, kept in
+step with `api/kuik/v1alpha1`), [`docs/configuration.md`](./docs/configuration.md),
 [`docs/guides/development.md`](./docs/guides/development.md) (local workflow) and the
 use cases. The v2 user docs are served from the `2.3.x` branch, not from here.
 
