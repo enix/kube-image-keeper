@@ -14,10 +14,28 @@ spec:
     singular: imagemonitor
   scope: Cluster
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.images.origin.tracked
+      name: Tracked
+      type: integer
+    - jsonPath: .status.images.origin.unavailable
+      name: Unavailable
+      type: integer
+    - jsonPath: .status.images.origin.drifted
+      name: Drifted
+      type: integer
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: ImageMonitor is the Schema for the imagemonitors API
+        description: |-
+          ImageMonitor checks the availability of the images of the pods it selects, and reports the
+          ones that fail or drift.
         properties:
           apiVersion:
             description: |-
@@ -39,25 +57,171 @@ spec:
           spec:
             description: spec defines the desired state of ImageMonitor
             properties:
-              foo:
-                description: foo is an example field of ImageMonitor. Edit imagemonitor_types.go
-                  to remove/update
+              driftDetection:
+                default: true
+                description: |-
+                  driftDetection reports the tracked tags whose upstream digest differs from the one
+                  running in the cluster.
+                type: boolean
+              monitorAlternatives:
+                default: false
+                description: |-
+                  monitorAlternatives also monitors the alternatives kuik would offer for each tracked
+                  image, from ImageAlternative entries only: a mirror destination is verified by the
+                  mirror's own self-check, and entries marked unavailable are never tracked.
+                type: boolean
+              namespaceSelector:
+                description: |-
+                  namespaceSelector restricts the namespaces this resource applies to. Empty or absent
+                  matches every namespace.
+                properties:
+                  matchExpressions:
+                    description: matchExpressions is a list of label selector requirements.
+                      The requirements are ANDed.
+                    items:
+                      description: |-
+                        A label selector requirement is a selector that contains values, a key, and an operator that
+                        relates the key and values.
+                      properties:
+                        key:
+                          description: key is the label key that the selector applies
+                            to.
+                          type: string
+                        operator:
+                          description: |-
+                            operator represents a key's relationship to a set of values.
+                            Valid operators are In, NotIn, Exists and DoesNotExist.
+                          type: string
+                        values:
+                          description: |-
+                            values is an array of string values. If the operator is In or NotIn,
+                            the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                            the values array must be empty. This array is replaced during a strategic
+                            merge patch.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                      map is equivalent to an element of matchExpressions, whose key field is "key", the
+                      operator is "In", and the values array contains only "value". The requirements are ANDed.
+                    type: object
+                type: object
+                x-kubernetes-map-type: atomic
+              podSelector:
+                description: |-
+                  podSelector restricts the pods this resource applies to. Empty or absent matches every
+                  pod.
+                properties:
+                  matchExpressions:
+                    description: matchExpressions is a list of label selector requirements.
+                      The requirements are ANDed.
+                    items:
+                      description: |-
+                        A label selector requirement is a selector that contains values, a key, and an operator that
+                        relates the key and values.
+                      properties:
+                        key:
+                          description: key is the label key that the selector applies
+                            to.
+                          type: string
+                        operator:
+                          description: |-
+                            operator represents a key's relationship to a set of values.
+                            Valid operators are In, NotIn, Exists and DoesNotExist.
+                          type: string
+                        values:
+                          description: |-
+                            values is an array of string values. If the operator is In or NotIn,
+                            the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                            the values array must be empty. This array is replaced during a strategic
+                            merge patch.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                      map is equivalent to an element of matchExpressions, whose key field is "key", the
+                      operator is "In", and the values array contains only "value". The requirements are ANDed.
+                    type: object
+                type: object
+                x-kubernetes-map-type: atomic
+              unusedImageRetention:
+                default: 168h
+                description: |-
+                  unusedImageRetention keeps monitoring an image for this long after no pod declares it
+                  any more, so that a CronJob's image stays checked between runs.
+                pattern: ^(0|([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$
                 type: string
             type: object
           status:
             description: status defines the observed state of ImageMonitor
             properties:
+              checks:
+                description: checks is the health of the check schedule, one ring
+                  per registry host.
+                properties:
+                  registries:
+                    description: registries holds one ring per source host. A mirror
+                      destination never appears here.
+                    items:
+                      description: RegistryCheck is the health of the check schedule
+                        of one (resource, registry host) ring.
+                      properties:
+                        cursor:
+                          description: cursor is the last reference checked; the ring
+                            resumes at its successor on restart.
+                          type: string
+                        cycleDuration:
+                          description: |-
+                            cycleDuration is the measured duration of the last completed lap, hence how often each
+                            image of this host comes back. Absent until a first lap completes.
+                          type: string
+                        cycleStarted:
+                          description: cycleStarted is when the current lap started.
+                          format: date-time
+                          type: string
+                        images:
+                          description: images is the size of the ring.
+                          format: int32
+                          type: integer
+                        registry:
+                          description: registry is the host the ring reads from.
+                          type: string
+                      required:
+                      - images
+                      - registry
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - registry
+                    x-kubernetes-list-type: map
+                type: object
               conditions:
                 description: |-
-                  conditions represent the current state of the ImageMonitor resource.
-                  Each condition has a unique type and reflects the status of a specific aspect of the resource.
-
-                  Standard condition types include:
-                  - "Available": the resource is fully functional
-                  - "Progressing": the resource is being created or updated
-                  - "Degraded": the resource failed to reach or maintain its desired state
-
-                  The status of each condition is one of True, False, or Unknown.
+                  conditions report the state of the resource. Ready is the only one that is True when
+                  things are well; ImagesUnavailable, AlternativesUnavailable, ImagesDrifted and
+                  ListCapacityPressure each name an anomaly and stay True as long as it lasts.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -116,6 +280,264 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              driftedImages:
+                description: |-
+                  driftedImages lists the tracked tags whose running digest differs from the upstream
+                  one. Capped, see ListCapacityPressure.
+                items:
+                  description: MonitorDriftedImage is a tracked tag whose running
+                    digest differs from the upstream one.
+                  properties:
+                    ref:
+                      description: ref is the origin reference.
+                      type: string
+                    runningDigests:
+                      description: |-
+                        runningDigests lists every digest currently running for the tag: pods pulled at
+                        different times may run different ones.
+                      items:
+                        description: RunningDigest is one digest running for a tag,
+                          with how many pods reference it.
+                        properties:
+                          digest:
+                            description: digest running in the cluster.
+                            type: string
+                          pods:
+                            description: pods counts the pods running it.
+                            format: int32
+                            type: integer
+                        required:
+                        - digest
+                        - pods
+                        type: object
+                      type: array
+                      x-kubernetes-list-map-keys:
+                      - digest
+                      x-kubernetes-list-type: map
+                    since:
+                      description: since is when the drift was first observed. Stamped
+                        once, never refreshed.
+                      format: date-time
+                      type: string
+                    upstreamDigest:
+                      description: upstreamDigest is the digest the upstream tag points
+                        at now.
+                      type: string
+                  required:
+                  - ref
+                  - runningDigests
+                  - since
+                  - upstreamDigest
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
+              images:
+                description: images are gauges on the two populations this monitor
+                  tracks.
+                properties:
+                  alternatives:
+                    description: |-
+                      alternatives are the candidates ImageAlternative entries would offer for them, under
+                      monitorAlternatives.
+                    properties:
+                      available:
+                        description: |-
+                          available counts the references whose last check succeeded. available + unavailable is
+                          short of tracked by the references the ring has not reached yet.
+                        format: int32
+                        type: integer
+                      retained:
+                        description: |-
+                          retained counts the references no pod declares any more, kept for
+                          unusedImageRetention.
+                        format: int32
+                        type: integer
+                      running:
+                        description: running counts the references a container carries.
+                        format: int32
+                        type: integer
+                      standby:
+                        description: |-
+                          standby counts the references a pod still declares but kuik routed elsewhere, for an
+                          origin, or the checked candidates never served, for an alternative.
+                        format: int32
+                        type: integer
+                      tracked:
+                        description: tracked is running + standby + retained.
+                        format: int32
+                        type: integer
+                      unavailable:
+                        description: unavailable counts the references whose last
+                          check failed.
+                        format: int32
+                        type: integer
+                    required:
+                    - available
+                    - retained
+                    - running
+                    - standby
+                    - tracked
+                    - unavailable
+                    type: object
+                  origin:
+                    description: origin are the origin references declared by the
+                      selected pods.
+                    properties:
+                      available:
+                        description: |-
+                          available counts the references whose last check succeeded. available + unavailable is
+                          short of tracked by the references the ring has not reached yet.
+                        format: int32
+                        type: integer
+                      drifted:
+                        description: |-
+                          drifted counts the tags whose running digest differs from the upstream one, under
+                          driftDetection.
+                        format: int32
+                        type: integer
+                      retained:
+                        description: |-
+                          retained counts the references no pod declares any more, kept for
+                          unusedImageRetention.
+                        format: int32
+                        type: integer
+                      running:
+                        description: running counts the references a container carries.
+                        format: int32
+                        type: integer
+                      standby:
+                        description: |-
+                          standby counts the references a pod still declares but kuik routed elsewhere, for an
+                          origin, or the checked candidates never served, for an alternative.
+                        format: int32
+                        type: integer
+                      tracked:
+                        description: tracked is running + standby + retained.
+                        format: int32
+                        type: integer
+                      unavailable:
+                        description: unavailable counts the references whose last
+                          check failed.
+                        format: int32
+                        type: integer
+                    required:
+                    - available
+                    - drifted
+                    - retained
+                    - running
+                    - standby
+                    - tracked
+                    - unavailable
+                    type: object
+                type: object
+              retainedImages:
+                description: |-
+                  retainedImages lists the references kept for unusedImageRetention. Not capped: they
+                  cannot be recomputed from the cluster.
+                items:
+                  description: RetainedImage is a reference no pod declares any more,
+                    kept for unusedImageRetention.
+                  properties:
+                    digest:
+                      description: digest is the digest that was running.
+                      type: string
+                    ref:
+                      description: ref is the origin reference.
+                      type: string
+                    unusedSince:
+                      description: unusedSince is when its last pod went away.
+                      format: date-time
+                      type: string
+                  required:
+                  - ref
+                  - unusedSince
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
+              truncated:
+                additionalProperties:
+                  format: int32
+                  type: integer
+                description: |-
+                  truncated records, per capped list that reached its cap, how many entries were left
+                  out. Present only once a cap was reached.
+                type: object
+              unavailableAlternatives:
+                description: |-
+                  unavailableAlternatives lists the monitored alternatives whose last check failed.
+                  Capped, see ListCapacityPressure.
+                items:
+                  description: UnavailableAlternative is a monitored alternative whose
+                    last check failed.
+                  properties:
+                    derivedFrom:
+                      description: derivedFrom is the origin it stands for.
+                      type: string
+                    reason:
+                      description: reason is what the check observed.
+                      enum:
+                      - ManifestNotFound
+                      - Unauthorized
+                      - QuotaExceeded
+                      - Unreachable
+                      type: string
+                    ref:
+                      description: ref is the alternative reference.
+                      type: string
+                    since:
+                      description: since is when the failure was first observed. Stamped
+                        once, never refreshed.
+                      format: date-time
+                      type: string
+                    via:
+                      description: via names the ImageAlternative the entry came from,
+                        as `ImageAlternative/<name>`.
+                      type: string
+                  required:
+                  - derivedFrom
+                  - reason
+                  - ref
+                  - since
+                  - via
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
+              unavailableImages:
+                description: |-
+                  unavailableImages lists the tracked origins whose last check failed. Capped, see
+                  ListCapacityPressure.
+                items:
+                  description: UnavailableImage is a tracked origin whose last check
+                    failed.
+                  properties:
+                    pods:
+                      description: pods counts the pods declaring it.
+                      format: int32
+                      type: integer
+                    reason:
+                      description: reason is what the check observed.
+                      enum:
+                      - ManifestNotFound
+                      - Unauthorized
+                      - QuotaExceeded
+                      - Unreachable
+                      type: string
+                    ref:
+                      description: ref is the origin reference.
+                      type: string
+                    since:
+                      description: since is when the failure was first observed. Stamped
+                        once, never refreshed.
+                      format: date-time
+                      type: string
+                  required:
+                  - pods
+                  - reason
+                  - ref
+                  - since
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
             type: object
         required:
         - spec
