@@ -64,8 +64,8 @@ Scopes in commit messages are optional, but when used they must belong to the li
 
 | Category | Scopes | Purpose |
 | --- | --- | --- |
-| Feature | `mirroring`, `routing`, `monitoring`, `metrics` | Describe *what* the change affects functionally (e.g. `feat(routing): ...`). |
-| Component | `registry`, `helm` | A distinct code area with its own concerns (`internal/registry/`, `helm/kube-image-keeper/`). |
+| Feature | `mirroring`, `routing`, `monitoring` | Describe *what* the change affects functionally (e.g. `feat(routing): ...`). |
+| Component | `auth`, `metrics`, `registry`, `helm` | A distinct code area with its own concerns: credentials and secrets handling, the metrics surface, `internal/registry/`, `helm/kube-image-keeper/`. |
 | Origin | `deps` | Dependency updates (e.g. `build(deps): ...`). |
 
 **Picking a scope.** Prefer a feature scope over an architectural one. `fix(routing): ...` is more informative than `fix(controller): ...` because the reader learns *what* changed, not where the code happens to live. If no scope fits cleanly, omit it; scopes are optional. If a change crosses feature boundaries, consider splitting it into several commits.
