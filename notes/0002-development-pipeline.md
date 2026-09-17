@@ -23,7 +23,8 @@ How the v3 build is organised. Amendments are marked inline and dated.
   [0003](./0003-agent-orchestration.md). Tests are written as natural-language cases,
   one per behaviour, and those cases are the `It` and `Entry` strings of the Ginkgo
   specs ([0004](./0004-test-framework.md)), so the reviewed English lands in git next to
-  the assertion it describes.
+  the assertion it describes. The tree of cases is written and reviewed first, with
+  `task test-outline` (`DIFF=<ref>` shows only what changed), and the bodies come after.
 
 ## Milestones
 
