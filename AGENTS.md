@@ -36,6 +36,7 @@ internal/webhook/core/v1/*    Pod mutating webhook (image routing)
 config/                       controller-gen output (CRDs, RBAC, webhook), read by envtest
 helm/kube-image-keeper/       The Helm chart, the only deployment path (crds/ and files/ generated)
 test/e2e/                     End-to-end suite, runs on a Kind cluster
+hack/                         Developer tools run with go run (the test outline)
 website/                      The docs site (Astro Starlight), see Docs below
 PROJECT                       Kubebuilder metadata
 ```
@@ -80,7 +81,10 @@ real cluster.
 ## Conventions
 
 - **Tests**: Ginkgo + Gomega only ([0004](./notes/0004-test-framework.md)). The `It`
-  and `Entry` strings are natural-language test cases, one per behaviour. Suites are
+  and `Entry` strings are natural-language test cases, one per behaviour, and they are
+  reviewed before the bodies are written: write the tree first with pending specs (`PIt`),
+  show it with `task test-outline -- <path>` or `task test-outline DIFF=origin/main` for
+  the cases added and removed, then fill the bodies once the cases are agreed. Suites are
   `suite_test.go` files on envtest and load the CRDs from `config/crd/bases/`, so run
   `task manifests` before testing a type change.
 - **Reconcilers**: idempotent; re-fetch the object before updating it; report state
