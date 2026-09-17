@@ -445,7 +445,7 @@ outcomes ([where a container appears](#where-a-container-appears-says-what-happe
 `kuik_routing_pods_rewritten` is not that number aggregated. A pod with three rewritten containers
 counts three times in `kuik_routing_containers` and once here, and neither number derives from the
 other: the pod count is the **reach** of a resource — how many workloads go down with it — where the
-container count is its **extent**. Only the reach is exposed in pods. The three anomaly outcomes are
+container count is its **extent**. Only the reach is exposed in pods. The four anomaly outcomes are
 not, being exact per container already, and their per-image pod counts sitting in
 `status.activeFallbacks`, `status.concededRewrites`, `status.staleRewrites` and
 `status.noAlternatives` and in the series that mirror them.
