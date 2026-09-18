@@ -7,9 +7,9 @@ metadata:
     {{- include "kube-image-keeper.manager-labels" . | nindent 4 }}
 spec:
   ports:
-    - name: http
+    - name: metrics
       port: 8080
       protocol: TCP
-      targetPort: 8080
+      targetPort: metrics
   selector:
     {{- include "kube-image-keeper.manager-selectorLabels" . | nindent 4 }}

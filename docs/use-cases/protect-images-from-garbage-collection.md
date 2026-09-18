@@ -23,27 +23,8 @@ This documentation will help you configure Kuik in order to "backup" useful (use
 
 ### Kuik custom resource to use
 
-- [ClusterImageSetMirror](../crds.md#clusterimagesetmirror)
-- or [ImageSetMirror](../crds.md#clusterimagesetmirror)
+TODO
 
 ### Configuration example
 
-```yaml
-apiVersion: kuik.enix.io/v1alpha1
-kind: ImageSetMirror
-metadata:
-  name: smart-replication-gc
-  namespace: myproject
-spec:
-  filter:
-    include:
-    - image: "myregistry.mydomain/myproject/myimage:.+" # protect these images from aggressive garbage collect on origin registry
-  mirrors:
-  - registry: backup.custom.domain # an already existing (destination) registry
-    path: /mirror
-    credentialSecret:
-      name: backup-registry-secret # the secret must be located in the same namespace
-  cleanup:
-    enabled: true
-    retention: 24h # delete image on mirror 24h after an image is no longer used on kube
-```
+TODO

@@ -13,7 +13,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/enix/kube-image-keeper/internal/config"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -39,9 +38,6 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping envtest-based webhook suite in short mode")
-	}
 	RegisterFailHandler(Fail)
 
 	RunSpecs(t, "Webhook Suite")
@@ -96,10 +92,7 @@ var _ = BeforeSuite(func() {
 	})
 	Expect(err).NotTo(HaveOccurred())
 
-	testConfig, err := config.LoadDefault()
-	Expect(err).NotTo(HaveOccurred())
-
-	err = SetupPodWebhookWithManager(mgr, &PodCustomDefaulter{Client: mgr.GetClient(), Config: testConfig})
+	err = SetupPodWebhookWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:webhook

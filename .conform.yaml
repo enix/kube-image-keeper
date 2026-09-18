@@ -15,6 +15,7 @@ policies:
           - style
           - test
         scopes:
+          - auth
           - deps
           - helm
           - metrics

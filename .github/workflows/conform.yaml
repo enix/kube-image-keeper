@@ -16,11 +16,15 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
 
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
 
+      - name: Setup Task
+        uses: ./.github/actions/setup-task
+
       - name: Lint commits
-        run: make conform BASE_BRANCH=origin/${{ github.event.pull_request.base.ref }}
+        run: task conform BASE_BRANCH=origin/${{ github.event.pull_request.base.ref }}

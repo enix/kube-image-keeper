@@ -32,9 +32,6 @@ var (
 )
 
 func TestControllers(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping envtest-based controller suite in short mode")
-	}
 	RegisterFailHandler(Fail)
 
 	RunSpecs(t, "Controller Suite")
@@ -54,7 +51,7 @@ var _ = BeforeSuite(func() {
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "..", "config", "crd", "bases")},
-		ErrorIfCRDPathMissing: false,
+		ErrorIfCRDPathMissing: true,
 	}
 
 	// Retrieve the first found binary directory to allow running tests from IDEs

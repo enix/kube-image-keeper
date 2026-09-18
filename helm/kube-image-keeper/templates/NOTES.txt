@@ -1,1 +1,6 @@
+kube-image-keeper {{ .Chart.AppVersion }} installed as release {{ .Release.Name }} in namespace {{ .Release.Namespace }}.
 
+kuik v3 is in development: the manager runs, the webhook is registered, but no routing,
+mirroring or monitoring logic is implemented yet.
+
+Documentation: https://kuik.enix.io

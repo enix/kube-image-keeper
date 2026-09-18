@@ -1,0 +1,23 @@
+apiVersion: kuik.enix.io/v1alpha1
+kind: ImageMirror
+metadata:
+  labels:
+    app.kubernetes.io/name: kube-image-keeper
+    app.kubernetes.io/managed-by: kustomize
+  name: imagemirror-sample
+spec:
+  rewritePolicy: OnFailure
+  destination:
+    path: registry.example.com/mirror/
+    manage:
+      auth:
+        secretRef:
+          name: mirror-write-credentials
+    pull:
+      auth:
+        secretRef:
+          name: mirror-read-credentials
+  cleanup:
+    enabled: true
+    retention: 168h
+  driftPolicy: Ignore

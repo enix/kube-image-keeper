@@ -4,22 +4,36 @@ on:
   pull_request:
   workflow_call:
 
+permissions: {}
+
 jobs:
   lint:
     name: Run on Ubuntu
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Clone the code
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
 
+      - name: Setup Task
+        uses: ./.github/actions/setup-task
+
+      - name: Check go.mod and go.sum
+        run: |
+          go mod tidy
+          git diff --exit-code
+
       - name: Check generated files
         run: |
-          make manifests generate
+          task manifests generate
           git diff --exit-code
 
       - name: Check formatting
@@ -27,8 +41,14 @@ jobs:
           make fmt
           git diff --exit-code
 
+      - name: Check linter configuration
+        run: task lint-config
+
       - name: Run lint
-        run: make lint
+        run: task lint
+
+      - name: Lint the Helm chart
+        run: task helm-lint
 
       - name: Run markdownlint
         run: npx --yes --package markdownlint-cli2 --package markdownlint-rule-search-replace --package markdownlint-rule-relative-links markdownlint-cli2 "**/*.md"

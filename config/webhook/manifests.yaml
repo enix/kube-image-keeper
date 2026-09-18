@@ -13,6 +13,7 @@ webhooks:
       path: /mutate--v1-pod
   failurePolicy: Ignore
   name: mpod-v1.kb.io
+  reinvocationPolicy: IfNeeded
   rules:
   - apiGroups:
     - ""
@@ -20,7 +21,6 @@ webhooks:
     - v1
     operations:
     - CREATE
-    - UPDATE
     resources:
     - pods
   sideEffects: None

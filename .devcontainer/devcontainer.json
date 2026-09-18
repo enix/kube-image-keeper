@@ -1,0 +1,45 @@
+{
+  "name": "kube-image-keeper",
+  // Keep the Go minor in sync with go.mod
+  "image": "golang:1.26",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "moby": false,
+      "dockerDefaultAddressPool": "base=172.30.0.0/16,size=24"
+    },
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "upgradePackages": true
+    },
+    // markdownlint-rule-relative-links needs Node.js >= 22
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "22"
+    }
+  },
+
+  // Required by docker-in-docker and Kind
+  "runArgs": ["--privileged", "--init"],
+
+  // bin/ holds Linux binaries built inside the container: keep it out of the bind mount so
+  // it never clobbers the host's own bin/ (which may be another OS or architecture).
+  "mounts": [
+    "source=${devcontainerId}-bin,target=${containerWorkspaceFolder}/bin,type=volume"
+  ],
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "golang.go",
+        "task.vscode-task",
+        "ms-kubernetes-tools.vscode-kubernetes-tools",
+        "ms-azuretools.vscode-docker",
+        "redhat.vscode-yaml",
+        "DavidAnson.vscode-markdownlint"
+      ]
+    }
+  },
+
+  "onCreateCommand": "bash .devcontainer/post-install.sh",
+  // Register the git hooks and pre-install the repository tools into bin/
+  "postCreateCommand": "lefthook install && task tools"
+}

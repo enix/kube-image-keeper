@@ -14,6 +14,21 @@ Pull requests targeting v2 must be opened against the `2.3.x` branch.
 
 Before contributing to kube-image-keeper, you need a Kubernetes cluster with [cert-manager](https://cert-manager.io/docs/installation/) installed (kuik uses it to issue its webhook certificate). See the [development guide](./docs/guides/development.md) for how to run kube-image-keeper locally.
 
+### Devcontainer
+
+The repository ships a [devcontainer](https://containers.dev/) (`.devcontainer/`) with Go, Docker, Kind, kubectl, Helm, kubebuilder, Node.js, Task and lefthook pre-installed, and the git hooks registered. Use it with the [devcontainer CLI](https://github.com/devcontainers/cli) (`npm install -g @devcontainers/cli`) or any editor that supports devcontainers:
+
+```sh
+devcontainer up --workspace-folder .              # build and start the container
+devcontainer exec --workspace-folder . task test  # run a command in it
+```
+
+The repository is bind-mounted, so you can keep editing with your own editor on the host. Everything below is already set up inside the container.
+
+### Task
+
+Build, test and deployment commands are [Task](https://taskfile.dev) tasks, listed by `task --list` and defined in [`Taskfile.yaml`](./Taskfile.yaml). Install it with `go install github.com/go-task/task/v3/cmd/task@latest` (or see [taskfile.dev/installation](https://taskfile.dev/installation/)). The `Makefile` is only a shim for tools that call `make` themselves (the kubebuilder CLI, the e2e suite): `make <target>` forwards to `task <target>`.
+
 ### Git hooks (lefthook)
 
 We use [lefthook](https://github.com/evilmartians/lefthook) to run checks locally (code generation, Go linting, Markdown linting, commit message linting). After cloning the repository, install lefthook, then register the hooks:
@@ -38,7 +53,7 @@ If you encounter any issues with kube-image-keeper or have ideas for new feature
 
 We welcome contributions through pull requests. For your pull request to be accepted, it requires to:
 
-- Pass all tests (run `make test` locally before pushing).
+- Pass all tests (run `task test` locally before pushing).
 - Include tests covering any new behavior or bug fix.
 - Follow the [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/#summary) specification (enforced on every pull request).
 - Contain no merge commits. To bring your branch up to date with `main`, rebase it (`git rebase origin/main`) instead of merging `main` into it: merge commits break the commit message linting and clutter the history once the pull request is merged.
@@ -49,8 +64,8 @@ Scopes in commit messages are optional, but when used they must belong to the li
 
 | Category | Scopes | Purpose |
 | --- | --- | --- |
-| Feature | `mirroring`, `routing`, `monitoring`, `metrics` | Describe *what* the change affects functionally (e.g. `feat(routing): ...`). |
-| Component | `registry`, `helm` | A distinct code area with its own concerns (`internal/registry/`, `helm/kube-image-keeper/`). |
+| Feature | `mirroring`, `routing`, `monitoring` | Describe *what* the change affects functionally (e.g. `feat(routing): ...`). |
+| Component | `auth`, `metrics`, `registry`, `helm` | A distinct code area with its own concerns: credentials and secrets handling, the metrics surface, `internal/registry/`, `helm/kube-image-keeper/`. |
 | Origin | `deps` | Dependency updates (e.g. `build(deps): ...`). |
 
 **Picking a scope.** Prefer a feature scope over an architectural one. `fix(routing): ...` is more informative than `fix(controller): ...` because the reader learns *what* changed, not where the code happens to live. If no scope fits cleanly, omit it; scopes are optional. If a change crosses feature boundaries, consider splitting it into several commits.
@@ -66,7 +81,7 @@ Using AI tools to help write your PR is acceptable, but **as the author, you are
 The following rules apply:
 
 - **No AI attribution on commits.** Do not list AI as a co-author, do not co-sign commits with an AI, and do not use trailers like `Assisted-by:` or `Co-developed-by:` referring to an AI. The commit author is the human who submits the work.
-- **Verify before you submit.** Do not leave the first review of AI-generated changes to the reviewers. Run `make test`, exercise the behaviour, confirm the APIs/types you reference actually exist, and read the full diff yourself.
+- **Verify before you submit.** Do not leave the first review of AI-generated changes to the reviewers. Run `task test`, exercise the behaviour, confirm the APIs/types you reference actually exist, and read the full diff yourself.
 - **No large AI-generated PRs and no AI-generated commit messages.** Conventional commit subjects and bodies are written by you (see [Pull requests](#pull-requests)).
 - **Be ready to explain your changes.** If, during review, you cannot explain why a change was made, the PR will be closed.
 - **Respond to reviews yourself.** When replying to review comments, do so without relying on AI tools.

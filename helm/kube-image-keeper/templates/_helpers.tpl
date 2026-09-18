@@ -45,7 +45,6 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- define "kube-image-keeper.manager-labels" -}}
 {{ include "kube-image-keeper.labels" . }}
 app.kubernetes.io/component: manager
-control-plane: controller-manager
 {{- end }}
 
 {{/*
@@ -78,5 +77,3 @@ Create the name of the service account to use
   {{- default "default" .Values.serviceAccount.name }}
 {{- end -}}
 {{- end }}
-
-

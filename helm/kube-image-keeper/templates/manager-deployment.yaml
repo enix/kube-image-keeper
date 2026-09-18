@@ -18,12 +18,9 @@ spec:
       {{- include "kube-image-keeper.manager-selectorLabels" . | nindent 6 }}
   template:
     metadata:
-      annotations:
       {{- with .Values.manager.podAnnotations }}
+      annotations:
         {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- if .Values.configuration }}
-        checksum/config: {{ include (print $.Template.BasePath "/manager-configmap.yaml") . | sha256sum }}
       {{- end }}
       labels:
         {{- include "kube-image-keeper.manager-selectorLabels" . | nindent 8 }}
@@ -38,6 +35,7 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml .Values.manager.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: 10
       containers:
         - name: manager
           securityContext:
@@ -49,15 +47,20 @@ spec:
             {{- if gt (.Values.manager.replicas | int) 1 }}
             - -leader-elect
             {{- end }}
+            - -health-probe-bind-address=:8081
             - -metrics-bind-address=:8080
             - -metrics-secure=false
+            - -webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
+            - -webhook-port=9443
             - -zap-log-level={{ .Values.manager.verbosity }}
+          {{- with .Values.manager.env }}
           env:
-            # custom environment variables
-            {{- with .Values.manager.env }}
-              {{- toYaml . | nindent 12 }}
-            {{- end }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
+            - containerPort: 8081
+              name: health
+              protocol: TCP
             - containerPort: 8080
               name: metrics
               protocol: TCP
@@ -68,11 +71,6 @@ spec:
             - mountPath: /tmp/k8s-webhook-server/serving-certs
               name: webhook-cert
               readOnly: true
-            {{- if .Values.configuration }}
-            - mountPath: /etc/kube-image-keeper
-              name: config
-              readOnly: true
-            {{- end }}
           {{- with .Values.manager.readinessProbe }}
           readinessProbe:
             {{- toYaml . | nindent 12 }}
@@ -102,12 +100,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       volumes:
-      - name: webhook-cert
-        secret:
-          defaultMode: 420
-          secretName: {{ include "kube-image-keeper.fullname" . }}-webhook-server-cert
-      {{- if .Values.configuration }}
-      - name: config
-        configMap:
-          name: {{ include "kube-image-keeper.fullname" . }}-manager-config
-      {{- end }}
+        - name: webhook-cert
+          secret:
+            defaultMode: 420
+            secretName: {{ include "kube-image-keeper.fullname" . }}-webhook-server-cert

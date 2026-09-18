@@ -20,30 +20,15 @@ resources:
 - metrics_reader_role.yaml
 # For each CRD, "Admin", "Editor" and "Viewer" roles are scaffolded by
 # default, aiding admins in cluster management. Those roles are
-# not used by the {{ .ProjectName }} itself. You can comment the following lines
+# not used by the kube-image-keeper itself. You can comment the following lines
 # if you do not want those helpers be installed with your Project.
-- kuik_clusterimagesetavailability_admin_role.yaml
-- kuik_clusterimagesetavailability_editor_role.yaml
-- kuik_clusterimagesetavailability_viewer_role.yaml
-- kuik_clusterreplicatedimageset_admin_role.yaml
-- kuik_clusterreplicatedimageset_editor_role.yaml
-- kuik_clusterreplicatedimageset_viewer_role.yaml
-- kuik_replicatedimageset_admin_role.yaml
-- kuik_replicatedimageset_editor_role.yaml
-- kuik_replicatedimageset_viewer_role.yaml
-- kuik_imagesetmirror_admin_role.yaml
-- kuik_imagesetmirror_editor_role.yaml
-- kuik_imagesetmirror_viewer_role.yaml
-- kuik_clusterimagesetmirror_admin_role.yaml
-- kuik_clusterimagesetmirror_editor_role.yaml
-- kuik_clusterimagesetmirror_viewer_role.yaml
 - kuik_imagemonitor_admin_role.yaml
 - kuik_imagemonitor_editor_role.yaml
 - kuik_imagemonitor_viewer_role.yaml
-- kuik_registrymonitor_admin_role.yaml
-- kuik_registrymonitor_editor_role.yaml
-- kuik_registrymonitor_viewer_role.yaml
-- kuik_image_admin_role.yaml
-- kuik_image_editor_role.yaml
-- kuik_image_viewer_role.yaml
+- kuik_imagemirror_admin_role.yaml
+- kuik_imagemirror_editor_role.yaml
+- kuik_imagemirror_viewer_role.yaml
+- kuik_imagealternative_admin_role.yaml
+- kuik_imagealternative_editor_role.yaml
+- kuik_imagealternative_viewer_role.yaml
 
