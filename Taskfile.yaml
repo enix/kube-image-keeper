@@ -131,13 +131,21 @@ tasks:
       - task: generate
       - task: fmt
       - task: vet
-      - task: setup-envtest
-      - KUBEBUILDER_ASSETS="$({{.LOCALBIN}}/setup-envtest use {{.ENVTEST_K8S_VERSION}} --bin-dir {{.LOCALBIN}} -p path)" go test $(go list ./... | grep -v /e2e) -coverprofile cover.out
+      - task: test:go
+        vars: { GO_TEST_FLAGS: -coverprofile cover.out }
 
   test-short:
-    desc: Run the fast tests only (slow suites opt out via testing.Short())
+    desc: Run the suites in short mode, without the generation and lint steps (pre-push smoke tests)
     cmds:
-      - go test -short $(go list ./... | grep -v /e2e)
+      - task: test:go
+        vars: { GO_TEST_FLAGS: -short }
+
+  # Runs the suites on envtest, with the binaries setup-envtest downloaded into bin/.
+  test:go:
+    internal: true
+    cmds:
+      - task: setup-envtest
+      - KUBEBUILDER_ASSETS="$({{.LOCALBIN}}/setup-envtest use {{.ENVTEST_K8S_VERSION}} --bin-dir {{.LOCALBIN}} -p path)" go test {{.GO_TEST_FLAGS}} $(go list ./... | grep -v /e2e)
 
   test-outline:
     desc: Print the Ginkgo specs as a plain-English tree, or with DIFF=<ref> only the cases added and removed since that ref (paths after --, default the whole repository)
