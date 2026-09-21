@@ -79,12 +79,17 @@ jobs:
     name: Test
     uses: ./.github/workflows/test.yaml
 
+  e2e:
+    name: E2E
+    uses: ./.github/workflows/e2e.yaml
+
   build:
     name: Build
     uses: ./.github/workflows/build.yaml
     needs:
       - lint
       - test
+      - e2e
       - semver
     with:
       REPO_IMAGE: ${{ vars.REPO_IMAGE }}
