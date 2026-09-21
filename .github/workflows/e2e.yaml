@@ -1,0 +1,40 @@
+name: E2E
+
+# The suite installs the chart on a throwaway Kind cluster, which takes minutes. It runs once
+# the work has landed and before a release, not on every pull request; run it by hand on a
+# branch when the chart, the manifests or the manager entrypoint change.
+on:
+  push:
+    branches:
+      - main
+  workflow_call:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  e2e:
+    name: Run on Ubuntu
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Setup Task
+        uses: ./.github/actions/setup-task
+
+      - name: Setup Kind
+        uses: ./.github/actions/setup-kind
+
+      - name: Run the e2e suite
+        run: task test-e2e

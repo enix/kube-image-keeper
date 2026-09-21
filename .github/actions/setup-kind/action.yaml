@@ -1,0 +1,9 @@
+name: Setup Kind
+description: Install Kind (https://kind.sigs.k8s.io), which the e2e suite runs its cluster on. Requires Go.
+runs:
+  using: composite
+  steps:
+    - name: Install Kind
+      shell: bash
+      # Keep the version in sync with .devcontainer/post-install.sh
+      run: go install sigs.k8s.io/kind@v0.33.0
