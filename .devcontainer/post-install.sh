@@ -24,7 +24,6 @@ install_bin() { # name url
   chmod +x "/usr/local/bin/$1"
 }
 
-install_bin kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-${ARCH}"
 install_bin kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl"
 install_bin kubebuilder "https://github.com/kubernetes-sigs/kubebuilder/releases/download/${KUBEBUILDER_VERSION}/kubebuilder_linux_${ARCH}"
 install_bin yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${ARCH}"
@@ -34,9 +33,18 @@ curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-${ARCH}.tar.gz" |
   tar -xzO "linux-${ARCH}/helm" > /usr/local/bin/helm
 chmod +x /usr/local/bin/helm
 
-echo "Installing task and lefthook..."
+# kind, task and lefthook come from the Go module proxy rather than a release asset: it is
+# cached, it needs no architecture juggling, and a hiccup on the GitHub asset CDN would
+# otherwise abort the whole container creation.
+echo "Installing kind, task and lefthook..."
+GOBIN=/usr/local/bin go install "sigs.k8s.io/kind@${KIND_VERSION}"
 GOBIN=/usr/local/bin go install "github.com/go-task/task/v3/cmd/task@${TASK_VERSION}"
 GOBIN=/usr/local/bin go install "github.com/evilmartians/lefthook@${LEFTHOOK_VERSION}"
+
+# The workspace is bind-mounted from the host and owned by the host user, while the container
+# runs as root: without this, git refuses the repository and postCreateCommand fails.
+echo "Trusting the workspace..."
+git config --global --add safe.directory "$PWD"
 
 echo "Installing bash completions..."
 completions=/usr/share/bash-completion/completions
