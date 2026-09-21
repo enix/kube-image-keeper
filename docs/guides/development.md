@@ -22,9 +22,23 @@ The Helm chart is the only deployment path, for development as for production.
 ```bash
 kind create cluster --name kuik-dev
 kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
+# the chart creates a Certificate and an Issuer, which cert-manager's webhook must be ready to admit
+kubectl wait --for=condition=Available deployment --all -n cert-manager --timeout=300s
 # build the image, load it into the Kind cluster and install the chart in kuik-system
 task kind-deploy IMG=kuik:dev KIND_CLUSTER=kuik-dev
 ```
+
+> [!TIP]
+> Kind nodes are containers sharing the host kernel, and a cluster consumes many inotify
+> instances. On the distribution defaults, pods fail with `failed to create fsnotify watcher:
+> too many open files`, especially when several clusters run at once. Raise the limits on the
+> host (see the [Kind known issues](https://kind.sigs.k8s.io/docs/user/known-issues/#pod-errors-due-to-too-many-open-files)):
+>
+> ```bash
+> sudo sysctl fs.inotify.max_user_instances=512 fs.inotify.max_user_watches=524288
+> ```
+>
+> Persist them in `/etc/sysctl.d/` to survive a reboot.
 
 `task deploy IMG=...` alone runs `helm upgrade --install` against the current kubeconfig; arguments after `--` go to Helm (`task deploy -- --set manager.verbosity=DEBUG`). `task undeploy` removes the release, `task uninstall` the CRDs.
 

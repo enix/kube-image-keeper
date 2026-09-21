@@ -4,9 +4,9 @@ Thank you for considering contributing to kube-image-keeper! Before you start co
 
 ## Project status
 
-kube-image-keeper v2 has entered its **maintenance phase**: no new features will be added to v2, only bug fixes. Meanwhile, v3 is being specified; you can follow and join the discussion in the [v3 specification pull request](https://github.com/enix/kube-image-keeper/pull/629).
+kube-image-keeper v2 has entered its **maintenance phase**: no new features will be added to v2, only bug fixes. v3 is being built on `main`, against the specification in [`docs/v3/`](./docs/v3/); it is not usable yet and its pre-releases are not production-ready.
 
-Pull requests targeting v2 must be opened against the `2.3.x` branch.
+Pull requests targeting v2 must be opened against the `2.3.x` branch. Everything else targets `main`.
 
 ## Getting started
 
