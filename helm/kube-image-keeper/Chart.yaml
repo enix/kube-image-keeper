@@ -6,7 +6,7 @@ type: application
 version: 0.0.0
 appVersion: 0.0.0
 home: https://github.com/enix/kube-image-keeper
-icon: https://raw.githubusercontent.com/enix/kube-image-keeper/main/website/src/assets/logo.svg
+icon: https://raw.githubusercontent.com/enix/kube-image-keeper/main/docs/assets/logo.svg
 sources:
   - https://github.com/enix/kube-image-keeper
 keywords:

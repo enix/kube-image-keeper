@@ -63,7 +63,7 @@ export default defineConfig({
       // Widen the content column beyond Starlight's narrow default (45rem).
       customCss: ['./src/styles/custom.css'],
       logo: {
-        src: './src/assets/logo.svg',
+        src: '../docs/assets/logo.svg',
         alt: 'kube-image-keeper logo',
         replacesTitle: true,
       },
@@ -130,7 +130,7 @@ export default defineConfig({
     }),
     favicons({
       input: {
-        favicons: ['./src/assets/logo.svg']
+        favicons: ['../docs/assets/logo.svg']
       },
       icons: {
         favicons: true,

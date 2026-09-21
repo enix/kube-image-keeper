@@ -244,7 +244,9 @@ tasks:
       - defer: rm -rf {{.CHART}}/repo
       - mkdir -p {{.CHART}}/repo
       - cp LICENSE {{.CHART}}/repo
-      - sed -e '/<!-- HELM_DOCS_END -->/,$d' README.md > {{.CHART}}/repo/README.md
+      # Artifact Hub renders the chart README on its own page, which already shows the chart
+      # icon: the logo block becomes the project title there.
+      - sed -e '/<!-- HELM_DOCS_LOGO -->/,/<!-- \/HELM_DOCS_LOGO -->/c\# kube-image-keeper (kuik)' -e '/<!-- HELM_DOCS_END -->/,$d' README.md > {{.CHART}}/repo/README.md
       - '{{.LOCALBIN}}/helm-docs'
 
   # ---------------------------------------------------------------------------------------------
