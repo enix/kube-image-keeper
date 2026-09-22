@@ -33,7 +33,7 @@
   "branches": [
     {
       "name": "main",
-      "prerelease": "beta"
+      "prerelease": "alpha"
     },
     {
       "name": "release"
