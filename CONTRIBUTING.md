@@ -96,14 +96,14 @@ Releases are cut manually by dispatching the [Release workflow](./.github/workfl
 
 ### Channels
 
-- **beta** (from `main`): development pre-releases of the next major or minor version. The scope is still moving; breaking changes may occur between betas.
+- **alpha** (from `main`): development pre-releases of the next major or minor version. The scope is still moving; breaking changes may occur between alphas.
 - **rc** (from `X.Y.x-rc`): frozen release candidates for a patch of the `X.Y` line, published for validation (for example on a pre-production cluster) before the stable release. Only a release blocker justifies cutting an rc.2.
 - **stable** (from `release` for the main line, from `X.Y.x-stable` for a maintenance line): production releases.
 
 ### Releasing the main line
 
-- Beta: dispatch the Release workflow on `main`.
-- Stable: fast-forward `release` to the commit to publish, then dispatch the workflow on `release`. The `release` branch follows `main`'s lineage and is protected against force pushes and deletion: it only moves forward.
+- Alpha: dispatch the Release workflow on `main`.
+- Stable: fast-forward `release` to the commit to publish, then dispatch the workflow on `release`. The `release` branch follows `main`'s lineage and is protected against force pushes and deletion: it only moves forward. It is also the only branch that moves the `:latest` image tag, so a maintenance release never pulls it back to an older major.
 
 ### Releasing a maintenance line `X.Y`
 
