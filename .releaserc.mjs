@@ -26,17 +26,16 @@ export default {
       },
     ],
     [
-      "@semantic-release/changelog",
-      {
-        changelogFile: "CHANGELOG.md",
-      },
-    ],
-    [
       "@semantic-release/github",
       {
-        assets: ["CHANGELOG.md", "../assets/*"],
-        successComment: false,
-        failComment: false,
+        // Comment on the issues and pull requests a release fixes, but only when it
+        // reaches users: an alpha or an rc resolves nothing for them. Testing
+        // branch.prerelease rather than the channel keeps the comment on a maintenance
+        // line, whose stable releases carry a channel of their own.
+        successCommentCondition: "<% return !branch.prerelease %>",
+        // Never open an issue when a release fails: it is dispatched by hand, the
+        // workflow run is where to look, and nobody closes those issues.
+        failCommentCondition: false,
       },
     ],
   ],
