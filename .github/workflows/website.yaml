@@ -8,7 +8,7 @@ on:
       # archived version it backs is refreshed (see website/versions.mjs). The
       # build always runs against main's website config (see the checkout ref
       # below). The pattern mirrors the maintenance-branch glob in
-      # .releaserc.json; GitHub filter syntax can't express extglob, so this is
+      # .releaserc.mjs; GitHub filter syntax can't express extglob, so this is
       # its closest equivalent.
       - "[0-9]*.x"
     paths:

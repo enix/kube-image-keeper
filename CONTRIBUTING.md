@@ -92,7 +92,7 @@ kube-image-keeper is licensed under the [MIT License](./LICENSE). By contributin
 
 ## Releases
 
-Releases are cut manually by dispatching the [Release workflow](./.github/workflows/release.yaml) on the branch to publish. semantic-release computes the version from the conventional commits since the last release, and reads its configuration from the dispatched branch's [`.releaserc.json`](./.releaserc.json): each release line therefore carries its own branches configuration (`main` and `release` for the main line; `X.Y.x-stable` and `X.Y.x-rc` for a maintenance line).
+Releases are cut manually by dispatching the [Release workflow](./.github/workflows/release.yaml) on the branch to publish. semantic-release computes the version from the conventional commits since the last release, and reads its configuration from the dispatched branch's [`.releaserc.mjs`](./.releaserc.mjs): each release line therefore carries its own branches configuration (`main` and `release` for the main line; `X.Y.x-stable` and `X.Y.x-rc` for a maintenance line).
 
 ### Channels
 
@@ -123,10 +123,10 @@ Each release line `X.Y` is maintained from a **maintenance branch `X.Y.x`**: it 
    git push -u origin X.Y.x
    ```
 
-2. Make the release configuration line-local: on `X.Y.x`, trim the `branches` of [`.releaserc.json`](./.releaserc.json) down to `X.Y.x-stable` and `X.Y.x-rc` (with `"prerelease": "rc"`), as described in [Releases](#releases), then commit and push (the Release workflow reads the file from the branch it is dispatched on):
+2. Make the release configuration line-local: on `X.Y.x`, trim the `branches` of [`.releaserc.mjs`](./.releaserc.mjs) down to `X.Y.x-stable` and `X.Y.x-rc` (with `prerelease: "rc"`), as described in [Releases](#releases), then commit and push (the Release workflow reads the file from the branch it is dispatched on):
 
    ```bash
-   git commit -m "chore: make the release configuration line-local" .releaserc.json
+   git commit -m "chore: make the release configuration line-local" .releaserc.mjs
    git push
    ```
 
