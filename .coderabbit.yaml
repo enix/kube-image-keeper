@@ -56,16 +56,18 @@ reviews:
 
   # Auto-generated files: don't waste tokens reviewing them, the source
   # of truth is elsewhere.
-  #   - zz_generated.deepcopy.go: produced by `task generate` (controller-gen)
-  #   - config/crd/bases & helm crds: produced by `task manifests`
-  #     (the helm copy is a verbatim mirror of config/crd/bases)
-  #   - helm clusterrole-*.yaml: sliced out of config/rbac by the Makefile
+  # The list is the "Generated, never edit by hand" set of AGENTS.md:
+  #   - zz_generated.*.go: produced by `task generate` (controller-gen)
+  #   - config/crd/bases, config/rbac/role.yaml, config/webhook/manifests.yaml:
+  #     produced by `task manifests` (controller-gen)
+  #   - helm crds/ and files/: copied out of config/ by the same task
   path_filters:
-    - "!api/kuik/v1alpha1/zz_generated.deepcopy.go"
+    - "!**/zz_generated.*.go"
     - "!config/crd/bases/**"
+    - "!config/rbac/role.yaml"
+    - "!config/webhook/manifests.yaml"
     - "!helm/kube-image-keeper/crds/**"
-    - "!helm/kube-image-keeper/files/clusterrole-rules.yaml"
-    - "!helm/kube-image-keeper/files/clusterrole-leader-elec-rules.yaml"
+    - "!helm/kube-image-keeper/files/**"
     - "!cover.out"
     - "!go.sum"
 
