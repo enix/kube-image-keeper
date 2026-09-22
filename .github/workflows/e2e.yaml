@@ -7,6 +7,20 @@ on:
   push:
     branches:
       - main
+    # The suite builds the manager image, applies the CRDs and installs the chart. Anything
+    # else landing on main cannot change its outcome. Paths are ignored by workflow_call and
+    # workflow_dispatch, so a release still runs it whatever it carries.
+    paths:
+      - '**/*.go'
+      - go.mod
+      - go.sum
+      - Dockerfile
+      - Makefile
+      - Taskfile.yaml
+      - helm/**
+      - config/crd/**
+      - .github/workflows/e2e.yaml
+      - .github/actions/setup-kind/**
   workflow_call:
   workflow_dispatch:
 
