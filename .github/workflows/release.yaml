@@ -97,7 +97,9 @@ jobs:
       REPO_IMAGE: ${{ vars.REPO_IMAGE }}
       REPO_CHART: ${{ vars.REPO_CHART }}
       VERSION: ${{ needs.semver.outputs.version }}
-      PRERELEASE: ${{ needs.semver.outputs.prerelease }}
+      # A job output is a string, and build.yaml declares these inputs as booleans: compare
+      # rather than forward, or the call is rejected and the job never starts.
+      PRERELEASE: ${{ needs.semver.outputs.prerelease == 'true' }}
       # Only a stable release of the main line owns the :latest image tag. A maintenance line
       # also publishes stable versions, and they must not move :latest back to an older major.
       IS_LATEST: ${{ needs.semver.outputs.channel == '' && github.ref_name == 'release' }}
