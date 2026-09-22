@@ -46,23 +46,18 @@ It relies on three core mechanisms:
 - **Image copy**: mirror images **used by the local cluster** across registries, building a virtual, highly available registry.
 - **Image monitoring**: continuously tracks the availability of Pod images **used within the local cluster** across various registries.
 
-Note : image routing is performed at Pod creation by a lightweight `MutatingWebhook` that automatically rewrites the image path whenever the source registry becomes unavailable.
+> [!NOTE]
+> Image routing is performed at Pod creation by a lightweight `MutatingWebhook` that automatically rewrites the image path whenever the source registry becomes unavailable.
 
 ## Status
 
-This branch holds **kuik v3**, a rewrite currently in development. It is not usable yet: no
-release, no chart, no published image.
+This branch holds **kuik v3**, a rewrite currently in development.
 
-- **Stable version**: [v2.3](https://github.com/enix/kube-image-keeper/releases), documented on
-  [kuik.enix.io](https://kuik.enix.io). It is in maintenance: bug fixes only.
-- **v3 specification**: [`docs/v3/`](./docs/v3/), starting with [`spec.md`](./docs/v3/spec.md).
-  It is the source of truth for v3 behaviour and is reviewed in the
-  [specification pull request](https://github.com/enix/kube-image-keeper/pull/629).
-- **Custom resources**: `ImageAlternative` (routing), `ImageMirror` (copy) and `ImageMonitor`
-  (monitoring), described in the [CRD reference](./docs/crds.md).
+- **Stable version**: [v2.3](https://github.com/enix/kube-image-keeper/releases), documented on [kuik.enix.io](https://kuik.enix.io/2.3/). It is in maintenance: bug fixes only.
+- **v3 specification**: [`docs/v3/`](./docs/v3/), starting with [`spec.md`](./docs/v3/spec.md). It is the source of truth for v3 behaviour, frozen for now, it may evolves after we reach beta.
+- **Custom resources**: `ImageAlternative` (routing), `ImageMirror` (copy) and `ImageMonitor` (monitoring), described in the [CRD reference](./docs/crds.md).
 
-Development process and decisions are recorded in [`notes/`](./notes/). Contributions follow
-[`CONTRIBUTING.md`](./CONTRIBUTING.md).
+Development process and decisions are recorded in [`notes/`](./notes/). Contributions follow [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
 <!-- HELM_DOCS_END -->
 
