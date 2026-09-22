@@ -11,6 +11,12 @@
 
 </div>
 
+<!-- A branch root has no relative form, so no-unpinned-repo-urls cannot be satisfied here. -->
+<!-- markdownlint-disable search-replace -->
+> [!WARNING]
+> **kuik v3 is in a very early stage of development on `main` and is not usable yet**. If you are looking for the latest stable version, it is maintained on the [`2.3.x`](https://github.com/enix/kube-image-keeper/tree/2.3.x) branch: see its [releases](https://github.com/enix/kube-image-keeper/releases) and its documentation on [kuik.enix.io](https://kuik.enix.io/2.3/).
+<!-- markdownlint-enable search-replace -->
+
 [release]: https://github.com/enix/kube-image-keeper/releases
 [release-img]: https://img.shields.io/github/v/release/enix/kube-image-keeper?sort=semver&display_name=tag&logo=github&label=Release&color=3a6ed7
 [lint]: https://github.com/enix/kube-image-keeper/actions/workflows/lint.yaml
