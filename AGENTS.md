@@ -118,7 +118,9 @@ build are in [`.claude/rules/docs.md`](./.claude/rules/docs.md).
   ([0003](./notes/0003-agent-orchestration.md)).
 - `rules/`: the path-scoped conventions above.
 - `skills/`: [`test-outline`](./.claude/skills/test-outline/SKILL.md) (the spec-first Ginkgo
-  workflow, picked up whenever specs are written).
+  workflow, picked up whenever specs are written) and
+  [`decision-note`](./.claude/skills/decision-note/SKILL.md) (`/decision-note`, writes a note
+  under `notes/` when the filter holds).
 
 The hooks need `jq` and refuse the call without it, so the guards always hold: install
 it before developing. `worktrees/`, `artifacts/` and
@@ -154,9 +156,9 @@ The "why" of a change lives in its commit body by default. Write a note under `n
 only when the decision passes the filter in [`notes/README.md`](./notes/README.md): it
 constrains later work, rejects an alternative that will come back, or has no single
 commit to live in. Notes record deliberation that actually happened; do not invent
-alternatives to fill the template. Decision notes stay under 25 lines and are
-append-only: supersede with a new note, never rewrite. A commit that implements a
-decision references its note.
+alternatives to fill the template. Decision notes stay under 25 lines. An `active` note is
+amended in place, marked and dated; a `decided` note is frozen: supersede it with a new
+note, never rewrite it. A commit that implements a decision references its note.
 
 ## Git hooks
 
