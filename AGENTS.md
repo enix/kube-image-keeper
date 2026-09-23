@@ -117,6 +117,8 @@ build are in [`.claude/rules/docs.md`](./.claude/rules/docs.md).
   user decides, the agent never does it on its own
   ([0003](./notes/0003-agent-orchestration.md)).
 - `rules/`: the path-scoped conventions above.
+- `skills/`: [`test-outline`](./.claude/skills/test-outline/SKILL.md) (the spec-first Ginkgo
+  workflow, picked up whenever specs are written).
 
 The hooks need `jq` and refuse the call without it, so the guards always hold: install
 it before developing. `worktrees/`, `artifacts/` and
