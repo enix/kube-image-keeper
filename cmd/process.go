@@ -5,22 +5,27 @@ import (
 	"strings"
 )
 
-// A process is one of the three kuik runs, named by the subcommand that starts it. They
-// are split by privilege and availability profile rather than by custom resource, they
-// exchange nothing directly, and each one is deployed on its own. See
-// docs/v3/architecture.md.
+// processName is the subcommand that starts a process.
+type processName string
+
+const (
+	// webhookProcess registers the pod webhook and starts a server for it.
+	webhookProcess processName = "webhook"
+	// reconcilerProcess registers the reconcilers of the three kinds.
+	reconcilerProcess processName = "reconciler"
+	// secretSyncerProcess runs the pull secret syncer.
+	secretSyncerProcess processName = "secret-syncer"
+)
+
+// A process is one of the three kuik runs, named by the subcommand that starts it. Each
+// has exactly one responsibility, which its name identifies. They are split by privilege
+// and availability profile rather than by custom resource, they exchange nothing
+// directly, and each one is deployed on its own. See docs/v3/architecture.md.
 type process struct {
 	// name is the subcommand that starts the process.
-	name string
+	name processName
 	// summary is the one-line description printed by the usage.
 	summary string
-
-	// servesWebhook registers the pod webhook and starts a server for it.
-	servesWebhook bool
-	// runsReconcilers registers the reconcilers of the three kinds.
-	runsReconcilers bool
-	// runsSecretSyncer runs the pull secret syncer.
-	runsSecretSyncer bool
 
 	// leaderElectionID names the lease the process competes for, empty when it elects
 	// nothing. Every elected process gets its own: the reconciler and the syncer are
@@ -41,22 +46,19 @@ type process struct {
 // processes lists the three, in the order the usage prints them.
 var processes = []process{
 	{
-		name:          "webhook",
-		summary:       "Answer admission requests: route the images of the pods being created",
-		servesWebhook: true,
+		name:    webhookProcess,
+		summary: "Answer admission requests: route the images of the pods being created",
 		// No lease: the webhook writes nothing and scales with the API server's
 		// traffic, so every replica answers and losing one changes nothing.
 	},
 	{
-		name:             "reconciler",
+		name:             reconcilerProcess,
 		summary:          "Run the mirror, monitor and status loops",
-		runsReconcilers:  true,
 		leaderElectionID: "reconciler.kuik.enix.io",
 	},
 	{
-		name:             "secret-syncer",
+		name:             secretSyncerProcess,
 		summary:          "Materialise and renew the injected pull secrets",
-		runsSecretSyncer: true,
 		leaderElectionID: "secret-syncer.kuik.enix.io",
 	},
 }
@@ -64,7 +66,7 @@ var processes = []process{
 // parseProcess reads the subcommand.
 func parseProcess(name string) (process, error) {
 	for _, p := range processes {
-		if p.name == name {
+		if string(p.name) == name {
 			return p, nil
 		}
 	}
@@ -76,7 +78,7 @@ func parseProcess(name string) (process, error) {
 func processNames() []string {
 	names := make([]string, 0, len(processes))
 	for _, p := range processes {
-		names = append(names, p.name)
+		names = append(names, string(p.name))
 	}
 
 	return names

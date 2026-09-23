@@ -51,7 +51,7 @@ func main() {
 		os.Exit(2)
 	}
 
-	fs := flag.NewFlagSet(os.Args[0]+" "+proc.name, flag.ExitOnError)
+	fs := flag.NewFlagSet(os.Args[0]+" "+string(proc.name), flag.ExitOnError)
 
 	var metricsAddr string
 	var metricsCertPath, metricsCertName, metricsCertKey string
@@ -80,7 +80,7 @@ func main() {
 		fs.BoolVar(&enableLeaderElection, "leader-elect", false,
 			"Enable leader election, ensuring there is only one active instance of this process.")
 	}
-	if proc.servesWebhook {
+	if proc.name == webhookProcess {
 		fs.StringVar(&webhookCertPath, "webhook-cert-path", "", "The directory that contains the webhook certificate.")
 		fs.StringVar(&webhookCertName, "webhook-cert-name", "tls.crt", "The name of the webhook certificate file.")
 		fs.StringVar(&webhookCertKey, "webhook-cert-key", "tls.key", "The name of the webhook key file.")
@@ -114,7 +114,7 @@ func main() {
 	// Only the process that answers admission requests starts a server for them; the
 	// others are given none, since nothing registers a webhook on their manager.
 	var webhookServer webhook.Server
-	if proc.servesWebhook {
+	if proc.name == webhookProcess {
 		webhookServerOptions := webhook.Options{
 			TLSOpts: tlsOpts,
 			Port:    webhookPort,
@@ -186,7 +186,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	if proc.runsReconcilers {
+	switch proc.name {
+	case reconcilerProcess:
 		if err := (&kuikcontroller.ImageAlternativeReconciler{
 			Client: mgr.GetClient(),
 			Scheme: mgr.GetScheme(),
@@ -208,18 +209,16 @@ func main() {
 			setupLog.Error(err, "Failed to create controller", "controller", "kuik-imagemonitor")
 			os.Exit(1)
 		}
-	}
-	if proc.runsSecretSyncer {
+	case secretSyncerProcess:
 		setupLog.Info("Skipping the pull secret syncer, it has no loop yet")
-	}
-	if proc.servesWebhook {
+	case webhookProcess:
 		if err := webhookcorev1.SetupPodWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "Failed to create webhook", "webhook", "Pod")
 			os.Exit(1)
 		}
 	}
 	// The kubebuilder CLI injects the setup of a new reconciler or webhook here, outside
-	// the blocks above: move it into the one of the process that owns it, or it runs in
+	// the switch above: move it into the case of the process that owns it, or it runs in
 	// all three.
 	// +kubebuilder:scaffold:builder
 
