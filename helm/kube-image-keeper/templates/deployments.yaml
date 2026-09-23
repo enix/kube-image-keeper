@@ -75,7 +75,8 @@ spec:
           command:
             - manager
             - {{ $process.name }}
-            {{- if and $process.elected (gt ($v.replicas | int) 1) }}
+            {{- /* Whatever the replica count: a rollout runs two pods at once, and a scale-up needs no chart change. */}}
+            {{- if $process.elected }}
             - -leader-elect
             {{- end }}
             - -health-probe-bind-address=:8081

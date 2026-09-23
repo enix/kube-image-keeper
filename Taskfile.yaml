@@ -210,11 +210,12 @@ tasks:
       # One terminal for the three, and `kill 0` on the way out so Ctrl-C stops the group
       # rather than leaving two processes behind. The webhook needs its certificate, see
       # the development guide; run a single process with `task run:<process>`.
+      # RUN_ARGS goes last: it ends with RUN_ADDITIONAL_ARGS, which the guide uses as a pipe.
       - |
         trap 'kill 0' EXIT INT TERM
-        go run ./cmd webhook {{.RUN_ARGS}} -metrics-bind-address=:{{.METRICS_PORT}} -health-probe-bind-address=:{{.HEALTH_PORT}} {{.CLI_ARGS}} &
-        go run ./cmd reconciler {{.RUN_ARGS}} -metrics-bind-address=:{{add (atoi .METRICS_PORT) 1}} -health-probe-bind-address=:{{add (atoi .HEALTH_PORT) 1}} {{.CLI_ARGS}} &
-        go run ./cmd secret-syncer {{.RUN_ARGS}} -metrics-bind-address=:{{add (atoi .METRICS_PORT) 2}} -health-probe-bind-address=:{{add (atoi .HEALTH_PORT) 2}} {{.CLI_ARGS}} &
+        go run ./cmd webhook -metrics-bind-address=:{{.METRICS_PORT}} -health-probe-bind-address=:{{.HEALTH_PORT}} {{.CLI_ARGS}} {{.RUN_ARGS}} &
+        go run ./cmd reconciler -metrics-bind-address=:{{add (atoi .METRICS_PORT) 1}} -health-probe-bind-address=:{{add (atoi .HEALTH_PORT) 1}} {{.CLI_ARGS}} {{.RUN_ARGS}} &
+        go run ./cmd secret-syncer -metrics-bind-address=:{{add (atoi .METRICS_PORT) 2}} -health-probe-bind-address=:{{add (atoi .HEALTH_PORT) 2}} {{.CLI_ARGS}} {{.RUN_ARGS}} &
         wait
 
   run:webhook:
@@ -248,7 +249,7 @@ tasks:
     internal: true
     deps: [run:prepare]
     cmds:
-      - go run ./cmd {{.PROCESS}} {{.RUN_ARGS}} -metrics-bind-address=:{{.METRICS_PORT}} -health-probe-bind-address=:{{.HEALTH_PORT}} {{.CLI_ARGS}}
+      - go run ./cmd {{.PROCESS}} -metrics-bind-address=:{{.METRICS_PORT}} -health-probe-bind-address=:{{.HEALTH_PORT}} {{.CLI_ARGS}} {{.RUN_ARGS}}
 
   docker-build:
     desc: Build the manager image (IMG, optional BASE_IMAGE)
