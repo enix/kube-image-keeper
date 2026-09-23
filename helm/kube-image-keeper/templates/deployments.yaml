@@ -23,6 +23,7 @@ $v: the body reads $v only, so the fallback rule lives in one place.
 {{/* Annotations are merged over the root ones, environment variables appended to them. */}}
 {{- $_ := set $v "podAnnotations" (mergeOverwrite (deepCopy $.Values.podAnnotations) (default dict $own.podAnnotations)) }}
 {{- $_ := set $v "env" (concat $.Values.env (default list $own.env)) }}
+{{- $_ := set $v "serviceAccountName" (include "kube-image-keeper.process-serviceAccountName" (dict "ctx" $ "process" $process.name "values" $process.values)) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -54,7 +55,7 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "kube-image-keeper.process-serviceAccountName" (dict "ctx" $ "process" $process.name "values" $process.values) }}
+      serviceAccountName: {{ $v.serviceAccountName }}
       {{- if $v.priorityClassName }}
       priorityClassName: {{ $v.priorityClassName | quote }}
       {{- end }}
