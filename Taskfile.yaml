@@ -212,7 +212,7 @@ tasks:
       # the development guide; run a single process with `task run:<process>`.
       # RUN_ARGS goes last: it ends with RUN_ADDITIONAL_ARGS, which the guide uses as a pipe.
       - |
-        trap 'kill 0' EXIT INT TERM
+        trap 'kill 0' EXIT
         go run ./cmd webhook -metrics-bind-address=:{{.METRICS_PORT}} -health-probe-bind-address=:{{.HEALTH_PORT}} {{.CLI_ARGS}} {{.RUN_ARGS}} &
         go run ./cmd reconciler -metrics-bind-address=:{{add (atoi .METRICS_PORT) 1}} -health-probe-bind-address=:{{add (atoi .HEALTH_PORT) 1}} {{.CLI_ARGS}} {{.RUN_ARGS}} &
         go run ./cmd secret-syncer -metrics-bind-address=:{{add (atoi .METRICS_PORT) 2}} -health-probe-bind-address=:{{add (atoi .HEALTH_PORT) 2}} {{.CLI_ARGS}} {{.RUN_ARGS}} &
