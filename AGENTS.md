@@ -121,6 +121,8 @@ build are in [`.claude/rules/docs.md`](./.claude/rules/docs.md).
   workflow, picked up whenever specs are written) and
   [`decision-note`](./.claude/skills/decision-note/SKILL.md) (`/decision-note`, writes a note
   under `notes/` when the filter holds).
+- `agents/`: [`spec-reviewer`](./.claude/agents/spec-reviewer.md) (read-only conformance
+  review of a change against `docs/v3/`, keeps the spec out of the main context).
 
 The hooks need `jq` and refuse the call without it, so the guards always hold: install
 it before developing. `worktrees/`, `artifacts/` and
