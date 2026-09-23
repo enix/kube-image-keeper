@@ -32,7 +32,7 @@ RUN --mount=type=cache,target="/root/.cache/go-build" \
   BUILD_DATE_TIME=$(date -u +"%Y-%m-%dT%H:%M:%S") && \
   LD_FLAGS=$(/bin/ash -c "set -o pipefail && echo $LD_FLAGS | sed -e \"s/BUILD_DATE_TIME/$BUILD_DATE_TIME/g\"") && \
   controller-gen object paths="./..." && \
-  go build -ldflags="$LD_FLAGS" -o manager cmd/main.go
+  go build -ldflags="$LD_FLAGS" -o manager ./cmd
 
 # For development/debug purposes, we can run the manager in an Alpine container in order to have access to a shell and other tools
 FROM alpine:3.24 AS alpine

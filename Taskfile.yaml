@@ -9,7 +9,7 @@ version: '3'
 vars:
   # Image used by the build, push and deploy tasks, as repository:tag
   IMG: '{{.IMG | default "kube-image-keeper:dev"}}'
-  HELM_IMAGE_ARGS: --set manager.image.repository={{regexReplaceAll ":[^:/]+$" .IMG ""}} --set manager.image.tag={{regexFind "[^:/]+$" .IMG}}
+  HELM_IMAGE_ARGS: --set image.repository={{regexReplaceAll ":[^:/]+$" .IMG ""}} --set image.tag={{regexFind "[^:/]+$" .IMG}}
   # Container tool used to build images (docker, podman...)
   CONTAINER_TOOL: '{{.CONTAINER_TOOL | default "docker"}}'
   # Platforms built by docker-buildx
@@ -43,9 +43,11 @@ vars:
 
   # `task run` flags
   RUN_FLAG_DEVEL: '{{.RUN_FLAG_DEVEL | default "true"}}'
+  # The three processes run side by side on the host, so each one takes the next port.
   METRICS_PORT: '{{.METRICS_PORT | default "8080"}}'
+  HEALTH_PORT: '{{.HEALTH_PORT | default "8090"}}'
   RUN_ARGS: >-
-    -metrics-bind-address=:{{.METRICS_PORT}} -metrics-secure=false
+    -metrics-secure=false
     -zap-devel={{.RUN_FLAG_DEVEL}}
     {{if .RUN_FLAG_LOG_LEVEL}}-zap-log-level={{.RUN_FLAG_LOG_LEVEL}}{{end}}
     {{if .RUN_FLAG_ZAP_ENCODER}}-zap-encoder={{.RUN_FLAG_ZAP_ENCODER}}{{end}}
@@ -124,6 +126,11 @@ tasks:
     cmds:
       - '{{.LOCALBIN}}/golangci-lint config verify'
 
+  lint-values:
+    desc: Check that each process block of the chart values repeats the root pod settings (notes/0008)
+    cmds:
+      - go run ./hack/valuescheck {{.CHART}}/values.yaml
+
   test:
     desc: Run the unit and envtest suites
     cmds:
@@ -194,16 +201,54 @@ tasks:
       - task: generate
       - task: fmt
       - task: vet
-      - go build -o {{.LOCALBIN}}/manager cmd/main.go
+      - go build -o {{.LOCALBIN}}/manager ./cmd
 
   run:
-    desc: Run the manager from the host against the current kubeconfig (see docs/guides/development.md)
+    desc: Run the three processes from the host against the current kubeconfig (see docs/guides/development.md)
+    deps: [run:prepare]
+    cmds:
+      # One terminal for the three, and `kill 0` on the way out so Ctrl-C stops the group
+      # rather than leaving two processes behind. The webhook needs its certificate, see
+      # the development guide; run a single process with `task run:<process>`.
+      - |
+        trap 'kill 0' EXIT INT TERM
+        go run ./cmd webhook {{.RUN_ARGS}} -metrics-bind-address=:{{.METRICS_PORT}} -health-probe-bind-address=:{{.HEALTH_PORT}} {{.CLI_ARGS}} &
+        go run ./cmd reconciler {{.RUN_ARGS}} -metrics-bind-address=:{{add (atoi .METRICS_PORT) 1}} -health-probe-bind-address=:{{add (atoi .HEALTH_PORT) 1}} {{.CLI_ARGS}} &
+        go run ./cmd secret-syncer {{.RUN_ARGS}} -metrics-bind-address=:{{add (atoi .METRICS_PORT) 2}} -health-probe-bind-address=:{{add (atoi .HEALTH_PORT) 2}} {{.CLI_ARGS}} &
+        wait
+
+  run:webhook:
+    desc: Run the webhook alone from the host (see docs/guides/development.md)
+    cmds:
+      - task: run:process
+        vars: { PROCESS: webhook }
+
+  run:reconciler:
+    desc: Run the reconciler alone from the host (see docs/guides/development.md)
+    cmds:
+      - task: run:process
+        vars: { PROCESS: reconciler }
+
+  run:secret-syncer:
+    desc: Run the secret syncer alone from the host (see docs/guides/development.md)
+    cmds:
+      - task: run:process
+        vars: { PROCESS: secret-syncer }
+
+  # Regenerates and checks the tree before any process starts, once for all of them.
+  run:prepare:
+    internal: true
     cmds:
       - task: manifests
       - task: generate
       - task: fmt
       - task: vet
-      - go run ./cmd/main.go {{.RUN_ARGS}} {{.CLI_ARGS}}
+
+  run:process:
+    internal: true
+    deps: [run:prepare]
+    cmds:
+      - go run ./cmd {{.PROCESS}} {{.RUN_ARGS}} -metrics-bind-address=:{{.METRICS_PORT}} -health-probe-bind-address=:{{.HEALTH_PORT}} {{.CLI_ARGS}}
 
   docker-build:
     desc: Build the manager image (IMG, optional BASE_IMAGE)
@@ -247,7 +292,8 @@ tasks:
       # Artifact Hub renders the chart README on its own page, which already shows the chart
       # icon: the logo block becomes the project title there.
       - sed -e '/<!-- HELM_DOCS_LOGO -->/,/<!-- \/HELM_DOCS_LOGO -->/c\# kube-image-keeper (kuik)' -e '/<!-- HELM_DOCS_END -->/,$d' README.md > {{.CHART}}/repo/README.md
-      - '{{.LOCALBIN}}/helm-docs'
+      # The file order reads as the convention does: root defaults first, then the processes.
+      - '{{.LOCALBIN}}/helm-docs --sort-values-order file'
 
   # ---------------------------------------------------------------------------------------------
   # Deployment with the Helm chart, against the current kubeconfig. cert-manager must be installed.

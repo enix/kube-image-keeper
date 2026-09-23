@@ -1,0 +1,146 @@
+{{/*
+One Deployment per process. kuik is split into three by privilege and availability profile,
+and each one is deployed on its own: see docs/v3/architecture.md.
+
+The pod settings at the root of values.yaml apply to the three processes, and the block of
+a process may set any of them for itself (notes/0008). They are resolved once, below, into
+$v: the body reads $v only, so the fallback rule lives in one place.
+*/}}
+{{- $processes := list
+  (dict "name" "webhook" "values" "webhook" "servesWebhook" true "elected" false)
+  (dict "name" "reconciler" "values" "reconciler" "servesWebhook" false "elected" true)
+  (dict "name" "secret-syncer" "values" "secretSyncer" "servesWebhook" false "elected" true)
+}}
+{{- range $index, $process := $processes }}
+{{- if $index }}
+---
+{{- end }}
+{{- $own := index $.Values $process.values }}
+{{- $v := dict }}
+{{/* A value the process sets replaces the root one; empty falls back to the root. */}}
+{{- range $key := list "imagePullSecrets" "verbosity" "replicas" "podSecurityContext" "securityContext" "nodeSelector" "tolerations" "affinity" "topologySpreadConstraints" "deploymentStrategy" "priorityClassName" "readinessProbe" "livenessProbe" "resources" }}
+{{- $_ := set $v $key (default (index $.Values $key) (index $own $key)) }}
+{{- end }}
+{{- $_ := set $v "image" (dict
+  "repository" (default $.Values.image.repository $own.image.repository)
+  "pullPolicy" (default $.Values.image.pullPolicy $own.image.pullPolicy)
+  "tag" (default (default $.Chart.AppVersion $.Values.image.tag) $own.image.tag)) }}
+{{/* Annotations are merged over the root ones, environment variables appended to them. */}}
+{{- $_ := set $v "podAnnotations" (mergeOverwrite (deepCopy $.Values.podAnnotations) (default dict $own.podAnnotations)) }}
+{{- $_ := set $v "env" (concat $.Values.env (default list $own.env)) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kube-image-keeper.fullname" $ }}-{{ $process.name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "kube-image-keeper.process-labels" (dict "ctx" $ "process" $process.name) | nindent 4 }}
+spec:
+  {{- with $v.replicas }}
+  replicas: {{ . }}
+  {{- end }}
+  {{- with $v.deploymentStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "kube-image-keeper.process-selectorLabels" (dict "ctx" $ "process" $process.name) | nindent 6 }}
+  template:
+    metadata:
+      {{- with $v.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "kube-image-keeper.process-selectorLabels" (dict "ctx" $ "process" $process.name) | nindent 8 }}
+    spec:
+      {{- with $v.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "kube-image-keeper.serviceAccountName" $ }}
+      {{- if $v.priorityClassName }}
+      priorityClassName: {{ $v.priorityClassName | quote }}
+      {{- end }}
+      securityContext:
+        {{- toYaml $v.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: {{ $process.name }}
+          securityContext:
+            {{- toYaml $v.securityContext | nindent 12 }}
+          image: "{{ $v.image.repository }}:{{ $v.image.tag }}"
+          imagePullPolicy: {{ $v.image.pullPolicy }}
+          command:
+            - manager
+            - {{ $process.name }}
+            {{- if and $process.elected (gt ($v.replicas | int) 1) }}
+            - -leader-elect
+            {{- end }}
+            - -health-probe-bind-address=:8081
+            - -metrics-bind-address=:8080
+            - -metrics-secure=false
+            {{- if $process.servesWebhook }}
+            - -webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
+            - -webhook-port=9443
+            {{- end }}
+            - -zap-log-level={{ $v.verbosity }}
+          {{- with $v.env }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - containerPort: 8081
+              name: health
+              protocol: TCP
+            - containerPort: 8080
+              name: metrics
+              protocol: TCP
+            {{- if $process.servesWebhook }}
+            - containerPort: 9443
+              name: webhook-server
+              protocol: TCP
+            {{- end }}
+          {{- if $process.servesWebhook }}
+          volumeMounts:
+            - mountPath: /tmp/k8s-webhook-server/serving-certs
+              name: webhook-cert
+              readOnly: true
+          {{- end }}
+          {{- with $v.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $v.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $v.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with $v.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $v.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $v.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $v.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if $process.servesWebhook }}
+      volumes:
+        - name: webhook-cert
+          secret:
+            defaultMode: 420
+            secretName: {{ include "kube-image-keeper.fullname" $ }}-webhook-server-cert
+      {{- end }}
+{{- end }}

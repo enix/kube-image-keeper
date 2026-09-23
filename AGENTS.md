@@ -29,7 +29,8 @@ the config merge, `internal/info`, the envtest suite bootstrap.
 Layout, group `kuik`, version `v1alpha1`:
 
 ```text
-cmd/main.go                   Manager entry: webhook server, metrics, leader election, reconcilers
+cmd/                          Manager entry: one subcommand per process (webhook,
+                              reconciler, secret-syncer), gating what it registers
 api/kuik/v1alpha1/*_types.go  CRD schemas and kubebuilder markers
 internal/controller/kuik/*    Reconcilers, one per kind
 internal/webhook/core/v1/*    Pod mutating webhook (image routing)
@@ -102,6 +103,12 @@ real cluster.
   (`"Created Deployment"`, not `"Created"`), balanced key-value pairs.
 - **RBAC**: declared with `// +kubebuilder:rbac` markers on the reconciler, never in
   `config/rbac/role.yaml` directly.
+- **Chart values** ([0008](./notes/0008-chart-values-per-process.md)): a pod setting goes
+  at the root of `values.yaml` **and**, empty with a `# @default -- the root ...` line, in
+  each of `webhook`, `reconciler` and `secretSyncer`; a setting one process alone has goes
+  in its block only. `templates/deployments.yaml` resolves the fallback once at the top of
+  its loop, never inline in the body. `task lint-values` checks the blocks, `task
+  generate-helm-docs` rebuilds the README.
 - **Every behaviour change ships with its tests and its documentation** in the same PR:
   the page under `docs/`, the `# --` comments of `values.yaml` for chart values, this
   file when the layout or the rules change.

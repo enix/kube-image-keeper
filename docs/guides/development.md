@@ -40,18 +40,22 @@ task kind-deploy IMG=kuik:dev KIND_CLUSTER=kuik-dev
 >
 > Persist them in `/etc/sysctl.d/` to survive a reboot.
 
-`task deploy IMG=...` alone runs `helm upgrade --install` against the current kubeconfig; arguments after `--` go to Helm (`task deploy -- --set manager.verbosity=DEBUG`). `task undeploy` removes the release, `task uninstall` the CRDs.
+`task deploy IMG=...` alone runs `helm upgrade --install` against the current kubeconfig; arguments after `--` go to Helm (`task deploy -- --set verbosity=DEBUG`). `task undeploy` removes the release, `task uninstall` the CRDs.
 
 ## Run the manager on your host
 
 ```bash
 # generate CRDs definitions from go code and install them on the cluster you're connected to
 task install
-# run the manager locally against the cluster you're connected to and export metrics to :8080
-ENABLE_WEBHOOKS=false task run
+# run one process locally against the cluster you're connected to and export metrics to :8080
+task run:reconciler
 ```
 
-Without `ENABLE_WEBHOOKS=false` the manager also starts the webhook server, which needs a certificate in `/tmp/k8s-webhook-server/serving-certs`: see [Local webhook for remote cluster](#local-webhook-for-remote-cluster).
+kuik runs as three separate processes, one subcommand each: `webhook`, `reconciler` and `secret-syncer`. They are split by privilege and availability, they exchange nothing directly, and the chart deploys one Deployment per process. Run one with `task run:<process>`, and the three side by side with `task run`, which starts them in the same terminal and stops them together.
+
+The webhook is the one that needs setting up: it serves TLS, so it wants a certificate in `/tmp/k8s-webhook-server/serving-certs` and a way for the API server to reach your host, see [Local webhook for remote cluster](#local-webhook-for-remote-cluster). The other two need nothing beyond your kubeconfig, which is why the reconciler is the usual starting point.
+
+Each process binds its own metrics and probe ports, so they can run side by side: metrics on `METRICS_PORT` (8080 by default) and probes on `HEALTH_PORT` (8090), plus 1 and plus 2 for the second and third process started by `task run`.
 
 ## `task run` options
 
@@ -60,10 +64,11 @@ Without `ENABLE_WEBHOOKS=false` the manager also starts the webhook server, whic
 - `RUN_FLAG_DEVEL`: sets the `-zap-devel` flag, defaults to `true`
 - `RUN_FLAG_LOG_LEVEL`: sets the `-zap-log-level` flag if present
 - `RUN_FLAG_ZAP_ENCODER`: sets the `-zap-encoder` flag if present
-- `METRICS_PORT`: sets the port to bind for the metrics, defaults to `8080`
-- `RUN_ADDITIONAL_ARGS`: add any additional argument to the `go run ./cmd/main.go` command (you can even `| grep` here)
+- `METRICS_PORT`: first port to bind for the metrics, defaults to `8080`
+- `HEALTH_PORT`: first port to bind for the health probes, defaults to `8090`
+- `RUN_ADDITIONAL_ARGS`: add any additional argument to the `go run ./cmd` command (you can even `| grep` here)
 
-Arguments after `--` are passed to the manager as well: `task run -- -zap-log-level=debug`.
+They apply to `task run` and to the three `task run:<process>` tasks alike. Arguments after `--` are passed to the manager as well: `task run:reconciler -- -zap-log-level=debug`.
 
 I highly suggest that you try [github.com/pamburus/hl](https://github.com/pamburus/hl), an awesome tool to make json logs human readable. It can be setup with kuik like this:
 
@@ -74,7 +79,7 @@ task run
 
 ## Local webhook for remote cluster
 
-There are several ways of developing a webhook for kubernetes and depending on your situation you may prefer one over another. One of them consists of running your webhook locally (using `task run` command) and expose it as a service in your kubernetes cluster using a tool like [github.com/omrikiei/ktunnel](https://github.com/omrikiei/ktunnel) for instance. Since `MutatingWebhookConfiguration` requires a certificate for authentication, you will need to create one using cert-manager.
+There are several ways of developing a webhook for kubernetes and depending on your situation you may prefer one over another. One of them consists of running your webhook locally (using `task run:webhook`) and expose it as a service in your kubernetes cluster using a tool like [github.com/omrikiei/ktunnel](https://github.com/omrikiei/ktunnel) for instance. Since `MutatingWebhookConfiguration` requires a certificate for authentication, you will need to create one using cert-manager.
 
 You will need:
 

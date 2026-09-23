@@ -1,79 +1,270 @@
 # Default values for kube-image-keeper.
-# This is a YAML-formatted file.
-# Declare variables to be passed into your templates.
 
-manager:
-  # -- Number of manager pods
-  replicas: 1
-  image:
-    # -- Manager image repository
-    repository: quay.io/enix/kube-image-keeper
-    # -- Manager image pull policy
-    pullPolicy: IfNotPresent
-    # -- Manager image tag. Default chart appVersion
-    tag: ""
-  # -- Manager logging verbosity
-  verbosity: INFO
-  # -- Specify secrets to be used when pulling manager image
-  imagePullSecrets: []
-  # -- Annotations to add to the manager pod
-  podAnnotations: {}
-  # -- Security context for the manager pod
-  podSecurityContext:
-    runAsNonRoot: true
-    seccompProfile:
-      type: RuntimeDefault
-  # -- Security context for containers of the manager pod
-  securityContext:
-    readOnlyRootFilesystem: true
-    allowPrivilegeEscalation: false
-    capabilities:
-      drop:
-        - ALL
-  # -- Node selector for the manager pod
-  nodeSelector: {}
-  # -- Toleration for the manager pod
-  tolerations: []
-  # -- Affinity for the manager pod
-  affinity: {}
-  # -- Topology spread constraints for the manager pod
-  topologySpreadConstraints: []
-  # -- Deployment strategy for the manager pod
-  deploymentStrategy: {}
-  # -- Set the PriorityClassName for the manager pod
-  priorityClassName: ""
-  # -- Extra env variables for the manager pod
-  env: []
-  # -- Readiness probe definition for the manager pod
-  readinessProbe:
-    httpGet:
-      path: /readyz
-      port: 8081
-  # -- Liveness probe definition for the manager pod
-  livenessProbe:
-    httpGet:
-      path: /healthz
-      port: 8081
-  resources:
-    requests:
-      # -- Cpu requests for the manager pod
-      cpu: "50m"
-      # -- Memory requests for the manager pod
-      memory: "50Mi"
-    limits:
-      # -- Cpu limits for the manager pod
-      cpu: "1"
-      # -- Memory limits for the manager pod
-      memory: "512Mi"
-  webhook:
-    # -- If true, create the issuer used to issue the webhook certificate
-    createCertificateIssuer: true
-    # -- Issuer reference to issue the webhook certificate, ignored if createCertificateIssuer is true
-    certificateIssuerRef:
+# kuik runs as three separate processes, one Deployment each: the webhook, the reconciler
+# and the secret syncer (docs/v3/architecture.md). The settings at the root apply to the
+# three. Each process block further down repeats them, empty: a value set there replaces
+# the root one for that process alone, except podAnnotations (merged over the root ones)
+# and env (appended to the root ones). An empty value falls back to the root, so a root
+# setting cannot be unset for a single process.
+
+image:
+  # -- Image repository, the same binary serves the three processes
+  repository: quay.io/enix/kube-image-keeper
+  # -- Image pull policy
+  pullPolicy: IfNotPresent
+  # -- Image tag, the chart appVersion by default
+  tag: ""
+# -- Secrets used to pull the image
+imagePullSecrets: []
+# -- Logging verbosity
+verbosity: INFO
+# -- Number of pods of a process
+replicas: 1
+# -- Annotations added to the pods
+podAnnotations: {}
+# -- Security context of the pods
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+# -- Security context of the containers
+securityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+# -- Node selector of the pods
+nodeSelector: {}
+# -- Tolerations of the pods
+tolerations: []
+# -- Affinity of the pods
+affinity: {}
+# -- Topology spread constraints of the pods
+topologySpreadConstraints: []
+# -- Deployment strategy
+deploymentStrategy: {}
+# -- Priority class of the pods
+priorityClassName: ""
+# -- Extra environment variables of the containers
+env: []
+# -- Readiness probe of the containers
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: 8081
+# -- Liveness probe of the containers
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 8081
+resources:
+  requests:
+    # -- CPU requested by a container
+    cpu: "50m"
+    # -- Memory requested by a container
+    memory: "50Mi"
+  limits:
+    # -- CPU limit of a container
+    cpu: "1"
+    # -- Memory limit of a container
+    memory: "512Mi"
+
+# The mutating admission webhook: it routes the images of the pods being created. It writes
+# nothing and every replica answers, so it never elects a leader.
+webhook:
+  # -- Number of webhook pods. Admission sits in the path of every pod creation, so two
+  # replicas keep it answering while one is down or rolling.
+  replicas: 2
+  certificate:
+    # -- Create a self-signed Issuer for the webhook serving certificate
+    createIssuer: true
+    # -- Issuer the serving certificate is requested from, ignored when createIssuer is true
+    issuerRef:
       kind: Issuer
       name: kube-image-keeper-selfsigned-issuer
-    # -- Namespace selector to filter what pods the mutating webhook will rewrite
-    namespaceSelector: {}
+  # -- Namespace selector of the MutatingWebhookConfiguration: which namespaces the webhook
+  # rewrites pods in
+  namespaceSelector: {}
+  image:
+    # -- Image repository of the webhook pods
+    # @default -- the root `image.repository`
+    repository: ""
+    # -- Image pull policy of the webhook pods
+    # @default -- the root `image.pullPolicy`
+    pullPolicy: ""
+    # -- Image tag of the webhook pods
+    # @default -- the root `image.tag`
+    tag: ""
+  # -- Secrets used to pull the image of the webhook pods
+  # @default -- the root `imagePullSecrets`
+  imagePullSecrets: []
+  # -- Logging verbosity of the webhook
+  # @default -- the root `verbosity`
+  verbosity: ""
+  # -- Annotations added to the webhook pods, merged over the root ones
+  # @default -- the root `podAnnotations`
+  podAnnotations: {}
+  # -- Security context of the webhook pods
+  # @default -- the root `podSecurityContext`
+  podSecurityContext: {}
+  # -- Security context of the webhook container
+  # @default -- the root `securityContext`
+  securityContext: {}
+  # -- Node selector of the webhook pods
+  # @default -- the root `nodeSelector`
+  nodeSelector: {}
+  # -- Tolerations of the webhook pods
+  # @default -- the root `tolerations`
+  tolerations: []
+  # -- Affinity of the webhook pods
+  # @default -- the root `affinity`
+  affinity: {}
+  # -- Topology spread constraints of the webhook pods
+  # @default -- the root `topologySpreadConstraints`
+  topologySpreadConstraints: []
+  # -- Deployment strategy of the webhook
+  # @default -- the root `deploymentStrategy`
+  deploymentStrategy: {}
+  # -- Priority class of the webhook pods
+  # @default -- the root `priorityClassName`
+  priorityClassName: ""
+  # -- Extra environment variables of the webhook container, appended to the root ones
+  # @default -- the root `env`
+  env: []
+  # -- Readiness probe of the webhook container
+  # @default -- the root `readinessProbe`
+  readinessProbe: {}
+  # -- Liveness probe of the webhook container
+  # @default -- the root `livenessProbe`
+  livenessProbe: {}
+  # -- Resources of the webhook container
+  # @default -- the root `resources`
+  resources: {}
+
+# The reconciler: every loop that talks to a registry or writes a status, for the three
+# kinds. Leader-elected as soon as it has more than one replica.
+reconciler:
+  # -- (int) Number of reconciler pods
+  # @default -- the root `replicas`
+  replicas: ~
+  image:
+    # -- Image repository of the reconciler pods
+    # @default -- the root `image.repository`
+    repository: ""
+    # -- Image pull policy of the reconciler pods
+    # @default -- the root `image.pullPolicy`
+    pullPolicy: ""
+    # -- Image tag of the reconciler pods
+    # @default -- the root `image.tag`
+    tag: ""
+  # -- Secrets used to pull the image of the reconciler pods
+  # @default -- the root `imagePullSecrets`
+  imagePullSecrets: []
+  # -- Logging verbosity of the reconciler
+  # @default -- the root `verbosity`
+  verbosity: ""
+  # -- Annotations added to the reconciler pods, merged over the root ones
+  # @default -- the root `podAnnotations`
+  podAnnotations: {}
+  # -- Security context of the reconciler pods
+  # @default -- the root `podSecurityContext`
+  podSecurityContext: {}
+  # -- Security context of the reconciler container
+  # @default -- the root `securityContext`
+  securityContext: {}
+  # -- Node selector of the reconciler pods
+  # @default -- the root `nodeSelector`
+  nodeSelector: {}
+  # -- Tolerations of the reconciler pods
+  # @default -- the root `tolerations`
+  tolerations: []
+  # -- Affinity of the reconciler pods
+  # @default -- the root `affinity`
+  affinity: {}
+  # -- Topology spread constraints of the reconciler pods
+  # @default -- the root `topologySpreadConstraints`
+  topologySpreadConstraints: []
+  # -- Deployment strategy of the reconciler
+  # @default -- the root `deploymentStrategy`
+  deploymentStrategy: {}
+  # -- Priority class of the reconciler pods
+  # @default -- the root `priorityClassName`
+  priorityClassName: ""
+  # -- Extra environment variables of the reconciler container, appended to the root ones
+  # @default -- the root `env`
+  env: []
+  # -- Readiness probe of the reconciler container
+  # @default -- the root `readinessProbe`
+  readinessProbe: {}
+  # -- Liveness probe of the reconciler container
+  # @default -- the root `livenessProbe`
+  livenessProbe: {}
+  # -- Resources of the reconciler container
+  # @default -- the root `resources`
+  resources: {}
+
+# The secret syncer: it materialises and renews the pull secrets injectPullSecret asks
+# for. Leader-elected as soon as it has more than one replica.
+secretSyncer:
+  # -- (int) Number of secret syncer pods
+  # @default -- the root `replicas`
+  replicas: ~
+  image:
+    # -- Image repository of the secret syncer pods
+    # @default -- the root `image.repository`
+    repository: ""
+    # -- Image pull policy of the secret syncer pods
+    # @default -- the root `image.pullPolicy`
+    pullPolicy: ""
+    # -- Image tag of the secret syncer pods
+    # @default -- the root `image.tag`
+    tag: ""
+  # -- Secrets used to pull the image of the secret syncer pods
+  # @default -- the root `imagePullSecrets`
+  imagePullSecrets: []
+  # -- Logging verbosity of the secret syncer
+  # @default -- the root `verbosity`
+  verbosity: ""
+  # -- Annotations added to the secret syncer pods, merged over the root ones
+  # @default -- the root `podAnnotations`
+  podAnnotations: {}
+  # -- Security context of the secret syncer pods
+  # @default -- the root `podSecurityContext`
+  podSecurityContext: {}
+  # -- Security context of the secret syncer container
+  # @default -- the root `securityContext`
+  securityContext: {}
+  # -- Node selector of the secret syncer pods
+  # @default -- the root `nodeSelector`
+  nodeSelector: {}
+  # -- Tolerations of the secret syncer pods
+  # @default -- the root `tolerations`
+  tolerations: []
+  # -- Affinity of the secret syncer pods
+  # @default -- the root `affinity`
+  affinity: {}
+  # -- Topology spread constraints of the secret syncer pods
+  # @default -- the root `topologySpreadConstraints`
+  topologySpreadConstraints: []
+  # -- Deployment strategy of the secret syncer
+  # @default -- the root `deploymentStrategy`
+  deploymentStrategy: {}
+  # -- Priority class of the secret syncer pods
+  # @default -- the root `priorityClassName`
+  priorityClassName: ""
+  # -- Extra environment variables of the secret syncer container, appended to the root ones
+  # @default -- the root `env`
+  env: []
+  # -- Readiness probe of the secret syncer container
+  # @default -- the root `readinessProbe`
+  readinessProbe: {}
+  # -- Liveness probe of the secret syncer container
+  # @default -- the root `livenessProbe`
+  livenessProbe: {}
+  # -- Resources of the secret syncer container
+  # @default -- the root `resources`
+  resources: {}
 
 rbac:
   # -- Create the ClusterRole and ClusterRoleBinding. If false, need to associate permissions with serviceAccount outside this Helm chart.
