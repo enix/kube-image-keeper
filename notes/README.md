@@ -40,8 +40,9 @@ Rationale in [0005](./0005-decision-log-filter.md).
   - `superseded by NNNN` — kept for history, no longer authoritative; `NNNN` is the note
     to read instead.
 - **Decision notes are short**: the decision in one sentence up front, *Why* in two to
-  four bullets, *Rejected* as one line per alternative, under 25 lines in total. A
-  decision is amended by a new note that supersedes the old one, not by rewriting it.
+  four bullets, *Rejected* as one line per alternative, under 25 lines in total. An
+  `active` decision is amended in place, with the amendment marked inline and dated; a
+  `decided` one is amended by a new note that supersedes it, not by rewriting it.
 - **Analyses** (`draft` / `active`) may be long, but open with a summary of at most five
   lines so a reader can stop there.
 - The index below states **each decision in one line**, not just its title. Read the
