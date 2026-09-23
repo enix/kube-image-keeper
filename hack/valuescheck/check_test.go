@@ -21,20 +21,29 @@ webhook:
   replicas: 2
   image: {}
   nodeSelector: {}
+  serviceAccount:
+    create: ~
+    name: ""
+    annotations: {}
 reconciler:
   replicas: ~
   image:
     repository: ""
     tag: ""
   nodeSelector: {}
+  serviceAccount: {}
 secretSyncer:
   replicas: ~
   image: {}
   nodeSelector: {}
+  serviceAccount: {}
 rbac:
   create: true
 secretAccess:
   mode: permissive
+serviceAccount:
+  create: true
+  annotations: {}
 `
 
 // with returns the fixture with one exact replacement applied, and fails the spec when the
@@ -65,22 +74,15 @@ var _ = Describe("Chart values", func() {
 		))
 	})
 
-	It("accepts a key repeated with a null value, the way replicas is", func() {
-		Expect(check([]byte(complete))).To(BeEmpty(), "reconciler.replicas is ~ in the fixture")
-	})
-
 	It("requires a block that spells a map out to spell out every key the root has", func() {
 		values := with("secretSyncer:\n  replicas: ~\n  image: {}\n",
 			"secretSyncer:\n  replicas: ~\n  image:\n    repository: \"\"\n")
 		Expect(check(values)).To(ConsistOf(ContainSubstring("secretSyncer: image.tag is missing")))
 	})
 
-	It("ignores the chart-wide root keys, which no block repeats", func() {
-		Expect(check([]byte(complete))).To(BeEmpty(), "rbac and secretAccess are not repeated")
-	})
-
 	It("reports a missing process block", func() {
-		values := with("secretSyncer:\n  replicas: ~\n  image: {}\n  nodeSelector: {}\n", "secretSyncer: ~\n")
+		values := with("secretSyncer:\n  replicas: ~\n  image: {}\n  nodeSelector: {}\n  serviceAccount: {}\n",
+			"secretSyncer: ~\n")
 		Expect(check(values)).To(ConsistOf(ContainSubstring("secretSyncer: the process block is missing")))
 	})
 

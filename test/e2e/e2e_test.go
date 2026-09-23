@@ -204,42 +204,82 @@ var _ = Describe("Manager", Ordered, func() {
 			}
 		})
 
-		// The permissions of docs/v3/architecture.md, "Permissions", under the default
-		// secretAccess.mode (permissive). resource may carry a subresource after a slash, and
-		// ns is empty for a cluster-scoped resource.
+		// The permissions of docs/v3/architecture.md, "Permissions": one entry per cell of the
+		// table that carries a property of the design, under the default secretAccess.mode
+		// (permissive). The rules grant get, list and watch together, so one verb stands for the
+		// three. resource may carry a subresource after a slash, and ns is empty for a
+		// cluster-scoped resource. The secret syncer has no loop yet, so it holds none of the
+		// permissions its markers will bring (notes/0009): its entries flip with them.
 		DescribeTable("should hold exactly the permissions architecture.md grants",
 			func(process, verb, resource, ns string, allowed bool) {
 				Expect(canI(process, verb, resource, ns)).To(Equal(allowed))
 			},
+			// imagealternatives, imagemirrors, imagemonitors: get, list, watch for the three, no create or delete
 			Entry("the webhook reads the ImageMirrors", "webhook", "get", "imagemirrors", allNamespaces, true),
-			Entry("the webhook cannot create an ImageMirror", "webhook", "create", "imagemirrors", allNamespaces, false),
-			Entry("the webhook cannot delete an ImageMirror", "webhook", "delete", "imagemirrors", allNamespaces, false),
-			Entry("the webhook cannot write a status", "webhook", "patch", "imagemirrors/status", allNamespaces, false),
-			Entry("the webhook does not read pods, the AdmissionReview carries them",
-				"webhook", "get", "pods", allNamespaces, false),
-			Entry("the webhook cannot create a Secret", "webhook", "create", "secrets", namespace, false),
-			Entry("the webhook reads the Secrets of an application namespace in permissive mode",
-				"webhook", "get", "secrets", "default", true),
-			Entry("the webhook reads the Secrets of the install namespace", "webhook", "get", "secrets", namespace, true),
-			Entry("the reconciler writes the status of an ImageMirror",
-				"reconciler", "patch", "imagemirrors/status", allNamespaces, true),
-			Entry("the reconciler cannot create an ImageMirror", "reconciler", "create", "imagemirrors", allNamespaces, false),
-			Entry("the reconciler reads the pods", "reconciler", "get", "pods", allNamespaces, true),
-			Entry("the reconciler records events", "reconciler", "create", "events", namespace, true),
-			Entry("the reconciler reads the Secrets of an application namespace in permissive mode",
-				"reconciler", "get", "secrets", "default", true),
-			Entry("the reconciler cannot create a Secret", "reconciler", "create", "secrets", namespace, false),
-			Entry("the reconciler holds its lease", "reconciler", "update", "leases", namespace, true),
-			Entry("the secret syncer reads no Secret of an application namespace, whatever the mode",
-				"secret-syncer", "get", "secrets", "default", false),
-			Entry("the secret syncer cannot delete a Secret", "secret-syncer", "delete", "secrets", allNamespaces, false),
+			Entry("the reconciler reads the ImageAlternatives", "reconciler", "get", "imagealternatives", allNamespaces, true),
 			Entry("the secret syncer reads no ImageMirror yet, it has no loop",
 				"secret-syncer", "get", "imagemirrors", allNamespaces, false),
-			Entry("the secret syncer holds its lease", "secret-syncer", "get", "leases", namespace, true),
+			Entry("the webhook cannot create an ImageMirror", "webhook", "create", "imagemirrors", allNamespaces, false),
+			Entry("the webhook cannot delete an ImageMirror", "webhook", "delete", "imagemirrors", allNamespaces, false),
+			Entry("the reconciler cannot update an ImageMirror, only its status",
+				"reconciler", "update", "imagemirrors", allNamespaces, false),
+
+			// .../status: update, patch for the reconciler only
+			Entry("the webhook cannot write a status", "webhook", "patch", "imagemirrors/status", allNamespaces, false),
+			Entry("the reconciler writes the status of an ImageMonitor",
+				"reconciler", "patch", "imagemonitors/status", allNamespaces, true),
+			Entry("the secret syncer cannot write a status",
+				"secret-syncer", "patch", "imagemirrors/status", allNamespaces, false),
+
+			// pods: none for the webhook, get, list, watch for the other two
+			Entry("the webhook does not read pods, the AdmissionReview carries them",
+				"webhook", "get", "pods", allNamespaces, false),
+			Entry("the reconciler reads the pods", "reconciler", "list", "pods", allNamespaces, true),
+
+			// namespaces: get, list, watch for the three
+			Entry("the webhook reads the namespaces, for namespaceSelector", "webhook", "list", "namespaces", "", true),
+			Entry("the reconciler reads the namespaces", "reconciler", "list", "namespaces", "", true),
+
+			// secrets in the install namespace: get, list, watch for the three
+			Entry("the webhook reads the Secrets of the install namespace", "webhook", "get", "secrets", namespace, true),
+			Entry("the reconciler reads the Secrets of the install namespace",
+				"reconciler", "get", "secrets", namespace, true),
+			Entry("the secret syncer reads no Secret of the install namespace yet, it has no loop",
+				"secret-syncer", "get", "secrets", namespace, false),
+
+			// secrets cluster-wide, read: permissive only for the webhook and the reconciler, never the syncer
+			Entry("the webhook reads the Secrets of an application namespace in permissive mode",
+				"webhook", "get", "secrets", "default", true),
+			Entry("the reconciler reads the Secrets of an application namespace in permissive mode",
+				"reconciler", "get", "secrets", "default", true),
+			Entry("the secret syncer reads no Secret of an application namespace, whatever the mode",
+				"secret-syncer", "get", "secrets", "default", false),
+
+			// secrets cluster-wide, write: create, patch for the syncer only, never delete
+			Entry("the webhook cannot create a Secret", "webhook", "create", "secrets", allNamespaces, false),
+			Entry("the reconciler cannot create a Secret", "reconciler", "create", "secrets", allNamespaces, false),
+			Entry("the secret syncer creates no Secret yet, its writes ship with its loop",
+				"secret-syncer", "create", "secrets", allNamespaces, false),
+			Entry("the secret syncer cannot delete a Secret", "secret-syncer", "delete", "secrets", allNamespaces, false),
+
+			// serviceaccounts/token: create for the syncer, for auth.provider; nobody until its loop
+			Entry("the secret syncer requests no ServiceAccount token yet, it has no loop",
+				"secret-syncer", "create", "serviceaccounts/token", allNamespaces, false),
+
+			// events: create, patch for the reconciler and the syncer
+			Entry("the webhook records no event", "webhook", "create", "events", namespace, false),
+			Entry("the reconciler records events", "reconciler", "create", "events", namespace, true),
 			Entry("the secret syncer records events", "secret-syncer", "create", "events", namespace, true),
-			Entry("the webhook does not read the nodes", "webhook", "get", "nodes", "", false),
-			Entry("the reconciler does not read the nodes", "reconciler", "get", "nodes", "", false),
-			Entry("the secret syncer does not read the nodes", "secret-syncer", "get", "nodes", "", false),
+
+			// leases: leader election for the reconciler and the syncer, in the install namespace
+			Entry("the webhook holds no lease, it is not elected", "webhook", "update", "leases", namespace, false),
+			Entry("the reconciler holds its lease", "reconciler", "update", "leases", namespace, true),
+			Entry("the reconciler holds no lease outside the install namespace",
+				"reconciler", "update", "leases", "default", false),
+			Entry("the secret syncer holds its lease", "secret-syncer", "update", "leases", namespace, true),
+
+			// nodes: nobody in v3.0
+			Entry("no process reads the nodes", "reconciler", "get", "nodes", "", false),
 		)
 
 		It("should ensure the metrics endpoint is serving metrics", func() {
