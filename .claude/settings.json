@@ -2,5 +2,73 @@
   "attribution": {
     "commit": "",
     "pr": ""
+  },
+  "permissions": {
+    "allow": [
+      "Bash(task --list *)",
+      "Bash(task test *)",
+      "Bash(task test-short *)",
+      "Bash(task test-outline *)",
+      "Bash(task lint *)",
+      "Bash(task lint-fix *)",
+      "Bash(task lint-config *)",
+      "Bash(task helm-lint *)",
+      "Bash(task lint-values *)",
+      "Bash(task manifests *)",
+      "Bash(task generate *)",
+      "Bash(task generate-helm-docs *)",
+      "Bash(task build *)",
+      "Bash(task fmt *)",
+      "Bash(task vet *)",
+      "Bash(task conform *)",
+      "Bash(go run ./hack/*)",
+      "Bash(go doc *)",
+      "Bash(git show 2.3.x*)",
+      "Bash(git ls-tree *)",
+      "Bash(git grep *)",
+      "Bash(git log *)",
+      "Bash(git diff *)",
+      "Bash(git status *)",
+      "Bash(helm lint *)",
+      "Bash(helm template *)"
+    ],
+    "ask": [
+      "Bash(task *deploy*)",
+      "Bash(task *install*)",
+      "Bash(task *docker-*)",
+      "Bash(task *test-e2e*)",
+      "Bash(task run*)",
+      "Bash(task * run*)"
+    ],
+    "deny": [
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/*.pem)",
+      "Read(**/*.key)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-generated-files.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/confirm-outbound-actions.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
   }
 }
