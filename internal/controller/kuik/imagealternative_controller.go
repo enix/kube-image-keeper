@@ -17,9 +17,8 @@ type ImageAlternativeReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=kuik.enix.io,resources=imagealternatives,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=kuik.enix.io,resources=imagealternatives/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=kuik.enix.io,resources=imagealternatives/finalizers,verbs=update
+// +kubebuilder:rbac:groups=kuik.enix.io,resources=imagealternatives,verbs=get;list;watch,roleName=reconciler
+// +kubebuilder:rbac:groups=kuik.enix.io,resources=imagealternatives/status,verbs=update;patch,roleName=reconciler
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.

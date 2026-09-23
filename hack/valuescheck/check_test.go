@@ -33,8 +33,8 @@ secretSyncer:
   nodeSelector: {}
 rbac:
   create: true
-serviceAccount:
-  create: true
+secretAccess:
+  mode: permissive
 `
 
 // with returns the fixture with one exact replacement applied, and fails the spec when the
@@ -76,7 +76,7 @@ var _ = Describe("Chart values", func() {
 	})
 
 	It("ignores the chart-wide root keys, which no block repeats", func() {
-		Expect(check([]byte(complete))).To(BeEmpty(), "rbac and serviceAccount are not repeated")
+		Expect(check([]byte(complete))).To(BeEmpty(), "rbac and secretAccess are not repeated")
 	})
 
 	It("reports a missing process block", func() {

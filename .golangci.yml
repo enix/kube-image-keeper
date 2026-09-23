@@ -52,6 +52,10 @@ linters:
           - dupl
           - lll
         path: internal/*
+      # A marker is one line: it cannot be wrapped
+      - linters:
+          - lll
+        source: '^// \+kubebuilder:'
     paths:
       - third_party$
       - builtin$

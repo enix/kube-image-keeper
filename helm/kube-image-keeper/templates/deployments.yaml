@@ -6,12 +6,7 @@ The pod settings at the root of values.yaml apply to the three processes, and th
 a process may set any of them for itself (notes/0008). They are resolved once, below, into
 $v: the body reads $v only, so the fallback rule lives in one place.
 */}}
-{{- $processes := list
-  (dict "name" "webhook" "values" "webhook" "servesWebhook" true "elected" false)
-  (dict "name" "reconciler" "values" "reconciler" "servesWebhook" false "elected" true)
-  (dict "name" "secret-syncer" "values" "secretSyncer" "servesWebhook" false "elected" true)
-}}
-{{- range $index, $process := $processes }}
+{{- range $index, $process := include "kube-image-keeper.processes" . | fromYamlArray }}
 {{- if $index }}
 ---
 {{- end }}
@@ -59,7 +54,7 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "kube-image-keeper.serviceAccountName" $ }}
+      serviceAccountName: {{ include "kube-image-keeper.process-serviceAccountName" (dict "ctx" $ "process" $process.name "values" $process.values) }}
       {{- if $v.priorityClassName }}
       priorityClassName: {{ $v.priorityClassName | quote }}
       {{- end }}

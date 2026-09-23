@@ -1,5 +1,6 @@
 {{/* Each process exports its own counters, so each one gets its own metrics Service. */}}
-{{- range $index, $process := list "webhook" "reconciler" "secret-syncer" }}
+{{- range $index, $p := include "kube-image-keeper.processes" . | fromYamlArray }}
+{{- $process := $p.name }}
 {{- if $index }}
 ---
 {{- end }}

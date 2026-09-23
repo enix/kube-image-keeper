@@ -1,52 +1,108 @@
+{{/*
+The rules come from the kubebuilder markers: `task manifests` generates files/rbac.yaml, one
+ClusterRole or Role per roleName= (notes/0009). This template names them, puts the Roles in
+the release namespace and binds each process role to the ServiceAccount of its process. The
+secret-reader role (cluster-wide Secret read) is bound according to secretAccess instead.
+*/}}
+{{- $mode := .Values.secretAccess.mode }}
+{{- if not (has $mode (list "permissive" "restricted")) }}
+{{- fail (printf "secretAccess.mode must be permissive or restricted, got %q" $mode) }}
+{{- end }}
+{{- if and (eq $mode "permissive") .Values.secretAccess.namespaces }}
+{{- fail "secretAccess.namespaces applies to the restricted mode only: permissive already grants every namespace" }}
+{{- end }}
 {{- if .Values.rbac.create }}
-# Rules under files/ are generated from the kubebuilder markers by `task manifests`.
-kind: ClusterRole
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: {{ include "kube-image-keeper.clusterRoleName" . }}
-  labels:
-    {{- include "kube-image-keeper.labels" . | nindent 4 }}
-rules:
-  {{- .Files.Get "files/manager-rules.yaml" | nindent 2 }}
+{{- $fullname := include "kube-image-keeper.fullname" . }}
+{{- $processes := dict }}
+{{- range $process := include "kube-image-keeper.processes" . | fromYamlArray }}
+{{- $_ := set $processes $process.name $process }}
+{{- end }}
+{{- $grantSecrets := or (eq $mode "permissive") (not (empty .Values.secretAccess.namespaces)) }}
+{{- range $doc := splitList "---" (.Files.Get "files/rbac.yaml") }}
+{{- if trim $doc }}
+{{- $generated := fromYaml $doc }}
+{{- $name := $generated.metadata.name }}
+{{- if eq $name "unassigned" }}
+{{- fail (printf "an RBAC marker has no roleName: add roleName=<process> to the +kubebuilder:rbac markers behind the %s rules of files/rbac.yaml" $generated.kind) }}
+{{- end }}
+{{- $process := get $processes $name }}
+{{- if not (or $process (eq $name "secret-reader")) }}
+{{- fail (printf "an RBAC marker has an unknown roleName %q, expected webhook, reconciler, secret-syncer or secret-reader" $name) }}
+{{- end }}
+{{- if or $process $grantSecrets }}
+{{- $namespaced := eq $generated.kind "Role" }}
 ---
-kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
+kind: {{ $generated.kind }}
 metadata:
-  name: {{ include "kube-image-keeper.clusterRoleName" . }}
+  name: {{ $fullname }}-{{ $name }}
+  {{- if $namespaced }}
+  namespace: {{ $.Release.Namespace }}
+  {{- end }}
   labels:
-    {{- include "kube-image-keeper.labels" . | nindent 4 }}
+    {{- if $process }}
+    {{- include "kube-image-keeper.process-labels" (dict "ctx" $ "process" $name) | nindent 4 }}
+    {{- else }}
+    {{- include "kube-image-keeper.labels" $ | nindent 4 }}
+    {{- end }}
+rules:
+  {{- toYaml $generated.rules | nindent 2 }}
+{{- end }}
+{{- if $process }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: {{ $generated.kind }}Binding
+metadata:
+  name: {{ $fullname }}-{{ $name }}
+  {{- if eq $generated.kind "Role" }}
+  namespace: {{ $.Release.Namespace }}
+  {{- end }}
+  labels:
+    {{- include "kube-image-keeper.process-labels" (dict "ctx" $ "process" $name) | nindent 4 }}
 roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: {{ $generated.kind }}
+  name: {{ $fullname }}-{{ $name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kube-image-keeper.process-serviceAccountName" (dict "ctx" $ "process" $name "values" $process.values) }}
+    namespace: {{ $.Release.Namespace }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{/*
+secretAccess: permissive binds secret-reader cluster-wide, restricted binds it in the listed
+namespaces only (none by default). The subjects are the processes that talk to registries,
+never the secret syncer: the identity that writes Secrets across the cluster reads none.
+*/}}
+{{- $bindings := list }}
+{{- if eq $mode "permissive" }}
+{{- $bindings = list (dict "kind" "ClusterRoleBinding") }}
+{{- else }}
+{{- range $namespace := .Values.secretAccess.namespaces }}
+{{- $bindings = append $bindings (dict "kind" "RoleBinding" "namespace" $namespace) }}
+{{- end }}
+{{- end }}
+{{- range $binding := $bindings }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: {{ $binding.kind }}
+metadata:
+  name: {{ $fullname }}-secret-reader
+  {{- with $binding.namespace }}
+  namespace: {{ . }}
+  {{- end }}
+  labels:
+    {{- include "kube-image-keeper.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ include "kube-image-keeper.clusterRoleName" . }}
-  apiGroup: rbac.authorization.k8s.io
+  name: {{ $fullname }}-secret-reader
 subjects:
+  {{- range $name := list "webhook" "reconciler" }}
   - kind: ServiceAccount
-    name: {{ include "kube-image-keeper.serviceAccountName" . }}
-    namespace: {{ .Release.Namespace }}
----
-kind: Role
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: {{ include "kube-image-keeper.clusterRoleName" . }}-leader-election
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "kube-image-keeper.labels" . | nindent 4 }}
-rules:
-  {{- .Files.Get "files/leader-election-rules.yaml" | nindent 2 }}
----
-kind: RoleBinding
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: {{ include "kube-image-keeper.clusterRoleName" . }}-leader-election
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "kube-image-keeper.labels" . | nindent 4 }}
-roleRef:
-  kind: Role
-  name: {{ include "kube-image-keeper.clusterRoleName" . }}-leader-election
-  apiGroup: rbac.authorization.k8s.io
-subjects:
-  - kind: ServiceAccount
-    name: {{ include "kube-image-keeper.serviceAccountName" . }}
-    namespace: {{ .Release.Namespace }}
+    name: {{ include "kube-image-keeper.process-serviceAccountName" (dict "ctx" $ "process" $name "values" (get $processes $name).values) }}
+    namespace: {{ $.Release.Namespace }}
+  {{- end }}
+{{- end }}
 {{- end }}

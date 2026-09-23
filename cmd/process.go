@@ -29,6 +29,15 @@ type process struct {
 	leaderElectionID string
 }
 
+// The leader election of the elected processes is done here, so its permissions are declared
+// here: the lease lock gets, creates and updates the lease, and the elector records events.
+// The syncer holds nothing else yet: its Secret writes ship with its loop, together with the
+// ValidatingAdmissionPolicy that bounds them.
+// +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;create;update,namespace=kuik-system,roleName=reconciler
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch,roleName=reconciler
+// +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;create;update,namespace=kuik-system,roleName=secret-syncer
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch,roleName=secret-syncer
+
 // processes lists the three, in the order the usage prints them.
 var processes = []process{
 	{
