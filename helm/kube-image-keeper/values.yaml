@@ -141,6 +141,18 @@ webhook:
   # -- Resources of the webhook container
   # @default -- the root `resources`
   resources: {}
+  serviceAccount:
+    # -- (bool) Create the ServiceAccount of the webhook
+    # @default -- the root `serviceAccount.create`
+    create: ~
+    # -- Name of the ServiceAccount of the webhook, `<fullname>-webhook` when empty
+    name: ""
+    # -- Annotations added to the ServiceAccount of the webhook, merged over the root ones
+    # @default -- the root `serviceAccount.annotations`
+    annotations: {}
+    # -- Labels added to the ServiceAccount of the webhook, merged over the root ones
+    # @default -- the root `serviceAccount.extraLabels`
+    extraLabels: {}
 
 # The reconciler: every loop that talks to a registry or writes a status, for the three
 # kinds. Leader-elected as soon as it has more than one replica.
@@ -203,6 +215,18 @@ reconciler:
   # -- Resources of the reconciler container
   # @default -- the root `resources`
   resources: {}
+  serviceAccount:
+    # -- (bool) Create the ServiceAccount of the reconciler
+    # @default -- the root `serviceAccount.create`
+    create: ~
+    # -- Name of the ServiceAccount of the reconciler, `<fullname>-reconciler` when empty
+    name: ""
+    # -- Annotations added to the ServiceAccount of the reconciler, merged over the root ones
+    # @default -- the root `serviceAccount.annotations`
+    annotations: {}
+    # -- Labels added to the ServiceAccount of the reconciler, merged over the root ones
+    # @default -- the root `serviceAccount.extraLabels`
+    extraLabels: {}
 
 # The secret syncer: it materialises and renews the pull secrets injectPullSecret asks
 # for. Leader-elected as soon as it has more than one replica.
@@ -265,17 +289,44 @@ secretSyncer:
   # -- Resources of the secret syncer container
   # @default -- the root `resources`
   resources: {}
+  serviceAccount:
+    # -- (bool) Create the ServiceAccount of the secret syncer
+    # @default -- the root `serviceAccount.create`
+    create: ~
+    # -- Name of the ServiceAccount of the secret syncer, `<fullname>-secret-syncer` when empty
+    name: ""
+    # -- Annotations added to the ServiceAccount of the secret syncer, merged over the root ones
+    # @default -- the root `serviceAccount.annotations`
+    annotations: {}
+    # -- Labels added to the ServiceAccount of the secret syncer, merged over the root ones
+    # @default -- the root `serviceAccount.extraLabels`
+    extraLabels: {}
+
+# One ServiceAccount per process, so each holds only its own permissions. A process block
+# may set its own, like any pod setting.
+serviceAccount:
+  # -- Create the ServiceAccounts. When false, a process runs under the ServiceAccount its
+  # block names, or "default"
+  create: true
+  # -- Annotations added to the ServiceAccounts
+  annotations: {}
+  # -- Labels added to the ServiceAccounts
+  extraLabels: {}
 
 rbac:
-  # -- Create the ClusterRole and ClusterRoleBinding. If false, need to associate permissions with serviceAccount outside this Helm chart.
+  # -- Create the roles of the three processes and bind them to their ServiceAccounts. When
+  # false, grant them the rules of files/rbac.yaml outside this chart
   create: true
 
-serviceAccount:
-  # -- Create the serviceAccount. If false, use serviceAccount with specified name (or "default" if false and name unset.)
-  create: true
-  # -- Name of the serviceAccount (auto-generated if unset and create is true)
-  name: ""
-  # -- Annotations to add to the serviceAccount
-  annotations: {}
-  # -- Additional labels to add to the serviceAccount
-  extraLabels: {}
+# Whether kuik may read the Secrets of application namespaces, for the imagePullSecrets of
+# the pods it checks images for. Only the webhook and the reconciler get it, never the
+# secret syncer.
+secretAccess:
+  # -- `permissive` grants get, list and watch on Secrets cluster-wide, so a private registry
+  # works with nothing declared. `restricted` grants none outside the install namespace: an
+  # image on a private registry kuik holds no credential for is reported Unauthorized, and
+  # credentials are declared in fallbackAuth instead
+  mode: permissive
+  # -- `restricted` only: namespaces where the read is granted anyway, with one RoleBinding
+  # each
+  namespaces: []

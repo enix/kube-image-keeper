@@ -69,7 +69,6 @@ tasks:
       - api/**/*.go
       - cmd/**/*.go
       - internal/**/*.go
-      - config/rbac/leader_election_role.yaml
       - exclude: '**/*_test.go'
       - exclude: '**/zz_generated.*.go'
     generates:
@@ -79,13 +78,14 @@ tasks:
       - '{{.CHART}}/crds/*.yaml'
       - '{{.CHART}}/files/*.yaml'
     cmds:
-      - '{{.LOCALBIN}}/controller-gen rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config={{.CRDS}}'
+      - '{{.LOCALBIN}}/controller-gen rbac:roleName=unassigned crd webhook paths="./..." output:crd:artifacts:config={{.CRDS}}'
       - mkdir -p {{.CHART}}/crds {{.CHART}}/files
       - rm -f {{.CHART}}/crds/*.yaml
       - for f in {{.CRDS}}/*.yaml; do sed '1{/^---$/d}' "$f" > {{.CHART}}/crds/$(basename "$f"); done
-      # The chart templates only need the rules, they carry their own metadata
-      - sed -n '/^rules:/,$p' config/rbac/role.yaml | tail -n +2 > {{.CHART}}/files/manager-rules.yaml
-      - sed -n '/^rules:/,$p' config/rbac/leader_election_role.yaml | tail -n +2 > {{.CHART}}/files/leader-election-rules.yaml
+      # One role per roleName= of the markers; the chart names, binds and places them, and
+      # fails on the default name, left to a marker that names no process (notes/0009)
+      - rm -f {{.CHART}}/files/*.yaml
+      - cp config/rbac/role.yaml {{.CHART}}/files/rbac.yaml
 
   generate:
     desc: Generate the DeepCopy methods of the API types

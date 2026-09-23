@@ -34,7 +34,7 @@ cmd/                          Manager entry: one subcommand per process (webhook
 api/kuik/v1alpha1/*_types.go  CRD schemas and kubebuilder markers
 internal/controller/kuik/*    Reconcilers, one per kind
 internal/webhook/core/v1/*    Pod mutating webhook (image routing)
-config/                       controller-gen output (CRDs, RBAC, webhook), read by envtest
+config/                       controller-gen output (CRDs, rbac/role.yaml, webhook), read by envtest
 helm/kube-image-keeper/       The Helm chart, the only deployment path (crds/ and files/ generated)
 test/e2e/                     End-to-end suite, runs on a Kind cluster
 hack/                         Developer tools run with go run (the test outline)
@@ -44,7 +44,7 @@ PROJECT                       Kubebuilder metadata
 
 **Generated, never edit by hand**: `**/zz_generated.*.go` (`task generate`),
 `config/crd/bases/*.yaml`, `config/rbac/role.yaml`, `config/webhook/manifests.yaml`,
-`helm/kube-image-keeper/crds/*.yaml`, `helm/kube-image-keeper/files/*.yaml`
+`helm/kube-image-keeper/crds/*.yaml`, `helm/kube-image-keeper/files/rbac.yaml`
 (`task manifests`), `helm/kube-image-keeper/README.md` (`task generate-helm-docs`, from the
 `# --` comments of `values.yaml`), `PROJECT` (kubebuilder CLI). Edit the markers or the
 comments in the sources and regenerate.
@@ -101,8 +101,13 @@ real cluster.
   [Kubernetes style](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-instrumentation/logging.md#message-style-guidelines):
   capitalised, no trailing period, past tense, object type named
   (`"Created Deployment"`, not `"Created"`), balanced key-value pairs.
-- **RBAC**: declared with `// +kubebuilder:rbac` markers on the reconciler, never in
-  `config/rbac/role.yaml` directly.
+- **RBAC** ([0009](./notes/0009-rbac-rules-from-markers-bindings-from-chart.md)): rules are
+  `// +kubebuilder:rbac` markers on the code that exercises the permission, each with
+  `roleName=` naming its process (`webhook`, `reconciler`, `secret-syncer`) or
+  `secret-reader` (cluster-wide Secret read, bound by `secretAccess`). The rules are
+  generated; the bindings are the chart's (`templates/rbac.yaml`). A marker without
+  `roleName=` fails `helm template`. Delete the `admin/editor/viewer` roles
+  `kubebuilder create api` scaffolds under `config/rbac/`.
 - **Chart values** ([0008](./notes/0008-chart-values-per-process.md)): a pod setting goes
   at the root of `values.yaml` **and**, empty with a `# @default -- the root ...` line, in
   each of `webhook`, `reconciler` and `secretSyncer`; a setting one process alone has goes

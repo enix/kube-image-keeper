@@ -25,6 +25,16 @@ func SetupPodWebhookWithManager(mgr ctrl.Manager) error {
 // fail open, CREATE only, reinvocable.
 // +kubebuilder:webhook:path=/mutate--v1-pod,mutating=true,failurePolicy=ignore,reinvocationPolicy=IfNeeded,sideEffects=None,groups="",resources=pods,verbs=create,versions=v1,name=mpod-v1.kb.io,admissionReviewVersions=v1
 
+// The webhook reads what it matches pods against and writes nothing: no status, no Secret,
+// no pod (the AdmissionReview carries it).
+// +kubebuilder:rbac:groups=kuik.enix.io,resources=imagealternatives;imagemirrors;imagemonitors,verbs=get;list;watch,roleName=webhook
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch,roleName=webhook
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch,namespace=kuik-system,roleName=webhook
+
+// Cluster-wide Secret read, for the imagePullSecrets of the pod an admission probe checks. The
+// chart binds it according to secretAccess, to the webhook and the reconciler, never to the syncer.
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch,roleName=secret-reader
+
 // PodDefaulter struct is responsible for setting default values on the custom resource of the
 // Kind Pod when those are created or updated.
 //

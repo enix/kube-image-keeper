@@ -66,19 +66,52 @@ app.kubernetes.io/component: {{ .process }}
 {{- end }}
 
 {{/*
-Create the name of the ClusterRole to use
+The three processes, as a YAML list: read it with fromYamlArray. name is the subcommand and
+the component label, values the key of its block in values.yaml. One list for every template
+that renders something per process, so they cannot disagree.
 */}}
-{{- define "kube-image-keeper.clusterRoleName" -}}
-{{- printf "%s-%s" (include "kube-image-keeper.fullname" .) "manager" }}
+{{- define "kube-image-keeper.processes" -}}
+- name: webhook
+  values: webhook
+  servesWebhook: true
+  elected: false
+- name: reconciler
+  values: reconciler
+  servesWebhook: false
+  elected: true
+- name: secret-syncer
+  values: secretSyncer
+  servesWebhook: false
+  elected: true
 {{- end }}
 
 {{/*
-Create the name of the service account to use
+The ServiceAccount of one process, as YAML: read it with fromYaml. Takes a dict: ctx (the root
+context), process (its name) and values (the key of its block). create falls back to the root
+when the block leaves it null, annotations and extraLabels are merged over the root ones
+(notes/0008), and name defaults to <fullname>-<process>, or "default" when none is created.
 */}}
-{{- define "kube-image-keeper.serviceAccountName" -}}
-{{- if .Values.serviceAccount.create -}}
-  {{- default (include "kube-image-keeper.clusterRoleName" .) .Values.serviceAccount.name }}
-{{- else -}}
-  {{- default "default" .Values.serviceAccount.name }}
-{{- end -}}
+{{- define "kube-image-keeper.process-serviceAccount" -}}
+{{- $root := .ctx.Values.serviceAccount }}
+{{- $own := default dict (index .ctx.Values .values).serviceAccount }}
+{{- $create := $root.create }}
+{{- if kindIs "bool" $own.create }}
+{{- $create = $own.create }}
+{{- end }}
+{{- $name := $own.name }}
+{{- if not $name }}
+{{- $name = ternary (printf "%s-%s" (include "kube-image-keeper.fullname" .ctx) .process) "default" $create }}
+{{- end }}
+{{- toYaml (dict
+  "create" $create
+  "name" $name
+  "annotations" (mergeOverwrite (deepCopy (default dict $root.annotations)) (default dict $own.annotations))
+  "extraLabels" (mergeOverwrite (deepCopy (default dict $root.extraLabels)) (default dict $own.extraLabels))) }}
+{{- end }}
+
+{{/*
+The name of the ServiceAccount of one process. Takes the same dict as process-serviceAccount.
+*/}}
+{{- define "kube-image-keeper.process-serviceAccountName" -}}
+{{- (include "kube-image-keeper.process-serviceAccount" . | fromYaml).name }}
 {{- end }}

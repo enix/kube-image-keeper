@@ -77,6 +77,10 @@ export RUN_FLAG_ZAP_ENCODER=json RUN_ADDITIONAL_ARGS="2>&1 | hl --paging=never"
 task run
 ```
 
+## Grant a process a permission
+
+Each process runs under its own ServiceAccount and holds only its own rules. Declare a permission with a `// +kubebuilder:rbac` marker on the code that uses it, naming its process with `roleName=webhook`, `roleName=reconciler` or `roleName=secret-syncer` (`namespace=kuik-system` for a Role in the install namespace), then run `task manifests`. The chart binds the generated roles to the ServiceAccounts, and `helm template` fails on a marker without `roleName=`.
+
 ## Local webhook for remote cluster
 
 There are several ways of developing a webhook for kubernetes and depending on your situation you may prefer one over another. One of them consists of running your webhook locally (using `task run:webhook`) and expose it as a service in your kubernetes cluster using a tool like [github.com/omrikiei/ktunnel](https://github.com/omrikiei/ktunnel) for instance. Since `MutatingWebhookConfiguration` requires a certificate for authentication, you will need to create one using cert-manager.

@@ -17,9 +17,19 @@ type ImageMirrorReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=kuik.enix.io,resources=imagemirrors,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=kuik.enix.io,resources=imagemirrors/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=kuik.enix.io,resources=imagemirrors/finalizers,verbs=update
+// +kubebuilder:rbac:groups=kuik.enix.io,resources=imagemirrors,verbs=get;list;watch,roleName=reconciler
+// +kubebuilder:rbac:groups=kuik.enix.io,resources=imagemirrors/status,verbs=update;patch,roleName=reconciler
+
+// The reads the reconciler shares across its loops, declared once here, on the loop that
+// talks to registries. Secrets are read in the install namespace (a Role: the chart puts it
+// in the release namespace, kuik-system is a placeholder).
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch,roleName=reconciler
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch,roleName=reconciler
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch,namespace=kuik-system,roleName=reconciler
+
+// Cluster-wide Secret read, for the imagePullSecrets of the pods a check concerns. The chart
+// binds it according to secretAccess, to the webhook and the reconciler, never to the syncer.
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch,roleName=secret-reader
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.

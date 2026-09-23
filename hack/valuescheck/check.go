@@ -15,7 +15,7 @@ var processes = []string{"webhook", "reconciler", "secretSyncer"}
 // chartWide are the root keys that are not pod settings, so the process blocks do not
 // repeat them. A new root key that is neither a pod setting nor listed here fails the
 // check on purpose: it has to be filed on one side or the other.
-var chartWide = []string{"rbac", "serviceAccount", "nameOverride", "fullnameOverride"}
+var chartWide = []string{"rbac", "secretAccess", "nameOverride", "fullnameOverride"}
 
 // check reports every root pod setting that a process block does not repeat.
 func check(values []byte) ([]string, error) {

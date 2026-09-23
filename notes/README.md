@@ -74,3 +74,6 @@ Rationale in [0005](./0005-decision-log-filter.md).
 - [0008 — Chart values: root defaults, one block per process](./0008-chart-values-per-process.md):
   pod settings at the root of `values.yaml` apply to the three processes; each process
   block repeats them empty and a value set there replaces the root one for that process.
+- [0009 — RBAC: rules from the markers, bindings from the chart](./0009-rbac-rules-from-markers-bindings-from-chart.md):
+  each `+kubebuilder:rbac` marker names its process with `roleName=`; the chart binds each
+  generated role to that process's ServiceAccount, and `secret-reader` per `secretAccess`.

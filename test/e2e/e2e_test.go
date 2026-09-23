@@ -6,6 +6,7 @@ package e2e
 import (
 	"fmt"
 	"os/exec"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -34,6 +35,12 @@ func deploymentName(process string) string { return "kube-image-keeper-" + proce
 func processSelector(process string) string {
 	return releaseSelector + ",app.kubernetes.io/component=" + process
 }
+
+// serviceAccountName is the ServiceAccount a process runs under, one per process
+func serviceAccountName(process string) string { return "kube-image-keeper-" + process }
+
+// allNamespaces asks kubectl auth can-i about every namespace at once
+const allNamespaces = "*"
 
 // metricsServiceName is the metrics service of a process, each one exporting its own
 func metricsServiceName(process string) string { return "kube-image-keeper-" + process + "-metrics" }
@@ -181,6 +188,60 @@ var _ = Describe("Manager", Ordered, func() {
 			Eventually(verifyWebhookPodRunning).Should(Succeed())
 		})
 
+		It("should run each process under its own ServiceAccount", func() {
+			for _, process := range processes {
+				By("checking the ServiceAccount of the " + process + " exists")
+				cmd := exec.Command("kubectl", "get", "serviceaccount", serviceAccountName(process), "-n", namespace)
+				_, err := utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred(), "ServiceAccount of the "+process+" should exist")
+
+				By("checking the " + process + " Deployment runs under it")
+				cmd = exec.Command("kubectl", "get", "deployment", deploymentName(process), "-n", namespace,
+					"-o", "jsonpath={.spec.template.spec.serviceAccountName}")
+				output, err := utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(output).To(Equal(serviceAccountName(process)))
+			}
+		})
+
+		// The permissions of docs/v3/architecture.md, "Permissions", under the default
+		// secretAccess.mode (permissive). resource may carry a subresource after a slash, and
+		// ns is empty for a cluster-scoped resource.
+		DescribeTable("should hold exactly the permissions architecture.md grants",
+			func(process, verb, resource, ns string, allowed bool) {
+				Expect(canI(process, verb, resource, ns)).To(Equal(allowed))
+			},
+			Entry("the webhook reads the ImageMirrors", "webhook", "get", "imagemirrors", allNamespaces, true),
+			Entry("the webhook cannot create an ImageMirror", "webhook", "create", "imagemirrors", allNamespaces, false),
+			Entry("the webhook cannot delete an ImageMirror", "webhook", "delete", "imagemirrors", allNamespaces, false),
+			Entry("the webhook cannot write a status", "webhook", "patch", "imagemirrors/status", allNamespaces, false),
+			Entry("the webhook does not read pods, the AdmissionReview carries them",
+				"webhook", "get", "pods", allNamespaces, false),
+			Entry("the webhook cannot create a Secret", "webhook", "create", "secrets", namespace, false),
+			Entry("the webhook reads the Secrets of an application namespace in permissive mode",
+				"webhook", "get", "secrets", "default", true),
+			Entry("the webhook reads the Secrets of the install namespace", "webhook", "get", "secrets", namespace, true),
+			Entry("the reconciler writes the status of an ImageMirror",
+				"reconciler", "patch", "imagemirrors/status", allNamespaces, true),
+			Entry("the reconciler cannot create an ImageMirror", "reconciler", "create", "imagemirrors", allNamespaces, false),
+			Entry("the reconciler reads the pods", "reconciler", "get", "pods", allNamespaces, true),
+			Entry("the reconciler records events", "reconciler", "create", "events", namespace, true),
+			Entry("the reconciler reads the Secrets of an application namespace in permissive mode",
+				"reconciler", "get", "secrets", "default", true),
+			Entry("the reconciler cannot create a Secret", "reconciler", "create", "secrets", namespace, false),
+			Entry("the reconciler holds its lease", "reconciler", "update", "leases", namespace, true),
+			Entry("the secret syncer reads no Secret of an application namespace, whatever the mode",
+				"secret-syncer", "get", "secrets", "default", false),
+			Entry("the secret syncer cannot delete a Secret", "secret-syncer", "delete", "secrets", allNamespaces, false),
+			Entry("the secret syncer reads no ImageMirror yet, it has no loop",
+				"secret-syncer", "get", "imagemirrors", allNamespaces, false),
+			Entry("the secret syncer holds its lease", "secret-syncer", "get", "leases", namespace, true),
+			Entry("the secret syncer records events", "secret-syncer", "create", "events", namespace, true),
+			Entry("the webhook does not read the nodes", "webhook", "get", "nodes", "", false),
+			Entry("the reconciler does not read the nodes", "reconciler", "get", "nodes", "", false),
+			Entry("the secret syncer does not read the nodes", "secret-syncer", "get", "nodes", "", false),
+		)
+
 		It("should ensure the metrics endpoint is serving metrics", func() {
 			By("validating that each process has its own metrics service")
 			for _, process := range processes {
@@ -326,6 +387,41 @@ var _ = Describe("Manager", Ordered, func() {
 		// ))
 	})
 })
+
+// canI asks the API server whether the ServiceAccount of process may perform verb on resource
+// in ns, allNamespaces for every namespace, empty for a cluster-scoped resource. resource may
+// name a subresource after a slash.
+func canI(process, verb, resource, ns string) (bool, error) {
+	args := []string{"auth", "can-i", verb}
+	name, subresource, found := strings.Cut(resource, "/")
+	args = append(args, name)
+	if found {
+		args = append(args, "--subresource", subresource)
+	}
+	switch ns {
+	case "":
+	case allNamespaces:
+		args = append(args, "--all-namespaces")
+	default:
+		args = append(args, "-n", ns)
+	}
+	args = append(args, "--as", "system:serviceaccount:"+namespace+":"+serviceAccountName(process))
+
+	// can-i exits 1 when the answer is no, so the answer is read from the output rather than
+	// from the error.
+	output, err := utils.Run(exec.Command("kubectl", args...))
+	lines := utils.GetNonEmptyLines(output)
+	if len(lines) > 0 {
+		switch strings.TrimSpace(lines[len(lines)-1]) {
+		case "yes":
+			return true, nil
+		case "no":
+			return false, nil
+		}
+	}
+
+	return false, fmt.Errorf("unexpected answer from kubectl auth can-i: %q (%v)", output, err)
+}
 
 // getMetricsOutput retrieves and returns the logs from the curl pod used to access the metrics endpoint.
 func getMetricsOutput() (string, error) {
