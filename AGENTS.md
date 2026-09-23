@@ -37,7 +37,7 @@ internal/webhook/core/v1/*    Pod mutating webhook (image routing)
 config/                       controller-gen output (CRDs, rbac/role.yaml, webhook), read by envtest
 helm/kube-image-keeper/       The Helm chart, the only deployment path (crds/ and files/ generated)
 test/e2e/                     End-to-end suite, runs on a Kind cluster
-hack/                         Developer tools run with go run (the test outline)
+hack/                         Developer tools run with go run (the test outline, the values check)
 website/                      The docs site (Astro Starlight), see Docs below
 PROJECT                       Kubebuilder metadata
 ```
@@ -106,8 +106,9 @@ real cluster.
   `roleName=` naming its process (`webhook`, `reconciler`, `secret-syncer`) or
   `secret-reader` (cluster-wide Secret read, bound by `secretAccess`). The rules are
   generated; the bindings are the chart's (`templates/rbac.yaml`). A marker without
-  `roleName=` fails `helm template`. Delete the `admin/editor/viewer` roles
-  `kubebuilder create api` scaffolds under `config/rbac/`.
+  `roleName=` fails `helm template`; the e2e suite checks the granted permissions against
+  `docs/v3/architecture.md`. Delete the `admin/editor/viewer` roles `kubebuilder create api`
+  scaffolds under `config/rbac/`.
 - **Chart values** ([0008](./notes/0008-chart-values-per-process.md)): a pod setting goes
   at the root of `values.yaml` **and**, empty with a `# @default -- the root ...` line, in
   each of `webhook`, `reconciler` and `secretSyncer`; a setting one process alone has goes
