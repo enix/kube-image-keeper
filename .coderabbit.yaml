@@ -2,65 +2,106 @@
 
 # CodeRabbit configuration. The GitHub App reads this on every PR.
 # Docs: https://docs.coderabbit.ai/configuration/
+#
+# Goal: a discreet reviewer that only reports defects. No summary, no
+# walkthrough decoration, no status chatter. AGENTS.md is read as code
+# guidelines by default (knowledge_base.code_guidelines), so the project
+# conventions are not repeated here.
 
 language: en-US
 
+# Max 250 characters.
+tone_instructions: |
+  Report only defects: bugs, security or availability risks, spec
+  violations, missing tests or docs for a behaviour change. No praise, no
+  style remarks, no restating the diff. One or two sentences per comment.
+
 chat:
-  # Replies to "@coderabbitai" comments without a leading slash command.
-  auto_reply: true
+  # Answer only when mentioned with "@coderabbitai".
+  auto_reply: false
   art: false
 
-# Style cadre applied to every review.
-tone_instructions: |
-  Be concise and technical. No promotional content, no references to
-  CodeRabbit features in comments, no suggestions to upgrade tier or
-  invite collaborators.
-
 reviews:
-  # 'chill' = friendly, suggests improvements; 'assertive' = nitpickier.
-  # Chill is the right default for a small team — assertive generates a
-  # lot of style noise that drowns the actually-useful findings.
-  profile: chill
+  # 'quiet' posts only the most important findings inline and folds the
+  # rest; 'chill' and 'assertive' add progressively more nitpicks.
+  profile: quiet
 
-  # Don't request changes on the PR — leave merge gating to humans + CI.
-  # CodeRabbit flags issues as comments; the reviewer decides what blocks.
+  # Don't request changes on the PR: merge gating stays with humans + CI.
   request_changes_workflow: false
 
-  # Top-level summary at the start of each review (the "Walkthrough"
-  # block). Useful for skim-reading what changed without opening every
-  # file diff.
-  high_level_summary: true
-
-  # No poems / no ASCII art. Keep the reviews professional.
+  # Never touch the PR description, and keep the walkthrough comment down
+  # to the findings. "@coderabbitai summary" in a description still asks
+  # for a summary on demand.
+  high_level_summary: false
+  changed_files_summary: false
+  sequence_diagrams: false
+  estimate_code_review_effort: false
+  assess_linked_issues: false
+  related_issues: false
+  related_prs: false
+  suggested_labels: false
+  suggested_reviewers: false
   poem: false
+  in_progress_fortune: false
+  # Drops the "Prompt for AI agents" block appended to every comment.
+  enable_prompt_for_ai_agents: false
+  # No "review skipped" comments (draft PRs, too many files...).
+  review_status: false
+  review_details: false
 
-  # Status posted as a check at the bottom of the PR.
-  review_status: true
-
-  # Auto-review every new PR (including from forks). Set drafts:false
-  # so we don't burn budget on WIP branches.
+  # One review when a PR is opened, or when a draft is marked ready for
+  # review. Later pushes are not reviewed: comment "@coderabbitai review"
+  # to get an incremental review of the new commits. CodeRabbit has no
+  # time-based throttle, so this is the only way to avoid one review per
+  # push.
   auto_review:
     enabled: true
     drafts: false
     auto_incremental_review: false
-    auto_pause_after_reviewed_commits: 3
-    # Skip Dependabot's bot PRs — bumps are mechanical, the diff is
-    # just a version number change, and CodeRabbit has nothing useful
-    # to say. Same for semantic-release commits that only edit version
-    # metadata.
+    # Dependency bumps and release commits are mechanical.
     ignore_title_keywords:
       - "build(deps):"
       - "ci(deps):"
       - "chore(deps):"
       - "chore(release):"
 
-  # Auto-generated files: don't waste tokens reviewing them, the source
-  # of truth is elsewhere.
-  # The list is the "Generated, never edit by hand" set of AGENTS.md:
-  #   - zz_generated.*.go: produced by `task generate` (controller-gen)
-  #   - config/crd/bases, config/rbac/role.yaml, config/webhook/manifests.yaml:
-  #     produced by `task manifests` (controller-gen)
-  #   - helm crds/ and files/: copied out of config/ by the same task
+  # The title and commit style are enforced by conform; the description is
+  # the author's. Docstrings are not a project convention.
+  pre_merge_checks:
+    docstrings:
+      mode: "off"
+    title:
+      mode: "off"
+    description:
+      mode: "off"
+    issue_assessment:
+      mode: "off"
+
+  finishing_touches:
+    docstrings:
+      enabled: false
+    unit_tests:
+      enabled: false
+    autofix:
+      enabled: false
+    fix_ci:
+      enabled: false
+    resolve_merge_conflict:
+      enabled: false
+
+  # Already run by CI and lefthook: CodeRabbit would repeat their findings.
+  # golangci-lint is a custom build (.custom-gcl.yml) CodeRabbit cannot
+  # reproduce anyway. LanguageTool only produces prose nitpicks.
+  tools:
+    golangci-lint:
+      enabled: false
+    markdownlint:
+      enabled: false
+    languagetool:
+      enabled: false
+
+  # Generated files: the source of truth is elsewhere. This is the
+  # "Generated, never edit by hand" set of AGENTS.md, plus lockfiles.
   path_filters:
     - "!**/zz_generated.*.go"
     - "!config/crd/bases/**"
@@ -70,88 +111,71 @@ reviews:
     - "!helm/kube-image-keeper/files/**"
     - "!cover.out"
     - "!go.sum"
+    - "!**/package-lock.json"
 
   # Per-path guidance fed to the model alongside the diff. Keep these
-  # short and load-bearing — long instructions get diluted.
+  # short and load-bearing: long instructions get diluted. docs/v3 is the
+  # specification; flag code that contradicts it.
   path_instructions:
     - path: "internal/webhook/**/*.go"
       instructions: |
-        This is the mutating admission webhook that rewrites Pod images
-        on CREATE — it sits in the critical path of every Pod admission
-        in the cluster. Treat it as security- and availability-critical:
-        flag anything that could panic, leak goroutines, block on a slow
-        registry call without honoring the configured timeout, or bypass
-        the `original-images` annotation guard (which prevents
-        re-processing). Be strict about error handling on the admission
-        response — returning an error fails Pod admission cluster-wide.
+        Mutating Pod webhook, in the admission path of every Pod
+        (docs/v3/architecture.md, "The admission path"). Flag anything that
+        breaks these invariants:
+        - Fail open: never deny or error an admission; on any failure, admit
+          the Pod unchanged. No panic path.
+        - Read-only: the returned patch is the only write. No API call that
+          writes, no Event, no status, no informer on Pods.
+        - Every registry probe is bounded by availabilityCheck.timeout.
+        - Idempotent under reinvocation: a container whose image equals the
+          rewrittenTo of kuik.enix.io/rewrites is never rewritten again, and
+          no-alternatives entries are never resolved twice.
+        - Never rewrite imagePullPolicy: Never containers or static (mirror)
+          Pods. initContainers are routed, ephemeralContainers are not.
 
-    - path: "internal/registry/**/*.go"
+    - path: "cmd/**/*.go"
       instructions: |
-        Registry interaction via go-containerregistry. Pull-secret
-        credentials and TLS settings flow through here — flag any
-        unchecked input, credential logging, or path that could
-        misclassify a registry status (Available / NotFound /
-        Unreachable / InvalidAuth / QuotaExceeded). The status
-        classification feeds the webhook's failover logic, so a wrong
-        verdict reroutes user traffic.
+        One subcommand per process: webhook, reconciler, secret-syncer
+        (docs/v3/architecture.md). Flag a reconciler registered in the
+        webhook process, leader election on the webhook, or a lease shared
+        between the reconciler and the secret syncer.
 
     - path: "internal/controller/**/*.go"
       instructions: |
-        controller-runtime reconcilers. Flag missing requeue on
-        transient errors, status updates that race with spec changes
-        (always re-read before patching status), and any reconcile path
-        that can hot-loop. Owner references and finalizers must be set
-        consistently with the rest of the codebase.
+        Reconcilers. Flag hot loops, transient errors not requeued, status
+        written without re-reading the object, and registry calls that
+        bypass the per-host check and copy windows (docs/v3/spec.md,
+        "Scheduling"). Status reasons must match docs/v3/status.md.
+
+    - path: "internal/registry/**/*.go"
+      instructions: |
+        Registry access. Flag logged credentials, unchecked input, and any
+        error misclassified as another availability status: the status
+        drives routing and failover.
 
     - path: "api/kuik/v1alpha1/**/*.go"
       instructions: |
-        CRD type definitions. Removed or renamed fields are breaking
-        for existing users; call them out explicitly.
+        CRD types. Flag removed or renamed fields (breaking), fields missing
+        validation markers, and changes not reflected in docs/crds.md.
 
-    - path: "**/*.go"
+    - path: "helm/kube-image-keeper/**"
       instructions: |
-        Go code for a Kubernetes operator (kubebuilder v4,
-        controller-runtime). Prefer idiomatic Go and the patterns
-        already in the file over introducing new abstractions. New
-        code should always be tested.
-
-        Tests live next to the code (*_test.go). Ginkgo/Gomega is the
-        only test framework, pure unit tests included: Gomega is the
-        only assertion grammar, and table-driven tests are written as
-        DescribeTable/Entry rather than []struct{} + t.Run. The
-        Describe/Context/It strings carry the reviewed natural-language
-        test case from the issue, so flag specs whose description does
-        not state what the assertion actually checks. Some pre-existing
-        files still use plain `testing`; that is legacy, not a pattern
-        to follow — don't ask for them to be converted either.
-
-    - path: "helm/kube-image-keeper/**/*.{yaml,tpl}"
-      instructions: |
-        Helm chart for the operator. Flag changes that break upgrades
-        from a previous chart version (renamed values, removed
-        defaults, changed selector labels on the Deployment or
-        webhook Service), and any RBAC widening beyond what the
-        controller and webhook strictly need. The chart README is
-        generated from `README.md.gotmpl` via helm-docs — don't ask
-        for hand-edits to a generated README.
+        Flag changes that break an upgrade from the previous chart version
+        (renamed or removed values, changed selector labels) and RBAC wider
+        than the process needs: the webhook is read-only, only the secret
+        syncer writes Secrets. A new value needs a "# --" comment in
+        values.yaml: the chart README is generated from them.
 
     - path: ".github/workflows/**"
       instructions: |
-        Flag unpinned actions (`@v4` instead of `@<sha>`), missing
-        `permissions:` blocks, and overly broad `GITHUB_TOKEN` scopes.
-        Action versions are managed by Dependabot (see
-        `.github/dependabot.yml`) — don't suggest floating tags.
+        Flag missing permissions blocks and GITHUB_TOKEN scopes wider than
+        the job needs. Actions are pinned to major tags on purpose and
+        bumped by Dependabot; don't ask for SHA pinning.
 
-    - path: "docs/**"
+    - path: "docs/**/*.md"
       instructions: |
-        User-facing documentation. Any change to webhook routing
-        behaviour, CRD fields, priority semantics, or config defaults
-        must be reflected here. Flag code changes whose docs were
-        not updated in the same PR (see "Change Discipline" in
-        AGENTS.md).
-
-  finishing_touches:
-    docstrings:
-      enabled: false
-    unit_tests:
-      enabled: false
+        Rendered on GitHub and on kuik.enix.io; the build converts GitHub
+        syntax for Starlight. Flag ":::note" directives (the right form is
+        a GitHub alert, "> [!NOTE]"), site routes like "/crds/" (the right
+        form is a relative link, "./crds.md"), and a missing leading H1 or
+        frontmatter description.

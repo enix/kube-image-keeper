@@ -169,6 +169,16 @@ documentation, specification and answers to questions alike.
 - **Never pad to look thorough.** Length follows content, not effort.
 - Concise is not incomplete: keep every fact the reader needs to act, drop the rest.
 
+**Commit messages**: the subject is the description, and the diff shows what changed.
+Most commits need no body. Add one only for what the diff does not show (the reason, a
+rejected alternative, a non-obvious consequence), in a few lines; never list the changes.
+
+**PR descriptions** are written for the reviewer, the way a colleague would: a short
+paragraph on what the PR does and why, then only what helps the review (where to start, a
+choice to weigh in on, what is deliberately left out). Link the spec or the note instead
+of paraphrasing it. No headings, tables or bullet lists that restate the commits or the
+diff.
+
 ## Decision log
 
 The "why" of a change lives in its commit body by default. Write a note under `notes/`

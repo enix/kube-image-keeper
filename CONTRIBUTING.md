@@ -58,6 +58,8 @@ We welcome contributions through pull requests. For your pull request to be acce
 - Follow the [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/#summary) specification (enforced on every pull request).
 - Contain no merge commits. To bring your branch up to date with `main`, rebase it (`git rebase origin/main`) instead of merging `main` into it: merge commits break the commit message linting and clutter the history once the pull request is merged.
 
+Open your pull request as a draft (`gh pr create --draft`) and mark it ready for review once CI passes. The automated review (CodeRabbit) runs once, when the pull request is opened or marked ready for review; comment `@coderabbitai review` to have later commits reviewed.
+
 ### Commit scopes
 
 Scopes in commit messages are optional, but when used they must belong to the list below. Each scope fits into one of the following categories:
