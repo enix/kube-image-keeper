@@ -89,5 +89,4 @@ No fixes, no praise, no summary of the diff.
   hook refuses anything else. Never try to work around it.
 - Read `docs/v3/` from the checked-out tree only, never from another branch or ref, unless the
   caller asks.
-- Stay inside the repository: never read `enix/kuik-v3`, a sibling directory, or a file that may
-  hold a secret.
+- Stay inside the repository: never read a sibling directory, or a file that may hold a secret.
