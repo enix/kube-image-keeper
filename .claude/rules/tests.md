@@ -9,10 +9,8 @@ paths:
 - **Ginkgo + Gomega only** ([0004](../../notes/0004-test-framework.md)): `DescribeTable` for
   tables, no `[]struct{}` + `t.Run`.
 - **Cases before bodies.** The `It` and `Entry` strings are natural-language test cases,
-  one per behaviour, and they are reviewed before the bodies are written. Write the tree
-  first with pending specs (`PIt`, `PEntry`), show it with `task test-outline -- <path>`
-  (or `task test-outline DIFF=origin/main` for the cases added and removed since `main`),
-  then fill the bodies once the cases are agreed. The outline tool is `hack/testoutline`.
+  one per behaviour, reviewed before any body is written: follow the
+  [`test-outline`](../skills/test-outline/SKILL.md) skill.
 - **A test exercises a behaviour, not a value.** Every spec must be able to fail on a
   change worth catching. Do not write a spec that reads a literal back (a field of a
   hard-coded list, a constant), that compares a file to a copy of itself, or that repeats
