@@ -72,6 +72,10 @@ and with `DIFF=origin/main`, one line per case prefixed by `+` (added) or `-` (r
 + ImageMirror / when the destination registry is unreachable / sets Ready to False with reason Unreachable [pending]
 ```
 
+Before showing it, hand the outline and the spec section it covers to the `spec-reviewer`
+sub-agent. Fix the cases it reports as missing or not in the spec, or list them for the
+user when the spec is unclear.
+
 Paste the output in the reply and stop. The user reviews the cases before any body exists.
 
 ## 4. Iterate on the strings
