@@ -8,6 +8,7 @@ linters:
     - depguard
     - dupl
     - errcheck
+    - exhaustive
     - ginkgolinter
     - goconst
     - gocyclo
