@@ -88,6 +88,15 @@ real cluster.
   the cases added and removed, then fill the bodies once the cases are agreed. Suites are
   `suite_test.go` files on envtest and load the CRDs from `config/crd/bases/`, so run
   `task manifests` before testing a type change.
+- **A test exercises a behaviour, not a value.** Every spec must be able to fail on a
+  change worth catching. Do not write a spec that reads a literal back (a field of a
+  hard-coded list, a constant), that compares a file to a copy of itself, or that repeats
+  a passing assertion under a different `It` string: that is testing 1 == 1. One spec per
+  rule, not one per verb, kind or field the rule applies to: when a rule grants `get, list,
+  watch`, one verb stands for the three. The bar rises with the cost of the suite: a unit
+  spec may pin something basic, an envtest spec must exercise a reconciliation, and an e2e
+  spec (Kind cluster, minutes per run) must check something only a real cluster can
+  answer.
 - **Reconcilers**: idempotent; re-fetch the object before updating it; report state
   with `metav1.Condition`; watch secondary resources with `Owns()` / `Watches()` rather
   than polling with `RequeueAfter`; use finalizers only for external resources.
