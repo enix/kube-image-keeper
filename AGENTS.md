@@ -38,16 +38,13 @@ config/                       controller-gen output (CRDs, rbac/role.yaml, webho
 helm/kube-image-keeper/       The Helm chart, the only deployment path (crds/ and files/ generated)
 test/e2e/                     End-to-end suite, runs on a Kind cluster
 hack/                         Developer tools run with go run (the test outline, the values check)
-website/                      The docs site (Astro Starlight), see Docs below
+website/                      The docs site (Astro Starlight), see .claude/rules/docs.md
 PROJECT                       Kubebuilder metadata
 ```
 
-**Generated, never edit by hand**: `**/zz_generated.*.go` (`task generate`),
-`config/crd/bases/*.yaml`, `config/rbac/role.yaml`, `config/webhook/manifests.yaml`,
-`helm/kube-image-keeper/crds/*.yaml`, `helm/kube-image-keeper/files/rbac.yaml`
-(`task manifests`), `helm/kube-image-keeper/README.md` (`task generate-helm-docs`, from the
-`# --` comments of `values.yaml`), `PROJECT` (kubebuilder CLI). Edit the markers or the
-comments in the sources and regenerate.
+**Generated, never edit by hand**: the paths [`.gitattributes`](./.gitattributes) marks
+`generated-by=<task>`, with the task that rebuilds them. Edit the markers or the `# --`
+comments of `values.yaml` in the sources and regenerate.
 
 **Keep the scaffold intact**: never delete `// +kubebuilder:scaffold:*` comments, the
 CLI injects code there. Do not move files: the CLI expects this layout. Scaffold new
@@ -81,101 +78,49 @@ real cluster.
 
 ## Conventions
 
-- **Tests**: Ginkgo + Gomega only ([0004](./notes/0004-test-framework.md)). The `It`
-  and `Entry` strings are natural-language test cases, one per behaviour, and they are
-  reviewed before the bodies are written: write the tree first with pending specs (`PIt`),
-  show it with `task test-outline -- <path>` or `task test-outline DIFF=origin/main` for
-  the cases added and removed, then fill the bodies once the cases are agreed. Suites are
-  `suite_test.go` files on envtest and load the CRDs from `config/crd/bases/`, so run
-  `task manifests` before testing a type change.
-- **A test exercises a behaviour, not a value.** Every spec must be able to fail on a
-  change worth catching. Do not write a spec that reads a literal back (a field of a
-  hard-coded list, a constant), that compares a file to a copy of itself, or that repeats
-  a passing assertion under a different `It` string: that is testing 1 == 1. One spec per
-  rule, not one per verb, kind or field the rule applies to: when a rule grants `get, list,
-  watch`, one verb stands for the three. The bar rises with the cost of the suite: a unit
-  spec may pin something basic, an envtest spec must exercise a reconciliation, and an e2e
-  spec (Kind cluster, minutes per run) must check something only a real cluster can
-  answer.
-- **Reconcilers**: idempotent; re-fetch the object before updating it; report state
-  with `metav1.Condition`; watch secondary resources with `Owns()` / `Watches()` rather
-  than polling with `RequeueAfter`; use finalizers only for external resources.
-- **API types**: follow the
-  [Kubernetes API conventions](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md);
-  `metav1.Time` for dates, validation and default markers on fields.
-- **Image references**: canonicalize with `github.com/distribution/reference`
-  (`ParseNormalizedNamed`, as v2 did) before any comparison; `nginx`, `docker.io/nginx`
-  and `docker.io/library/nginx:latest` are the same image.
-- **Logging**: structured, `log := logf.FromContext(ctx)`. Messages follow the
-  [Kubernetes style](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-instrumentation/logging.md#message-style-guidelines):
-  capitalised, no trailing period, past tense, object type named
-  (`"Created Deployment"`, not `"Created"`), balanced key-value pairs.
-- **RBAC** ([0009](./notes/0009-rbac-rules-from-markers-bindings-from-chart.md)): rules are
-  `// +kubebuilder:rbac` markers on the code that exercises the permission, each with
-  `roleName=` naming its process (`webhook`, `reconciler`, `secret-syncer`) or
-  `secret-reader` (cluster-wide Secret read, bound by `secretAccess`). The rules are
-  generated; the bindings are the chart's (`templates/rbac.yaml`). A marker without
-  `roleName=` fails `helm template`; the e2e suite checks the granted permissions against
-  `docs/v3/architecture.md`. Delete the `admin/editor/viewer` roles `kubebuilder create api`
-  scaffolds under `config/rbac/`.
-- **Chart values** ([0008](./notes/0008-chart-values-per-process.md)): a pod setting goes
-  at the root of `values.yaml` **and**, empty with a `# @default -- the root ...` line, in
-  each of `webhook`, `reconciler` and `secretSyncer`; a setting one process alone has goes
-  in its block only. `templates/deployments.yaml` resolves the fallback once at the top of
-  its loop, never inline in the body. `task lint-values` checks the blocks, `task
-  generate-helm-docs` rebuilds the README.
-- **Every behaviour change ships with its tests and its documentation** in the same PR:
-  the page under `docs/`, the `# --` comments of `values.yaml` for chart values, this
-  file when the layout or the rules change.
+The conventions of each area of the tree live in [`.claude/rules/`](./.claude/rules/) and
+load when a matching file is opened: [`go.md`](./.claude/rules/go.md) (reconcilers, API
+types, image references, logging, RBAC markers), [`tests.md`](./.claude/rules/tests.md)
+(Ginkgo, cases before bodies, a test exercises a behaviour, envtest, e2e),
+[`docs.md`](./.claude/rules/docs.md) (Markdown conventions, how the site is built) and
+[`helm.md`](./.claude/rules/helm.md) (values per process, RBAC bindings, generated files,
+cert-manager). Read the one that matters before editing.
+
+**Every behaviour change ships with its tests and its documentation** in the same PR: the
+page under `docs/`, the `# --` comments of `values.yaml` for chart values, this file or the
+rule when the layout or the rules change.
 
 ## Docs
 
 User documentation lives under [`docs/`](./docs/) and is published from `main` at
-[kuik.enix.io](https://kuik.enix.io) by [`.github/workflows/website.yaml`](./.github/workflows/website.yaml):
-a broken page ships as soon as it is merged. The markdown is the single source of truth;
-read it alongside the code. Today: [`docs/crds.md`](./docs/crds.md) (CRD reference, kept in
-step with `api/kuik/v1alpha1`), [`docs/configuration.md`](./docs/configuration.md),
-[`docs/guides/development.md`](./docs/guides/development.md) (local workflow) and the
-use cases. The v2 user docs are served from the `2.3.x` branch, not from here.
+[kuik.enix.io](https://kuik.enix.io): a broken page ships as soon as it is merged. The
+markdown is the single source of truth; read it alongside the code. [`docs/v3/`](./docs/v3/)
+(the design documents) renders on GitHub only, `notes/` is never published. Conventions and
+build are in [`.claude/rules/docs.md`](./.claude/rules/docs.md).
 
-[`docs/v3/`](./docs/v3/) (the design documents) is listed in `UNPUBLISHED_DOCS` of
-[`website/scripts/sync-docs.mjs`](./website/scripts/sync-docs.mjs) and renders on GitHub
-only. `notes/` is never published.
+## Claude Code configuration
 
-### Markdown conventions
+[`.claude/`](./.claude/) is committed and shared:
 
-The same files render on GitHub and on the Astro Starlight site. Write for GitHub first;
-the build adapts:
+- `settings.json`: no AI attribution on commits and PRs
+  ([CONTRIBUTING](./CONTRIBUTING.md#use-of-ai-tools)), an allowlist of the read-only and
+  build commands, `ask` rules that back the outbound hook up, `deny` rules on the
+  project's secret files (`.env`, keys; `Read` only, a Bash `cat` is not covered), and the
+  hooks below.
+- `hooks/guard-generated-files.sh` refuses Edit and Write on the generated files of
+  [Code](#code) and names the task to run instead. A Bash command that writes a file
+  (`sed -i`, `>`) is not covered.
+- `hooks/confirm-outbound-actions.sh` asks the user before any command that leaves the
+  working copy (`git push`, `gh pr|issue` writes, `docker push`, releases, `task deploy`
+  or `run`, the e2e tasks, `helm install`, `kubectl apply|label`...), in every permission
+  mode, even when several tasks share one call (`task build deploy`). Not forbidden: the
+  user decides, the agent never does it on its own
+  ([0003](./notes/0003-agent-orchestration.md)).
+- `rules/`: the path-scoped conventions above.
 
-- The page title is a leading `# H1`, never a frontmatter `title:`; the build lifts it
-  into the frontmatter Starlight needs and strips it from the body. Add a frontmatter
-  `description:`: it is the SEO description and the text of the use-case cards.
-- Links between pages are relative markdown links with the `.md` extension
-  (`./crds.md#imagemirror`); the build rewrites them to site routes. Never write a site
-  route like `/crds/`: it breaks on GitHub. markdownlint checks that targets and anchors
-  exist.
-- Callouts use GitHub alerts (`> [!NOTE]`, `> [!TIP]`, `> [!WARNING]`, `> [!IMPORTANT]`,
-  `> [!CAUTION]`); the build converts them to Starlight asides. Never use Starlight's
-  `:::note`, it renders as raw text on GitHub.
-- A new file under `docs/use-cases/` is picked up by the use-cases index and the sidebar
-  automatically.
-
-### How the site is built
-
-Starlight only reads `website/src/content/docs/`, so a `sync-docs` integration
-([`website/astro.config.mjs`](./website/astro.config.mjs)) generates it (gitignored) before
-content loads: it copies `docs/`, then [`website/src/content/overlay/`](./website/src/content/overlay/)
-(website-only pages, copied last so they win), lifts the H1 titles and skips
-`UNPUBLISHED_DOCS`. Two plugins bridge the syntaxes: `remark-github-admonitions-to-directives`
-for alerts and `astro-rehype-relative-markdown-links` for links. Archived versions come from
-[`website/versions.mjs`](./website/versions.mjs): each one is sourced with `git archive` from
-its maintenance branch (`2.3.x`...), whose `docs/` tree holds its markdown and sidebar, with
-`slug:` injected on the fly. The full workflow is in
-[`website/README.md`](./website/README.md#documentation-versioning).
-
-Local preview: `cd website && npm install && npm run dev` (Node.js 24). A watcher mirrors
-`docs/` edits into the generated directory. Run one `astro dev` at a time; editing
-`astro.config.mjs` or `sync-docs.mjs` restarts it.
+The hooks need `jq` and refuse the call without it, so the guards always hold: install
+it before developing. `worktrees/`, `artifacts/` and
+`settings.local.json` are gitignored.
 
 ## Writing
 
