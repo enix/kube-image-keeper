@@ -42,9 +42,14 @@ app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
-{{- define "kube-image-keeper.manager-labels" -}}
-{{ include "kube-image-keeper.labels" . }}
-app.kubernetes.io/component: manager
+{{/*
+Labels of one process. Takes a dict: ctx (the root context) and process (its name, which
+is also its component label). kuik runs as three separate processes, see
+docs/v3/architecture.md.
+*/}}
+{{- define "kube-image-keeper.process-labels" -}}
+{{ include "kube-image-keeper.labels" .ctx }}
+app.kubernetes.io/component: {{ .process }}
 {{- end }}
 
 {{/*
@@ -55,9 +60,9 @@ app.kubernetes.io/name: {{ include "kube-image-keeper.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
-{{- define "kube-image-keeper.manager-selectorLabels" -}}
-{{ include "kube-image-keeper.selectorLabels" . }}
-app.kubernetes.io/component: manager
+{{- define "kube-image-keeper.process-selectorLabels" -}}
+{{ include "kube-image-keeper.selectorLabels" .ctx }}
+app.kubernetes.io/component: {{ .process }}
 {{- end }}
 
 {{/*

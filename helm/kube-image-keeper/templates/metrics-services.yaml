@@ -1,0 +1,21 @@
+{{/* Each process exports its own counters, so each one gets its own metrics Service. */}}
+{{- range $index, $process := list "webhook" "reconciler" "secret-syncer" }}
+{{- if $index }}
+---
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kube-image-keeper.fullname" $ }}-{{ $process }}-metrics
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "kube-image-keeper.process-labels" (dict "ctx" $ "process" $process) | nindent 4 }}
+spec:
+  ports:
+    - name: metrics
+      port: 8080
+      protocol: TCP
+      targetPort: metrics
+  selector:
+    {{- include "kube-image-keeper.process-selectorLabels" (dict "ctx" $ "process" $process) | nindent 4 }}
+{{- end }}

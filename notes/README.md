@@ -71,3 +71,6 @@ Rationale in [0005](./0005-decision-log-filter.md).
 - [0007 — Helm is the only deployment path](./0007-helm-only.md): the chart deploys kuik in
   dev, CI and production; `config/` is controller-gen output only; the kubebuilder Helm plugin
   is rejected.
+- [0008 — Chart values: root defaults, one block per process](./0008-chart-values-per-process.md):
+  pod settings at the root of `values.yaml` apply to the three processes; each process
+  block repeats them empty and a value set there replaces the root one for that process.
