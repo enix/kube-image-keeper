@@ -131,6 +131,22 @@ tasks:
     cmds:
       - go run ./hack/valuescheck {{.CHART}}/values.yaml
 
+  lint-markdown:
+    desc: Run markdownlint with .markdownlint-cli2.yaml on the Markdown files (files after --, default the whole repository; Node.js >= 22)
+    cmds:
+      - task: lint-markdown:run
+
+  lint-markdown-fix:
+    desc: Run markdownlint and apply the fixes (files after --, default the whole repository; Node.js >= 22)
+    cmds:
+      - task: lint-markdown:run
+        vars: { FIX: --fix }
+
+  lint-markdown:run:
+    internal: true
+    cmds:
+      - npx --yes --package markdownlint-cli2 --package markdownlint-rule-search-replace --package markdownlint-rule-relative-links markdownlint-cli2 {{.FIX}} {{if .CLI_ARGS}}-- {{.CLI_ARGS}}{{else}}"**/*.md"{{end}}
+
   test:
     desc: Run the unit and envtest suites
     cmds:
