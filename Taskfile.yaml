@@ -189,7 +189,11 @@ tasks:
     desc: Lint commit messages (COMMIT_MSG_FILE if set, commits since BASE_BRANCH otherwise)
     deps: [tools:conform]
     cmds:
-      - '{{.LOCALBIN}}/conform enforce {{if .COMMIT_MSG_FILE}}--commit-msg-file={{.COMMIT_MSG_FILE}}{{else}}--base-branch={{.BASE_BRANCH}}{{end}}'
+      # conform rejects fixup!, squash! and amend! messages, which autosquash folds into their target.
+      # CI still lints the branch, so a pull request must be autosquashed before merging.
+      - |
+        {{if .COMMIT_MSG_FILE}}head -n1 '{{.COMMIT_MSG_FILE}}' | grep -qE '^(fixup|squash|amend)! ' && exit 0{{end}}
+        {{.LOCALBIN}}/conform enforce {{if .COMMIT_MSG_FILE}}--commit-msg-file={{.COMMIT_MSG_FILE}}{{else}}--base-branch={{.BASE_BRANCH}}{{end}}
 
   # ---------------------------------------------------------------------------------------------
   # Build
