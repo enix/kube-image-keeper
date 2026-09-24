@@ -95,8 +95,9 @@ the user agrees.
   ```
 
 - Run `task manifests` first when a type changed: envtest loads the generated CRDs.
-- A plain `go test` on an envtest suite finds the binaries in `bin/k8s/` only after
-  `task setup-envtest` (or any `task test`) has run once.
+- A plain `go test` on an envtest suite finds the binaries in the main checkout's
+  `bin/k8s/`, shared by every worktree, only after `task setup-envtest` (or any
+  `task test`) has run once.
 
 ## 6. Before handing back
 
