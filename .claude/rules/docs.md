@@ -51,3 +51,7 @@ the fly. The full workflow is in `website/README.md` (Documentation versioning).
 Local preview: `cd website && npm install && npm run dev` (Node.js 24). A watcher mirrors
 `docs/` edits into the generated directory. Run one `astro dev` at a time; editing
 `astro.config.mjs` or `sync-docs.mjs` restarts it.
+
+The `astro-docs` MCP server (`.mcp.json`) searches the Astro and Starlight documentation:
+use it before changing `astro.config.mjs`, the sidebar or a Starlight component, instead of
+guessing an option from memory.
