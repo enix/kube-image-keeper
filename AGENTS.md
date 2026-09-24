@@ -214,8 +214,8 @@ decision references its note.
 ## Git hooks
 
 [lefthook](./.lefthook.yaml) runs on pre-commit `task manifests generate` (when API,
-controller or webhook sources are staged), `task lint-fix` and markdownlint (skipped
-without Node.js ≥ 22); on pre-push `task test-short`; on commit-msg `task conform`.
+controller or webhook sources are staged), `task lint-fix` and `task lint-markdown-fix`
+(skipped without Node.js ≥ 22); on pre-push `task test-short`; on commit-msg `task conform`.
 Conventional commits with the scopes of `.conform.yaml`, see
 [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 

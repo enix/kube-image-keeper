@@ -13,7 +13,7 @@ pre-commit:
       glob: "**/*.go"
       stage_fixed: true
     - name: markdownlint
-      run: npx --yes --package markdownlint-cli2 --package markdownlint-rule-search-replace --package markdownlint-rule-relative-links markdownlint-cli2 --fix -- {staged_files}
+      run: task lint-markdown-fix -- {staged_files}
       glob:
         - "**/*.md"
         - "*.md"
