@@ -2,7 +2,6 @@ package v1alpha1
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -14,6 +13,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+
+	"github.com/enix/kube-image-keeper/test/utils"
 )
 
 // The suite runs the generated CRDs on envtest, so every validation the API server enforces
@@ -53,7 +54,7 @@ var _ = BeforeSuite(func() {
 		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "..", "config", "crd", "bases")},
 		ErrorIfCRDPathMissing: true,
 	}
-	if dir := firstEnvTestBinaryDir(); dir != "" {
+	if dir := utils.EnvTestBinaryDir(); dir != "" {
 		testEnv.BinaryAssetsDirectory = dir
 	}
 
@@ -71,19 +72,3 @@ var _ = AfterSuite(func() {
 	cancel()
 	Expect(testEnv.Stop()).To(Succeed())
 })
-
-// firstEnvTestBinaryDir locates the envtest binaries downloaded by `task setup-envtest`, so
-// the suite also runs from an IDE without KUBEBUILDER_ASSETS.
-func firstEnvTestBinaryDir() string {
-	basePath := filepath.Join("..", "..", "..", "bin", "k8s")
-	entries, err := os.ReadDir(basePath)
-	if err != nil {
-		return ""
-	}
-	for _, entry := range entries {
-		if entry.IsDir() {
-			return filepath.Join(basePath, entry.Name())
-		}
-	}
-	return ""
-}

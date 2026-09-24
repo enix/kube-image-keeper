@@ -40,6 +40,10 @@ vars:
     sh: go list -m sigs.k8s.io/controller-runtime | awk '{print $NF}'
   ENVTEST_K8S_VERSION:
     sh: go list -m k8s.io/api | awk '{print $NF}' | sed -E 's/^v?[0-9]+\.([0-9]+).*/1.\1/'
+  # setup-envtest makes its binaries read-only, so they go to the main checkout's bin/:
+  # a worktree holding them could not be deleted. Outside git, the local bin/.
+  ENVTEST_BIN_DIR:
+    sh: 'd=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) && echo "$(dirname "$d")/bin" || echo "{{.ROOT_DIR}}/bin"'
 
   # `task run` flags
   RUN_FLAG_DEVEL: '{{.RUN_FLAG_DEVEL | default "true"}}'
@@ -163,12 +167,12 @@ tasks:
       - task: test:go
         vars: { GO_TEST_FLAGS: -short }
 
-  # Runs the suites on envtest, with the binaries setup-envtest downloaded into bin/.
+  # Runs the suites on envtest, with the binaries setup-envtest downloaded into ENVTEST_BIN_DIR.
   test:go:
     internal: true
     cmds:
       - task: setup-envtest
-      - KUBEBUILDER_ASSETS="$({{.LOCALBIN}}/setup-envtest use {{.ENVTEST_K8S_VERSION}} --bin-dir {{.LOCALBIN}} -p path)" go test {{.GO_TEST_FLAGS}} $(go list ./... | grep -v /e2e)
+      - KUBEBUILDER_ASSETS="$({{.LOCALBIN}}/setup-envtest use {{.ENVTEST_K8S_VERSION}} --bin-dir "{{.ENVTEST_BIN_DIR}}" -p path)" go test {{.GO_TEST_FLAGS}} $(go list ./... | grep -v /e2e)
 
   test-outline:
     desc: Print the Ginkgo specs as a plain-English tree, or with DIFF=<ref> only the cases added and removed since that ref (paths after --, default the whole repository)
@@ -391,7 +395,7 @@ tasks:
     desc: Download the envtest binaries for the Kubernetes version of go.mod
     deps: [tools:envtest]
     cmds:
-      - '{{.LOCALBIN}}/setup-envtest use {{.ENVTEST_K8S_VERSION}} --bin-dir {{.LOCALBIN}} -p path'
+      - '{{.LOCALBIN}}/setup-envtest use {{.ENVTEST_K8S_VERSION}} --bin-dir "{{.ENVTEST_BIN_DIR}}" -p path'
 
   tools:golangci-lint:
     # A custom binary is built with the module plugins of .custom-gcl.yml and rebuilt when
