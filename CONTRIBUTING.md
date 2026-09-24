@@ -43,6 +43,8 @@ lefthook install
 
 The Markdown lint step runs [`markdownlint-cli2`](https://github.com/DavidAnson/markdownlint-cli2) via `npx` and requires **Node.js ≥ 22** (the `markdownlint-rule-relative-links` rule needs it). If Node.js is missing or older, the step is automatically skipped — contributors who don't touch any `.md` files don't need a Node toolchain.
 
+The commit message step lets `fixup!`, `squash!` and `amend!` commits through (`git commit --fixup`), since `git rebase --autosquash` folds them into their target. CI still lints every commit of a pull request, so autosquash your branch before asking for review.
+
 ## Contributing guidelines
 
 ### Issues and feature requests
