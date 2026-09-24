@@ -127,6 +127,11 @@ build are in [`.claude/rules/docs.md`](./.claude/rules/docs.md).
   review of a change against `docs/v3/`, keeps the spec out of the main context) and
   [`v2-archaeologist`](./.claude/agents/v2-archaeologist.md) (reads v2 on `2.3.x` with
   `git show` and recommends what to lift).
+- [`.mcp.json`](./.mcp.json) (at the repository root): the `astro-docs` MCP server, the
+  Astro and Starlight documentation for the site under `website/`. Public endpoint, no
+  credentials; Claude Code asks once per user before enabling it. The outbound hook
+  matches Bash commands only: before adding an MCP server with write tools (GitHub,
+  Kubernetes...), extend the hook to its `mcp__*` tools or the guard no longer holds.
 
 The hooks need `jq` and refuse the call without it, so the guards always hold: install
 it before developing. `worktrees/`, `artifacts/` and
