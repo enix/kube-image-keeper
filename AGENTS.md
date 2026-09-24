@@ -118,9 +118,11 @@ build are in [`.claude/rules/docs.md`](./.claude/rules/docs.md).
   ([0003](./notes/0003-agent-orchestration.md)).
 - `rules/`: the path-scoped conventions above.
 - `skills/`: [`test-outline`](./.claude/skills/test-outline/SKILL.md) (the spec-first Ginkgo
-  workflow, picked up whenever specs are written) and
+  workflow, picked up whenever specs are written),
   [`decision-note`](./.claude/skills/decision-note/SKILL.md) (`/decision-note`, writes a note
-  under `notes/` when the filter holds).
+  under `notes/` when the filter holds) and
+  [`pull-request`](./.claude/skills/pull-request/SKILL.md) (prepares the branch, drafts the
+  description for the user to confirm, keeps it in step).
 - `agents/`: [`spec-reviewer`](./.claude/agents/spec-reviewer.md) (read-only conformance
   review of a change against `docs/v3/`, keeps the spec out of the main context) and
   [`v2-archaeologist`](./.claude/agents/v2-archaeologist.md) (reads v2 on `2.3.x` with
@@ -148,11 +150,12 @@ documentation, specification and answers to questions alike.
 Most commits need no body. Add one only for what the diff does not show (the reason, a
 rejected alternative, a non-obvious consequence), in a few lines; never list the changes.
 
-**PR descriptions** are written for the reviewer, the way a colleague would: a short
-paragraph on what the PR does and why, then only what helps the review (where to start, a
-choice to weigh in on, what is deliberately left out). Link the spec or the note instead
-of paraphrasing it. No headings, tables or bullet lists that restate the commits or the
-diff.
+**PR descriptions** are written for the reviewer, the way a colleague would: 1 to 3
+sentences on what the PR does and why, then a short list of the topics worth reviewing (a
+mechanism, a choice to weigh in on, what is deliberately left out), one line each. Link the
+spec or the note instead of paraphrasing it. No dense block of prose, no headings or tables,
+nothing that restates the commits or the diff. The
+[`pull-request`](./.claude/skills/pull-request/SKILL.md) skill gives the shape.
 
 ## Decision log
 
