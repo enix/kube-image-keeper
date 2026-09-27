@@ -36,6 +36,9 @@ cmd/                          Manager entry: one subcommand per process (webhook
 api/kuik/v1alpha1/*_types.go  CRD schemas and kubebuilder markers
 internal/controller/kuik/*    Reconcilers, one per kind
 internal/webhook/core/v1/*    Pod mutating webhook (image routing)
+internal/registry             Registry client: Check, Copy, ListTags, DeleteTag, requests counter
+internal/registry/keychain    Registry credentials from docker config Secrets
+internal/info                 Build information and the kuik_build_info collector
 config/                       controller-gen output (CRDs, rbac/role.yaml, webhook), read by envtest
 helm/kube-image-keeper/       The Helm chart, the only deployment path (crds/ and files/ generated)
 test/e2e/                     End-to-end suite, runs on a Kind cluster
