@@ -53,8 +53,8 @@ Rationale in [0005](./0005-decision-log-filter.md).
 
 - [0001 — v2 reuse analysis and rewrite decision](./0001-v2-reuse-analysis.md): v3
   rewrites the domain in the existing repository; `internal/registry`, the webhook's
-  probing spine, `SecretOwnerReconciler` and the config-merge pattern are lifted, the
-  rest is replaced.
+  probing caches and singleflight, and the config-merge pattern are lifted, the rest is
+  replaced (amended: `SecretOwnerReconciler` and `parallel.FirstSuccessful` are not lifted).
 - [0002 — development pipeline and milestones](./0002-development-pipeline.md): spec
   review, then architecture, then the build milestone by milestone; milestones ordered by
   dependency, API types first, e2e last.

@@ -23,8 +23,8 @@ about the spec is recorded and deferred, never a reason to edit `docs/v3/` or to
 ([0010](./notes/0010-spec-as-is-until-the-alpha-runs.md)). v2 lives on the `2.3.x` maintenance
 branch: read it with `git show 2.3.x:<path>` and lift on purpose, never copy by reflex.
 [0001](./notes/0001-v2-reuse-analysis.md) lists what is worth lifting: `internal/registry`
-and its availability statuses, `internal/parallel.FirstSuccessful`, `SecretOwnerReconciler`,
-the config merge, `internal/info`, the envtest suite bootstrap.
+and its availability statuses, the config merge, `internal/info`, the envtest suite
+bootstrap; whether `internal/parallel.FirstSuccessful` survives is open.
 
 ## Code
 

@@ -1,6 +1,7 @@
 # 0001 — v2 reuse analysis and rewrite decision
 
-**Date:** 2026-08-21 · **Status:** decided
+**Date:** 2026-08-21 · **Status:** active
+**Amended:** 2026-09-27
 
 ## Decision
 
@@ -13,7 +14,8 @@ Concretely:
   webhook CR-collection logic) is replaced, not migrated;
 - `internal/registry` (+ `credentialprovider`), the webhook's probing spine
   (caches / singleflight / `parallel.FirstSuccessful`), `SecretOwnerReconciler` and the
-  per-registry config-merge pattern are lifted and completed;
+  per-registry config-merge pattern are lifted and completed; *(Amended 2026-09-27:)* `SecretOwnerReconciler`
+  and `parallel.FirstSuccessful` are not lifted, see [Other keeps](#other-keeps);
 - all infrastructure (Makefile, lefthook, CI workflows, Dockerfile, Helm skeleton,
   website pipeline, envtest/e2e harness, semantic-release setup) transfers as-is.
 
@@ -72,6 +74,13 @@ handling, keychain resolution (longest-path-wins docker keyring), deliberate rem
 429 from transport retries so rate limits surface as `QuotaExceeded`, header capture for
 rate-limit detection.
 
+*(Amended 2026-09-27:)* Three of those strengths do not carry over as they are. v3's `insecure` means
+HTTP, not skip-verify, so the TLS handling is rewritten rather than lifted. The last
+credential step is anonymous, not the process docker config (`authn.DefaultKeychain`).
+The spec mandates one manifest `HEAD` per check with no method knob and bounds the whole
+operation with one timeout, so `resolveDigest`, the `GET` path and the per-attempt timeout
+go.
+
 Four gaps to close before it serves v3:
 
 1. **`DeleteImage` deletes by digest** — under OCI that destroys *every* tag pointing at
@@ -82,8 +91,12 @@ Four gaps to close before it serves v3:
    `platforms.mode: All` requires a **verbatim** copy (digest preserved end to end —
    what enables multi-cluster blob sharing and digest-pinned routing). Needs a bypass
    branch; `Auto` (platforms from node labels) does not exist yet.
+   *(Amended 2026-09-27:)* v3.0 has no `platforms` field and always copies the whole index: the
+   filtering path is dropped, not bypassed.
 3. **Missing primitives**: pre-copy `HEAD`-by-digest existence check, tag listing
    (`remote.List` is used nowhere in v2), keeper/anchor tags, cloud provider auth.
+   *(Amended 2026-09-27:)* The spec has anchor tags only (`sha256-<digest>_<clusterID>`), no keeper
+   tags.
 4. **`HeaderCapture` is mutated on the client** — safe in v2 only because every caller
    builds a fresh client per check; not concurrency-safe if a client is shared across
    v3's concurrent probes.
@@ -98,18 +111,38 @@ collection change. Also reusable: `original-images` annotation handling, contain
 with normalization, `ensureSecret` injection (simplified by v3's single source
 namespace), the SSA patching patterns.
 
+*(Amended 2026-09-27:)* The spec probes one image's candidates "sequentially, in list order" and runs
+a pod's distinct images concurrently, so `parallel.FirstSuccessful` is not lifted: probing every
+candidate at once spends quota on candidates that are never used, and `demoteKnownFailures`
+only works on an ordered, sequential probe. `ensureSecret` and the SSA patching
+patterns do not carry over: the webhook writes nothing, its only write is the mutation it
+returns (`architecture.md`), and the secret syncer injects pull secrets. The
+`original-images` annotation becomes `kuik.enix.io/rewrites`.
+
 ### Other keeps
 
 - `SecretOwnerReconciler[T]` — generic finalizer + labelled-secret GC, zero v2
-  semantics; re-register for the new kinds.
+  semantics; re-register for the new kinds. *(Amended 2026-09-27:)* Not lifted: the syncer has no
+  `delete` verb and no read on Secrets outside `kuik-system` (`architecture.md`), and
+  finalizers are for external resources. `ownerReferences` on the applied Secret do the
+  cleanup (walkthrough 03).
 - Per-registry config merge (`registries.default` overlaid by `registries.<host>`) —
   the v2 shape matches the v3 global config exactly; add the new fields.
+  *(Amended 2026-09-27:)* The field-by-field merge survives, the fields do not: v3's `registries` holds
+  pacing only (`check` and `copy`, each an `interval` and a `timeout`), the fallback
+  credential moves to the flat `fallbackAuth` list, and `method`, `maxPerInterval` and
+  `resolveDigest` go.
 - Cleanup retention arithmetic (`deleteAfter = retention - since(unusedSince)` +
   min-requeue accumulation) — v3 keeps `cleanup.enabled`/`cleanup.retention` verbatim.
 - Mirror-loop-prevention concept (`getAllMirrorPrefixes` + prefix exclusion) — v3 keeps
   and generalizes it; the namespace-bucketed map collapses to a flat set.
+  *(Amended 2026-09-27:)* v3 narrows it instead: a mirror excludes its **own** `destination.path` only,
+  and copies the origin read from `kuik.enix.io/rewrites`, so no set of every mirror's
+  prefix is needed.
 - `internal/parallel`, `internal/info`, `internal/config` histogram, envtest suite
-  bootstrap, the whole infra/tooling layer.
+  bootstrap, the whole infra/tooling layer. *(Amended 2026-09-27:)* `internal/parallel` is not
+  lifted, see above. The `internal/config` histogram served `imageLastMonitorAgeMinutes`,
+  which the v3 metric catalogue does not have.
 
 ## Genuinely greenfield (no v2 ancestor — budget as such)
 
