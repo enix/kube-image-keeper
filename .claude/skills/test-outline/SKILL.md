@@ -31,7 +31,10 @@ only.
 - No implementation detail: `"sets Ready to False when the destination registry is
   unreachable"`, not `"calls probe()"`.
 - A test exercises a behaviour, not a value (see [`tests.md`](../../rules/tests.md)): no spec
-  that reads a literal back, one spec per rule rather than per verb, kind or field.
+  that reads a literal back. In envtest and e2e, one spec per rule rather than per verb, kind
+  or field; in a unit suite, one `Entry` per distinct input of a mapping or a parser.
+- Add the stubs the outline needs to compile (a type, a function returning its zero value),
+  nothing more.
 
 ```go
 var _ = Describe("ImageMirror", func() {
@@ -76,17 +79,41 @@ Before showing it, hand the outline and the spec section it covers to the `spec-
 sub-agent. Fix the cases it reports as missing or not in the spec, or list them for the
 user when the spec is unclear.
 
-Paste the output in the reply and stop. The user reviews the cases before any body exists.
+Paste the output in the reply and stop. The user reviews the cases before any body or
+implementation exists. An agent ends its turn here; a human pauses.
+
+The outline may be committed as a WIP `test(<scope>): outline ...` commit. It is squashed
+into the first test commit of step 5.
 
 ## 4. Iterate on the strings
 
 Apply the requested changes to the strings only, then show the outline again. Repeat until
 the user agrees.
 
-## 5. Fill the bodies
+## 5. Fill the bodies, before any implementation
 
-- Turn `PIt` into `It` (`PEntry` into `Entry`) one case at a time.
+Once the user agrees, work one component at a time, in 2 commits:
+
+1. `test(<scope>): ...`: turn `PIt` into `It` (`PEntry` into `Entry`) and write the full
+   bodies against the stubs. The specs fail at this commit, as expected; `task lint-fix`
+   passes.
+2. `feat(<scope>): ...`: the implementation that turns exactly those specs green. It
+   touches no `*_test.go` file and no test helper package.
+
+Then the next component. `git log --stat` must show every test file added by a `test`
+commit and left alone by the `feat` commits: the reviewer checks it.
+
 - Never rename a string while filling. A rename goes back to step 3.
+- Never edit a test to make it pass. A test that contradicts `docs/v3/` or cannot be
+  written as stated is reported to the user with the section it relies on. It changes only
+  with the user's approval, in its own `test` commit.
+- Exception: when a review (human, `spec-reviewer`, CodeRabbit) finds a bug the outline
+  missed, the fix may come first and its regression spec in its own `test` commit after it.
+  Subject `test(<scope>): add regression specs for <what>`; a 2 or 3 line body names the
+  review that found the bug, the component or commit subject that carries the fix (never a
+  sha: the branch is rebased before merge, only hashes on `main` are stable), and says the
+  specs pin the fix.
+  Whoever reads `git log` then knows why this test commit follows its implementation.
 - Run the case alone, then the package:
 
   ```sh

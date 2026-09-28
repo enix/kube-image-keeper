@@ -14,10 +14,21 @@ explicit go: show the text first, then run the command.
 ## 1. Prepare the branch
 
 - Rebase on `origin/main` (`git fetch origin` first); never merge `main` into the branch.
-- One commit per component, each complete: a skill, a type or a task comes with its tests,
-  its docs and its line in any index (`AGENTS.md`, a README). No commit that only indexes or
-  fixes the previous ones: fold a fix into the commit it belongs to with
-  `git commit --fixup=<sha>` and `git rebase -i --autosquash origin/main`.
+- Per component, a `test(<scope>): ...` commit with its specs, then the `feat(<scope>): ...`
+  commit that makes them green ([`tests.md`](../../rules/tests.md)). The `feat` commit
+  carries the docs and the line in any index (`AGENTS.md`, a README), and touches no
+  `*_test.go` file or test helper package. A component without specs (a skill, a task) is
+  one complete commit.
+- Check `git log --stat origin/main..HEAD`: every test file comes from a `test` commit and
+  no `feat` commit touches one. The reviewer checks the same thing.
+- No commit that only indexes or fixes the previous ones: fold a fix into the commit it
+  belongs to with
+  `git commit --fixup=<sha>` and `git rebase -i --autosquash origin/main`. The exception is
+  a regression spec for a bug a review found: its own `test` commit after the fix, subject
+  `test(<scope>): add regression specs for <what>`, body naming the review, the component
+  or commit subject of the fix (never a sha: hashes change on rebase) and that the specs pin
+  the fix ([`tests.md`](../../rules/tests.md)). The description
+  names it in one line.
 - Conventional commit subjects with the scopes of `.conform.yaml`; the PR title is the
   subject of the main commit, or a subject that covers them all.
 
@@ -48,6 +59,8 @@ Prepared with <tool>; <how it was verified, in one line>.
   what the release notes are written from.
 - Short sentences, one idea each. A block of dense prose is a failure: split it or cut it.
 - Link the spec (`docs/v3/`) or the note (`notes/`) instead of paraphrasing it.
+- The verification line may say, in one line, that the tests came first and where to see
+  it (`git log --stat`: no `feat` commit touches a test file).
 - Keep the AI disclosure CONTRIBUTING requires (`Use of AI tools`) as the last line.
 
 Avoid:
