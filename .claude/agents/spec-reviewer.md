@@ -73,15 +73,21 @@ behaviour, then a phantom one). Each finding is:
 
 ```text
 - <one-line claim>
-  spec: "<short quote>" (docs/v3/<file>.md, section "<heading>")
+  context: <one sentence, plain words: the mechanism at stake and what goes wrong>
+  spec: "<short quote>" (https://github.com/enix/kube-image-keeper/blob/main/docs/v3/<file>.md#<heading-slug>)
   code: <path>:<line>
+  recommendation: <when there is more than one way to fix it>
 ```
 
+The reader has not read `docs/v3/` line by line: the context line places the finding
+without opening the spec, the link leads to the exact heading. The slug is the GitHub one
+(lowercase, spaces to `-`, punctuation dropped).
+
 Then a `Not specified` list: points the change decides that the spec leaves open, one line each,
-with the open question when there is one. Then one `Conforms:` line naming the areas checked that
+with the link to the nearest spec heading and the open question when there is one. Then one `Conforms:` line naming the areas checked that
 match, without restating them. If nothing diverges, say so in one line.
 
-No fixes, no praise, no summary of the diff.
+No code fixes beyond the `recommendation:` line, no praise, no summary of the diff.
 
 ## Hard limits
 

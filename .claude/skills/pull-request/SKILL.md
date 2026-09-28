@@ -58,7 +58,9 @@ Prepared with <tool>; <how it was verified, in one line>.
   field, a default, a behaviour), add `Upgrade notes:` after the list, 1 to 3 lines. It is
   what the release notes are written from.
 - Short sentences, one idea each. A block of dense prose is a failure: split it or cut it.
-- Link the spec (`docs/v3/`) or the note (`notes/`) instead of paraphrasing it.
+- Every "What to look at" bullet that rests on a spec section or a note links it
+  (`./docs/v3/spec.md#<heading-slug>`, `./notes/NNNN-slug.md`), and an issue or a PR by
+  its URL. Link instead of paraphrasing.
 - The verification line may say, in one line, that the tests came first and where to see
   it (`git log --stat`: no `feat` commit touches a test file).
 - Keep the AI disclosure CONTRIBUTING requires (`Use of AI tools`) as the last line.
