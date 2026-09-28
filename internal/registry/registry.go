@@ -5,16 +5,18 @@ package registry
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
-	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	"github.com/prometheus/client_golang/prometheus"
-
-	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 )
 
-// errNotImplemented marks the stubs of the milestone 5 outline.
+// errNotImplemented marks the operations milestone 5 has not implemented yet.
 var errNotImplemented = errors.New("not implemented")
 
 // RequestsTotal counts the requests kuik sent to a source registry. The process that reads
@@ -24,6 +26,21 @@ var RequestsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 	Help: "Requests kuik sent to a source registry, by operation (Check, Copy) and outcome " +
 		"(Ok, or the reason that request produced: ManifestNotFound, Unauthorized, QuotaExceeded, Unreachable)",
 }, []string{"registry", "operation", "result"})
+
+const resultOk = "Ok"
+
+// retryStatusCodes overrides go-containerregistry's defaults, which retry 429 since
+// v0.21.9. A rate limit must surface at once as QuotaExceeded: a transport-level retry
+// would only spend more of an exhausted quota.
+var retryStatusCodes = []int{
+	http.StatusRequestTimeout,
+	http.StatusInternalServerError,
+	http.StatusBadGateway,
+	http.StatusServiceUnavailable,
+	http.StatusGatewayTimeout,
+	499, // nginx-specific, client closed request
+	522, // Cloudflare-specific, connection timeout
+}
 
 // Endpoint is one reference kuik reads or writes, with what it takes to reach it.
 type Endpoint struct {
@@ -36,70 +53,87 @@ type Endpoint struct {
 	Auth []authn.Authenticator
 }
 
-// Client talks to registries. One Client is safe for concurrent use.
-type Client struct{}
+func (e Endpoint) nameOptions() []name.Option {
+	if e.Insecure {
+		return []name.Option{name.Insecure}
+	}
+	return nil
+}
+
+// Client talks to registries. One Client is safe for concurrent use: nothing a call
+// observes is kept on it.
+type Client struct {
+	transport http.RoundTripper
+}
 
 // NewClient returns a Client.
 func NewClient() *Client {
-	return &Client{}
+	return &Client{transport: http.DefaultTransport.(*http.Transport).Clone()}
 }
 
 // WithTimeout bounds ctx by timeout, or leaves it unbounded when timeout is 0.
 func WithTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
-	return ctx, func() {}
+	if timeout <= 0 {
+		return context.WithCancel(ctx)
+	}
+	return context.WithTimeoutCause(ctx, timeout, fmt.Errorf("timed out after %v", timeout))
 }
 
-// CheckResult is what an available image answered.
-type CheckResult struct {
-	// Descriptor is the manifest descriptor the registry returned.
-	Descriptor v1.Descriptor
-	// Auth is the credential that answered.
-	Auth authn.Authenticator
+// attempt is one try of an operation with one credential.
+type attempt struct {
+	auth    authn.Authenticator
+	options []remote.Option
+	headers *headerCapture
 }
 
-// CheckError is a failed check and the reason it reports.
-type CheckError struct {
-	Reason kuikv1alpha1.CheckFailureReason
-	Err    error
+// try runs do once per credential of auths, in order, and stops at the first success. With
+// no credential it runs do once, anonymously: anonymous is what is left when nothing else
+// is declared, never a fallback after a refused credential. It returns the credential that
+// answered, or the error of every attempt in order. The caller's context bounds the whole
+// loop.
+func (c *Client) try(ctx context.Context, auths []authn.Authenticator, do func(attempt) error) (authn.Authenticator, []error) {
+	if len(auths) == 0 {
+		auths = []authn.Authenticator{authn.Anonymous}
+	}
+	var errs []error
+	for _, auth := range auths {
+		headers := &headerCapture{next: c.transport}
+		err := do(attempt{
+			auth:    auth,
+			headers: headers,
+			options: []remote.Option{
+				remote.WithContext(ctx),
+				remote.WithAuth(auth),
+				remote.WithTransport(headers),
+				remote.WithRetryStatusCodes(retryStatusCodes...),
+			},
+		})
+		if err == nil {
+			return auth, nil
+		}
+		errs = append(errs, err)
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	return nil, errs
 }
 
-func (e *CheckError) Error() string { return string(e.Reason) + ": " + e.Err.Error() }
-func (e *CheckError) Unwrap() error { return e.Err }
-
-// Check sends one manifest HEAD to a source registry. A failure is a *CheckError.
-func (c *Client) Check(ctx context.Context, image Endpoint) (*CheckResult, error) {
-	return nil, errNotImplemented
+// registryLabel names the host of ref as kuik's configuration does: docker.io, not
+// index.docker.io.
+func registryLabel(ref name.Reference) string {
+	host := ref.Context().RegistryStr()
+	if host == name.DefaultRegistry {
+		return "docker.io"
+	}
+	return host
 }
 
-// CheckDestination is Check against a mirror destination, which kuik does not count.
-func (c *Client) CheckDestination(ctx context.Context, image Endpoint) (*CheckResult, error) {
-	return nil, errNotImplemented
-}
-
-// CopyError is a failed copy and the reason it reports.
-type CopyError struct {
-	Reason kuikv1alpha1.CopyFailureReason
-	Err    error
-}
-
-func (e *CopyError) Error() string { return string(e.Reason) + ": " + e.Err.Error() }
-func (e *CopyError) Unwrap() error { return e.Err }
-
-// Copy copies src verbatim into the repository dst under every tag of tags and returns the
-// digest it copied. A failure is a *CopyError.
-func (c *Client) Copy(ctx context.Context, src, dst Endpoint, tags []string) (v1.Hash, error) {
-	return v1.Hash{}, errNotImplemented
-}
-
-// ListTags lists every tag of the repository.
-func (c *Client) ListTags(ctx context.Context, repository Endpoint) ([]string, error) {
-	return nil, errNotImplemented
-}
-
-// ErrDeleteUnsupported is returned when the registry refuses tag deletion.
-var ErrDeleteUnsupported = errors.New("registry does not support tag deletion")
-
-// DeleteTag deletes one tag, never the manifest it points at.
-func (c *Client) DeleteTag(ctx context.Context, tag Endpoint) error {
-	return errNotImplemented
+// TransportStatusCode extracts the HTTP status code of a registry transport error, wrapped
+// or joined. It returns 0 when err is not a transport error.
+func TransportStatusCode(err error) int {
+	if transportErr, ok := errors.AsType[*transport.Error](err); ok {
+		return transportErr.StatusCode
+	}
+	return 0
 }
