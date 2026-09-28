@@ -16,9 +16,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// errNotImplemented marks the operations milestone 5 has not implemented yet.
-var errNotImplemented = errors.New("not implemented")
-
 // RequestsTotal counts the requests kuik sent to a source registry. The process that reads
 // source registries registers it.
 var RequestsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -92,12 +89,18 @@ type attempt struct {
 // answered, or the error of every attempt in order. The caller's context bounds the whole
 // loop.
 func (c *Client) try(ctx context.Context, auths []authn.Authenticator, do func(attempt) error) (authn.Authenticator, []error) {
+	return c.tryThrough(ctx, c.transport, auths, do)
+}
+
+// tryThrough is try with the requests sent through base.
+func (c *Client) tryThrough(ctx context.Context, base http.RoundTripper, auths []authn.Authenticator,
+	do func(attempt) error) (authn.Authenticator, []error) {
 	if len(auths) == 0 {
 		auths = []authn.Authenticator{authn.Anonymous}
 	}
 	var errs []error
 	for _, auth := range auths {
-		headers := &headerCapture{next: c.transport}
+		headers := &headerCapture{next: base}
 		err := do(attempt{
 			auth:    auth,
 			headers: headers,
