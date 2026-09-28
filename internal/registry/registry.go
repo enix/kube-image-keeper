@@ -9,12 +9,21 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/prometheus/client_golang/prometheus"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 )
 
 // errNotImplemented marks the stubs of the milestone 5 outline.
 var errNotImplemented = errors.New("not implemented")
+
+// RequestsTotal counts the requests kuik sent to a source registry. The process that reads
+// source registries registers it.
+var RequestsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+	Name: "kuik_registry_requests_total",
+	Help: "Requests kuik sent to a source registry, by operation (Check, Copy) and outcome " +
+		"(Ok, or the reason that request produced: ManifestNotFound, Unauthorized, QuotaExceeded, Unreachable)",
+}, []string{"registry", "operation", "result"})
 
 // Endpoint is one reference kuik reads or writes, with what it takes to reach it.
 type Endpoint struct {
