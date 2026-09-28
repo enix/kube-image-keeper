@@ -64,6 +64,8 @@ linters:
       - third_party$
       - builtin$
       - examples$
+      # Vendored from k8s.io/kubernetes/pkg/credentialprovider, kept as upstream wrote it
+      - internal/registry/credentialprovider
 formatters:
   enable:
     - gofmt

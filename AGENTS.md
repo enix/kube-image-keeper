@@ -38,6 +38,7 @@ internal/controller/kuik/*    Reconcilers, one per kind
 internal/webhook/core/v1/*    Pod mutating webhook (image routing)
 internal/registry             Registry client: Check, Copy, ListTags, DeleteTag, requests counter
 internal/registry/keychain    Registry credentials from docker config Secrets
+internal/registry/credentialprovider  Vendored kubelet keyring, kept as upstream wrote it
 internal/registry/registrytest  In-memory registry fakes for the registry specs
 internal/info                 Build information and the kuik_build_info collector
 config/                       controller-gen output (CRDs, rbac/role.yaml, webhook), read by envtest
