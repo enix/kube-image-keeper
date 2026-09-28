@@ -31,6 +31,40 @@ func (h *headerCapture) headers() http.Header {
 	return h.last
 }
 
+// failureWatch records whether a request sent through it failed: no answer, or a status
+// that is an error. Copy sends every source request through one, redirects to a blob store
+// included, to tell a source failure from a destination one.
+type failureWatch struct {
+	next http.RoundTripper
+
+	mu     sync.Mutex
+	failed bool
+}
+
+func (f *failureWatch) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := f.next.RoundTrip(req)
+	// A 401 is the start of an auth handshake, not a failure: a refused credential
+	// surfaces as the error of the request that carried it.
+	if err != nil || (resp.StatusCode >= 400 && resp.StatusCode != http.StatusUnauthorized) {
+		f.mu.Lock()
+		f.failed = true
+		f.mu.Unlock()
+	}
+	return resp, err
+}
+
+func (f *failureWatch) reset() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.failed = false
+}
+
+func (f *failureWatch) hasFailed() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.failed
+}
+
 // isRateLimited reports whether the rate-limit headers of a response say the quota is
 // exhausted ("ratelimit-remaining: 0;w=...").
 func isRateLimited(headers http.Header) bool {
