@@ -3,6 +3,7 @@ package registry
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/v1/types"
@@ -178,6 +179,35 @@ var _ = Describe("Copy", func() {
 			return endpoint(src, "app:v1"), endpoint(dst, "mirror/app")
 		}, kuikv1alpha1.CopyDestinationUnreachable),
 	)
+
+	Context("when the source fails after its manifest was read", func() {
+		It("attributes a failure on a blob redirected to another host to the source", func() {
+			blobStore := registrytest.ClosedHost()
+			src.Push("app:v1", registrytest.Image())
+			src.Intercept(func(w http.ResponseWriter, r *http.Request) bool {
+				if r.Method != http.MethodGet || !strings.Contains(r.URL.Path, "/blobs/") {
+					return false
+				}
+				http.Redirect(w, r, "http://"+blobStore+r.URL.Path, http.StatusTemporaryRedirect)
+				return true
+			})
+
+			_, err := client.Copy(ctx, endpoint(src, "app:v1"), endpoint(dst, "mirror/app"), []string{copyTag})
+
+			Expect(err).To(HaveOccurred())
+			Expect(copyReason(err)).To(Equal(kuikv1alpha1.CopySourceUnreachable))
+		})
+
+		It("reports SourceUnreachable and counts the failure in kuik_registry_requests_total", func() {
+			src.Push("app:v1", registrytest.Image())
+			src.Intercept(registrytest.Status(http.MethodGet, "/blobs/", http.StatusNotImplemented, nil))
+
+			_, err := client.Copy(ctx, endpoint(src, "app:v1"), endpoint(dst, "mirror/app"), []string{copyTag})
+
+			Expect(copyReason(err)).To(Equal(kuikv1alpha1.CopySourceUnreachable))
+			Expect(counted(src.Host(), "Copy", string(kuikv1alpha1.CheckUnreachable))).To(Equal(1.0))
+		})
+	})
 
 	Context("kuik_registry_requests_total", func() {
 		It("counts the source read under operation Copy and nothing for the destination", func() {
