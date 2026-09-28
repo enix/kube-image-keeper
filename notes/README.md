@@ -78,3 +78,6 @@ Rationale in [0005](./0005-decision-log-filter.md).
 - [0009 — RBAC: rules from the markers, bindings from the chart](./0009-rbac-rules-from-markers-bindings-from-chart.md):
   each `+kubebuilder:rbac` marker names its process with `roleName=`; the chart binds each
   generated role to that process's ServiceAccount, and `secret-reader` per `secretAccess`.
+- [0010 — The spec is implemented as written until an alpha runs](./0010-spec-as-is-until-the-alpha-runs.md):
+  the 3.0 alphas follow `docs/v3/` literally, spec questions are recorded and deferred
+  instead of blocking, and `auth.provider` waits for the end of 3.0 or 3.1.

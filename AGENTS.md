@@ -18,7 +18,9 @@ mirroring and monitoring, rebuilt from a clean tree. The branch holds:
   release process. Follow it; it is not repeated here.
 
 Code, chart and tooling are re-added milestone by milestone
-([0002](./notes/0002-development-pipeline.md)). v2 lives on the `2.3.x` maintenance
+([0002](./notes/0002-development-pipeline.md)), implementing the spec as written: a doubt
+about the spec is recorded and deferred, never a reason to edit `docs/v3/` or to stall
+([0010](./notes/0010-spec-as-is-until-the-alpha-runs.md)). v2 lives on the `2.3.x` maintenance
 branch: read it with `git show 2.3.x:<path>` and lift on purpose, never copy by reflex.
 [0001](./notes/0001-v2-reuse-analysis.md) lists what is worth lifting: `internal/registry`
 and its availability statuses, `internal/parallel.FirstSuccessful`, `SecretOwnerReconciler`,
