@@ -83,7 +83,8 @@ real cluster.
 The conventions of each area of the tree live in [`.claude/rules/`](./.claude/rules/) and
 load when a matching file is opened: [`go.md`](./.claude/rules/go.md) (reconcilers, API
 types, image references, logging, RBAC markers), [`tests.md`](./.claude/rules/tests.md)
-(Ginkgo, cases before bodies, a test exercises a behaviour, envtest, e2e),
+(Ginkgo, cases before bodies, a `test` commit before each `feat` commit, a test exercises a
+behaviour, envtest, e2e),
 [`docs.md`](./.claude/rules/docs.md) (Markdown conventions, how the site is built) and
 [`helm.md`](./.claude/rules/helm.md) (values per process, RBAC bindings, generated files,
 cert-manager). Read the one that matters before editing.
