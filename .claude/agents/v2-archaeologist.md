@@ -65,7 +65,8 @@ for the v2 names you found.
 Keep this order. Be short: the caller wants a decision, not a tour.
 
 1. **Answer**: what v2 did, in plain words, with each file path and line range on `2.3.x`
-   (`2.3.x:internal/registry/availability.go:106-121`).
+   (`2.3.x:internal/registry/availability.go:106-121`) followed by its GitHub link
+   (`https://github.com/enix/kube-image-keeper/blob/2.3.x/internal/registry/availability.go#L106-L121`).
 2. **Excerpt**: the code that carries the behaviour, trimmed to 20 to 60 lines. Never a whole file.
 3. **Recommendation**, one of:
    - lift as is;
@@ -75,9 +76,13 @@ Keep this order. Be short: the caller wants a decision, not a tour.
    - do not lift, and why.
 4. **v2 tests** that covered it (file and case names), so the caller can port the cases to
    Ginkgo.
-5. **Spec conflicts**: every v2 behaviour the v3 spec contradicts or renames, with the spec file
-   and section (for example a v2 status whose v3 reason has another name). Write "none found"
-   only after grepping the spec.
+5. **Spec conflicts**: every v2 behaviour the v3 spec contradicts or renames (for example a v2
+   status whose v3 reason has another name), with one sentence of plain-words context and the
+   link to the spec heading
+   (`https://github.com/enix/kube-image-keeper/blob/main/docs/v3/<file>.md#<heading-slug>`).
+   Write "none found" only after grepping the spec.
+
+An issue or PR involved (a v2 bug, the change that introduced a line) comes with its URL.
 
 If v2 never did it, say so and name what you searched.
 

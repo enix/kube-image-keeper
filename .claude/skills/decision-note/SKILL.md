@@ -45,6 +45,9 @@ Copy the shape of [`notes/0009-rbac-rules-from-markers-bindings-from-chart.md`](
 - `**Why:**` in 2 to 4 bullets, each a fact the reader could not guess.
 - `**Rejected:**` one bullet per alternative actually weighed: the alternative, a colon,
   why it lost.
+- A **Why** or **Rejected** bullet that rests on a spec section, an issue or a PR links it:
+  a relative link inside the repository (`../docs/v3/spec.md#<heading-slug>`), the URL for
+  an issue or a PR.
 - Under 25 lines in total. Follow the `## Writing` section of `AGENTS.md`: no padding, no
   restating the title.
 

@@ -79,7 +79,14 @@ Before showing it, hand the outline and the spec section it covers to the `spec-
 sub-agent. Fix the cases it reports as missing or not in the spec, or list them for the
 user when the spec is unclear.
 
-Paste the output in the reply and stop. The user reviews the cases before any body or
+Paste the output in the reply, each top-level `Describe` group preceded by one line naming
+the spec section it covers, with its GitHub link:
+
+```text
+Covers docs/v3/status.md, "Conditions and their reasons": https://github.com/enix/kube-image-keeper/blob/main/docs/v3/status.md#conditions-and-their-reasons
+```
+
+Then stop. The user reviews the cases before any body or
 implementation exists. An agent ends its turn here; a human pauses.
 
 The outline may be committed as a WIP `test(<scope>): outline ...` commit. It is squashed
