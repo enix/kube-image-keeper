@@ -207,6 +207,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	// onConfigChange are what each process hands a reloaded global config to.
+	var onConfigChange []func(*config.Config)
 	switch proc.name {
 	case reconcilerProcess:
 		if err := (&kuikcontroller.ImageAlternativeReconciler{
@@ -233,19 +235,21 @@ func main() {
 	case secretSyncerProcess:
 		setupLog.Info("Skipping the pull secret syncer, it has no loop yet")
 	case webhookProcess:
-		if _, err := webhookcorev1.SetupPodWebhookWithManager(mgr, globalConfig, clusterResourceNamespace); err != nil {
+		podWebhook, err := webhookcorev1.SetupPodWebhookWithManager(mgr, globalConfig, clusterResourceNamespace)
+		if err != nil {
 			setupLog.Error(err, "Failed to create webhook", "webhook", "Pod")
 			os.Exit(1)
 		}
+		onConfigChange = append(onConfigChange, podWebhook.SetConfig)
 	}
 	// The kubebuilder CLI injects the setup of a new reconciler or webhook here, outside
 	// the switch above: move it into the case of the process that owns it, or it runs in
 	// all three.
 	// +kubebuilder:scaffold:builder
 
-	// Every process reloads the file on its own. Nothing consumes a reload yet: the loops
-	// that read the config subscribe here as they land.
-	if err := mgr.Add(&configWatch{path: configPath, current: globalConfig}); err != nil {
+	// Every process reloads the file on its own, and hands each reload to the consumers the
+	// switch above subscribed.
+	if err := mgr.Add(&configWatch{path: configPath, current: globalConfig, onChange: onConfigChange}); err != nil {
 		setupLog.Error(err, "Failed to set up the global config watch")
 		os.Exit(1)
 	}

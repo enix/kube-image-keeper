@@ -43,6 +43,19 @@ Where a resource's candidates sit relative to the original image when the webhoo
 
 When several resources cover one image, their candidates are merged in one list: `Always` mirrors, then `Always` alternatives, then the original, then `OnFailure` alternatives, then `OnFailure` mirrors, resources sorted by name within each band.
 
+### What the webhook records on a pod
+
+The webhook probes the candidates in order and places the first one that answers. It records its decision on the pod, in three annotations holding JSON objects keyed by container name. A container appears in at most one of them:
+
+| Annotation | The container | Value |
+| ---------- | ------------- | ----- |
+| *(none)* | kept its image: the original answered first | |
+| `kuik.enix.io/rewrites` | was rewritten | `{"by": "<kind>/<name>", "origin": ..., "rewrittenTo": ..., "policy": "Always" \| "OnFailure"}` |
+| `kuik.enix.io/conceded-rewrites` | was rewritten, then another mutating webhook replaced the image, and kuik stood down | the entry that was in `rewrites`, unchanged |
+| `kuik.enix.io/no-alternatives` | kept its image: no candidate answered | the resources that offered one, as `["<kind>/<name>", ...]` |
+
+When the retained candidate's `auth` injects a pull secret, the pod's `imagePullSecrets` also gets `kuik-inject-<kind>-<name>`. The webhook exports two counters: `kuik_routing_rewrites_total{kind, name, policy}` and `kuik_routing_alternatives_exhausted_total{kind, name}`.
+
 ### `auth`
 
 The credential kuik reads a registry with, wherever credentials appear on a resource: `ImageAlternative` entries, and an `ImageMirror`'s `destination.manage` and `destination.pull`. It is a union, and exactly one of `secretRef` or `provider` must be set:
