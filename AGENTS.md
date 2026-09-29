@@ -24,7 +24,8 @@ about the spec is recorded and deferred, never a reason to edit `docs/v3/` or to
 branch: read it with `git show 2.3.x:<path>` and lift on purpose, never copy by reflex.
 [0001](./notes/0001-v2-reuse-analysis.md) lists what is worth lifting: `internal/registry`
 and its availability statuses, the config merge, `internal/info`, the envtest suite
-bootstrap; whether `internal/parallel.FirstSuccessful` survives is open.
+bootstrap; `internal/parallel.FirstSuccessful` is not lifted, the spec probes candidates
+sequentially.
 
 ## Code
 
