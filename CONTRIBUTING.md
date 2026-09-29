@@ -58,7 +58,8 @@ We welcome contributions through pull requests. For your pull request to be acce
 - Pass all tests (run `task test` locally before pushing).
 - Include tests covering any new behavior or bug fix.
 - Follow the [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/#summary) specification (enforced on every pull request).
-- Contain no merge commits. To bring your branch up to date with `main`, rebase it (`git rebase origin/main`) instead of merging `main` into it: merge commits break the commit message linting and clutter the history once the pull request is merged.
+- Contain no merge commits (the `Conform` check rejects them). To bring your branch up to date with `main`, rebase it (`git rebase origin/main`) instead of merging `main` into it.
+- Hold only commits meant for `main`: pull requests are merged by rebase, so each commit lands as is. Fold fixes into their commit (`git commit --fixup` and `git rebase --autosquash`) before the merge.
 
 The automated review (CodeRabbit) runs once, when the pull request is opened; comment `@coderabbitai review` to have later commits reviewed.
 

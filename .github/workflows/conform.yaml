@@ -8,7 +8,8 @@ permissions:
 
 jobs:
   conform:
-    name: Run on Ubuntu
+    # A distinct name: the main ruleset requires this check by name.
+    name: Conform
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code
