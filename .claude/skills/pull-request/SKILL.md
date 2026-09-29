@@ -58,9 +58,11 @@ Prepared with <tool>; <how it was verified, in one line>.
   field, a default, a behaviour), add `Upgrade notes:` after the list, 1 to 3 lines. It is
   what the release notes are written from.
 - Short sentences, one idea each. A block of dense prose is a failure: split it or cut it.
-- Every "What to look at" bullet that rests on a spec section or a note links it
-  (`./docs/v3/spec.md#<heading-slug>`, `./notes/NNNN-slug.md`), and an issue or a PR by
-  its URL. Link instead of paraphrasing.
+- Every "What to look at" bullet that rests on a spec section or a note links it by its
+  absolute URL (`https://github.com/enix/kube-image-keeper/blob/main/<path>#<heading-slug>`):
+  GitHub resolves a relative link against the PR URL and it 404s. Link a file the PR adds
+  on `main` too, marked "added by this PR": the link works once merged, and until then the
+  file is in the diff. Link an issue or a PR by its URL. Link instead of paraphrasing.
 - The verification line may say, in one line, that the tests came first and where to see
   it (`git log --stat`: no `feat` commit touches a test file).
 - Keep the AI disclosure CONTRIBUTING requires (`Use of AI tools`) as the last line.
