@@ -17,6 +17,7 @@ var _ = Describe("Parse", func() {
 		Entry("reads a reference without a tag as latest", "quay.io/acme/foo", "quay.io/acme/foo:latest"),
 		Entry("keeps the port of the host", "registry.local:5000/mirror/foo:v1", "registry.local:5000/mirror/foo:v1"),
 		Entry("recognises localhost as a host", "localhost/foo:v1", "localhost/foo:v1"),
+		Entry("recognises Docker Hub whatever the case of its host, library included", "Docker.IO/nginx:1.27", "docker.io/library/nginx:1.27"),
 		Entry("keeps both the tag and the digest", "quay.io/acme/foo:v1@sha256:"+digestHex, "quay.io/acme/foo:v1@sha256:"+digestHex),
 	)
 
