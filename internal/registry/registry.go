@@ -83,11 +83,16 @@ type attempt struct {
 	headers *headerCapture
 }
 
+// stopAttempts marks an error no other credential can fix: try records it and stops.
+type stopAttempts struct{ err error }
+
+func (e *stopAttempts) Error() string { return e.err.Error() }
+
 // try runs do once per credential of auths, in order, and stops at the first success. With
 // no credential it runs do once, anonymously: anonymous is what is left when nothing else
 // is declared, never a fallback after a refused credential. It returns the credential that
 // answered, or the error of every attempt in order. The caller's context bounds the whole
-// loop.
+// loop, and an error do marks with stopAttempts ends it.
 func (c *Client) try(ctx context.Context, auths []authn.Authenticator, do func(attempt) error) (authn.Authenticator, []error) {
 	return c.tryThrough(ctx, c.transport, auths, do)
 }
@@ -95,6 +100,14 @@ func (c *Client) try(ctx context.Context, auths []authn.Authenticator, do func(a
 // tryThrough is try with the requests sent through base.
 func (c *Client) tryThrough(ctx context.Context, base http.RoundTripper, auths []authn.Authenticator,
 	do func(attempt) error) (authn.Authenticator, []error) {
+	auth, errs, _ := c.tryUntilStopped(ctx, base, auths, do)
+	return auth, errs
+}
+
+// tryUntilStopped is tryThrough that also returns the error that ended the attempts, when
+// do marked one with stopAttempts: that error decides the outcome, whatever came before it.
+func (c *Client) tryUntilStopped(ctx context.Context, base http.RoundTripper, auths []authn.Authenticator,
+	do func(attempt) error) (authn.Authenticator, []error, error) {
 	if len(auths) == 0 {
 		auths = []authn.Authenticator{authn.Anonymous}
 	}
@@ -112,14 +125,17 @@ func (c *Client) tryThrough(ctx context.Context, base http.RoundTripper, auths [
 			},
 		})
 		if err == nil {
-			return auth, nil
+			return auth, nil, nil
+		}
+		if stop, ok := errors.AsType[*stopAttempts](err); ok {
+			return nil, append(errs, stop.err), stop.err
 		}
 		errs = append(errs, err)
 		if ctx.Err() != nil {
 			break
 		}
 	}
-	return nil, errs
+	return nil, errs, nil
 }
 
 // registryLabel names the host of ref as kuik's configuration does: docker.io, not
