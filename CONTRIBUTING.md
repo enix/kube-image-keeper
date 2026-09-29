@@ -43,7 +43,7 @@ lefthook install
 
 The Markdown lint step runs `task lint-markdown-fix` on the staged files (`task lint-markdown` checks the whole repository). It runs [`markdownlint-cli2`](https://github.com/DavidAnson/markdownlint-cli2) via `npx` and requires **Node.js ≥ 22** (the `markdownlint-rule-relative-links` rule needs it). If Node.js is missing or older, the step is automatically skipped — contributors who don't touch any `.md` files don't need a Node toolchain.
 
-The commit message step lets `fixup!`, `squash!` and `amend!` commits through (`git commit --fixup`), since `git rebase --autosquash` folds them into their target. CI still lints every commit of a pull request, so autosquash your branch before asking for review.
+The commit message step lets `fixup!`, `squash!` and `amend!` commits through (`git commit --fixup`), since `git rebase --autosquash` folds them into their target. CI still lints every commit of a pull request, so autosquash your branch before opening it. During the review, push fixes as `fixup!` commits without rewriting the branch, and autosquash once the review is over.
 
 ## Contributing guidelines
 
@@ -60,7 +60,7 @@ We welcome contributions through pull requests. For your pull request to be acce
 - Follow the [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/#summary) specification (enforced on every pull request).
 - Contain no merge commits. To bring your branch up to date with `main`, rebase it (`git rebase origin/main`) instead of merging `main` into it: merge commits break the commit message linting and clutter the history once the pull request is merged.
 
-Open your pull request as a draft (`gh pr create --draft`) and mark it ready for review once CI passes. The automated review (CodeRabbit) runs once, when the pull request is opened or marked ready for review; comment `@coderabbitai review` to have later commits reviewed.
+The automated review (CodeRabbit) runs once, when the pull request is opened; comment `@coderabbitai review` to have later commits reviewed.
 
 ### Commit scopes
 
