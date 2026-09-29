@@ -11,7 +11,7 @@ permissions: {}
 
 jobs:
   test:
-    name: Run on Ubuntu
+    name: Test
     runs-on: ubuntu-latest
     permissions:
       contents: read
