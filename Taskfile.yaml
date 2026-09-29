@@ -210,9 +210,19 @@ tasks:
       - '{{.KIND}} delete cluster --name {{.KIND_CLUSTER}}'
 
   conform:
-    desc: Lint commit messages (COMMIT_MSG_FILE if set, commits since BASE_BRANCH otherwise)
+    desc: Lint commit messages (COMMIT_MSG_FILE if set, commits since BASE_BRANCH otherwise, which must hold no merge commit)
     deps: [tools:conform]
     cmds:
+      # Only the branch's own commits: the history already on BASE_BRANCH keeps its old merges.
+      - |
+        {{if not .COMMIT_MSG_FILE}}
+        merges=$(git rev-list --merges '{{.BASE_BRANCH}}..HEAD')
+        if [ -n "$merges" ]; then
+          echo "Merge commits since {{.BASE_BRANCH}}, rebase instead of merging:" >&2
+          git log --no-walk --oneline $merges >&2
+          exit 1
+        fi
+        {{end}}
       # conform rejects fixup!, squash! and amend! messages, which autosquash folds into their target.
       # CI still lints the branch, so a pull request must be autosquashed before merging.
       - |
