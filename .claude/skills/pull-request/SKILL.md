@@ -21,9 +21,9 @@ explicit go: show the text first, then run the command.
   one complete commit.
 - Check `git log --stat origin/main..HEAD`: every test file comes from a `test` commit and
   no `feat` commit touches one. The reviewer checks the same thing.
-- No commit that only indexes or fixes the previous ones: fold a fix into the commit it
-  belongs to with
-  `git commit --fixup=<sha>` and `git rebase -i --autosquash origin/main`. The exception is
+- No commit that only indexes or fixes the previous ones: before the PR opens, fold a fix
+  into its commit with `git commit --fixup=<sha>` and `git rebase -i --autosquash origin/main`.
+  Once it is open, fixes stay `fixup!` commits until the review is over (step 5). The exception is
   a regression spec for a bug a review found: its own `test` commit after the fix, subject
   `test(<scope>): add regression specs for <what>`, body naming the review, the component
   or commit subject of the fix (never a sha: hashes change on rebase) and that the specs pin
@@ -80,8 +80,8 @@ Show the draft to the user and wait. Apply their changes, show again, until they
 ## 3. Open or update the PR
 
 ```sh
-gh pr create --draft --title '<subject>' --body-file <file>   # new PR, as a draft
-gh pr edit <n> --body-file <file>                              # existing PR
+gh pr create --title '<subject>' --body-file <file>   # new PR, ready for review
+gh pr edit <n> --body-file <file>                      # existing PR
 ```
 
 Write the body to a file first: quoting a long body inline breaks.
@@ -95,12 +95,17 @@ describes a dropped file misleads the reviewer and CodeRabbit alike.
 
 ## 5. The automated review
 
-- CodeRabbit reviews once when the PR opens or is marked ready. For later commits, comment
-  `@coderabbitai review` (or `@coderabbitai full review` after a rewrite).
+- CodeRabbit reviews once when the PR opens. For later commits, comment
+  `@coderabbitai review`.
+- Never rewrite the branch under review (no rebase, amend or force-push): the incremental
+  review would lose its base. A fix is a `git commit --fixup=<sha>` pushed as is. The
+  `conform` check stays red on `fixup!` commits, which keeps the PR from merging unsquashed.
 - Do not push while a review runs: CodeRabbit drops it ("head changed") and must be asked
   again.
-- Triage each comment: fix it (fold the fix into its commit, step 1), or accept it as a
-  limit and say so in the description.
+- Triage each comment: fix it (a `fixup!` commit), or accept it as a limit and say so in
+  the description.
 - Resolve a thread once its fix is pushed. Reply only when resolving without a fix: one
   sentence on why. CONTRIBUTING asks the author to answer reviews: draft the reply, the
   user posts it or tells you to.
+- When the review is over, autosquash and force-push once. `git diff <head before> HEAD`
+  must be empty: the content did not change, so no new review is needed.
