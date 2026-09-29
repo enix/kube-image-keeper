@@ -40,7 +40,7 @@ task kind-deploy IMG=kuik:dev KIND_CLUSTER=kuik-dev
 >
 > Persist them in `/etc/sysctl.d/` to survive a reboot.
 
-`task deploy IMG=...` alone runs `helm upgrade --install` against the current kubeconfig; arguments after `--` go to Helm (`task deploy -- --set verbosity=DEBUG`). `task undeploy` removes the release, `task uninstall` the CRDs.
+`task deploy IMG=...` alone runs `helm upgrade --install` against the current kubeconfig, with `config.clusterID` set to `CLUSTER_ID` (`dev` by default; the chart itself has no default); arguments after `--` go to Helm (`task deploy -- --set verbosity=DEBUG`). `task undeploy` removes the release, `task uninstall` the CRDs.
 
 ## Run the manager on your host
 
@@ -62,6 +62,7 @@ Each process binds its own metrics and probe ports, so they can run side by side
 `task run` can be configured through variables, given as environment variables or as `task run VAR=value`:
 
 - `RUN_FLAG_DEVEL`: sets the `-zap-devel` flag, defaults to `true`
+- `RUN_FLAG_CONFIG`: the [global config file](../configuration.md#global-config-file) the processes load and reload, defaults to `hack/dev-config.yaml`
 - `RUN_FLAG_LOG_LEVEL`: sets the `-zap-log-level` flag if present
 - `RUN_FLAG_ZAP_ENCODER`: sets the `-zap-encoder` flag if present
 - `METRICS_PORT`: first port to bind for the metrics, defaults to `8080`

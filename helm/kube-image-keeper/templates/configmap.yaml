@@ -1,0 +1,17 @@
+{{/*
+The global config file of the three processes. clusterID is required and has no default: a
+cluster picks its own identity, since changing it orphans every tag its mirrors wrote.
+*/}}
+{{- if not .Values.config.clusterID }}
+{{- fail "config.clusterID is required: a short name that stays stable for the life of this cluster, see docs/configuration.md" }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kube-image-keeper.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kube-image-keeper.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    {{- toYaml .Values.config | nindent 4 }}

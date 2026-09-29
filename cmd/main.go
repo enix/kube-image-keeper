@@ -22,6 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
+	"github.com/enix/kube-image-keeper/internal/config"
 	kuikcontroller "github.com/enix/kube-image-keeper/internal/controller/kuik"
 	"github.com/enix/kube-image-keeper/internal/info"
 	webhookcorev1 "github.com/enix/kube-image-keeper/internal/webhook/core/v1"
@@ -63,6 +64,8 @@ func main() {
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
+	var configPath string
+	var clusterResourceNamespace string
 	var tlsOpts []func(*tls.Config)
 	fs.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -75,6 +78,10 @@ func main() {
 	fs.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	fs.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
+	fs.StringVar(&configPath, "config", "/etc/kuik/config.yaml",
+		"The global config file, reloaded in place when it changes.")
+	fs.StringVar(&clusterResourceNamespace, "cluster-resource-namespace", "kuik-system",
+		"The namespace every secretRef resolves in: kuik's install namespace.")
 
 	// A flag a process cannot honour is not declared for it, so passing it is an error
 	// rather than a setting silently ignored.
@@ -97,6 +104,15 @@ func main() {
 	_ = fs.Parse(os.Args[2:])
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	// The file is required: a process does not start on a config nobody validated.
+	globalConfig, err := config.Load(configPath)
+	if err != nil {
+		setupLog.Error(err, "Failed to load the global config")
+		os.Exit(1)
+	}
+	setupLog.Info("Loaded global config", "path", configPath, "clusterID", globalConfig.ClusterID,
+		"clusterResourceNamespace", clusterResourceNamespace)
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -226,6 +242,13 @@ func main() {
 	// the switch above: move it into the case of the process that owns it, or it runs in
 	// all three.
 	// +kubebuilder:scaffold:builder
+
+	// Every process reloads the file on its own. Nothing consumes a reload yet: the loops
+	// that read the config subscribe here as they land.
+	if err := mgr.Add(&configWatch{path: configPath, current: globalConfig}); err != nil {
+		setupLog.Error(err, "Failed to set up the global config watch")
+		os.Exit(1)
+	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "Failed to set up health check")

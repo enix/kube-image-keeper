@@ -330,3 +330,16 @@ secretAccess:
   # -- `restricted` only: namespaces where the read is granted anyway, with one RoleBinding
   # each
   namespaces: []
+
+# The global config file, mounted from a ConfigMap in the three processes and reloaded in
+# place without a restart. Write any key of the file here as in the file (`metrics`,
+# `mirror`, `webhook`, `registries`, `fallbackAuth`); a key left out takes its default. A
+# file that does not validate is refused whole: at startup the process exits, on a reload
+# the previous config stays. See docs/configuration.md.
+config:
+  # -- Required, no default: the identity of this cluster, appended to every tag an
+  # ImageMirror writes. A short name that stays stable for the life of the cluster, matching
+  # `^[a-zA-Z0-9][a-zA-Z0-9.-]*$`: changing it orphans every tag written under the previous
+  # one, and two clusters sharing a mirror destination need different ones. The chart fails
+  # to render without it. Read at startup only
+  clusterID: ""

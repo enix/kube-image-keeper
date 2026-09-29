@@ -25,6 +25,8 @@ vars:
   # Helm release used by deploy / undeploy
   NAMESPACE: '{{.NAMESPACE | default "kuik-system"}}'
   RELEASE: '{{.RELEASE | default "kube-image-keeper"}}'
+  # The chart requires config.clusterID and has no default: the dev tasks name the cluster.
+  CLUSTER_ID: '{{.CLUSTER_ID | default "dev"}}'
 
   CHART: helm/kube-image-keeper
   CRDS: config/crd/bases
@@ -50,8 +52,10 @@ vars:
   # The three processes run side by side on the host, so each one takes the next port.
   METRICS_PORT: '{{.METRICS_PORT | default "8080"}}'
   HEALTH_PORT: '{{.HEALTH_PORT | default "8090"}}'
+  RUN_FLAG_CONFIG: '{{.RUN_FLAG_CONFIG | default "hack/dev-config.yaml"}}'
   RUN_ARGS: >-
     -metrics-secure=false
+    -config={{.RUN_FLAG_CONFIG}}
     -zap-devel={{.RUN_FLAG_DEVEL}}
     {{if .RUN_FLAG_LOG_LEVEL}}-zap-log-level={{.RUN_FLAG_LOG_LEVEL}}{{end}}
     {{if .RUN_FLAG_ZAP_ENCODER}}-zap-encoder={{.RUN_FLAG_ZAP_ENCODER}}{{end}}
@@ -297,7 +301,7 @@ tasks:
     cmds:
       - task: manifests
       - mkdir -p dist
-      - helm template {{.RELEASE}} {{.CHART}} --namespace {{.NAMESPACE}} --include-crds {{.HELM_IMAGE_ARGS}} > dist/install.yaml
+      - helm template {{.RELEASE}} {{.CHART}} --namespace {{.NAMESPACE}} --include-crds {{.HELM_IMAGE_ARGS}} --set config.clusterID={{.CLUSTER_ID}} > dist/install.yaml
 
   # ---------------------------------------------------------------------------------------------
   # Helm
@@ -305,7 +309,7 @@ tasks:
   helm-lint:
     desc: Lint the Helm chart
     cmds:
-      - helm lint {{.CHART}}
+      - helm lint {{.CHART}} --set config.clusterID={{.CLUSTER_ID}}
 
   generate-helm-docs:
     desc: Generate the chart README from README.md.gotmpl, README.md (up to HELM_DOCS_END) and LICENSE
@@ -336,10 +340,10 @@ tasks:
       - '{{.KUBECTL}} delete --ignore-not-found={{.IGNORE_NOT_FOUND}} -f {{.CRDS}}'
 
   deploy:
-    desc: Install or upgrade the chart with image IMG in NAMESPACE (release RELEASE)
+    desc: Install or upgrade the chart with image IMG in NAMESPACE (release RELEASE, config.clusterID CLUSTER_ID, default dev)
     cmds:
       - task: manifests
-      - helm upgrade --install {{.RELEASE}} {{.CHART}} --namespace {{.NAMESPACE}} --create-namespace {{.HELM_IMAGE_ARGS}} {{.CLI_ARGS}}
+      - helm upgrade --install {{.RELEASE}} {{.CHART}} --namespace {{.NAMESPACE}} --create-namespace {{.HELM_IMAGE_ARGS}} --set config.clusterID={{.CLUSTER_ID}} {{.CLI_ARGS}}
 
   undeploy:
     desc: Uninstall the chart release (CRDs stay, see uninstall)
