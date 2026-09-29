@@ -233,7 +233,7 @@ func main() {
 	case secretSyncerProcess:
 		setupLog.Info("Skipping the pull secret syncer, it has no loop yet")
 	case webhookProcess:
-		if err := webhookcorev1.SetupPodWebhookWithManager(mgr); err != nil {
+		if _, err := webhookcorev1.SetupPodWebhookWithManager(mgr, globalConfig, clusterResourceNamespace); err != nil {
 			setupLog.Error(err, "Failed to create webhook", "webhook", "Pod")
 			os.Exit(1)
 		}
