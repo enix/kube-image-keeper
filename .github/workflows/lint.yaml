@@ -11,7 +11,7 @@ permissions: {}
 
 jobs:
   lint:
-    name: Run on Ubuntu
+    name: Lint
     runs-on: ubuntu-latest
     permissions:
       contents: read
