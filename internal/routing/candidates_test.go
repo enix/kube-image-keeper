@@ -137,6 +137,19 @@ var _ = Describe("Candidates", func() {
 			Expect(references(index.Candidates(request(nginx), options))).
 				To(Equal([]string{ecrNginx, gcrNginx, mirrorNginx, dockerNginx}))
 		})
+
+		It("demotes the original when the entry marked unavailable is not the most specific one it matches", func() {
+			cr := alternative("acme", onFailure, unavailable(group("quay.io/acme")), group("quay.io/acme/foo"), group("ghcr.io/acme"))
+			index := NewIndex(alternatives(cr), nil)
+			Expect(references(index.Candidates(request("quay.io/acme/foo/bar:v1"), options))).
+				To(Equal([]string{"ghcr.io/acme/bar:v1", "quay.io/acme/foo/bar:v1"}))
+		})
+
+		It("demotes the original when only a later duplicate of its entry is marked unavailable", func() {
+			cr := alternative("library", onFailure, group(dockerLibrary), unavailable(group(dockerLibrary)), group(ecrLibrary))
+			index := NewIndex(alternatives(cr), nil)
+			Expect(references(index.Candidates(request(nginx), options))).To(Equal([]string{ecrNginx, dockerNginx}))
+		})
 	})
 
 	Context("with an ImageMirror", func() {
