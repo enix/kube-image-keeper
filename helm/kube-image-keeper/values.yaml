@@ -339,7 +339,8 @@ secretAccess:
 config:
   # -- Required, no default: the identity of this cluster, appended to every tag an
   # ImageMirror writes. A short name that stays stable for the life of the cluster, matching
-  # `^[a-zA-Z0-9][a-zA-Z0-9.-]*$`: changing it orphans every tag written under the previous
-  # one, and two clusters sharing a mirror destination need different ones. The chart fails
-  # to render without it. Read at startup only
+  # `^[a-zA-Z0-9][a-zA-Z0-9.-]*$` and at most 56 characters: changing it orphans every tag
+  # written under the previous one, and two clusters sharing a mirror destination need
+  # different ones. The chart fails to render without it, or when it is longer than 56
+  # characters. Read at startup only
   clusterID: ""

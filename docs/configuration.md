@@ -50,7 +50,7 @@ A key left out takes the default below.
 
 | Key | Default | Effect |
 | --- | ------- | ------ |
-| `clusterID` | none, required | Identity of this cluster, appended to every tag an `ImageMirror` writes, matching `^[a-zA-Z0-9][a-zA-Z0-9.-]*$`. Pick a short name that stays stable for the life of the cluster: changing it orphans every tag written under the previous one, and two clusters sharing a mirror destination need different ones. The chart fails to render without `config.clusterID` |
+| `clusterID` | none, required | Identity of this cluster, appended to every tag an `ImageMirror` writes, matching `^[a-zA-Z0-9][a-zA-Z0-9.-]*$`, at most 56 characters. Pick a short name that stays stable for the life of the cluster: changing it orphans every tag written under the previous one, and two clusters sharing a mirror destination need different ones. The chart fails to render without `config.clusterID` |
 | `metrics.copyDuration` | `false` | Histogram of how long each copy took, per `ImageMirror` |
 | `mirror.destinationScan.interval` | `1h` | How often each `ImageMirror` re-reads its own destination |
 | `webhook.demoteMirrorWithPullPolicyAlways` | `true` | Demote a mirror candidate for a container with `imagePullPolicy: Always` |

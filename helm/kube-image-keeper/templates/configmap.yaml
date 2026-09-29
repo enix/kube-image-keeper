@@ -5,6 +5,9 @@ cluster picks its own identity, since changing it orphans every tag its mirrors 
 {{- if not .Values.config.clusterID }}
 {{- fail "config.clusterID is required: a short name that stays stable for the life of this cluster, see docs/configuration.md" }}
 {{- end }}
+{{- if gt (len .Values.config.clusterID) 56 }}
+{{- fail "config.clusterID is longer than 56 characters: the anchor tag of a digest-pinned image would exceed the OCI 128-character tag limit, see docs/configuration.md" }}
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

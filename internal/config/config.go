@@ -30,6 +30,10 @@ const (
 // clusterIDPattern is the OCI tag alphabet without `_`, the suffix separator.
 var clusterIDPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9.-]*$`)
 
+// maxClusterIDLength keeps the anchor tag `sha256-<64 hex>_<clusterID>` within the OCI
+// limit of 128 characters: an anchor cannot be truncated without losing its digest.
+const maxClusterIDLength = 56
+
 // Config is the global config file.
 type Config struct {
 	// ClusterID is appended to every tag an ImageMirror writes. Required.
@@ -257,6 +261,8 @@ func (c *Config) validate() error {
 		errs = append(errs, errors.New("clusterID is required"))
 	case !clusterIDPattern.MatchString(c.ClusterID):
 		errs = append(errs, fmt.Errorf("clusterID %q must match %s", c.ClusterID, clusterIDPattern))
+	case len(c.ClusterID) > maxClusterIDLength:
+		errs = append(errs, fmt.Errorf("clusterID %q must be at most %d characters", c.ClusterID, maxClusterIDLength))
 	}
 
 	errs = append(errs,
