@@ -83,6 +83,8 @@ spec:
             - -webhook-port=9443
             {{- end }}
             - -zap-log-level={{ $v.verbosity }}
+            - -config=/etc/kuik/config.yaml
+            - -cluster-resource-namespace={{ $.Release.Namespace }}
           {{- with $v.env }}
           env:
             {{- toYaml . | nindent 12 }}
@@ -99,12 +101,16 @@ spec:
               name: webhook-server
               protocol: TCP
             {{- end }}
-          {{- if $process.servesWebhook }}
           volumeMounts:
+            {{- /* No subPath: a subPath mount never sees the ConfigMap updates the process reloads. */}}
+            - mountPath: /etc/kuik
+              name: config
+              readOnly: true
+            {{- if $process.servesWebhook }}
             - mountPath: /tmp/k8s-webhook-server/serving-certs
               name: webhook-cert
               readOnly: true
-          {{- end }}
+            {{- end }}
           {{- with $v.readinessProbe }}
           readinessProbe:
             {{- toYaml . | nindent 12 }}
@@ -133,8 +139,11 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if $process.servesWebhook }}
       volumes:
+        - name: config
+          configMap:
+            name: {{ include "kube-image-keeper.fullname" $ }}-config
+      {{- if $process.servesWebhook }}
         - name: webhook-cert
           secret:
             defaultMode: 420

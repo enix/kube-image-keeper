@@ -1,0 +1,3 @@
+# The global config file `task run` loads, see docs/configuration.md. The chart renders its
+# own from the `config` value.
+clusterID: dev
