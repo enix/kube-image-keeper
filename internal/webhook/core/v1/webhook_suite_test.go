@@ -23,6 +23,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/test/utils"
 	// +kubebuilder:scaffold:imports
 )
@@ -36,6 +37,9 @@ var (
 	k8sClient client.Client
 	cfg       *rest.Config
 	testEnv   *envtest.Environment
+
+	// served is the webhook the API server calls, for the specs that go through it.
+	served *PodDefaulter
 )
 
 func TestAPIs(t *testing.T) {
@@ -51,6 +55,8 @@ var _ = BeforeSuite(func() {
 
 	var err error
 	err = corev1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+	err = kuikv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:scheme
@@ -92,7 +98,7 @@ var _ = BeforeSuite(func() {
 	})
 	Expect(err).NotTo(HaveOccurred())
 
-	err = SetupPodWebhookWithManager(mgr)
+	served, err = SetupPodWebhookWithManager(mgr, testConfig(), clusterResourceNamespace)
 	Expect(err).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:webhook
