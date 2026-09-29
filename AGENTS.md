@@ -42,6 +42,7 @@ internal/registry/credentialprovider  Vendored kubelet keyring, kept as upstream
 internal/registry/registrytest  In-memory registry fakes for the registry specs
 internal/info                 Build information and the kuik_build_info collector
 internal/imagepath            Image references, repository paths and the segment trie that matches them
+internal/auth                 Credential resolution order and the reserved Secret names
 config/                       controller-gen output (CRDs, rbac/role.yaml, webhook), read by envtest
 helm/kube-image-keeper/       The Helm chart, the only deployment path (crds/ and files/ generated)
 test/e2e/                     End-to-end suite, runs on a Kind cluster
