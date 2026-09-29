@@ -89,6 +89,11 @@ var _ = Describe("Load", func() {
 		Expect(cfg.Registries.For("public.ecr.aws").Check.Interval).To(Equal(5 * time.Minute))
 	})
 
+	It("accepts a clusterID of exactly 56 characters", func() {
+		clusterID := strings.Repeat("a", 56)
+		Expect(mustLoad("clusterID: " + clusterID + "\n").ClusterID).To(Equal(clusterID))
+	})
+
 	It("applies the defaults the spec states to a file carrying only clusterID", func() {
 		cfg := mustLoad(minimal)
 		Expect(cfg.Metrics.CopyDuration).To(BeFalse())
@@ -126,6 +131,7 @@ fallbackAuth:
 		Entry("when it is not YAML", "clusterID: [cluster-a\n"),
 		Entry("when clusterID is missing", "metrics:\n  copyDuration: true\n"),
 		Entry("when clusterID is outside ^[a-zA-Z0-9][a-zA-Z0-9.-]*$", "clusterID: cluster_a\n"),
+		Entry("when clusterID is longer than 56 characters", "clusterID: "+strings.Repeat("a", 57)+"\n"),
 		Entry("when a key the spec does not define appears, at any level", minimal+`
 registries:
   docker.io:
