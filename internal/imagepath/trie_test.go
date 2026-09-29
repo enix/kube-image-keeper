@@ -97,6 +97,16 @@ var _ = Describe("Trie", func() {
 		Expect(matches[0].Remainder).To(Equal([]string{"redis"}))
 	})
 
+	It("matches a host written in another case", func() {
+		t := NewTrie[entry]()
+		t.Insert(mustPath(acmeFoo, Repository), Repository, entry{name: nameFoo})
+		Expect(names(t.Match(mustParse("Quay.IO/acme/foo:v1")))).To(Equal([]string{nameFoo}))
+
+		t = NewTrie[entry]()
+		t.Insert(mustPath("Quay.IO/acme/foo", Repository), Repository, entry{name: nameFoo})
+		Expect(names(t.Match(mustParse("quay.io/acme/foo:v1")))).To(Equal([]string{nameFoo}))
+	})
+
 	It("keeps the digest on rewrite", func() {
 		t := NewTrie[entry]()
 		t.Insert(mustPath("quay.io/acme", Group), Group, entry{name: nameAcme})
