@@ -220,6 +220,25 @@ var _ = Describe("Copy", func() {
 			Expect(dst.Requests(http.MethodPut, "/manifests/")).To(BeEmpty())
 		})
 
+		It("reports the source failure that ended the attempts, not an earlier destination refusal", func() {
+			dead := registrytest.ClosedHost()
+			src.Push("app:v1", registrytest.Image())
+			src.Intercept(func(w http.ResponseWriter, r *http.Request) bool {
+				if r.Method != http.MethodGet || !strings.Contains(r.URL.Path, "/blobs/") {
+					return false
+				}
+				http.Redirect(w, r, "http://"+dead+r.URL.Path, http.StatusTemporaryRedirect)
+				return true
+			})
+			dst = newRegistry(registrytest.WithBasicAuth(user, password))
+
+			_, err := client.Copy(ctx, endpoint(src, "app:v1"),
+				endpoint(dst, "mirror/app", badCredential(), goodCredential()), []string{copyTag})
+
+			Expect(copyReason(err)).To(Equal(kuikv1alpha1.CopySourceUnreachable))
+			Expect(counted(src.Host(), "Copy", string(kuikv1alpha1.CheckUnreachable))).To(Equal(1.0))
+		})
+
 		It("reports SourceUnreachable and counts the failure in kuik_registry_requests_total", func() {
 			src.Push("app:v1", registrytest.Image())
 			src.Intercept(registrytest.Status(http.MethodGet, "/blobs/", http.StatusNotImplemented, nil))
