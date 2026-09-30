@@ -4,7 +4,6 @@ package e2e
 
 import (
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -59,105 +58,18 @@ const certSecretName = "kube-image-keeper-webhook-server-cert"
 var _ = Describe("Manager", Ordered, func() {
 	var webhookPodName string
 
-	// Before running the tests, set up the environment by creating the namespace,
-	// enforce the restricted security policy to the namespace, installing CRDs,
-	// and deploying the controller.
-	BeforeAll(func() {
-		By("creating manager namespace")
-		cmd := exec.Command("kubectl", "create", "ns", namespace)
-		_, err := utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to create namespace")
-
-		By("labeling the namespace to enforce the restricted security policy")
-		cmd = exec.Command("kubectl", "label", "--overwrite", "ns", namespace,
-			"pod-security.kubernetes.io/enforce=restricted")
-		_, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to label namespace with restricted policy")
-
-		By("installing CRDs")
-		cmd = exec.Command("make", "install")
-		_, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to install CRDs")
-
-		By("deploying the controller-manager")
-		cmd = exec.Command("make", "deploy", fmt.Sprintf("IMG=%s", managerImage))
-		_, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
-	})
-
-	// After all tests have been executed, clean up by undeploying the controller, uninstalling CRDs,
-	// and deleting the namespace.
 	AfterAll(func() {
 		By("cleaning up the curl pod for metrics")
-		cmd := exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace)
-		_, _ = utils.Run(cmd)
-
-		By("undeploying the controller-manager")
-		cmd = exec.Command("make", "undeploy")
-		_, _ = utils.Run(cmd)
-
-		By("uninstalling CRDs")
-		cmd = exec.Command("make", "uninstall")
-		_, _ = utils.Run(cmd)
-
-		By("removing manager namespace")
-		cmd = exec.Command("kubectl", "delete", "ns", namespace)
+		cmd := kubectlCommand("delete", "pod", "curl-metrics", "-n", namespace)
 		_, _ = utils.Run(cmd)
 	})
-
-	// After each test, check for failures and collect logs, events,
-	// and pod descriptions for debugging.
-	AfterEach(func() {
-		specReport := CurrentSpecReport()
-		if specReport.Failed() {
-			By("Fetching the logs of every process")
-			cmd := exec.Command("kubectl", "logs", "-l", releaseSelector, "-n", namespace,
-				"--prefix", "--tail=200")
-			releaseLogs, err := utils.Run(cmd)
-			if err == nil {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Process logs:\n %s", releaseLogs)
-			} else {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Failed to get the process logs: %s", err)
-			}
-
-			By("Fetching Kubernetes events")
-			cmd = exec.Command("kubectl", "get", "events", "-n", namespace, "--sort-by=.lastTimestamp")
-			eventsOutput, err := utils.Run(cmd)
-			if err == nil {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Kubernetes events:\n%s", eventsOutput)
-			} else {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Failed to get Kubernetes events: %s", err)
-			}
-
-			By("Fetching curl-metrics logs")
-			cmd = exec.Command("kubectl", "logs", "curl-metrics", "-n", namespace)
-			metricsOutput, err := utils.Run(cmd)
-			if err == nil {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Metrics logs:\n %s", metricsOutput)
-			} else {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Failed to get curl-metrics logs: %s", err)
-			}
-
-			By("Fetching the description of every pod of the release")
-			cmd = exec.Command("kubectl", "describe", "pods", "-l", releaseSelector, "-n", namespace)
-			podDescription, err := utils.Run(cmd)
-			if err == nil {
-				fmt.Println("Pod descriptions:\n", podDescription)
-			} else {
-				fmt.Println("Failed to describe the pods of the release")
-			}
-		}
-	})
-
-	SetDefaultEventuallyTimeout(2 * time.Minute)
-	SetDefaultEventuallyPollingInterval(time.Second)
 
 	Context("Manager", func() {
 		It("should run the three processes the chart deploys", func() {
 			for _, process := range processes {
 				By("waiting for the " + process + " Deployment to become available")
 				verifyDeploymentAvailable := func(g Gomega) {
-					cmd := exec.Command("kubectl", "get", "deployment", deploymentName(process), "-n", namespace,
+					cmd := kubectlCommand("get", "deployment", deploymentName(process), "-n", namespace,
 						"-o", "jsonpath={.status.conditions[?(@.type=='Available')].status}")
 					output, err := utils.Run(cmd)
 					g.Expect(err).NotTo(HaveOccurred(), "Deployment of the "+process+" should exist")
@@ -168,7 +80,7 @@ var _ = Describe("Manager", Ordered, func() {
 
 			By("getting the name of the webhook pod, the one the later specs read")
 			verifyWebhookPodRunning := func(g Gomega) {
-				cmd := exec.Command("kubectl", "get",
+				cmd := kubectlCommand("get",
 					"pods", "-l", processSelector("webhook"),
 					"-o", "go-template={{ range .items }}"+
 						"{{ if not .metadata.deletionTimestamp }}"+
@@ -190,12 +102,12 @@ var _ = Describe("Manager", Ordered, func() {
 		It("should run each process under its own ServiceAccount", func() {
 			for _, process := range processes {
 				By("checking the ServiceAccount of the " + process + " exists")
-				cmd := exec.Command("kubectl", "get", "serviceaccount", serviceAccountName(process), "-n", namespace)
+				cmd := kubectlCommand("get", "serviceaccount", serviceAccountName(process), "-n", namespace)
 				_, err := utils.Run(cmd)
 				Expect(err).NotTo(HaveOccurred(), "ServiceAccount of the "+process+" should exist")
 
 				By("checking the " + process + " Deployment runs under it")
-				cmd = exec.Command("kubectl", "get", "deployment", deploymentName(process), "-n", namespace,
+				cmd = kubectlCommand("get", "deployment", deploymentName(process), "-n", namespace,
 					"-o", "jsonpath={.spec.template.spec.serviceAccountName}")
 				output, err := utils.Run(cmd)
 				Expect(err).NotTo(HaveOccurred())
@@ -284,14 +196,14 @@ var _ = Describe("Manager", Ordered, func() {
 		It("should ensure the metrics endpoint is serving metrics", func() {
 			By("validating that each process has its own metrics service")
 			for _, process := range processes {
-				cmd := exec.Command("kubectl", "get", "service", metricsServiceName(process), "-n", namespace)
+				cmd := kubectlCommand("get", "service", metricsServiceName(process), "-n", namespace)
 				_, err := utils.Run(cmd)
 				Expect(err).NotTo(HaveOccurred(), "Metrics service of the "+process+" should exist")
 			}
 
 			By("ensuring the webhook pod is ready")
 			verifyWebhookPodReady := func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "pod", webhookPodName, "-n", namespace,
+				cmd := kubectlCommand("get", "pod", webhookPodName, "-n", namespace,
 					"-o", "jsonpath={.status.conditions[?(@.type=='Ready')].status}")
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
@@ -301,7 +213,7 @@ var _ = Describe("Manager", Ordered, func() {
 
 			By("verifying that the webhook is serving the metrics server")
 			verifyMetricsServerStarted := func(g Gomega) {
-				cmd := exec.Command("kubectl", "logs", webhookPodName, "-n", namespace)
+				cmd := kubectlCommand("logs", webhookPodName, "-n", namespace)
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(output).To(ContainSubstring("Serving metrics server"),
@@ -311,7 +223,7 @@ var _ = Describe("Manager", Ordered, func() {
 
 			By("waiting for the webhook service endpoints to be ready")
 			verifyWebhookEndpointsReady := func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "endpointslices.discovery.k8s.io", "-n", namespace,
+				cmd := kubectlCommand("get", "endpointslices.discovery.k8s.io", "-n", namespace,
 					"-l", "kubernetes.io/service-name="+webhookServiceName,
 					"-o", "jsonpath={range .items[*]}{range .endpoints[*]}{.addresses[*]}{end}{end}")
 				output, err := utils.Run(cmd)
@@ -322,7 +234,7 @@ var _ = Describe("Manager", Ordered, func() {
 
 			By("verifying the mutating webhook server is ready")
 			verifyMutatingWebhookReady := func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "mutatingwebhookconfigurations.admissionregistration.k8s.io",
+				cmd := kubectlCommand("get", "mutatingwebhookconfigurations.admissionregistration.k8s.io",
 					mutatingWebhookName,
 					"-o", "jsonpath={.webhooks[0].clientConfig.caBundle}")
 				output, err := utils.Run(cmd)
@@ -337,7 +249,7 @@ var _ = Describe("Manager", Ordered, func() {
 			// +kubebuilder:scaffold:e2e-metrics-webhooks-readiness
 
 			By("creating the curl-metrics pod to access the metrics endpoint")
-			cmd := exec.Command("kubectl", "run", "curl-metrics", "--restart=Never",
+			cmd := kubectlCommand("run", "curl-metrics", "--restart=Never",
 				"--namespace", namespace,
 				"--image=curlimages/curl:latest",
 				"--overrides",
@@ -370,7 +282,7 @@ var _ = Describe("Manager", Ordered, func() {
 
 			By("waiting for the curl-metrics pod to complete.")
 			verifyCurlUp := func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "pods", "curl-metrics",
+				cmd := kubectlCommand("get", "pods", "curl-metrics",
 					"-o", "jsonpath={.status.phase}",
 					"-n", namespace)
 				output, err := utils.Run(cmd)
@@ -392,7 +304,7 @@ var _ = Describe("Manager", Ordered, func() {
 		It("should provisioned cert-manager", func() {
 			By("validating that cert-manager has the certificate Secret")
 			verifyCertManager := func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "secrets", certSecretName, "-n", namespace)
+				cmd := kubectlCommand("get", "secrets", certSecretName, "-n", namespace)
 				_, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
 			}
@@ -402,7 +314,7 @@ var _ = Describe("Manager", Ordered, func() {
 		It("should have CA injection for mutating webhooks", func() {
 			By("checking CA injection for mutating webhooks")
 			verifyCAInjection := func(g Gomega) {
-				cmd := exec.Command("kubectl", "get",
+				cmd := kubectlCommand("get",
 					"mutatingwebhookconfigurations.admissionregistration.k8s.io",
 					mutatingWebhookName,
 					"-o", "go-template={{ range .webhooks }}{{ .clientConfig.caBundle }}{{ end }}")
@@ -448,7 +360,7 @@ func canI(process, verb, resource, ns string) (bool, error) {
 
 	// can-i exits 1 when the answer is no, so the answer is read from the output rather than
 	// from the error.
-	output, err := utils.Run(exec.Command("kubectl", args...))
+	output, err := utils.Run(kubectlCommand(args...))
 	lines := utils.GetNonEmptyLines(output)
 	if len(lines) > 0 {
 		switch strings.TrimSpace(lines[len(lines)-1]) {
@@ -465,6 +377,6 @@ func canI(process, verb, resource, ns string) (bool, error) {
 // getMetricsOutput retrieves and returns the logs from the curl pod used to access the metrics endpoint.
 func getMetricsOutput() (string, error) {
 	By("getting the curl-metrics logs")
-	cmd := exec.Command("kubectl", "logs", "curl-metrics", "-n", namespace)
+	cmd := kubectlCommand("logs", "curl-metrics", "-n", namespace)
 	return utils.Run(cmd)
 }
