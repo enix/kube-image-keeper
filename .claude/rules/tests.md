@@ -43,6 +43,10 @@ paths:
     mapping. A unit spec may also pin something basic.
 - **Suites** are `suite_test.go` files on envtest and load the CRDs from
   `config/crd/bases/`: run `task manifests` before testing a type change.
+- **An envtest suite carries `Label("envtest")` on its `RunSpecs`**
+  ([0011](../../notes/0011-envtest-label-per-suite.md)): `task test-short`
+  (the pre-push hook) filters that label out and runs the unit suites alone. A suite
+  without it runs in `task test-short`, where no API server exists.
 - **Run one spec** by filtering on the `It` text, not on `-run`:
 
   ```sh

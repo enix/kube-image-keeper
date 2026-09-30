@@ -71,6 +71,7 @@ After a change, before committing:
 task manifests generate   # after editing *_types.go or any kubebuilder marker
 task lint-fix             # after editing *.go
 task test                 # unit and envtest suites
+task test-short           # unit suites only, no envtest (the pre-push hook)
 # one spec only: the suites are Ginkgo, so filter on the It text, not on -run
 go test ./internal/controller/kuik -v -ginkgo.focus 'text of the It'
 ```
