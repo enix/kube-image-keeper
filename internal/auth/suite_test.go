@@ -29,9 +29,12 @@ var (
 )
 
 func TestAuth(t *testing.T) {
+	if testing.Short() {
+		t.Skip("envtest suite")
+	}
 	RegisterFailHandler(Fail)
 
-	RunSpecs(t, "Auth Suite", Label("envtest"))
+	RunSpecs(t, "Auth Suite")
 }
 
 var _ = BeforeSuite(func() {

@@ -32,9 +32,12 @@ var (
 )
 
 func TestControllers(t *testing.T) {
+	if testing.Short() {
+		t.Skip("envtest suite")
+	}
 	RegisterFailHandler(Fail)
 
-	RunSpecs(t, "Controller Suite", Label("envtest"))
+	RunSpecs(t, "Controller Suite")
 }
 
 var _ = BeforeSuite(func() {

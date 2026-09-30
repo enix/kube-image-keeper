@@ -168,7 +168,7 @@ tasks:
   test-short:
     desc: Run the unit suites only, without envtest nor the generation and lint steps (pre-push smoke tests)
     cmds:
-      - go test $(go list ./... | grep -v /e2e) -ginkgo.label-filter='!envtest'
+      - go test -short $(go list ./... | grep -v /e2e)
 
   # Runs the suites on envtest, with the binaries setup-envtest downloaded into ENVTEST_BIN_DIR.
   test:go:

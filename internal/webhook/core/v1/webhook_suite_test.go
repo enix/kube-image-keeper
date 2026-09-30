@@ -43,9 +43,12 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
+	if testing.Short() {
+		t.Skip("envtest suite")
+	}
 	RegisterFailHandler(Fail)
 
-	RunSpecs(t, "Webhook Suite", Label("envtest"))
+	RunSpecs(t, "Webhook Suite")
 }
 
 var _ = BeforeSuite(func() {

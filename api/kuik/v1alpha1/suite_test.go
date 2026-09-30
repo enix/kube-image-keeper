@@ -38,8 +38,11 @@ var (
 )
 
 func TestAPI(t *testing.T) {
+	if testing.Short() {
+		t.Skip("envtest suite")
+	}
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "API Suite", Label("envtest"))
+	RunSpecs(t, "API Suite")
 }
 
 var _ = BeforeSuite(func() {
