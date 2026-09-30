@@ -54,7 +54,8 @@ paths:
   ```
 
 - **e2e** (`test/e2e/`, `task test-e2e`) runs on an isolated Kind cluster created and
-  deleted by the task. Never run it against a real cluster.
+  deleted by the task. Never run it against a real cluster. Follow the
+  [`e2e-spec`](../skills/e2e-spec/SKILL.md) skill.
 - **e2e specs come last in a PR** ([0012](../../notes/0012-e2e-specs-last-in-a-pr.md)): once
   the PR is otherwise ready (automated review addressed, unit and envtest specs green, the
   feature believed to work), a final `test` commit adds them. If they fail, the corrections
