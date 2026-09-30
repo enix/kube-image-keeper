@@ -1,6 +1,7 @@
 # 0004 — Ginkgo everywhere as the single test framework
 
-**Date:** 2026-09-09 · **Status:** decided
+**Date:** 2026-09-09 · **Status:** decided; section "Fast feedback: Ginkgo labels"
+superseded by [0011](./0011-envtest-label-per-suite.md)
 
 ## Decision
 
