@@ -55,3 +55,9 @@ paths:
 
 - **e2e** (`test/e2e/`, `task test-e2e`) runs on an isolated Kind cluster created and
   deleted by the task. Never run it against a real cluster.
+- **e2e specs come last in a PR** ([0012](../../notes/0012-e2e-specs-last-in-a-pr.md)): once
+  the PR is otherwise ready (automated review addressed, unit and envtest specs green, the
+  feature believed to work), a final `test` commit adds them. If they fail, the corrections
+  are `fixup!` commits, autosquashed once like review fixes. This is the one exception to "a
+  `test` commit before each `feat` commit", which still holds for unit and envtest specs: a
+  Kind run takes minutes, so iterating on e2e while the PR moves wastes it.
