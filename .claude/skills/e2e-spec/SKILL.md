@@ -23,7 +23,7 @@ that order. The reason: a Kind run takes minutes.
 On a PR, the suite runs only under the `e2e-ready` label
 ([0013](../../../notes/0013-e2e-ready-label.md)): once the PR is reviewed, its e2e specs are
 pushed and its `fixup!` commits are autosquashed, ask the user to add it. The required `E2E`
-check fails until then.
+check fails until then, unless the PR changes no path the suite depends on.
 
 ## Workflow
 
