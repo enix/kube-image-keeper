@@ -1,0 +1,12 @@
+# kuik-test is selected by the test CRs; kuik-test-unlabeled is not.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kuik-test
+  labels:
+    kuik.enix.io/test: "true"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kuik-test-unlabeled

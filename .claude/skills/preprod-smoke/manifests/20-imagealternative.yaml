@@ -1,0 +1,15 @@
+# Scoped twice: the kuik-test namespace label and the pod label, so no existing workload is
+# ever selected. The first entry never resolves, the second is the real image on Quay.
+apiVersion: kuik.enix.io/v1alpha1
+kind: ImageAlternative
+metadata:
+  name: kuik-test-nginx
+spec:
+  namespaceSelector:
+    matchLabels: {kuik.enix.io/test: "true"}
+  podSelector:
+    matchLabels: {kuik-test/routing: alternative}
+  rewritePolicy: OnFailure
+  alternatives:
+    - repository: kuik-test.invalid/nginx/nginx-unprivileged
+    - repository: quay.io/nginx/nginx-unprivileged
