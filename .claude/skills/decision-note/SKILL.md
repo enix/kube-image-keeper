@@ -78,11 +78,13 @@ To supersede note `OOOO`:
    `Supersedes [OOOO](./OOOO-slug.md).`
 2. Its **Why** gives what changed since `OOOO`. The old decision becomes a **Rejected**
    line: it was weighed, and lost.
-3. Supersede a whole note, never part of it. If only part of `OOOO` changes, the new note
-   still restates the part that holds.
-4. In `OOOO`, change only the status: `**Status:** superseded by [NNNN](./NNNN-slug.md)`.
-   Date and body stay as they are.
+3. When only one section of `OOOO` changes, supersede that section alone: the new note
+   restates the decision of that section, and the rest of `OOOO` stays in force.
+4. In `OOOO`, change only the status: `**Status:** superseded by [NNNN](./NNNN-slug.md)`,
+   or `**Status:** decided; section "<heading>" superseded by [NNNN](./NNNN-slug.md)` for a
+   single section. Date and body stay as they are.
 5. In the index, keep the line of `OOOO` and end it with `Superseded by [NNNN](./NNNN-slug.md).`
+   (or `Section "<heading>" superseded by [NNNN](./NNNN-slug.md).`).
 6. Point the live references to `NNNN`: `grep -rn 'OOOO' AGENTS.md CONTRIBUTING.md .claude`.
    References inside other notes are history; leave them.
 
