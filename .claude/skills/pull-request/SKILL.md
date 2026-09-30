@@ -98,7 +98,8 @@ describes a dropped file misleads the reviewer and CodeRabbit alike.
 ## 5. The automated review
 
 - CodeRabbit reviews once when the PR opens. For later commits, comment
-  `@coderabbitai review`.
+  `@coderabbitai review`. After a force-push (a rebase, the autosquash), comment
+  `@coderabbitai full review` instead: the incremental review lost its base.
 - CodeRabbit answers only comments that mention `@coderabbitai` (`chat.auto_reply: false`
   in `.coderabbit.yaml`), a top-level comment or a reply in one of its threads alike.
 - Never rewrite the branch under review (no rebase, amend or force-push): the incremental
