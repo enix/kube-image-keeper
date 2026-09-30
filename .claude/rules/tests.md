@@ -43,10 +43,12 @@ paths:
     mapping. A unit spec may also pin something basic.
 - **Suites** are `suite_test.go` files on envtest and load the CRDs from
   `config/crd/bases/`: run `task manifests` before testing a type change.
-- **An envtest suite carries `Label("envtest")` on its `RunSpecs`**
-  ([0011](../../notes/0011-envtest-label-per-suite.md)): `task test-short`
-  (the pre-push hook) filters that label out and runs the unit suites alone. A suite
-  without it runs in `task test-short`, where no API server exists.
+- **An envtest suite skips itself in short mode**
+  ([0011](../../notes/0011-envtest-suites-skip-in-short-mode.md)): its `func TestX` starts
+  with `if testing.Short() { t.Skip("envtest suite") }`, so `task test-short` (the pre-push
+  hook) runs the unit suites alone. A suite without it runs in `task test-short`, where no
+  API server exists. Never pass a `-ginkgo.*` flag to `task test-short`: `go test` caches
+  no run that has one.
 - **Run one spec** by filtering on the `It` text, not on `-run`:
 
   ```sh

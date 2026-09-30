@@ -65,7 +65,7 @@ Rationale in [0005](./0005-decision-log-filter.md).
 - [0004 — Ginkgo everywhere as the single test framework](./0004-test-framework.md):
   Ginkgo/Gomega is the only test framework, `DescribeTable` for tables, no
   `[]struct{}` + `t.Run`. Section "Fast feedback" superseded by
-  [0011](./0011-envtest-label-per-suite.md).
+  [0011](./0011-envtest-suites-skip-in-short-mode.md).
 - [0005 — notes only for decisions that outlive their commit](./0005-decision-log-filter.md):
   the commit body is the default; a note needs the filter above and stays short.
 - [0006 — Task replaces the Makefile](./0006-taskfile.md): commands live in
@@ -83,9 +83,9 @@ Rationale in [0005](./0005-decision-log-filter.md).
 - [0010 — The spec is implemented as written until an alpha runs](./0010-spec-as-is-until-the-alpha-runs.md):
   the 3.0 alphas follow `docs/v3/` literally, spec questions are recorded and deferred
   instead of blocking, and `auth.provider` waits for the end of 3.0 or 3.1.
-- [0011 — The envtest label goes on the suite](./0011-envtest-label-per-suite.md):
-  every envtest suite carries `Label("envtest")` on its `RunSpecs`, the webhook one
-  included; `task test-short` filters it out and runs the unit suites alone.
+- [0011 — envtest suites skip themselves in short mode](./0011-envtest-suites-skip-in-short-mode.md):
+  every envtest suite, the webhook one included, skips itself under `testing.Short()`;
+  `task test-short` runs `go test -short`, which `go test` caches.
 - [0012 — e2e specs are written last in a PR](./0012-e2e-specs-last-in-a-pr.md): a final
   `test` commit adds them once the PR is otherwise ready, fixed by `fixup!` commits; unit and
   envtest specs still come before each `feat` commit.
