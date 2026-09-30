@@ -63,6 +63,8 @@ We welcome contributions through pull requests. For your pull request to be acce
 
 The automated review (CodeRabbit) runs once, when the pull request is opened; comment `@coderabbitai review` to have later commits reviewed.
 
+`Conform`, `Test` and `E2E` are required checks. The e2e suite takes minutes on a Kind cluster, so it runs once, on the branch as it will merge: add the `e2e-ready` label once the pull request is reviewed, its e2e specs are pushed and its `fixup!` commits are autosquashed. Until then, `E2E` fails at once and says what is missing. A failure is fixed with `fixup!` commits, which pause the suite until the next autosquash and force-push; a pull request that changes no file the suite depends on passes without running it.
+
 ### Commit scopes
 
 Scopes in commit messages are optional, but when used they must belong to the list below. Each scope fits into one of the following categories:
