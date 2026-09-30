@@ -99,6 +99,8 @@ describes a dropped file misleads the reviewer and CodeRabbit alike.
 
 - CodeRabbit reviews once when the PR opens. For later commits, comment
   `@coderabbitai review`.
+- CodeRabbit answers only comments that mention `@coderabbitai` (`chat.auto_reply: false`
+  in `.coderabbit.yaml`), a top-level comment or a reply in one of its threads alike.
 - Never rewrite the branch under review (no rebase, amend or force-push): the incremental
   review would lose its base. A fix is a `git commit --fixup=<sha>` pushed as is. The
   `conform` check stays red on `fixup!` commits, which keeps the PR from merging unsquashed.
@@ -107,8 +109,8 @@ describes a dropped file misleads the reviewer and CodeRabbit alike.
 - Triage each comment: fix it (a `fixup!` commit), or accept it as a limit and say so in
   the description.
 - Resolve a thread once its fix is pushed. Reply only when resolving without a fix: one
-  sentence on why. CONTRIBUTING asks the author to answer reviews: draft the reply, the
-  user posts it or tells you to.
+  sentence on why. CONTRIBUTING asks the author to answer reviews: post the reply yourself,
+  the outbound hook asks the user before every write on GitHub.
 - When the review is over, autosquash and force-push once. `git diff <head before> HEAD`
   must be empty: the content did not change, so no new review is needed.
 - Once the review is over, the final e2e `test` commit pushed and the branch autosquashed,
