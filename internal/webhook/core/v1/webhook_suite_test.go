@@ -45,7 +45,7 @@ var (
 func TestAPIs(t *testing.T) {
 	RegisterFailHandler(Fail)
 
-	RunSpecs(t, "Webhook Suite")
+	RunSpecs(t, "Webhook Suite", Label("envtest"))
 }
 
 var _ = BeforeSuite(func() {

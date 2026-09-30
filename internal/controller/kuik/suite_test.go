@@ -34,7 +34,7 @@ var (
 func TestControllers(t *testing.T) {
 	RegisterFailHandler(Fail)
 
-	RunSpecs(t, "Controller Suite")
+	RunSpecs(t, "Controller Suite", Label("envtest"))
 }
 
 var _ = BeforeSuite(func() {

@@ -39,7 +39,7 @@ var (
 
 func TestAPI(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "API Suite")
+	RunSpecs(t, "API Suite", Label("envtest"))
 }
 
 var _ = BeforeSuite(func() {
