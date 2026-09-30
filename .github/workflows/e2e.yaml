@@ -1,15 +1,26 @@
 name: E2E
 
-# The suite installs the chart on a throwaway Kind cluster, which takes minutes. It runs once
-# the work has landed and before a release, not on every pull request; run it by hand on a
-# branch when the chart, the manifests or the manager entrypoint change.
+# The suite installs the chart on a throwaway Kind cluster, which takes minutes. On a pull
+# request it is a required check gated by the e2e-ready label, which the author adds once
+# the PR is reviewed and its final e2e test commit is pushed (notes/0013). It also runs once
+# the work has landed and before a release.
 on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - labeled
+      - unlabeled
+    # No paths filter here: a required check whose workflow never triggers stays "Expected"
+    # and blocks the merge. The job filters paths itself, see "Look for relevant changes".
   push:
     branches:
       - main
     # The suite builds the manager image, applies the CRDs and installs the chart. Anything
     # else landing on main cannot change its outcome. Paths are ignored by workflow_call and
     # workflow_dispatch, so a release still runs it whatever it carries.
+    # Keep in sync with the list of the "Look for relevant changes" step below.
     paths:
       - '**/*.go'
       - go.mod
@@ -21,8 +32,15 @@ on:
       - config/crd/**
       - .github/workflows/e2e.yaml
       - .github/actions/setup-kind/**
+      - .github/actions/setup-task/**
   workflow_call:
   workflow_dispatch:
+
+# One suite per pull request: a label and a push landing together would otherwise run 2.
+# Other events get a group of their own, so a release or a main run is never cancelled.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('e2e-pr-{0}', github.event.pull_request.number) || format('e2e-run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions: {}
 
@@ -34,21 +52,75 @@ jobs:
     permissions:
       contents: read
     steps:
+      # A step, not a job-level if: a skipped job counts as passed for a required check.
+      - name: Require the e2e-ready label
+        if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'e2e-ready')
+        run: |
+          echo "::error::Add the e2e-ready label once the PR is reviewed and its e2e specs are pushed; see CONTRIBUTING.md"
+          exit 1
+
       - name: Clone the code
         uses: actions/checkout@v6
         with:
+          # On a pull request, HEAD is the merge commit, HEAD^1 the base branch and HEAD^2
+          # the PR head: the full history lists the PR's commits and diffs it against its
+          # base, with no token and no extra permission. '0' is quoted: a bare 0 is falsy in
+          # an expression and would fall through to 1.
+          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
           persist-credentials: false
 
+      # The suite runs once, on the branch as it will merge: fixup! commits mean the review
+      # fixes are not squashed yet, and the autosquash push would run it again (notes/0013).
+      - name: Require an autosquashed branch
+        if: github.event_name == 'pull_request'
+        run: |
+          fixups=$(git log --format=%s HEAD^1..HEAD^2 | grep -E '^(fixup|squash|amend)! ' || true)
+          if [ -n "$fixups" ]; then
+            echo "::error::Autosquash the fixup! commits and force-push; the e2e suite then runs on the result"
+            printf '%s\n' "$fixups"
+            exit 1
+          fi
+
+      # Keep the list in sync with the paths filter of the push trigger above: with
+      # --glob-pathspecs, git reads the same patterns the same way. A git error counts as a
+      # change, so the suite runs.
+      - name: Look for relevant changes
+        id: changes
+        if: github.event_name == 'pull_request'
+        run: |
+          if git --glob-pathspecs diff --quiet HEAD^1 HEAD -- \
+            '**/*.go' \
+            go.mod \
+            go.sum \
+            Dockerfile \
+            Makefile \
+            Taskfile.yaml \
+            'helm/**' \
+            'config/crd/**' \
+            .github/workflows/e2e.yaml \
+            '.github/actions/setup-kind/**' \
+            '.github/actions/setup-task/**'
+          then
+            echo "::notice::No change can affect the e2e suite; skipping it."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Setup Go
+        if: steps.changes.outputs.run != 'false'
         uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
       - name: Setup Task
+        if: steps.changes.outputs.run != 'false'
         uses: ./.github/actions/setup-task
 
       - name: Setup Kind
+        if: steps.changes.outputs.run != 'false'
         uses: ./.github/actions/setup-kind
 
       - name: Run the e2e suite
+        if: steps.changes.outputs.run != 'false'
         run: task test-e2e
