@@ -113,7 +113,8 @@ describes a dropped file misleads the reviewer and CodeRabbit alike.
   must be empty: the content did not change, so no new review is needed.
 - Once the review is over, the final e2e `test` commit pushed and the branch autosquashed,
   ask the user to add the `e2e-ready` label (`gh pr edit <n> --add-label e2e-ready`): the
-  required `E2E` check fails until it is there. It is a GitHub write: the user adds it or
-  approves the command. The suite then runs once. If it fails, push `fixup!` commits: `E2E`
+  required `E2E` check fails until it is there. Skip this when the PR changes no path the
+  suite depends on (the list in `.github/workflows/e2e.yaml`): `E2E` passes without it.
+  It is a GitHub write: the user adds it or approves the command. The suite then runs once. If it fails, push `fixup!` commits: `E2E`
   fails at once without running the suite until the next autosquash and force-push, which
   runs it again.
