@@ -166,10 +166,9 @@ tasks:
         vars: { GO_TEST_FLAGS: -coverprofile cover.out }
 
   test-short:
-    desc: Run the suites in short mode, without the generation and lint steps (pre-push smoke tests)
+    desc: Run the unit suites only, without envtest nor the generation and lint steps (pre-push smoke tests)
     cmds:
-      - task: test:go
-        vars: { GO_TEST_FLAGS: -short }
+      - go test $(go list ./... | grep -v /e2e) -ginkgo.label-filter='!envtest'
 
   # Runs the suites on envtest, with the binaries setup-envtest downloaded into ENVTEST_BIN_DIR.
   test:go:
