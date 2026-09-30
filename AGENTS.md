@@ -133,9 +133,12 @@ build are in [`.claude/rules/docs.md`](./.claude/rules/docs.md).
 - `skills/`: [`test-outline`](./.claude/skills/test-outline/SKILL.md) (the spec-first Ginkgo
   workflow, picked up whenever specs are written),
   [`decision-note`](./.claude/skills/decision-note/SKILL.md) (`/decision-note`, writes a note
-  under `notes/` when the filter holds) and
+  under `notes/` when the filter holds),
   [`pull-request`](./.claude/skills/pull-request/SKILL.md) (prepares the branch, drafts the
-  description for the user to confirm, keeps it in step).
+  description for the user to confirm, keeps it in step),
+  [`e2e-spec`](./.claude/skills/e2e-spec/SKILL.md) (e2e specs on Kind, added last in a PR)
+  and [`preprod-smoke`](./.claude/skills/preprod-smoke/SKILL.md) (smoke test of a release on
+  a shared cluster, scoped test CRs, stops for approval).
 - `agents/`: [`spec-reviewer`](./.claude/agents/spec-reviewer.md) (read-only conformance
   review of a change against `docs/v3/`, keeps the spec out of the main context) and
   [`v2-archaeologist`](./.claude/agents/v2-archaeologist.md) (reads v2 on `2.3.x` with
