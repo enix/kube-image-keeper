@@ -31,7 +31,7 @@ var (
 func TestAuth(t *testing.T) {
 	RegisterFailHandler(Fail)
 
-	RunSpecs(t, "Auth Suite")
+	RunSpecs(t, "Auth Suite", Label("envtest"))
 }
 
 var _ = BeforeSuite(func() {
