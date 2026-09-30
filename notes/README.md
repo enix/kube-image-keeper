@@ -86,3 +86,6 @@ Rationale in [0005](./0005-decision-log-filter.md).
 - [0011 — The envtest label goes on the suite](./0011-envtest-label-per-suite.md):
   every envtest suite carries `Label("envtest")` on its `RunSpecs`, the webhook one
   included; `task test-short` filters it out and runs the unit suites alone.
+- [0012 — e2e specs are written last in a PR](./0012-e2e-specs-last-in-a-pr.md): a final
+  `test` commit adds them once the PR is otherwise ready, fixed by `fixup!` commits; unit and
+  envtest specs still come before each `feat` commit.
