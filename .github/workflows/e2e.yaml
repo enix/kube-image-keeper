@@ -1,8 +1,9 @@
 name: E2E
 
 # The suite installs the chart on a throwaway Kind cluster, which takes minutes. On a pull
-# request it is a required check gated by the e2e-ready label, which the author adds once
-# the PR is reviewed and its final e2e test commit is pushed (notes/0013). It also runs once
+# request it is a required check; when the PR changes a path the suite depends on, it is
+# gated by the e2e-ready label, which the author adds once the PR is reviewed and its final
+# e2e test commit is pushed (notes/0013). It also runs once
 # the work has landed and before a release.
 on:
   pull_request:
@@ -26,6 +27,7 @@ on:
       - go.mod
       - go.sum
       - Dockerfile
+      - .dockerignore
       - Makefile
       - Taskfile.yaml
       - helm/**
@@ -52,13 +54,6 @@ jobs:
     permissions:
       contents: read
     steps:
-      # A step, not a job-level if: a skipped job counts as passed for a required check.
-      - name: Require the e2e-ready label
-        if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'e2e-ready')
-        run: |
-          echo "::error::Add the e2e-ready label once the PR is reviewed and its e2e specs are pushed; see CONTRIBUTING.md"
-          exit 1
-
       - name: Clone the code
         uses: actions/checkout@v6
         with:
@@ -69,18 +64,8 @@ jobs:
           fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
           persist-credentials: false
 
-      # The suite runs once, on the branch as it will merge: fixup! commits mean the review
-      # fixes are not squashed yet, and the autosquash push would run it again (notes/0013).
-      - name: Require an autosquashed branch
-        if: github.event_name == 'pull_request'
-        run: |
-          fixups=$(git log --format=%s HEAD^1..HEAD^2 | grep -E '^(fixup|squash|amend)! ' || true)
-          if [ -n "$fixups" ]; then
-            echo "::error::Autosquash the fixup! commits and force-push; the e2e suite then runs on the result"
-            printf '%s\n' "$fixups"
-            exit 1
-          fi
-
+      # Checked first: a PR that cannot affect the suite needs neither the label nor an
+      # autosquashed branch, and passes at once.
       # Keep the list in sync with the paths filter of the push trigger above: with
       # --glob-pathspecs, git reads the same patterns the same way. A git error counts as a
       # change, so the suite runs.
@@ -93,6 +78,7 @@ jobs:
             go.mod \
             go.sum \
             Dockerfile \
+            .dockerignore \
             Makefile \
             Taskfile.yaml \
             'helm/**' \
@@ -105,6 +91,25 @@ jobs:
             echo "run=false" >> "$GITHUB_OUTPUT"
           else
             echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # A step, not a job-level if: a skipped job counts as passed for a required check.
+      - name: Require the e2e-ready label
+        if: github.event_name == 'pull_request' && steps.changes.outputs.run != 'false' && !contains(github.event.pull_request.labels.*.name, 'e2e-ready')
+        run: |
+          echo "::error::Add the e2e-ready label once the PR is reviewed and its e2e specs are pushed; see CONTRIBUTING.md"
+          exit 1
+
+      # The suite runs once, on the branch as it will merge: fixup! commits mean the review
+      # fixes are not squashed yet, and the autosquash push would run it again (notes/0013).
+      - name: Require an autosquashed branch
+        if: github.event_name == 'pull_request' && steps.changes.outputs.run != 'false'
+        run: |
+          fixups=$(git log --format=%s HEAD^1..HEAD^2 | grep -E '^(fixup|squash|amend)! ' || true)
+          if [ -n "$fixups" ]; then
+            echo "::error::Autosquash the fixup! commits and force-push; the e2e suite then runs on the result"
+            printf '%s\n' "$fixups"
+            exit 1
           fi
 
       - name: Setup Go
