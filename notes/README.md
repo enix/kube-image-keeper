@@ -89,3 +89,7 @@ Rationale in [0005](./0005-decision-log-filter.md).
 - [0012 — e2e specs are written last in a PR](./0012-e2e-specs-last-in-a-pr.md): a final
   `test` commit adds them once the PR is otherwise ready, fixed by `fixup!` commits; unit and
   envtest specs still come before each `feat` commit.
+- [0013 — The e2e-ready label gates the E2E check](./0013-e2e-ready-label.md): E2E runs on
+  pull requests as one required check; it fails without the `e2e-ready` label or while
+  `fixup!` commits remain, passes without running when no path the suite depends on
+  changed, and runs the suite otherwise.
