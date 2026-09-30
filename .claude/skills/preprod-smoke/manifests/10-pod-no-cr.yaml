@@ -1,0 +1,18 @@
+# Test 2: no CR exists yet. Expected: image unchanged, no kuik.enix.io/* annotation, Running.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: no-cr
+  namespace: kuik-test
+spec:
+  containers:
+    - name: nginx
+      image: quay.io/nginx/nginx-unprivileged:1.31.6-alpine
+      resources:
+        requests: {cpu: 10m, memory: 16Mi}
+        limits: {memory: 64Mi}
+      securityContext:
+        runAsNonRoot: true
+        allowPrivilegeEscalation: false
+        capabilities: {drop: [ALL]}
+        seccompProfile: {type: RuntimeDefault}

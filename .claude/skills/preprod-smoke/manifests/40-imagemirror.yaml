@@ -1,0 +1,35 @@
+# Test 6: routing only, while the ImageMirror reconciler copies nothing. The destination
+# registry.invalid/kuik-test/quay.io/nginx/nginx-unprivileged:1.31.6-alpine_<clusterID>
+# never answers, so the pod keeps its origin. Expected: image unchanged, no kuik annotation,
+# Running. Update this expectation once the release copies images.
+apiVersion: kuik.enix.io/v1alpha1
+kind: ImageMirror
+metadata:
+  name: kuik-test-mirror
+spec:
+  namespaceSelector:
+    matchLabels: {kuik.enix.io/test: "true"}
+  podSelector:
+    matchLabels: {kuik-test/routing: mirror}
+  rewritePolicy: Always
+  destination:
+    path: registry.invalid/kuik-test
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mirror
+  namespace: kuik-test
+  labels: {kuik-test/routing: mirror}
+spec:
+  containers:
+    - name: nginx
+      image: quay.io/nginx/nginx-unprivileged:1.31.6-alpine
+      resources:
+        requests: {cpu: 10m, memory: 16Mi}
+        limits: {memory: 64Mi}
+      securityContext:
+        runAsNonRoot: true
+        allowPrivilegeEscalation: false
+        capabilities: {drop: [ALL]}
+        seccompProfile: {type: RuntimeDefault}
