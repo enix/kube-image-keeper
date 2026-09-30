@@ -193,14 +193,20 @@ tasks:
       - '{{.KIND}} create cluster --name {{.KIND_CLUSTER}}'
 
   test-e2e:
-    desc: Run the e2e tests on an isolated Kind cluster (created and deleted by the task)
+    desc: Run the e2e tests on an isolated Kind cluster (deleted afterwards only if the task created it)
+    vars:
+      # Read before setup-test-e2e runs: a cluster that already existed is not ours to delete.
+      PREEXISTING:
+        sh: '{{.KIND}} get clusters 2>/dev/null | grep -qx {{.KIND_CLUSTER}} && echo true || echo false'
     cmds:
       - task: setup-test-e2e
+      # A reused cluster was not written to this KUBECONFIG: export it so the suite reaches it.
+      - '{{.KIND}} export kubeconfig --name {{.KIND_CLUSTER}}'
       - task: manifests
       - task: generate
       - task: fmt
       - task: vet
-      - defer: { task: cleanup-test-e2e }
+      - defer: '[ "{{.PREEXISTING}}" = true ] || {{.KIND}} delete cluster --name {{.KIND_CLUSTER}}'
       - KIND={{.KIND}} KIND_CLUSTER={{.KIND_CLUSTER}} go test -tags=e2e ./test/e2e/ -v -ginkgo.v
 
   cleanup-test-e2e:
