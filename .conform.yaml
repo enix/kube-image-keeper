@@ -16,11 +16,16 @@ policies:
           - test
         scopes:
           - auth
+          - claude
+          - config
           - deps
+          - e2e
           - helm
           - metrics
           - mirroring
           - monitoring
+          - pacing
           - registry
           - routing
+          - secret-syncer
         descriptionLength: 800
