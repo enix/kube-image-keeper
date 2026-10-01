@@ -6,7 +6,9 @@ package routing
 import (
 	"cmp"
 	"encoding/json"
+	"fmt"
 	"slices"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -37,7 +39,11 @@ func (r Resource) String() string {
 // ParseResource reads back the `<kind>/<name>` form of String. It rejects a kind other than
 // ImageAlternative or ImageMirror and a missing name.
 func ParseResource(s string) (Resource, error) {
-	return Resource{}, nil
+	kind, name, ok := strings.Cut(s, "/")
+	if !ok || name == "" || (kind != KindImageAlternative && kind != KindImageMirror) {
+		return Resource{}, fmt.Errorf("%q is not a routing resource as <kind>/<name>", s)
+	}
+	return Resource{Kind: kind, Name: name}, nil
 }
 
 // Config is what a candidate is probed and pulled with.
