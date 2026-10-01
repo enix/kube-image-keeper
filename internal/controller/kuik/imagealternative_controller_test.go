@@ -425,6 +425,22 @@ var _ = Describe("ImageAlternative Controller", func() {
 	})
 
 	Describe("writing the status", func() {
+		It("writes no status before the lease is held, and tries again", func() {
+			unelected, err := NewImageAlternativeReconciler(k8sClient, k8sClient.Scheme(), ImageAlternativeOptions{
+				APIReader:                k8sClient,
+				ClusterResourceNamespace: installNamespace,
+				Recorder:                 recorder,
+				Registerer:               prometheus.NewRegistry(),
+			})
+			Expect(err).NotTo(HaveOccurred())
+			newAlternative(name)
+			createPod(selectedNamespace(), "web", rewrittenBy(name))
+			result, err := unelected.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: name}})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(BeNumerically(">", 0))
+			Expect(statusOf(name).Pods).To(BeNil())
+		})
+
 		It("skips the write when the status did not change", func() {
 			newAlternative(name)
 			createPod(selectedNamespace(), "web", plain())
