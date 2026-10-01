@@ -112,6 +112,7 @@ export default defineConfig({
             'installation',
             'crds',
             'configuration',
+            'observability',
           ],
         },
         {
