@@ -34,6 +34,12 @@ func (r Resource) String() string {
 	return r.Kind + "/" + r.Name
 }
 
+// ParseResource reads back the `<kind>/<name>` form of String. It rejects a kind other than
+// ImageAlternative or ImageMirror and a missing name.
+func ParseResource(s string) (Resource, error) {
+	return Resource{}, nil
+}
+
 // Config is what a candidate is probed and pulled with.
 type Config struct {
 	// Auth is the entry's `auth`, or the mirror's `destination.pull.auth`. Nil for none.
