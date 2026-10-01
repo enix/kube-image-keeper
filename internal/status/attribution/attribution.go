@@ -3,7 +3,11 @@
 package attribution
 
 import (
+	"slices"
+
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/enix/kube-image-keeper/internal/imagepath"
 
 	"github.com/enix/kube-image-keeper/internal/routing"
 	"github.com/enix/kube-image-keeper/internal/routing/podrecord"
@@ -54,24 +58,78 @@ type Container struct {
 // attributed to resource. Rewritten, Conceded and Stale are attributed to the resource of
 // their record, NoAlternatives to every resource that offered a candidate.
 func (c Container) StateFor(resource routing.Resource) State {
-	return ""
+	switch c.State {
+	case Rewritten, Conceded, Stale:
+		if c.Record.By == resource.String() {
+			return c.State
+		}
+	case NoAlternatives:
+		if slices.Contains(c.Offering, resource.String()) {
+			return c.State
+		}
+	case Untouched:
+	}
+	return Untouched
 }
 
 // Live reports whether pod is non-terminal, Pending or Running: the only pods attribution
 // counts.
 func Live(pod *corev1.Pod) bool {
-	return false
+	return pod.Status.Phase == corev1.PodPending || pod.Status.Phase == corev1.PodRunning
 }
 
 // Static reports whether pod is the mirror pod of a static pod, which the webhook never
 // routes: the routing side of a status and the mirror's desired state leave it out, an
 // ImageMonitor still tracks its images. See docs/v3/spec.md, "What the webhook never rewrites".
 func Static(pod *corev1.Pod) bool {
-	return false
+	_, ok := pod.Annotations[annotationStaticPod]
+	return ok
 }
+
+// annotationStaticPod marks the mirror pod the kubelet publishes for a static pod.
+const annotationStaticPod = "kubernetes.io/config.mirror"
 
 // Containers returns the routed containers of pod, initContainers included. A malformed
 // annotation reads as empty, its containers then counting as untouched.
 func Containers(pod *corev1.Pod) []Container {
-	return nil
+	// A malformed annotation reads as an empty map, which is the documented fallback.
+	records, _ := podrecord.Read(pod)
+	containers := make([]Container, 0, len(pod.Spec.InitContainers)+len(pod.Spec.Containers))
+	for _, list := range [][]corev1.Container{pod.Spec.InitContainers, pod.Spec.Containers} {
+		for _, c := range list {
+			containers = append(containers, container(c, records))
+		}
+	}
+	return containers
+}
+
+func container(c corev1.Container, records podrecord.Records) Container {
+	live := normalise(c.Image)
+	result := Container{Name: c.Name, Image: live, Origin: live, State: Untouched}
+	if entry, ok := records.Conceded[c.Name]; ok {
+		result.State, result.Record = Conceded, &entry
+		return result
+	}
+	if entry, ok := records.Rewrites[c.Name]; ok {
+		result.Record = &entry
+		if entry.Stands(c.Image) {
+			result.State, result.Origin = Rewritten, entry.Origin
+		} else {
+			result.State = Stale
+		}
+		return result
+	}
+	if offering, ok := records.NoAlternatives[c.Name]; ok {
+		result.State, result.Offering = NoAlternatives, offering
+	}
+	return result
+}
+
+// normalise returns the canonical form of image, or image itself when it does not parse.
+func normalise(image string) string {
+	ref, err := imagepath.Parse(image)
+	if err != nil {
+		return image
+	}
+	return ref.String()
 }
