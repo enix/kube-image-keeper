@@ -45,6 +45,9 @@ internal/info                 Build information and the kuik_build_info collecto
 internal/imagepath            Image references, repository paths and the segment trie that matches them
 internal/auth                 Credential resolution order and the reserved Secret names
 internal/config               The global config file: schema, defaults, validation, reload
+internal/routing/podrecord    The three pod annotations the webhook records its decisions in
+internal/status/*             Status building blocks shared by the reconcilers: attribution,
+                              condition, capped (bounded lists), routingstatus
 config/                       controller-gen output (CRDs, rbac/role.yaml, webhook), read by envtest
 helm/kube-image-keeper/       The Helm chart, the only deployment path (crds/ and files/ generated)
 test/e2e/                     End-to-end suite, runs on a Kind cluster
@@ -52,6 +55,10 @@ hack/                         Developer tools run with go run (the test outline,
 website/                      The docs site (Astro Starlight), see .claude/rules/docs.md
 PROJECT                       Kubebuilder metadata
 ```
+
+**Group new packages** under the package of their concern (`internal/status/*`,
+`internal/routing/*`) rather than at the root of `internal/`: a new top-level package needs
+a concern no existing one covers.
 
 **Generated, never edit by hand**: the paths [`.gitattributes`](./.gitattributes) marks
 `generated-by=<task>`, with the task that rebuilds them. Edit the markers or the `# --`
