@@ -374,6 +374,15 @@ var _ = Describe("Routing status", func() {
 			}
 		})
 
+		It("counts a pod created in the second the lease was acquired as created after it", func() {
+			tracker.Elected(elected.Add(500 * time.Millisecond))
+			// The API server stamps creationTimestamp to the second.
+			sameSecond := pod("a", rewritten(containerApp, self, thanos, ghcrThanos, onFailure))
+			sameSecond.CreationTimestamp = metav1.NewTime(elected)
+			report(pods(sameSecond))
+			Expect(events.withReason(EventImageFallback)).To(HaveLen(1))
+		})
+
 		It("emits no pod event before the lease is acquired", func() {
 			var err error
 			tracker, err = NewTracker(events, prometheus.NewRegistry())
