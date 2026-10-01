@@ -173,6 +173,20 @@ var _ = Describe("Conditions", func() {
 			Expect(events.events).To(BeEmpty())
 		})
 
+		It("announces a flip once when the next set reads the conditions as they were before the write", func() {
+			persisted := []metav1.Condition{{
+				Type: kuikv1alpha1.ConditionReady, Status: metav1.ConditionTrue,
+				Reason: kuikv1alpha1.ReasonIsReady, LastTransitionTime: metav1.Now(),
+			}}
+			// The write of the first set failed, or the cache does not show it yet: the next set
+			// starts again from the conditions of before.
+			for range 2 {
+				conditions = append([]metav1.Condition(nil), persisted...)
+				set(secretNotFound)
+			}
+			Expect(events.events).To(HaveLen(1))
+		})
+
 		It("emits nothing while Ready keeps its status", func() {
 			set(nil)
 			set(nil)
