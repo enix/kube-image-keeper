@@ -24,7 +24,7 @@ jobs:
       prerelease: ${{ steps.dry-run.outputs.new_release_channel != '' }}
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
@@ -126,7 +126,7 @@ jobs:
       prerelease: ${{ needs.semver.outputs.prerelease }}
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
