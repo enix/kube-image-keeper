@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -26,14 +25,15 @@ import (
 	"github.com/enix/kube-image-keeper/internal/imagepath"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/enix/kube-image-keeper/internal/routing"
+	"github.com/enix/kube-image-keeper/internal/routing/podrecord"
 )
 
 // The annotations the webhook records its decisions in, keyed by container name. See
 // docs/v3/observability.md, "Annotations".
 const (
-	AnnotationRewrites         = "kuik.enix.io/rewrites"
-	AnnotationConcededRewrites = "kuik.enix.io/conceded-rewrites"
-	AnnotationNoAlternatives   = "kuik.enix.io/no-alternatives"
+	AnnotationRewrites         = podrecord.AnnotationRewrites
+	AnnotationConcededRewrites = podrecord.AnnotationConcededRewrites
+	AnnotationNoAlternatives   = podrecord.AnnotationNoAlternatives
 )
 
 const (
@@ -47,16 +47,7 @@ const (
 )
 
 // Rewrite is one entry of kuik.enix.io/rewrites and kuik.enix.io/conceded-rewrites.
-type Rewrite struct {
-	// By is the resource that supplied the reference, as `<kind>/<name>`.
-	By string `json:"by"`
-	// Origin is the normalised reference the container came from.
-	Origin string `json:"origin"`
-	// RewrittenTo is the reference kuik placed.
-	RewrittenTo string `json:"rewrittenTo"`
-	// Policy is `Always` or `OnFailure`.
-	Policy string `json:"policy"`
-}
+type Rewrite = podrecord.Rewrite
 
 // The two counters the webhook exports. See docs/v3/observability.md, "Counters".
 var (
@@ -159,12 +150,6 @@ func (d *PodDefaulter) SetResources(alternatives []kuikv1alpha1.ImageAlternative
 	d.index.Store(routing.NewIndex(alternatives, mirrors))
 }
 
-// records are the three annotation maps of a pod.
-type records struct {
-	rewrites, conceded map[string]Rewrite
-	noAlternatives     map[string][]string
-}
-
 // pass is one pass of the webhook over a pod.
 type pass struct {
 	*PodDefaulter
@@ -198,7 +183,7 @@ func (d *PodDefaulter) Default(ctx context.Context, pod *corev1.Pod) error {
 	after := readRecords(ctx, pod)
 	a.route(ctx, after)
 	a.reconcilePullSecrets(after)
-	writeRecords(pod, before, after)
+	after.Write(pod, before)
 	return nil
 }
 
@@ -233,43 +218,43 @@ type pending struct {
 
 // route reads the state of every container off r and resolves the new ones. See
 // docs/v3/architecture.md, "Recognising kuik's own output".
-func (a *pass) route(ctx context.Context, r records) {
+func (a *pass) route(ctx context.Context, r podrecord.Records) {
 	containers := a.containers()
 	present := map[string]bool{}
 	for _, c := range containers {
 		present[c.Name] = true
 	}
 	// gone: the container is no longer in the pod.
-	for name := range r.rewrites {
+	for name := range r.Rewrites {
 		if !present[name] {
-			delete(r.rewrites, name)
+			delete(r.Rewrites, name)
 		}
 	}
-	for name := range r.conceded {
+	for name := range r.Conceded {
 		if !present[name] {
-			delete(r.conceded, name)
+			delete(r.Conceded, name)
 		}
 	}
-	for name := range r.noAlternatives {
+	for name := range r.NoAlternatives {
 		if !present[name] {
-			delete(r.noAlternatives, name)
+			delete(r.NoAlternatives, name)
 		}
 	}
 
 	var news []pending
 	for _, c := range containers {
-		if _, ok := r.conceded[c.Name]; ok {
+		if _, ok := r.Conceded[c.Name]; ok {
 			continue
 		}
-		if entry, ok := r.rewrites[c.Name]; ok {
+		if entry, ok := r.Rewrites[c.Name]; ok {
 			if c.Image != entry.RewrittenTo {
 				// conceded: another webhook took the field over.
-				r.conceded[c.Name] = entry
-				delete(r.rewrites, c.Name)
+				r.Conceded[c.Name] = entry
+				delete(r.Rewrites, c.Name)
 			}
 			continue
 		}
-		if _, ok := r.noAlternatives[c.Name]; ok {
+		if _, ok := r.NoAlternatives[c.Name]; ok {
 			continue
 		}
 		if p, ok := a.candidates(ctx, c); ok {
@@ -316,7 +301,7 @@ func (a *pass) options() routing.Options {
 
 // resolve probes each distinct candidate list once, the lists concurrently and the
 // candidates of one list in order, then rewrites and records the containers.
-func (a *pass) resolve(ctx context.Context, news []pending, r records) {
+func (a *pass) resolve(ctx context.Context, news []pending, r podrecord.Records) {
 	groups := map[string][]pending{}
 	var keys []string
 	for _, p := range news {
@@ -361,7 +346,7 @@ func (a *pass) firstAvailable(ctx context.Context, candidates []routing.Candidat
 }
 
 // apply records the outcome of a resolution on its container.
-func (a *pass) apply(p pending, retained int, r records) {
+func (a *pass) apply(p pending, retained int, r podrecord.Records) {
 	name := p.container.Name
 	if retained < 0 {
 		offering := make([]string, 0, len(p.result.Offering))
@@ -369,7 +354,7 @@ func (a *pass) apply(p pending, retained int, r records) {
 			offering = append(offering, res.String())
 			AlternativesExhaustedTotal.WithLabelValues(res.Kind, res.Name).Inc()
 		}
-		r.noAlternatives[name] = offering
+		r.NoAlternatives[name] = offering
 		return
 	}
 	c := p.result.Candidates[retained]
@@ -378,7 +363,7 @@ func (a *pass) apply(p pending, retained int, r records) {
 		return
 	}
 	p.container.Image = c.Reference
-	r.rewrites[name] = Rewrite{
+	r.Rewrites[name] = Rewrite{
 		By:          c.Resource.String(),
 		Origin:      p.origin.String(),
 		RewrittenTo: c.Reference,
@@ -391,10 +376,10 @@ func (a *pass) apply(p pending, retained int, r records) {
 // still attributed to that resource in rewrites needs an injected credential, and never
 // touches the pull secrets the pod declared. See docs/v3/architecture.md, "What conceding
 // removes".
-func (a *pass) reconcilePullSecrets(r records) {
+func (a *pass) reconcilePullSecrets(r podrecord.Records) {
 	var needed []string
 	for _, c := range a.containers() {
-		entry, ok := r.rewrites[c.Name]
+		entry, ok := r.Rewrites[c.Name]
 		if !ok || !a.injects(entry, c.ImagePullPolicy) {
 			continue
 		}
@@ -440,47 +425,12 @@ func (a *pass) injects(entry Rewrite, pullPolicy corev1.PullPolicy) bool {
 
 // readRecords decodes the three annotation maps. A map that does not decode is read as
 // empty, and rewritten on the way out.
-func readRecords(ctx context.Context, pod *corev1.Pod) records {
-	r := records{rewrites: map[string]Rewrite{}, conceded: map[string]Rewrite{}, noAlternatives: map[string][]string{}}
-	decode(ctx, pod, AnnotationRewrites, &r.rewrites)
-	decode(ctx, pod, AnnotationConcededRewrites, &r.conceded)
-	decode(ctx, pod, AnnotationNoAlternatives, &r.noAlternatives)
+func readRecords(ctx context.Context, pod *corev1.Pod) podrecord.Records {
+	r, err := podrecord.Read(pod)
+	if err != nil {
+		logf.FromContext(ctx).V(1).Info("Ignored malformed annotation", "error", err.Error())
+	}
 	return r
-}
-
-func decode[V any](ctx context.Context, pod *corev1.Pod, annotation string, into *map[string]V) {
-	value, ok := pod.Annotations[annotation]
-	if !ok {
-		return
-	}
-	if err := json.Unmarshal([]byte(value), into); err != nil {
-		logf.FromContext(ctx).V(1).Info("Ignored malformed annotation", "annotation", annotation, "error", err.Error())
-		*into = map[string]V{}
-	}
-}
-
-// writeRecords writes back the maps that changed since before, and removes an emptied one.
-func writeRecords(pod *corev1.Pod, before, after records) {
-	encode(pod, AnnotationRewrites, before.rewrites, after.rewrites, maps.Equal)
-	encode(pod, AnnotationConcededRewrites, before.conceded, after.conceded, maps.Equal)
-	encode(pod, AnnotationNoAlternatives, before.noAlternatives, after.noAlternatives,
-		func(x, y map[string][]string) bool { return maps.EqualFunc(x, y, slices.Equal) })
-}
-
-func encode[M ~map[string]V, V any](pod *corev1.Pod, annotation string, before, after M, equal func(M, M) bool) {
-	if equal(before, after) {
-		return
-	}
-	if len(after) == 0 {
-		delete(pod.Annotations, annotation)
-		return
-	}
-	// Maps of plain values: marshalling cannot fail.
-	value, _ := json.Marshal(after)
-	if pod.Annotations == nil {
-		pod.Annotations = map[string]string{}
-	}
-	pod.Annotations[annotation] = string(value)
 }
 
 // resourceWatch keeps the webhook's resources in step with the manager's cache: every event
