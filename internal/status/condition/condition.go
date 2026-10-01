@@ -5,6 +5,7 @@ package condition
 
 import (
 	"errors"
+	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
@@ -57,7 +58,15 @@ type NotReady struct {
 type Readiness struct {
 	recorder events.EventRecorder
 	notReady *prometheus.GaugeVec
+
+	mu sync.Mutex
+	// ready is the Ready state each resource was last set to. A write that fails, or a cache
+	// not showing it yet, hands back the persisted condition of before: reading the flip off
+	// it alone would announce it twice.
+	ready map[resource]bool
 }
+
+type resource struct{ kind, name string }
 
 // NewReadiness returns a Readiness emitting with recorder and exporting to registerer.
 func NewReadiness(recorder events.EventRecorder, registerer prometheus.Registerer) (*Readiness, error) {
@@ -77,7 +86,7 @@ func NewReadiness(recorder events.EventRecorder, registerer prometheus.Registere
 		// Each controller builds its own Readiness on the same registry.
 		gauge = existing
 	}
-	return &Readiness{recorder: recorder, notReady: gauge}, nil
+	return &Readiness{recorder: recorder, notReady: gauge, ready: map[resource]bool{}}, nil
 }
 
 // Set sets Ready on conditions: True with reason IsReady when notReady is nil, False with its
@@ -86,8 +95,15 @@ func NewReadiness(recorder events.EventRecorder, registerer prometheus.Registere
 // An event follows a flip of the persisted condition only, so a restart, which reads back the
 // status as written, announces nothing.
 func (r *Readiness) Set(object runtime.Object, kind, name string, conditions *[]metav1.Condition, generation int64, notReady *NotReady) {
-	previous := meta.FindStatusCondition(*conditions, kuikv1alpha1.ConditionReady)
-	wasReady := previous == nil || previous.Status == metav1.ConditionTrue
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	key := resource{kind: kind, name: name}
+	wasReady, known := r.ready[key]
+	if !known {
+		previous := meta.FindStatusCondition(*conditions, kuikv1alpha1.ConditionReady)
+		wasReady = previous == nil || previous.Status == metav1.ConditionTrue
+	}
+	r.ready[key] = notReady == nil
 
 	ready := metav1.Condition{
 		Type:               kuikv1alpha1.ConditionReady,
@@ -115,5 +131,8 @@ func (r *Readiness) Set(object runtime.Object, kind, name string, conditions *[]
 
 // Forget removes the series of a deleted resource.
 func (r *Readiness) Forget(kind, name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.ready, resource{kind: kind, name: name})
 	r.notReady.DeletePartialMatch(prometheus.Labels{labelKind: kind, labelName: name})
 }

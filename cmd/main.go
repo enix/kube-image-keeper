@@ -211,10 +211,18 @@ func main() {
 	var onConfigChange []func(*config.Config)
 	switch proc.name {
 	case reconcilerProcess:
-		if err := (&kuikcontroller.ImageAlternativeReconciler{
-			Client: mgr.GetClient(),
-			Scheme: mgr.GetScheme(),
-		}).SetupWithManager(mgr); err != nil {
+		imageAlternatives, err := kuikcontroller.NewImageAlternativeReconciler(mgr.GetClient(), mgr.GetScheme(),
+			kuikcontroller.ImageAlternativeOptions{
+				APIReader:                mgr.GetAPIReader(),
+				ClusterResourceNamespace: clusterResourceNamespace,
+				Recorder:                 mgr.GetEventRecorder("kuik-reconciler"),
+				Registerer:               metrics.Registry,
+			})
+		if err != nil {
+			setupLog.Error(err, "Failed to create controller", "controller", "kuik-imagealternative")
+			os.Exit(1)
+		}
+		if err := imageAlternatives.SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "Failed to create controller", "controller", "kuik-imagealternative")
 			os.Exit(1)
 		}
