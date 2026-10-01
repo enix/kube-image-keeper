@@ -62,8 +62,8 @@ func (r *Tracker) Report(in Input) kuikv1alpha1.RoutingStatus {
 func (r *Tracker) Forget(resource routing.Resource) {}
 
 // SetConditions sets FallbackActive and AlternativesExhausted on conditions from status,
-// read before it is capped.
-func SetConditions(conditions *[]metav1.Condition, status kuikv1alpha1.RoutingStatus, generation int64) {
+// read before it is capped. kind words the message: an ImageMirror routes to the mirror.
+func SetConditions(conditions *[]metav1.Condition, kind string, status kuikv1alpha1.RoutingStatus, generation int64) {
 }
 
 // Cap caps the four anomaly lists of status in pass, under their status field names.
