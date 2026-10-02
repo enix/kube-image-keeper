@@ -444,8 +444,33 @@ func (r *ring) lap(now time.Time) {
 }
 
 // SetConfig applies a reloaded config: a series whose interval changed restarts from now,
-// every other one keeps its phase, and no cursor moves.
-func (s *Scheduler) SetConfig(cfg *config.Config) {}
+// its first window a full interval later, every other one keeps its phase, and no cursor
+// moves. Timeouts apply from the next window, without re-phasing anything: the restart
+// exists to keep a shortened interval from bursting a host, and a timeout does not change the
+// rate.
+func (s *Scheduler) SetConfig(cfg *config.Config) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	old := s.cfg
+	s.cfg = cfg
+	if s.start.IsZero() {
+		return
+	}
+	now := s.clk.Now()
+	for _, h := range s.hosts {
+		before, after := old.Registries.For(h.name), cfg.Registries.For(h.name)
+		if before.Check.Interval != after.Check.Interval {
+			h.check.origin, h.check.interval = now, after.Check.Interval
+			h.due = h.check.next(now)
+		}
+		if before.Copy.Interval != after.Copy.Interval {
+			h.copy.origin, h.copy.interval = now, after.Copy.Interval
+			h.copyDue = h.copy.next(now)
+		}
+	}
+	s.notify()
+}
 
 // SetRing sets the references the ring of owner on host turns over, checked by c. resume is
 // the ring's persisted status, read only when the ring does not exist yet in this process.
