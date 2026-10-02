@@ -40,10 +40,12 @@ created.
 | ------ | ---- | ------------ |
 | `ResourceNotReady` | Warning | The `Ready` condition goes `False`. The message carries its reason: `InvalidConfig`, `SecretNotFound`, `SecretMalformed` |
 | `ResourceReady` | Normal | `Ready` goes back to `True` |
+| `PullSecretInjectionFailed` | Warning | The secret syncer could not resolve a credential of the resource for one namespace, and wrote the [injected Secret](./concepts/pull-secrets.md) without it. The message carries the reason (`SecretNotFound`, `SecretMalformed`), the entry's path and the namespace. Emitted by the secret syncer, once while the failure lasts |
 
 ## Metrics
 
-The reconciler and the webhook export their series on the metrics endpoint of their process.
+The reconciler, the webhook and the secret syncer export their series on the metrics endpoint
+of their process.
 Every series about a resource carries `kind` and `name`: aggregate on both, never on `name`
 alone, since an `ImageAlternative` and an `ImageMirror` may share a name.
 
@@ -106,3 +108,15 @@ reconciler exports these series.
 
 Alert on a lap against its best case rather than on a literal: see
 [Watching the pace](./concepts/pacing.md#watching-the-pace).
+
+### Pull secrets
+
+The secret syncer exports this counter, see [Injected pull secrets](./concepts/pull-secrets.md).
+
+| Metric | Type | Value |
+| ------ | ---- | ----- |
+| `kuik_secret_applies_total{result}` | counter | Pull-secret applies, by outcome: `Applied`, `Noop` when the API server stored nothing new, `Failed` |
+
+The syncer applies blind, so a healthy steady state is mostly `Noop`. A rate of `Applied` that
+stays high means something is flapping. The first apply of each Secret after the syncer starts
+counts as `Applied`, even when it changes nothing: expect one per Secret at startup.
