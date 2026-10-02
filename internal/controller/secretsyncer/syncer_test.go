@@ -126,6 +126,25 @@ var _ = Describe("Secret syncer", func() {
 			Eventually(users(ns, cr)).WithTimeout(timeout).Should(Equal(map[string]string{quayGroup: robot, ghcrGroup: robot}))
 		})
 
+		It("re-applies a pair once the missing source of an entry added to it is created", func() {
+			createSource(source, robot, "quay.io")
+			ns := createNamespace(scope)
+			cr := createAlternative(always, scope, group(quayGroup, injectedAuth(source)), group(ghcrGroup, nil))
+			start(startOptions{})
+			Eventually(users(ns, cr)).WithTimeout(timeout).Should(Equal(map[string]string{quayGroup: robot}))
+
+			// The added entry's source is missing: the Secret is left as it is.
+			missing := unique("missing")
+			updateAlternative(cr, func(cr *kuikv1alpha1.ImageAlternative) {
+				cr.Spec.Alternatives[1].Auth = injectedAuth(missing)
+			})
+			Eventually(failedEvents(cr)).WithTimeout(timeout).Should(HaveLen(1))
+
+			createSource(missing, "late", "ghcr.io")
+
+			Eventually(users(ns, cr)).WithTimeout(timeout).Should(Equal(map[string]string{quayGroup: robot, ghcrGroup: "late"}))
+		})
+
 		It("provisions a namespace entering the scope of an Always resource", func() {
 			createSource(source, robot, "quay.io")
 			ns := createNamespace("")
