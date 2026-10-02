@@ -36,6 +36,7 @@ cmd/                          Manager entry: one subcommand per process (webhook
                               reconciler, secret-syncer), gating what it registers
 api/kuik/v1alpha1/*_types.go  CRD schemas and kubebuilder markers
 internal/controller/kuik/*    Reconcilers, one per kind
+internal/controller/secretsyncer  The secret syncer loop: one pull Secret per (resource, namespace)
 internal/webhook/core/v1/*    Pod mutating webhook (image routing)
 internal/registry             Registry client: Check, Copy, ListTags, DeleteTag, requests counter
 internal/registry/keychain    Registry credentials from docker config Secrets
@@ -45,6 +46,7 @@ internal/registry/pacing      The windows that pace every read of a source regis
 internal/info                 Build information and the kuik_build_info collector
 internal/imagepath            Image references, repository paths and the segment trie that matches them
 internal/auth                 Credential resolution order and the reserved Secret names
+internal/auth/pullsecret      The desired injected pull Secret of a pair, and its grace period
 internal/config               The global config file: schema, defaults, validation, reload
 internal/routing/podrecord    The three pod annotations the webhook records its decisions in
 internal/status/*             Status building blocks shared by the reconcilers: attribution,
