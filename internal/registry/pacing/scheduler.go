@@ -6,6 +6,7 @@ package pacing
 import (
 	"cmp"
 	"context"
+	"maps"
 	"slices"
 	"sync"
 	"time"
@@ -92,6 +93,14 @@ type host struct {
 	rings []*ring
 	// turn is the index of the ring the next check window goes to.
 	turn int
+	// cache holds the last response of every reference of the host, whichever ring got it.
+	cache map[string]cached
+}
+
+// cached is a response and the window that obtained it.
+type cached struct {
+	response Response
+	at       time.Time
 }
 
 // ring is the references one resource tracks on one host, in lexicographic order.
@@ -103,6 +112,11 @@ type ring struct {
 	cursor        string
 	cycleStarted  *time.Time
 	cycleDuration *time.Duration
+	// created and visits date what the ring already knows: a cached response newer than
+	// the last visit of its reference, or than created for a reference never visited, is
+	// one this ring has not seen yet.
+	created time.Time
+	visits  map[string]time.Time
 }
 
 // New returns a scheduler paced by cfg, whose windows count from Start.
@@ -202,7 +216,7 @@ func (s *Scheduler) phase(h *host) {
 func (s *Scheduler) hostFor(name string) *host {
 	h, ok := s.hosts[name]
 	if !ok {
-		h = &host{name: name}
+		h = &host{name: name, cache: map[string]cached{}}
 		s.hosts[name] = h
 		if !s.start.IsZero() {
 			s.phase(h)
@@ -226,37 +240,69 @@ func (s *Scheduler) open(now time.Time) time.Time {
 	return next
 }
 
-// openCheck hands a check window of h to the next ring with an image, in round-robin. The
-// window is lost when every ring is empty or the previous check still runs. s.mu is held.
+// openCheck hands a check window of h to the next ring with an image, in round-robin. A ring
+// whose next image has a response it has not seen yet reuses it and the window moves on, so
+// that it is spent on the first image that needs a request. The window is lost when no image
+// needs one, or when the previous check still runs. s.mu is held.
 func (s *Scheduler) openCheck(h *host, now time.Time) {
 	if h.check.busy {
 		return
 	}
-	for range len(h.rings) {
+	// Each step takes one image, so a window that only finds reusable responses ends after
+	// one lap of every ring.
+	steps := len(h.rings)
+	for _, r := range h.rings {
+		steps += len(r.refs)
+	}
+	for range steps {
 		r := h.rings[h.turn%len(h.rings)]
 		h.turn = (h.turn + 1) % len(h.rings)
 		if len(r.refs) == 0 {
 			continue
 		}
+		known, visited := r.visits[r.peek()]
+		if !visited {
+			known = r.created
+		}
 		ref := r.take(now)
+		if c, ok := h.cache[ref]; ok && c.at.After(known) {
+			s.deliver(r.checker, ref, c.response)
+			continue
+		}
 		h.check.busy = true
 		s.running++
-		go s.check(h, r.checker, ref, s.cfg.Registries.For(h.name).Check.Timeout)
+		go s.check(h, r.checker, ref, now, s.cfg.Registries.For(h.name).Check.Timeout)
 		return
 	}
 }
 
-// check reads ref with c, abandoning it after timeout, and hands the response to c.
-func (s *Scheduler) check(h *host, c Checker, ref string, timeout time.Duration) {
+// deliver hands a reused response to c outside the lock. s.mu is held.
+func (s *Scheduler) deliver(c Checker, ref string, r Response) {
+	s.running++
+	go func() {
+		c.Checked(ref, r)
+		s.mu.Lock()
+		s.running--
+		s.mu.Unlock()
+	}()
+}
+
+// check reads ref with c, abandoning it after timeout, caches the response as obtained by the
+// window opened at, and hands it to c.
+func (s *Scheduler) check(h *host, c Checker, ref string, at time.Time, timeout time.Duration) {
 	ctx, cancel := s.bounded(timeout)
 	r := c.Check(ctx, ref)
 	cancel()
 
 	s.mu.Lock()
+	h.cache[ref] = cached{response: r, at: at}
 	h.check.busy = false
-	s.running--
 	s.mu.Unlock()
 	c.Checked(ref, r)
+
+	s.mu.Lock()
+	s.running--
+	s.mu.Unlock()
 }
 
 // bounded returns a context of Start cancelled after timeout on the scheduler's clock, or
@@ -280,9 +326,8 @@ func (s *Scheduler) bounded(timeout time.Duration) (context.Context, context.Can
 	}
 }
 
-// take returns the reference after the cursor, wrapping to the first one, and moves the
-// cursor there. Taking the first reference ends the lap in progress and starts the next.
-func (r *ring) take(now time.Time) string {
+// next returns the index of the reference after the cursor, wrapping to the first one.
+func (r *ring) next() int {
 	i, found := slices.BinarySearch(r.refs, r.cursor)
 	if found {
 		i++
@@ -290,10 +335,23 @@ func (r *ring) take(now time.Time) string {
 	if i == len(r.refs) {
 		i = 0
 	}
+	return i
+}
+
+// peek returns the reference take would return.
+func (r *ring) peek() string {
+	return r.refs[r.next()]
+}
+
+// take returns the reference after the cursor, moves the cursor there and records the
+// visit. Taking the first reference ends the lap in progress and starts the next.
+func (r *ring) take(now time.Time) string {
+	i := r.next()
 	if i == 0 {
 		r.lap(now)
 	}
 	r.cursor = r.refs[i]
+	r.visits[r.cursor] = now
 	return r.cursor
 }
 
@@ -322,20 +380,43 @@ func (s *Scheduler) SetRing(owner Owner, host string, refs []string, resume kuik
 	slices.Sort(sorted)
 	sorted = slices.Compact(sorted)
 
+	defer s.notify()
+	defer h.prune()
+
 	i := slices.IndexFunc(h.rings, func(r *ring) bool { return r.owner == owner })
 	if i >= 0 {
-		h.rings[i].refs = sorted
-		h.rings[i].checker = c
-		s.notify()
+		r := h.rings[i]
+		r.refs = sorted
+		r.checker = c
+		maps.DeleteFunc(r.visits, func(ref string, _ time.Time) bool {
+			_, found := slices.BinarySearch(sorted, ref)
+			return !found
+		})
 		return
 	}
-	r := &ring{owner: owner, refs: sorted, checker: c, cursor: resume.Cursor}
+	r := &ring{
+		owner:   owner,
+		refs:    sorted,
+		checker: c,
+		cursor:  resume.Cursor,
+		created: s.clk.Now(),
+		visits:  map[string]time.Time{},
+	}
 	if resume.Cursor != "" && resume.CycleStarted != nil {
 		started := resume.CycleStarted.Time
 		r.cycleStarted = &started
 	}
 	h.rings = append(h.rings, r)
-	s.notify()
+}
+
+// prune drops the cached responses of the references no ring of h tracks any more.
+func (h *host) prune() {
+	maps.DeleteFunc(h.cache, func(ref string, _ cached) bool {
+		return !slices.ContainsFunc(h.rings, func(r *ring) bool {
+			_, found := slices.BinarySearch(r.refs, ref)
+			return found
+		})
+	})
 }
 
 // RemoveRing drops the ring of owner on host.
@@ -353,6 +434,7 @@ func (s *Scheduler) RemoveRing(owner Owner, host string) {
 	} else {
 		h.turn = 0
 	}
+	h.prune()
 	s.notify()
 }
 
