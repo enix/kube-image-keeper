@@ -68,9 +68,18 @@ tasks:
   # ---------------------------------------------------------------------------------------------
   # Development
 
+  # Refuses to generate into a half-applied tree while a rebase, a cherry-pick or a merge is
+  # stopped: only the tasks that write files depend on it, so `git rebase -x 'task test-short'`
+  # still works. git-path resolves these paths inside a worktree too.
+  no-rebase:
+    internal: true
+    preconditions:
+      - sh: '! test -d "$(git rev-parse --git-path rebase-merge 2>/dev/null)" && ! test -d "$(git rev-parse --git-path rebase-apply 2>/dev/null)" && ! test -f "$(git rev-parse --git-path CHERRY_PICK_HEAD 2>/dev/null)" && ! test -f "$(git rev-parse --git-path MERGE_HEAD 2>/dev/null)"'
+        msg: 'a rebase, cherry-pick or merge is stopped: resolve or abort it before generating'
+
   manifests:
     desc: Generate CRDs, RBAC and webhook manifests from the kubebuilder markers, and copy them into the chart
-    deps: [tools:controller-gen]
+    deps: [no-rebase, tools:controller-gen]
     sources:
       - api/**/*.go
       - cmd/**/*.go
@@ -95,7 +104,7 @@ tasks:
 
   generate:
     desc: Generate the DeepCopy methods of the API types
-    deps: [tools:controller-gen]
+    deps: [no-rebase, tools:controller-gen]
     sources:
       - api/**/*.go
       - exclude: '**/zz_generated.*.go'
