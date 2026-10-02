@@ -502,6 +502,17 @@ var _ = Describe("Scheduler", func() {
 			Expect(c.refs()).To(Equal([]string{imageA, imageB, imageC, imageA}))
 		})
 
+		It("keeps its position when the image it just copied leaves the queue", func() {
+			c.fail(imageA)
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA, imageB, imageC}, c)
+			windows(2)
+
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA, imageC}, c)
+			windows(2)
+
+			Expect(c.refs()).To(Equal([]string{imageA, imageB, imageC, imageA}))
+		})
+
 		It("shares the copy windows of a source host between mirrors in round-robin", func() {
 			other := newCopier(h)
 			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA, imageB, imageC}, c)
