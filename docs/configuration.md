@@ -65,6 +65,9 @@ A key left out takes the default below.
 Intervals are at least `5s`. Timeouts are positive, except `copy.timeout`, which may be `0`.
 Durations are written with their unit (`30s`, `10m`, `1h`).
 
+How `registries` paces each host, and what a reload does to it, is explained in
+[Registry pacing](./concepts/pacing.md).
+
 ## Registry credentials
 
 kuik tries the credentials it holds for an image in this order:
