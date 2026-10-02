@@ -13,6 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -25,6 +26,7 @@ import (
 	"github.com/enix/kube-image-keeper/internal/config"
 	kuikcontroller "github.com/enix/kube-image-keeper/internal/controller/kuik"
 	"github.com/enix/kube-image-keeper/internal/info"
+	"github.com/enix/kube-image-keeper/internal/registry/pacing"
 	webhookcorev1 "github.com/enix/kube-image-keeper/internal/webhook/core/v1"
 	// +kubebuilder:scaffold:imports
 )
@@ -211,6 +213,16 @@ func main() {
 	var onConfigChange []func(*config.Config)
 	switch proc.name {
 	case reconcilerProcess:
+		// One scheduler paces every read of a source registry, so that each host has a
+		// single budget. It runs with the lease, like the loops that will feed it.
+		scheduler := pacing.New(clock.RealClock{}, globalConfig)
+		if err := mgr.Add(scheduler); err != nil {
+			setupLog.Error(err, "Failed to set up the registry pacing")
+			os.Exit(1)
+		}
+		metrics.Registry.MustRegister(scheduler.Collector())
+		onConfigChange = append(onConfigChange, scheduler.SetConfig)
+
 		imageAlternatives, err := kuikcontroller.NewImageAlternativeReconciler(mgr.GetClient(), mgr.GetScheme(),
 			kuikcontroller.ImageAlternativeOptions{
 				APIReader:                mgr.GetAPIReader(),
