@@ -4,9 +4,14 @@
 package pacing
 
 import (
+	"cmp"
 	"context"
+	"slices"
+	"sync"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/clock"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
@@ -46,32 +51,260 @@ type Copier interface {
 
 // Scheduler opens the windows of every host and hands each one to a ring or a queue. It runs
 // in the leader-elected reconciler.
-type Scheduler struct{}
+type Scheduler struct {
+	clk clock.Clock
+	// wake interrupts the wait for the next window when a ring or the config changes.
+	wake chan struct{}
+
+	mu  sync.Mutex
+	cfg *config.Config
+	// ctx is the context of Start, the parent of every check.
+	ctx context.Context
+	// start is when Start ran, the origin of every series; zero before.
+	start time.Time
+	hosts map[string]*host
+	// idle is true while the loop waits for its next window, due at due.
+	idle    bool
+	due     time.Time
+	running int
+}
+
+// series is the windows of one loop against a host, opened at origin + k × interval.
+type series struct {
+	origin   time.Time
+	interval time.Duration
+	// busy is true while the image of the last window is still being read.
+	busy bool
+}
+
+// next returns the first window of s strictly after now.
+func (s *series) next(now time.Time) time.Time {
+	k := now.Sub(s.origin)/s.interval + 1
+	return s.origin.Add(k * s.interval)
+}
+
+// host is the budget of one registry host and the rings that share it.
+type host struct {
+	name  string
+	check series
+	// due is the next check window.
+	due   time.Time
+	rings []*ring
+	// turn is the index of the ring the next check window goes to.
+	turn int
+}
+
+// ring is the references one resource tracks on one host, in lexicographic order.
+type ring struct {
+	owner   Owner
+	refs    []string
+	checker Checker
+	// cursor is the reference last taken.
+	cursor        string
+	cycleStarted  *time.Time
+	cycleDuration *time.Duration
+}
 
 // New returns a scheduler paced by cfg, whose windows count from Start.
 func New(clk clock.Clock, cfg *config.Config) *Scheduler {
-	return &Scheduler{}
+	return &Scheduler{
+		clk:   clk,
+		cfg:   cfg,
+		wake:  make(chan struct{}, 1),
+		hosts: map[string]*host{},
+	}
 }
 
 // waiting reports whether the scheduler waits for its next window, so that a test can move
 // a fake clock without racing it.
 func (s *Scheduler) waiting() bool {
-	return true
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.idle && (s.due.IsZero() || s.clk.Now().Before(s.due))
 }
 
 // inFlight is the number of checks and copies running.
 func (s *Scheduler) inFlight() int {
-	return 0
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.running
 }
 
 // Start opens windows until ctx is done.
 func (s *Scheduler) Start(ctx context.Context) error {
-	return nil
+	s.mu.Lock()
+	s.ctx = ctx
+	s.start = s.clk.Now()
+	for _, h := range s.hosts {
+		s.phase(h)
+	}
+	s.mu.Unlock()
+
+	for {
+		// The timer is armed before the loop reports itself idle, so that the clock cannot
+		// move between the two. A wake posted before this pass is dropped: the pass reads
+		// the current hosts anyway, and the stale wake would end the wait at once.
+		var timer clock.Timer
+		var fire <-chan time.Time
+		s.mu.Lock()
+		select {
+		case <-s.wake:
+		default:
+		}
+		now := s.clk.Now()
+		next := s.open(now)
+		if !next.IsZero() {
+			timer = s.clk.NewTimer(next.Sub(now))
+			fire = timer.C()
+		}
+		s.idle, s.due = true, next
+		s.mu.Unlock()
+
+		select {
+		case <-ctx.Done():
+		case <-fire:
+		case <-s.wake:
+		}
+		if timer != nil {
+			timer.Stop()
+		}
+		if ctx.Err() != nil {
+			return nil
+		}
+		s.mu.Lock()
+		s.idle = false
+		s.mu.Unlock()
+	}
 }
 
 // NeedLeaderElection is true: a single budget per host holds only in the leader.
 func (s *Scheduler) NeedLeaderElection() bool {
 	return true
+}
+
+// notify wakes the loop so that it re-reads the hosts. s.mu is held.
+func (s *Scheduler) notify() {
+	s.idle = false
+	select {
+	case s.wake <- struct{}{}:
+	default:
+	}
+}
+
+// phase sets the series of h from the start of the scheduler. s.mu is held.
+func (s *Scheduler) phase(h *host) {
+	p := s.cfg.Registries.For(h.name)
+	h.check = series{origin: s.start, interval: p.Check.Interval}
+	h.due = h.check.next(s.start)
+}
+
+// hostFor returns the host named name, created on first use. s.mu is held.
+func (s *Scheduler) hostFor(name string) *host {
+	h, ok := s.hosts[name]
+	if !ok {
+		h = &host{name: name}
+		s.hosts[name] = h
+		if !s.start.IsZero() {
+			s.phase(h)
+		}
+	}
+	return h
+}
+
+// open opens every window due at now and returns when the next one is. s.mu is held.
+func (s *Scheduler) open(now time.Time) time.Time {
+	var next time.Time
+	for _, h := range s.hosts {
+		if !now.Before(h.due) {
+			s.openCheck(h, now)
+			h.due = h.check.next(now)
+		}
+		if next.IsZero() || h.due.Before(next) {
+			next = h.due
+		}
+	}
+	return next
+}
+
+// openCheck hands a check window of h to the next ring with an image, in round-robin. The
+// window is lost when every ring is empty or the previous check still runs. s.mu is held.
+func (s *Scheduler) openCheck(h *host, now time.Time) {
+	if h.check.busy {
+		return
+	}
+	for range len(h.rings) {
+		r := h.rings[h.turn%len(h.rings)]
+		h.turn = (h.turn + 1) % len(h.rings)
+		if len(r.refs) == 0 {
+			continue
+		}
+		ref := r.take(now)
+		h.check.busy = true
+		s.running++
+		go s.check(h, r.checker, ref, s.cfg.Registries.For(h.name).Check.Timeout)
+		return
+	}
+}
+
+// check reads ref with c, abandoning it after timeout, and hands the response to c.
+func (s *Scheduler) check(h *host, c Checker, ref string, timeout time.Duration) {
+	ctx, cancel := s.bounded(timeout)
+	r := c.Check(ctx, ref)
+	cancel()
+
+	s.mu.Lock()
+	h.check.busy = false
+	s.running--
+	s.mu.Unlock()
+	c.Checked(ref, r)
+}
+
+// bounded returns a context of Start cancelled after timeout on the scheduler's clock, or
+// never when timeout is 0.
+func (s *Scheduler) bounded(timeout time.Duration) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(s.ctx)
+	if timeout == 0 {
+		return ctx, cancel
+	}
+	timer := s.clk.NewTimer(timeout)
+	go func() {
+		select {
+		case <-timer.C():
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	return ctx, func() {
+		timer.Stop()
+		cancel()
+	}
+}
+
+// take returns the reference after the cursor, wrapping to the first one, and moves the
+// cursor there. Taking the first reference ends the lap in progress and starts the next.
+func (r *ring) take(now time.Time) string {
+	i, found := slices.BinarySearch(r.refs, r.cursor)
+	if found {
+		i++
+	}
+	if i == len(r.refs) {
+		i = 0
+	}
+	if i == 0 {
+		r.lap(now)
+	}
+	r.cursor = r.refs[i]
+	return r.cursor
+}
+
+// lap starts a lap at now, measuring the one it ends. A ring resumed without a lap start
+// measures nothing until its next lap.
+func (r *ring) lap(now time.Time) {
+	if r.cycleStarted != nil && r.cursor != "" {
+		d := now.Sub(*r.cycleStarted)
+		r.cycleDuration = &d
+	}
+	r.cycleStarted = &now
 }
 
 // SetConfig applies a reloaded config: a series whose interval changed restarts from now,
@@ -81,14 +314,77 @@ func (s *Scheduler) SetConfig(cfg *config.Config) {}
 // SetRing sets the references the ring of owner on host turns over, checked by c. resume is
 // the ring's persisted status, read only when the ring does not exist yet in this process.
 func (s *Scheduler) SetRing(owner Owner, host string, refs []string, resume kuikv1alpha1.RegistryCheck, c Checker) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	h := s.hostFor(host)
+	sorted := slices.Clone(refs)
+	slices.Sort(sorted)
+	sorted = slices.Compact(sorted)
+
+	i := slices.IndexFunc(h.rings, func(r *ring) bool { return r.owner == owner })
+	if i >= 0 {
+		h.rings[i].refs = sorted
+		h.rings[i].checker = c
+		s.notify()
+		return
+	}
+	r := &ring{owner: owner, refs: sorted, checker: c, cursor: resume.Cursor}
+	if resume.Cursor != "" && resume.CycleStarted != nil {
+		started := resume.CycleStarted.Time
+		r.cycleStarted = &started
+	}
+	h.rings = append(h.rings, r)
+	s.notify()
 }
 
 // RemoveRing drops the ring of owner on host.
-func (s *Scheduler) RemoveRing(owner Owner, host string) {}
+func (s *Scheduler) RemoveRing(owner Owner, host string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	h, ok := s.hosts[host]
+	if !ok {
+		return
+	}
+	h.rings = slices.DeleteFunc(h.rings, func(r *ring) bool { return r.owner == owner })
+	if len(h.rings) > 0 {
+		h.turn %= len(h.rings)
+	} else {
+		h.turn = 0
+	}
+	s.notify()
+}
 
 // RegistryChecks returns the health of every ring of owner, for its status.
 func (s *Scheduler) RegistryChecks(owner Owner) []kuikv1alpha1.RegistryCheck {
-	return nil
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var checks []kuikv1alpha1.RegistryCheck
+	for _, h := range s.hosts {
+		for _, r := range h.rings {
+			if r.owner != owner {
+				continue
+			}
+			check := kuikv1alpha1.RegistryCheck{
+				Registry: h.name,
+				Images:   int32(len(r.refs)),
+				Cursor:   r.cursor,
+			}
+			if r.cycleStarted != nil {
+				check.CycleStarted = &metav1.Time{Time: *r.cycleStarted}
+			}
+			if r.cycleDuration != nil {
+				check.CycleDuration = &metav1.Duration{Duration: *r.cycleDuration}
+			}
+			checks = append(checks, check)
+		}
+	}
+	slices.SortFunc(checks, func(a, b kuikv1alpha1.RegistryCheck) int {
+		return cmp.Compare(a.Registry, b.Registry)
+	})
+	return checks
 }
 
 // SetCopyQueue sets the references owner still owes from host, copied by c in that order.
