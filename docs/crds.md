@@ -79,7 +79,7 @@ auth:
 | `secretRef.name` | Name of a `kubernetes.io/dockerconfigjson` Secret. It carries **no namespace** and always resolves in kuik's install namespace, so referencing a Secret requires being able to write it there |
 | `provider.name` | `aws`, `gcp` or `azure` |
 | `provider.serviceAccountRef.name` | ServiceAccount in kuik's install namespace whose token is requested, so a resource carries its own cloud role |
-| `injectPullSecret` | Whether kuik copies a pull secret into the namespaces of the pods this credential serves, so the kubelet can pull the image. Defaults to `true` with `secretRef` and `false` with `provider`; with a provider and `true`, kuik materialises and renews a Secret from the provider's short-lived token |
+| `injectPullSecret` | Whether kuik copies a pull secret into the namespaces of the pods this credential serves, so the kubelet can pull the image. Defaults to `true` with `secretRef` and `false` with `provider`. A `provider` credential is not injected yet, whatever this field says. See [Injected pull secrets](./concepts/pull-secrets.md) |
 
 Without any `auth`, kuik injects nothing: the pod is expected to carry its own `imagePullSecrets`, or the operator's [`fallbackAuth`](./configuration.md) to cover the registry for kuik's own reads.
 
