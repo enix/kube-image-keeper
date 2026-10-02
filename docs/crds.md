@@ -286,7 +286,7 @@ spec:
 
 A monitor tracks the **origin** reference of every container: the reference its spec declares, or, where a standing kuik rewrite put a different one there, the origin that rewrite recorded. It therefore never sees a mirror's reference in place of the origin it replaced.
 
-Checks are paced per registry host by the operator's [`registries` configuration](./configuration.md): one image per window, so every tracked image comes back once per lap, the `cycleDuration` reported in status.
+Checks are paced per registry host by the operator's [`registries` configuration](./configuration.md#keys): one image per window, so every tracked image comes back once per lap, the `cycleDuration` reported in status. See [Registry pacing](./concepts/pacing.md).
 
 ### Status
 
