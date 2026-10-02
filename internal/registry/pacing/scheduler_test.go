@@ -14,6 +14,7 @@ import (
 
 const (
 	dockerHub = "docker.io"
+	quayIO    = "quay.io"
 	imageA    = "docker.io/library/a:1"
 	imageB    = "docker.io/library/b:1"
 	imageC    = "docker.io/library/c:1"
@@ -112,11 +113,11 @@ var _ = Describe("Scheduler", func() {
 
 		It("paces each host on its own series of windows", func() {
 			h := run(pacing(time.Minute, time.Hour, map[string]config.RegistryPacing{
-				"quay.io": {Check: window(3*time.Minute, 0)},
+				quayIO: {Check: window(3*time.Minute, 0)},
 			}))
 			docker, quay := newChecker(h), newChecker(h)
 			h.s.SetRing(monitor, dockerHub, []string{imageA, imageB}, kuikv1alpha1.RegistryCheck{}, docker)
-			h.s.SetRing(monitor, "quay.io", []string{"quay.io/a/a:1", "quay.io/b/b:1"}, kuikv1alpha1.RegistryCheck{}, quay)
+			h.s.SetRing(monitor, quayIO, []string{"quay.io/a/a:1", "quay.io/b/b:1"}, kuikv1alpha1.RegistryCheck{}, quay)
 
 			for range 3 {
 				h.advance(time.Minute)
@@ -128,7 +129,7 @@ var _ = Describe("Scheduler", func() {
 
 		It("paces a host without a block of its own on registries.default", func() {
 			h := run(pacing(2*time.Minute, time.Hour, map[string]config.RegistryPacing{
-				"quay.io": {Check: window(5*time.Minute, 0)},
+				quayIO: {Check: window(5*time.Minute, 0)},
 			}))
 			c := newChecker(h)
 			h.s.SetRing(monitor, "ghcr.io", []string{"ghcr.io/a/a:1", "ghcr.io/b/b:1"}, kuikv1alpha1.RegistryCheck{}, c)
@@ -527,19 +528,145 @@ var _ = Describe("Scheduler", func() {
 	})
 
 	Context("config reload", func() {
-		PIt("restarts the check series of a host whose check interval changed, a full new interval after the reload", func() {})
-		PIt("restarts the copy series of a host whose copy interval changed, a full new interval after the reload", func() {})
-		PIt("keeps the copy phase of a host whose check interval alone changed", func() {})
-		PIt("keeps the check phase of a host whose copy interval alone changed", func() {})
-		DescribeTable("keeps the phase of a series whose timeout alone changed",
-			func(field string) {},
-			PEntry("check.timeout", "check.timeout"),
-			PEntry("copy.timeout", "copy.timeout"),
+		var (
+			h      *harness
+			checks *fakeChecker
+			copies *fakeCopier
 		)
-		PIt("keeps the phase of a host whose settings did not change", func() {})
-		PIt("re-phases the hosts that inherit a changed interval of registries.default", func() {})
-		PIt("keeps the phase of a host whose own block overrides the changed default interval", func() {})
-		PIt("moves no ring cursor", func() {})
+		BeforeEach(func() {
+			h = run(pacing(time.Minute, 3*time.Minute, nil))
+			checks, copies = newChecker(h), newCopier(h)
+		})
+		// until moves the clock by steps of 30s up to origin plus d.
+		until := func(d time.Duration) {
+			GinkgoHelper()
+			for h.clk.Now().Before(at(d)) {
+				h.advance(30 * time.Second)
+			}
+		}
+		// offsets returns when each visit happened, from origin.
+		offsets := func(visits []visit) []time.Duration {
+			ds := make([]time.Duration, 0, len(visits))
+			for _, v := range visits {
+				ds = append(ds, v.At.Sub(origin))
+			}
+			return ds
+		}
+		images := []string{imageA, imageB, imageC, imageX, imageY}
+		ring := func(host string, c Checker) {
+			h.s.SetRing(monitor, host, images, kuikv1alpha1.RegistryCheck{}, c)
+		}
+		block := func(host string, b config.RegistryPacing) *config.Config {
+			return pacing(time.Minute, 3*time.Minute, map[string]config.RegistryPacing{host: b})
+		}
+
+		It("restarts the check series of a host whose check interval changed, a full new interval after the reload", func() {
+			ring(dockerHub, checks)
+			until(90 * time.Second)
+
+			h.s.SetConfig(block(dockerHub, config.RegistryPacing{Check: window(2*time.Minute, 0)}))
+			until(4 * time.Minute)
+
+			Expect(offsets(checks.visits())).To(Equal([]time.Duration{time.Minute, 210 * time.Second}))
+		})
+
+		It("restarts the copy series of a host whose copy interval changed, a full new interval after the reload", func() {
+			h.s.SetCopyQueue(mirror, dockerHub, images, copies)
+			until(4 * time.Minute)
+
+			h.s.SetConfig(block(dockerHub, config.RegistryPacing{Copy: window(5*time.Minute, 0)}))
+			until(10 * time.Minute)
+
+			Expect(offsets(copies.visits())).To(Equal([]time.Duration{3 * time.Minute, 9 * time.Minute}))
+		})
+
+		It("keeps the copy phase of a host whose check interval alone changed", func() {
+			ring(dockerHub, checks)
+			h.s.SetCopyQueue(mirror, dockerHub, images, copies)
+			until(90 * time.Second)
+
+			h.s.SetConfig(block(dockerHub, config.RegistryPacing{Check: window(2*time.Minute, 0)}))
+			until(6 * time.Minute)
+
+			Expect(offsets(copies.visits())).To(Equal([]time.Duration{3 * time.Minute, 6 * time.Minute}))
+		})
+
+		It("keeps the check phase of a host whose copy interval alone changed", func() {
+			ring(dockerHub, checks)
+			h.s.SetCopyQueue(mirror, dockerHub, images, copies)
+			until(90 * time.Second)
+
+			h.s.SetConfig(block(dockerHub, config.RegistryPacing{Copy: window(5*time.Minute, 0)}))
+			until(3 * time.Minute)
+
+			Expect(offsets(checks.visits())).To(Equal([]time.Duration{time.Minute, 2 * time.Minute, 3 * time.Minute}))
+		})
+
+		// visitsOf reads the visits of the series an entry watches.
+		type visitsOf func(*fakeChecker, *fakeCopier) []visit
+		checkVisits := func(c *fakeChecker, _ *fakeCopier) []visit { return c.visits() }
+		copyVisits := func(_ *fakeChecker, c *fakeCopier) []visit { return c.visits() }
+
+		DescribeTable("keeps the phase of a series whose timeout alone changed",
+			func(reloaded config.RegistryPacing, end time.Duration, of visitsOf, want []time.Duration) {
+				ring(dockerHub, checks)
+				h.s.SetCopyQueue(mirror, dockerHub, images, copies)
+				until(90 * time.Second)
+
+				h.s.SetConfig(block(dockerHub, reloaded))
+				until(end)
+
+				Expect(offsets(of(checks, copies))).To(Equal(want))
+			},
+			Entry("check.timeout", config.RegistryPacing{Check: window(0, 20*time.Second)}, 3*time.Minute,
+				visitsOf(checkVisits), []time.Duration{time.Minute, 2 * time.Minute, 3 * time.Minute}),
+			Entry("copy.timeout", config.RegistryPacing{Copy: window(0, 20*time.Second)}, 6*time.Minute,
+				visitsOf(copyVisits), []time.Duration{3 * time.Minute, 6 * time.Minute}),
+		)
+
+		It("keeps the phase of a host whose settings did not change", func() {
+			ring(dockerHub, checks)
+			ring(quayIO, newChecker(h))
+			until(90 * time.Second)
+
+			h.s.SetConfig(block(quayIO, config.RegistryPacing{Check: window(2*time.Minute, 0)}))
+			until(3 * time.Minute)
+
+			Expect(offsets(checks.visits())).To(Equal([]time.Duration{time.Minute, 2 * time.Minute, 3 * time.Minute}))
+		})
+
+		It("re-phases the hosts that inherit a changed interval of registries.default", func() {
+			ring("ghcr.io", checks)
+			until(90 * time.Second)
+
+			h.s.SetConfig(pacing(2*time.Minute, 3*time.Minute, nil))
+			until(4 * time.Minute)
+
+			Expect(offsets(checks.visits())).To(Equal([]time.Duration{time.Minute, 210 * time.Second}))
+		})
+
+		It("keeps the phase of a host whose own block overrides the changed default interval", func() {
+			quay := config.RegistryPacing{Check: window(time.Minute, 0)}
+			h.s.SetConfig(block(quayIO, quay))
+			ring(quayIO, checks)
+			until(90 * time.Second)
+
+			h.s.SetConfig(pacing(2*time.Minute, 3*time.Minute, map[string]config.RegistryPacing{quayIO: quay}))
+			until(3 * time.Minute)
+
+			Expect(offsets(checks.visits())).To(Equal([]time.Duration{time.Minute, 2 * time.Minute, 3 * time.Minute}))
+		})
+
+		It("moves no ring cursor", func() {
+			ring(dockerHub, checks)
+			until(2 * time.Minute)
+
+			h.s.SetConfig(block(dockerHub, config.RegistryPacing{Check: window(2*time.Minute, 0)}))
+			Expect(h.s.RegistryChecks(monitor)).To(ConsistOf(HaveField("Cursor", imageB)))
+
+			until(4 * time.Minute)
+			Expect(checks.refs()).To(Equal([]string{imageA, imageB, imageC}))
+		})
 	})
 
 	Context("metrics", func() {
