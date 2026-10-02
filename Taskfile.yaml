@@ -70,9 +70,17 @@ tasks:
   # ---------------------------------------------------------------------------------------------
   # Development
 
+  # Refuses to generate or test a half-applied tree while a rebase is stopped. git-path
+  # resolves the rebase directories inside a worktree too.
+  no-rebase:
+    internal: true
+    preconditions:
+      - sh: '! test -d "$(git rev-parse --git-path rebase-merge 2>/dev/null)" && ! test -d "$(git rev-parse --git-path rebase-apply 2>/dev/null)"'
+        msg: 'a rebase is stopped: resolve or abort it before generating or testing'
+
   manifests:
     desc: Generate CRDs, RBAC and webhook manifests from the kubebuilder markers, and copy them into the chart
-    deps: [tools:controller-gen]
+    deps: [no-rebase, tools:controller-gen]
     sources:
       - api/**/*.go
       - cmd/**/*.go
@@ -97,7 +105,7 @@ tasks:
 
   generate:
     desc: Generate the DeepCopy methods of the API types
-    deps: [tools:controller-gen]
+    deps: [no-rebase, tools:controller-gen]
     sources:
       - api/**/*.go
       - exclude: '**/zz_generated.*.go'
@@ -157,6 +165,7 @@ tasks:
 
   test:
     desc: Run the unit and envtest suites
+    deps: [no-rebase]
     cmds:
       - task: manifests
       - task: generate
@@ -167,6 +176,7 @@ tasks:
 
   test-short:
     desc: Run the unit suites only, without envtest nor the generation and lint steps (pre-push smoke tests)
+    deps: [no-rebase]
     cmds:
       - go test -short $(go list ./... | grep -v /e2e)
 

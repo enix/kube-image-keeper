@@ -8,6 +8,9 @@ pre-commit:
       run: task manifests generate
       glob: "{api/**/*.go,internal/webhook/**/*.go,internal/controller/**/*.go,PROJECT}"
       stage_fixed: true
+      # The tasks refuse to run while a rebase is stopped; regenerate once it is done.
+      skip:
+        - rebase
     - name: lint and fix
       run: task lint-fix
       glob: "**/*.go"
