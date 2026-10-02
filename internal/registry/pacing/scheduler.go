@@ -604,11 +604,61 @@ func (s *Scheduler) Collector() prometheus.Collector {
 	return collector{s: s}
 }
 
-// collector reads the scheduling health from a scheduler on every scrape.
+var (
+	ringLabels = []string{"kind", "name", "registry"}
+
+	// The HELP texts are those of docs/v3/observability.md, "Scheduling health".
+	cycleDurationDesc = prometheus.NewDesc("kuik_check_cycle_duration_seconds",
+		"Wall-clock seconds taken by the last completed check lap over a registry's images. "+
+			"Produced by an ImageMonitor for the images it tracks, and by an ImageMirror under "+
+			"`driftPolicy: Warn` / `Sync` for the source tags it re-reads. Absent until a first lap completes",
+		ringLabels, nil)
+	cycleStartedDesc = prometheus.NewDesc("kuik_check_cycle_started_timestamp_seconds",
+		"Unix timestamp at which the lap currently in progress over a registry's images started",
+		ringLabels, nil)
+	ringImagesDesc = prometheus.NewDesc("kuik_check_ring_images",
+		"Size of the ring a resource turns over a registry: the images an ImageMonitor tracks there, "+
+			"and under `driftPolicy: Warn` / `Sync` the copied tags an ImageMirror re-reads there. "+
+			"The denominator behind the lap above",
+		ringLabels, nil)
+	intervalDesc = prometheus.NewDesc("kuik_registry_interval_seconds",
+		"Configured pace at which kuik reads a registry for this operation, as currently loaded: "+
+			"the window between two requests for `Check` and `Copy`, the period between two whole "+
+			"passes for `Scan` (a mirror destination)",
+		[]string{"registry", "operation"}, nil)
+)
+
+// collector reads the scheduling health from a scheduler on every scrape, so that a removed
+// ring leaves no series behind and a reload shows at once.
 type collector struct {
 	s *Scheduler
 }
 
-func (c collector) Describe(ch chan<- *prometheus.Desc) {}
+func (c collector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- cycleDurationDesc
+	ch <- cycleStartedDesc
+	ch <- ringImagesDesc
+	ch <- intervalDesc
+}
 
-func (c collector) Collect(ch chan<- prometheus.Metric) {}
+func (c collector) Collect(ch chan<- prometheus.Metric) {
+	c.s.mu.Lock()
+	defer c.s.mu.Unlock()
+
+	for _, h := range c.s.hosts {
+		p := c.s.cfg.Registries.For(h.name)
+		ch <- prometheus.MustNewConstMetric(intervalDesc, prometheus.GaugeValue, p.Check.Interval.Seconds(), h.name, "Check")
+		ch <- prometheus.MustNewConstMetric(intervalDesc, prometheus.GaugeValue, p.Copy.Interval.Seconds(), h.name, "Copy")
+
+		for _, r := range h.rings {
+			labels := []string{r.owner.Kind, r.owner.Name, h.name}
+			ch <- prometheus.MustNewConstMetric(ringImagesDesc, prometheus.GaugeValue, float64(len(r.refs)), labels...)
+			if r.cycleStarted != nil {
+				ch <- prometheus.MustNewConstMetric(cycleStartedDesc, prometheus.GaugeValue, float64(r.cycleStarted.Unix()), labels...)
+			}
+			if r.cycleDuration != nil {
+				ch <- prometheus.MustNewConstMetric(cycleDurationDesc, prometheus.GaugeValue, r.cycleDuration.Seconds(), labels...)
+			}
+		}
+	}
+}
