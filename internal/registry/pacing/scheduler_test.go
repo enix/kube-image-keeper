@@ -17,6 +17,8 @@ const (
 	imageA    = "docker.io/library/a:1"
 	imageB    = "docker.io/library/b:1"
 	imageC    = "docker.io/library/c:1"
+	imageX    = "docker.io/library/x:1"
+	imageY    = "docker.io/library/y:1"
 )
 
 var (
@@ -89,7 +91,24 @@ var _ = Describe("Scheduler", func() {
 			}))
 		})
 
-		PIt("loses a window that opens while the previous copy of the host is still transferring", func() {})
+		It("loses a window that opens while the previous copy of the host is still transferring", func() {
+			h := run(pacing(time.Hour, 3*time.Minute, nil))
+			c := newCopier(h)
+			c.hold(imageA)
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA, imageB}, c)
+
+			h.step(3 * time.Minute)
+			Eventually(c.visits).Should(HaveLen(1))
+			h.step(3 * time.Minute)
+			h.step(time.Minute)
+			c.release(imageA)
+			h.advance(2 * time.Minute)
+
+			Expect(c.visits()).To(Equal([]visit{
+				{Ref: imageA, At: at(3 * time.Minute)},
+				{Ref: imageB, At: at(9 * time.Minute)},
+			}))
+		})
 
 		It("paces each host on its own series of windows", func() {
 			h := run(pacing(time.Minute, time.Hour, map[string]config.RegistryPacing{
@@ -124,7 +143,19 @@ var _ = Describe("Scheduler", func() {
 			}))
 		})
 
-		PIt("paces the checks and the copies of a host on separate series", func() {})
+		It("paces the checks and the copies of a host on separate series", func() {
+			h := run(pacing(time.Minute, 3*time.Minute, nil))
+			checks, copies := newChecker(h), newCopier(h)
+			h.s.SetRing(monitor, dockerHub, []string{imageA, imageB}, kuikv1alpha1.RegistryCheck{}, checks)
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA, imageB}, copies)
+
+			for range 3 {
+				h.advance(time.Minute)
+			}
+
+			Expect(checks.visits()).To(HaveLen(3))
+			Expect(copies.visits()).To(Equal([]visit{{Ref: imageA, At: at(3 * time.Minute)}}))
+		})
 
 		It("abandons a check that outlasts the check timeout of its host", func() {
 			h := run(pacing(time.Minute, time.Hour, map[string]config.RegistryPacing{
@@ -143,8 +174,38 @@ var _ = Describe("Scheduler", func() {
 				HaveField("Err", HaveOccurred()),
 			))
 		})
-		PIt("abandons a copy that outlasts the copy timeout of its host", func() {})
-		PIt("lets a copy run as long as it takes when the copy timeout of its host is 0", func() {})
+		It("abandons a copy that outlasts the copy timeout of its host", func() {
+			h := run(pacing(time.Hour, 3*time.Minute, map[string]config.RegistryPacing{
+				dockerHub: {Copy: window(0, 10*time.Second)},
+			}))
+			c := newCopier(h)
+			c.hold(imageA)
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA}, c)
+
+			h.step(3 * time.Minute)
+			Eventually(c.visits).Should(HaveLen(1))
+			h.step(10 * time.Second)
+
+			Eventually(func() time.Time { return c.abandonedAt(imageA) }).Should(Equal(at(3*time.Minute + 10*time.Second)))
+		})
+
+		It("lets a copy run as long as it takes when the copy timeout of its host is 0", func() {
+			h := run(pacing(time.Hour, 3*time.Minute, map[string]config.RegistryPacing{
+				dockerHub: {Copy: &config.Window{Timeout: &config.Duration{}}},
+			}))
+			c := newCopier(h)
+			c.hold(imageA)
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA}, c)
+
+			h.step(3 * time.Minute)
+			Eventually(c.visits).Should(HaveLen(1))
+			for range 24 {
+				h.step(time.Hour)
+			}
+
+			Consistently(func() time.Time { return c.abandonedAt(imageA) }).Should(BeZero())
+			c.release(imageA)
+		})
 	})
 
 	Context("check rings", func() {
@@ -209,7 +270,7 @@ var _ = Describe("Scheduler", func() {
 		It("shares the check windows of a host between the rings of an ImageMonitor and an ImageMirror in round-robin", func() {
 			drift := newChecker(h)
 			h.s.SetRing(monitor, dockerHub, []string{imageA, imageB, imageC}, kuikv1alpha1.RegistryCheck{}, c)
-			h.s.SetRing(mirror, dockerHub, []string{"docker.io/library/x:1", "docker.io/library/y:1", "docker.io/library/z:1"}, kuikv1alpha1.RegistryCheck{}, drift)
+			h.s.SetRing(mirror, dockerHub, []string{imageX, imageY, "docker.io/library/z:1"}, kuikv1alpha1.RegistryCheck{}, drift)
 
 			for range 6 {
 				h.advance(time.Minute)
@@ -229,7 +290,7 @@ var _ = Describe("Scheduler", func() {
 		It("stops checking the images of a removed ring", func() {
 			gone := newChecker(h)
 			h.s.SetRing(monitor, dockerHub, []string{imageA, imageB}, kuikv1alpha1.RegistryCheck{}, c)
-			h.s.SetRing(mirror, dockerHub, []string{"docker.io/library/x:1", "docker.io/library/y:1"}, kuikv1alpha1.RegistryCheck{}, gone)
+			h.s.SetRing(mirror, dockerHub, []string{imageX, imageY}, kuikv1alpha1.RegistryCheck{}, gone)
 
 			h.s.RemoveRing(mirror, dockerHub)
 			windows(2)
@@ -398,11 +459,71 @@ var _ = Describe("Scheduler", func() {
 	})
 
 	Context("copy queues", func() {
-		PIt("copies one image of a host's queue per copy window", func() {})
-		PIt("takes the images of a mirror in the order it owes them", func() {})
-		PIt("moves on to the next image a mirror owes after each attempt, failed or not", func() {})
-		PIt("shares the copy windows of a source host between mirrors in round-robin", func() {})
-		PIt("stops copying an image once it leaves the queue", func() {})
+		var (
+			h *harness
+			c *fakeCopier
+		)
+		BeforeEach(func() {
+			h = run(pacing(time.Hour, 3*time.Minute, nil))
+			c = newCopier(h)
+		})
+		windows := func(n int) {
+			GinkgoHelper()
+			for range n {
+				h.advance(3 * time.Minute)
+			}
+		}
+
+		It("copies one image of a host's queue per copy window", func() {
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA, imageB, imageC}, c)
+			h.advance(2 * time.Minute)
+			Expect(c.visits()).To(BeEmpty())
+
+			h.advance(time.Minute)
+			h.advance(3 * time.Minute)
+			Expect(c.visits()).To(Equal([]visit{
+				{Ref: imageA, At: at(3 * time.Minute)},
+				{Ref: imageB, At: at(6 * time.Minute)},
+			}))
+		})
+
+		It("takes the images of a mirror in the order it owes them", func() {
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageC, imageA, imageB}, c)
+			windows(3)
+			Expect(c.refs()).To(Equal([]string{imageC, imageA, imageB}))
+		})
+
+		It("moves on to the next image a mirror owes after each attempt, failed or not", func() {
+			c.fail(imageA)
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA, imageB, imageC}, c)
+			windows(4)
+			Expect(c.refs()).To(Equal([]string{imageA, imageB, imageC, imageA}))
+		})
+
+		It("shares the copy windows of a source host between mirrors in round-robin", func() {
+			other := newCopier(h)
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA, imageB, imageC}, c)
+			h.s.SetCopyQueue(Owner{Kind: "ImageMirror", Name: "other"}, dockerHub, []string{imageX, imageY}, other)
+
+			for range 4 {
+				h.advance(3 * time.Minute)
+				Expect(len(c.visits()) - len(other.visits())).To(BeNumerically("~", 0, 1))
+			}
+			Expect(c.visits()).To(HaveLen(2))
+			Expect(other.visits()).To(HaveLen(2))
+		})
+
+		It("stops copying an image once it leaves the queue", func() {
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA, imageB, imageC}, c)
+			windows(1)
+
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA, imageC}, c)
+			windows(1)
+			h.s.SetCopyQueue(mirror, dockerHub, nil, c)
+			windows(2)
+
+			Expect(c.refs()).To(Equal([]string{imageA, imageC}))
+		})
 	})
 
 	Context("config reload", func() {
