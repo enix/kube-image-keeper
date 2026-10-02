@@ -18,8 +18,9 @@ image:
 imagePullSecrets: []
 # -- Logging verbosity
 verbosity: INFO
-# -- Number of pods of a process
-replicas: 1
+# -- Number of pods of a process. The reconciler and the secret syncer elect a leader, so a
+# second replica stands by and takes the lease over while the first is down or rolling.
+replicas: 2
 # -- Annotations added to the pods
 podAnnotations: {}
 # -- Security context of the pods
