@@ -19,6 +19,10 @@ This documentation will help you configure Kuik in order to overcome public regi
 
 Your Kubernetes cluster will **seamlessly** pull images from another registry and avoid listed difficulties.
 
+kuik itself stays within the quota: it reads each registry at the pace you configure, and one
+request serves every monitor and mirror tracking the same image. See
+[Registry pacing](../concepts/pacing.md).
+
 ## Implementation
 
 ### Kuik custom resource to use
