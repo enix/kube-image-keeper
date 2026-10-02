@@ -94,7 +94,9 @@ task test-short           # unit suites only, no envtest (the pre-push hook)
 go test ./internal/controller/kuik -v -ginkgo.focus 'text of the It'
 ```
 
-CI fails on any drift in generated files, formatting or `go mod tidy`.
+CI fails on any drift in generated files, formatting or `go mod tidy`. `manifests` and
+`generate` (so `task test` too) refuse to run while a rebase, a cherry-pick or a merge is
+stopped: resolve or abort it first.
 
 **Deploying** goes through the Helm chart only ([0007](./notes/0007-helm-only.md)):
 `task deploy IMG=...`, or `task kind-deploy` on a Kind cluster. `config/` holds no
