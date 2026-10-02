@@ -20,6 +20,9 @@ commits, autosquashed once like review fixes. This is the one exception to "a `t
 before each `feat` commit" of [`tests.md`](../../rules/tests.md); unit and envtest specs keep
 that order. The reason: a Kind run takes minutes.
 
+A PR that emits events, reads Secrets or writes a status adds at least one e2e spec that runs
+the call through the chart's RBAC: envtest's admin client hides a missing grant.
+
 On a PR, the suite runs only under the `e2e-ready` label
 ([0013](../../../notes/0013-e2e-ready-label.md)): once the PR is reviewed, its e2e specs are
 pushed and its `fixup!` commits are autosquashed, ask the user to add it. The required `E2E`
@@ -36,9 +39,11 @@ check fails until then, unless the PR changes no path the suite depends on.
 3. **Bodies**, with the patterns below, in the final `test` commit.
 4. **Run** only through `task test-e2e`, on an isolated Kind cluster, never against a real
    cluster. The task creates `KIND_CLUSTER` when it is missing and deletes it afterwards only
-   in that case. An existing Kind cluster of that name is reused as is and the suite installs
-   and uninstalls kuik on it, so never point `KIND_CLUSTER` at a cluster used for anything
-   else. Give the run a dedicated kubeconfig:
+   in that case. An existing Kind cluster of that name is reused as is, with the Kind
+   configuration it was created with (after a change to `test/e2e/kind-config.yaml`, delete
+   it with `task cleanup-test-e2e`), and the suite installs and uninstalls kuik on it, so
+   never point `KIND_CLUSTER` at a cluster used for anything else. Give the run a dedicated
+   kubeconfig:
 
    ```sh
    KUBECONFIG=<tmp>/e2e-kubeconfig task test-e2e
@@ -61,10 +66,12 @@ check fails until then, unless the PR changes no path the suite depends on.
 | A rewrite happened | Assert the rewritten image and the `kuik.enix.io/rewrites` annotation (`kuik.enix.io/no-alternatives` when every candidate failed) |
 | A counter moved | The kuik counters are per replica: `webhookMetric` reads one on each webhook pod (`kubectl get --raw /api/v1/namespaces/<ns>/pods/<pod>:8080/proxy/metrics`). Compare pod by pod when every replica must move, as after a config reload; sum when any replica may serve the admission |
 | kuik left a pod untouched | Proves nothing alone. Order the specs so that a rewrite proves the webhook is called before any "untouched" spec |
-| A config change | `setConfig` (`kubectl patch` of the ConfigMap), never `helm upgrade`, and allow up to 3m for the kubelet to sync it into the pods. Prove it loaded through behaviour: `webhook.availabilityCheck.timeout: 1ms` fails every probe, so a replica that loaded it stops rewriting |
+| A config change | `setConfig(mergeConfig(original, fragment))`: a YAML deep merge of the fragment onto the release's config, written with `kubectl patch` of the ConfigMap, never `helm upgrade`. On the e2e cluster the kubelet syncs it into the pods in about 10 to 15s; 3m stays the upper bound. Prove it loaded through behaviour: `webhook.availabilityCheck.timeout: 1ms` fails every probe, so a replica that loaded it stops rewriting |
+| Any wait | On behaviour (`replicasRouting`, an observed status), never on a period: the e2e cluster syncs ConfigMaps every 10s and the e2e release checks registries every 10s, while real clusters keep 1m, so a wait sized on those periods hides one that is too short |
 
-The suite needs internet access: images come from public registries and there is no
-containerd or Kind configuration, so the kubelet never pulls from an in-cluster registry (a
+The suite needs internet access: images come from public registries. Kind gets
+`test/e2e/kind-config.yaml` only (the kubelet `syncFrequency` set to 10s) and containerd no
+configuration, so the kubelet never pulls from an in-cluster registry (a
 plain HTTP registry does not work: the webhook probes an original over HTTPS even when it
 matches an `insecure: true` entry). cert-manager is pulled the same way. The one in-cluster
 registry is the ImageMirror destination of `mirror_test.go`: kuik writes to it, no pod pulls
@@ -79,8 +86,12 @@ the others. A top-level `AfterEach` dumps logs, events and pod descriptions on f
 - [`e2e_suite_test.go`](../../../test/e2e/e2e_suite_test.go): `BeforeSuite` builds the manager
   image, loads it into Kind, installs cert-manager unless present
   (`CERT_MANAGER_INSTALL_SKIP=true` skips it) and runs `deployChart` (the `kuik-system`
-  namespace under the restricted Pod Security profile, `make install`, `make deploy`).
-  `AfterSuite` runs `undeployChart` and removes cert-manager if the suite installed it. The
+  namespace under the restricted Pod Security profile, `make install`, `make deploy` with
+  `test/e2e/values.yaml`, which sets `registries.default.check.interval: 10s`).
+  `KUIK_E2E_SKIP_IMAGE_BUILD=true` loads an image built beforehand instead of building it (CI
+  sets it after a cached buildx build). `AfterSuite` runs `undeployChart` and removes
+  cert-manager if the suite installed it, unless `KUIK_E2E_DISPOSABLE_CLUSTER=true`, which
+  `task test-e2e` sets when it created the cluster and deletes it after the run. The
   top-level `AfterEach` dumps logs, events and pod descriptions on failure. The default
   `Eventually` timeout is 2m. Every command is bounded: `kubectl` (1m), `makeTarget` (10m),
   `runBounded` for any other command, and `kubectlCommand` for a caller that builds the
@@ -101,7 +112,8 @@ the others. A top-level `AfterEach` dumps logs, events and pod descriptions on f
   - `replicasRouting`, `everyReplica`: whether each webhook pod rewrites an unreachable
     origin, asked directly through `kubectl proxy` (`startAPIProxy`, in `BeforeAll`).
   - `webhookMetric`: a counter on each webhook pod.
-  - `setConfig`: replaces the global config file in its ConfigMap.
+  - `setConfig`, `mergeConfig`: replace the global config file in its ConfigMap; a fragment
+    is deep merged onto the release's config first, never appended.
   - `scaleWebhook`, `webhookPods`, `webhookRestarts`, `deploymentAvailable`: the webhook
     Deployment and its pods; `webhookRestarts` is what a "without a restart" spec compares.
   - `kubectlStdin`: kubectl with a manifest on stdin.
@@ -118,6 +130,7 @@ the others. A top-level `AfterEach` dumps logs, events and pod descriptions on f
 | Mistake | Fix |
 | ------- | --- |
 | e2e specs written with the first `test` commit | Add them in the last commit, once the PR is ready |
+| A new file under `test/e2e/` without `//go:build e2e` | Start every file with it: `task test` skips `test/e2e/`, so the miss passes locally |
 | Running the suite on the current kubeconfig, or on a real cluster | `KUBECONFIG=<tmp>/e2e-kubeconfig task test-e2e`, Kind only |
 | Creating the pod right after the CR | Poll `replicasRouting` until every replica sees the CR |
 | Waiting on a server-side dry run | It reaches one replica only: ask each pod with `replicasRouting` |
@@ -125,7 +138,9 @@ the others. A top-level `AfterEach` dumps logs, events and pod descriptions on f
 | Proving a config reload from a log line | Prove it through routing, with a config that changes it |
 | `kubectl create --raw` to a webhook pod | It sends no `Content-Type`, which the webhook refuses: POST through `kubectl proxy` |
 | An HTTP call without a timeout inside `Eventually` | `Eventually` never interrupts a hung poll: bound the client |
+| An assertion on a cluster-wide list or count (`driftedImages` empty) | Assert only on the objects the spec creates: other specs and the platform's own images add entries, in random order |
+| A one-shot `Expect` on something that makes the webhook or a loop reach a real registry | `Eventually` with a bounded timeout: the first probe of a cold host (TLS, token, redirect) can exceed `availabilityCheck.timeout` |
 | A bare `exec.Command` | `utils.Run` waits for the process with no deadline: use `kubectl`, `makeTarget` or `runBounded` |
 | An "untouched" spec with nothing proving the webhook ran | Order it after a spec that shows a rewrite |
 | An in-cluster plain HTTP registry for an image a pod pulls or the webhook probes | `registry.k8s.io` for an answer, `.invalid` for a failure; the ImageMirror destination is the one exception |
-| `helm upgrade` to change the config | `kubectl patch` the ConfigMap, wait up to 3m |
+| `helm upgrade` to change the config | `setConfig(mergeConfig(original, fragment))`, then wait on behaviour (3m at most) |
