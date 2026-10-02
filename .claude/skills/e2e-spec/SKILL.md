@@ -20,6 +20,9 @@ commits, autosquashed once like review fixes. This is the one exception to "a `t
 before each `feat` commit" of [`tests.md`](../../rules/tests.md); unit and envtest specs keep
 that order. The reason: a Kind run takes minutes.
 
+A PR that emits events, reads Secrets or writes a status adds at least one e2e spec that runs
+the call through the chart's RBAC: envtest's admin client hides a missing grant.
+
 On a PR, the suite runs only under the `e2e-ready` label
 ([0013](../../../notes/0013-e2e-ready-label.md)): once the PR is reviewed, its e2e specs are
 pushed and its `fixup!` commits are autosquashed, ask the user to add it. The required `E2E`
