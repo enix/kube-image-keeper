@@ -41,6 +41,7 @@ internal/registry             Registry client: Check, Copy, ListTags, DeleteTag,
 internal/registry/keychain    Registry credentials from docker config Secrets
 internal/registry/credentialprovider  Vendored kubelet keyring, kept as upstream wrote it
 internal/registry/registrytest  In-memory registry fakes for the registry specs
+internal/registry/pacing      The windows that pace every read of a source registry: check rings, copy queues
 internal/info                 Build information and the kuik_build_info collector
 internal/imagepath            Image references, repository paths and the segment trie that matches them
 internal/auth                 Credential resolution order and the reserved Secret names
