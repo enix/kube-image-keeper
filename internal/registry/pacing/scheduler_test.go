@@ -15,6 +15,7 @@ import (
 const (
 	dockerHub = "docker.io"
 	quayIO    = "quay.io"
+	quayImage = "quay.io/a/a:1"
 	imageA    = "docker.io/library/a:1"
 	imageB    = "docker.io/library/b:1"
 	imageC    = "docker.io/library/c:1"
@@ -117,14 +118,14 @@ var _ = Describe("Scheduler", func() {
 			}))
 			docker, quay := newChecker(h), newChecker(h)
 			h.s.SetRing(monitor, dockerHub, []string{imageA, imageB}, kuikv1alpha1.RegistryCheck{}, docker)
-			h.s.SetRing(monitor, quayIO, []string{"quay.io/a/a:1", "quay.io/b/b:1"}, kuikv1alpha1.RegistryCheck{}, quay)
+			h.s.SetRing(monitor, quayIO, []string{quayImage, "quay.io/b/b:1"}, kuikv1alpha1.RegistryCheck{}, quay)
 
 			for range 3 {
 				h.advance(time.Minute)
 			}
 
 			Expect(docker.visits()).To(HaveLen(3))
-			Expect(quay.visits()).To(Equal([]visit{{Ref: "quay.io/a/a:1", At: at(3 * time.Minute)}}))
+			Expect(quay.visits()).To(Equal([]visit{{Ref: quayImage, At: at(3 * time.Minute)}}))
 		})
 
 		It("paces a host without a block of its own on registries.default", func() {
@@ -670,12 +671,95 @@ var _ = Describe("Scheduler", func() {
 	})
 
 	Context("metrics", func() {
-		PIt("exposes the last completed lap of each ring as kuik_check_cycle_duration_seconds by kind, name and registry", func() {})
-		PIt("omits kuik_check_cycle_duration_seconds for a ring until its first lap completes", func() {})
-		PIt("exposes the start of the lap in progress as kuik_check_cycle_started_timestamp_seconds", func() {})
-		PIt("exposes the size of each ring as kuik_check_ring_images", func() {})
-		PIt("exposes the check and copy intervals of every scheduled host as kuik_registry_interval_seconds", func() {})
-		PIt("reflects a reload in kuik_registry_interval_seconds", func() {})
-		PIt("drops the series of a removed ring", func() {})
+		const (
+			monitorRing = "kind=ImageMonitor,name=cluster-images,registry=docker.io"
+			mirrorRing  = "kind=ImageMirror,name=upstream,registry=docker.io"
+		)
+		var (
+			h *harness
+			c *fakeChecker
+		)
+		BeforeEach(func() {
+			h = run(pacing(time.Minute, 3*time.Minute, nil))
+			c = newChecker(h)
+		})
+		windows := func(n int) {
+			GinkgoHelper()
+			for range n {
+				h.advance(time.Minute)
+			}
+		}
+
+		It("exposes the last completed lap of each ring as kuik_check_cycle_duration_seconds by kind, name and registry", func() {
+			h.s.SetRing(monitor, dockerHub, []string{imageA}, kuikv1alpha1.RegistryCheck{}, c)
+			h.s.SetRing(mirror, dockerHub, []string{imageX}, kuikv1alpha1.RegistryCheck{}, newChecker(h))
+			windows(4)
+
+			Expect(gauges(h.s.Collector(), "kuik_check_cycle_duration_seconds")).To(Equal(map[string]float64{
+				monitorRing: 120,
+				mirrorRing:  120,
+			}))
+		})
+
+		It("omits kuik_check_cycle_duration_seconds for a ring until its first lap completes", func() {
+			h.s.SetRing(monitor, dockerHub, []string{imageA, imageB}, kuikv1alpha1.RegistryCheck{}, c)
+			windows(2)
+			Expect(gauges(h.s.Collector(), "kuik_check_cycle_duration_seconds")).To(BeEmpty())
+		})
+
+		It("exposes the start of the lap in progress as kuik_check_cycle_started_timestamp_seconds", func() {
+			h.s.SetRing(monitor, dockerHub, []string{imageA, imageB}, kuikv1alpha1.RegistryCheck{}, c)
+			windows(1)
+			Expect(gauges(h.s.Collector(), "kuik_check_cycle_started_timestamp_seconds")).To(Equal(map[string]float64{
+				monitorRing: float64(at(time.Minute).Unix()),
+			}))
+		})
+
+		It("exposes the size of each ring as kuik_check_ring_images", func() {
+			h.s.SetRing(monitor, dockerHub, []string{imageA, imageB, imageC}, kuikv1alpha1.RegistryCheck{}, c)
+			h.s.SetRing(mirror, dockerHub, []string{imageX, imageY}, kuikv1alpha1.RegistryCheck{}, newChecker(h))
+			Expect(gauges(h.s.Collector(), "kuik_check_ring_images")).To(Equal(map[string]float64{
+				monitorRing: 3,
+				mirrorRing:  2,
+			}))
+		})
+
+		It("exposes the check and copy intervals of every scheduled host as kuik_registry_interval_seconds", func() {
+			h.s.SetConfig(pacing(time.Minute, 3*time.Minute, map[string]config.RegistryPacing{
+				quayIO: {Check: window(5*time.Minute, 0)},
+			}))
+			h.s.SetRing(monitor, dockerHub, []string{imageA}, kuikv1alpha1.RegistryCheck{}, c)
+			h.s.SetCopyQueue(mirror, quayIO, []string{quayImage}, newCopier(h))
+
+			Expect(gauges(h.s.Collector(), "kuik_registry_interval_seconds")).To(Equal(map[string]float64{
+				"operation=Check,registry=docker.io": 60,
+				"operation=Copy,registry=docker.io":  180,
+				"operation=Check,registry=quay.io":   300,
+				"operation=Copy,registry=quay.io":    180,
+			}))
+		})
+
+		It("reflects a reload in kuik_registry_interval_seconds", func() {
+			h.s.SetRing(monitor, dockerHub, []string{imageA}, kuikv1alpha1.RegistryCheck{}, c)
+			h.s.SetConfig(pacing(2*time.Minute, 3*time.Minute, nil))
+			Expect(gauges(h.s.Collector(), "kuik_registry_interval_seconds")).To(HaveKeyWithValue("operation=Check,registry=docker.io", 120.0))
+		})
+
+		It("drops the series of a removed ring", func() {
+			h.s.SetRing(monitor, dockerHub, []string{imageA}, kuikv1alpha1.RegistryCheck{}, c)
+			h.s.SetRing(mirror, dockerHub, []string{imageX}, kuikv1alpha1.RegistryCheck{}, newChecker(h))
+			windows(4)
+
+			h.s.RemoveRing(mirror, dockerHub)
+
+			for _, name := range []string{
+				"kuik_check_cycle_duration_seconds",
+				"kuik_check_cycle_started_timestamp_seconds",
+				"kuik_check_ring_images",
+			} {
+				Expect(gauges(h.s.Collector(), name)).NotTo(HaveKey(mirrorRing), name)
+				Expect(gauges(h.s.Collector(), name)).To(HaveKey(monitorRing), name)
+			}
+		})
 	})
 })

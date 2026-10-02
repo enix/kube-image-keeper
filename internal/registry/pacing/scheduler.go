@@ -601,5 +601,14 @@ func (s *Scheduler) SetCopyQueue(owner Owner, host string, refs []string, c Copi
 // Collector returns the scheduling health metrics, computed from the current rings and
 // config on every scrape.
 func (s *Scheduler) Collector() prometheus.Collector {
-	return nil
+	return collector{s: s}
 }
+
+// collector reads the scheduling health from a scheduler on every scrape.
+type collector struct {
+	s *Scheduler
+}
+
+func (c collector) Describe(ch chan<- *prometheus.Desc) {}
+
+func (c collector) Collect(ch chan<- prometheus.Metric) {}
