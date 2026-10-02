@@ -5,12 +5,14 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/prometheus/client_golang/prometheus"
 	clocktesting "k8s.io/utils/clock/testing"
 
 	"github.com/enix/kube-image-keeper/internal/config"
@@ -98,6 +100,31 @@ func (h *harness) advance(d time.Duration) {
 	h.settle()
 	h.clk.Step(d)
 	h.settle()
+}
+
+// gauges collects the series of the metric name from c, keyed by their labels written
+// `label=value,...` in label order.
+func gauges(c prometheus.Collector, name string) map[string]float64 {
+	GinkgoHelper()
+	reg := prometheus.NewPedanticRegistry()
+	Expect(reg.Register(c)).To(Succeed())
+	families, err := reg.Gather()
+	Expect(err).NotTo(HaveOccurred())
+
+	series := map[string]float64{}
+	for _, f := range families {
+		if f.GetName() != name {
+			continue
+		}
+		for _, m := range f.GetMetric() {
+			labels := make([]string, 0, len(m.GetLabel()))
+			for _, l := range m.GetLabel() {
+				labels = append(labels, l.GetName()+"="+l.GetValue())
+			}
+			series[strings.Join(labels, ",")] = m.GetGauge().GetValue()
+		}
+	}
+	return series
 }
 
 // answer is the response a fake checker gets for ref: a digest of its own, so that a reused
