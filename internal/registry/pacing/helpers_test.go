@@ -3,6 +3,7 @@ package pacing
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -38,8 +39,6 @@ func window(interval, timeout time.Duration) *config.Window {
 
 // pacing is a config whose `registries.default` checks every check and copies every copy,
 // with timeouts long enough to stay out of the way, and hosts as the host blocks.
-//
-//nolint:unparam // the copy specs vary copy once the copy queues are specified
 func pacing(check, copy time.Duration, hosts map[string]config.RegistryPacing) *config.Config {
 	if hosts == nil {
 		hosts = map[string]config.RegistryPacing{}
@@ -205,4 +204,93 @@ func (f *fakeChecker) responses(ref string) []Response {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]Response(nil), f.checked[ref]...)
+}
+
+// fakeCopier records the copies a queue asks for. Copy succeeds at once, unless the ref is
+// held, then it waits for release or for its context, or failing, then it returns an error.
+type fakeCopier struct {
+	clk *clocktesting.FakeClock
+
+	mu      sync.Mutex
+	copies  []visit
+	held    map[string]chan struct{}
+	ended   map[string]time.Time
+	failing map[string]bool
+}
+
+func newCopier(h *harness) *fakeCopier {
+	return &fakeCopier{
+		clk:     h.clk,
+		held:    map[string]chan struct{}{},
+		ended:   map[string]time.Time{},
+		failing: map[string]bool{},
+	}
+}
+
+// hold makes the next copies of ref wait until release.
+func (f *fakeCopier) hold(ref string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.held[ref] = make(chan struct{})
+}
+
+// release lets the held copies of ref finish.
+func (f *fakeCopier) release(ref string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	close(f.held[ref])
+	delete(f.held, ref)
+}
+
+// fail makes every copy of ref fail.
+func (f *fakeCopier) fail(ref string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.failing[ref] = true
+}
+
+func (f *fakeCopier) Copy(ctx context.Context, ref string) error {
+	f.mu.Lock()
+	f.copies = append(f.copies, visit{Ref: ref, At: f.clk.Now()})
+	held, failing := f.held[ref], f.failing[ref]
+	f.mu.Unlock()
+
+	if held != nil {
+		select {
+		case <-held:
+		case <-ctx.Done():
+			f.mu.Lock()
+			f.ended[ref] = f.clk.Now()
+			f.mu.Unlock()
+			return ctx.Err()
+		}
+	}
+	if failing {
+		return errors.New("copy failed")
+	}
+	return nil
+}
+
+// visits returns the copies received so far.
+func (f *fakeCopier) visits() []visit {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]visit(nil), f.copies...)
+}
+
+// refs returns the references copied so far, in order.
+func (f *fakeCopier) refs() []string {
+	visits := f.visits()
+	refs := make([]string, 0, len(visits))
+	for _, v := range visits {
+		refs = append(refs, v.Ref)
+	}
+	return refs
+}
+
+// abandonedAt returns when the context of a held copy of ref was cancelled.
+func (f *fakeCopier) abandonedAt(ref string) time.Time {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.ended[ref]
 }
