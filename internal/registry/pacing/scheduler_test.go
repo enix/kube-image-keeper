@@ -241,10 +241,66 @@ var _ = Describe("Scheduler", func() {
 	})
 
 	Context("verdict cache", func() {
-		PIt("reuses a response another ring obtained after this ring last visited the image, without spending a window", func() {})
-		PIt("spends a window on an image whose cached response is older than this ring's last visit of it", func() {})
-		PIt("laps two rings created together over the same images in the windows of one", func() {})
-		PIt("brings a ring created in the middle of another's lap over the same images down to the windows of one", func() {})
+		var (
+			h               *harness
+			monitors, drift *fakeChecker
+		)
+		BeforeEach(func() {
+			h = run(pacing(time.Minute, time.Hour, nil))
+			monitors, drift = newChecker(h), newChecker(h)
+		})
+		windows := func(n int) {
+			GinkgoHelper()
+			for range n {
+				h.advance(time.Minute)
+			}
+		}
+		lap := func(owner Owner) *metav1.Duration {
+			GinkgoHelper()
+			checks := h.s.RegistryChecks(owner)
+			Expect(checks).To(HaveLen(1))
+			return checks[0].CycleDuration
+		}
+		images := []string{imageA, imageB, imageC, "docker.io/library/d:1"}
+
+		It("reuses a response another ring obtained after this ring last visited the image, without spending a window", func() {
+			h.s.SetRing(monitor, dockerHub, []string{imageA}, kuikv1alpha1.RegistryCheck{}, monitors)
+			h.s.SetRing(mirror, dockerHub, []string{imageA, imageB}, kuikv1alpha1.RegistryCheck{}, drift)
+			windows(2)
+
+			Expect(drift.refs()).NotTo(ContainElement(imageA))
+			Expect(drift.responses(imageA)).To(Equal([]Response{answer(imageA)}))
+			Expect(len(monitors.visits()) + len(drift.visits())).To(Equal(2))
+		})
+
+		It("spends a window on an image whose cached response is older than this ring's last visit of it", func() {
+			h.s.SetRing(monitor, dockerHub, []string{imageA, imageB, imageC}, kuikv1alpha1.RegistryCheck{}, monitors)
+			h.s.SetRing(mirror, dockerHub, []string{imageA}, kuikv1alpha1.RegistryCheck{}, drift)
+			windows(2)
+			Expect(drift.visits()).To(BeEmpty())
+
+			windows(1)
+			Expect(drift.visits()).To(Equal([]visit{{Ref: imageA, At: at(3 * time.Minute)}}))
+		})
+
+		It("laps two rings created together over the same images in the windows of one", func() {
+			h.s.SetRing(monitor, dockerHub, images, kuikv1alpha1.RegistryCheck{}, monitors)
+			h.s.SetRing(mirror, dockerHub, images, kuikv1alpha1.RegistryCheck{}, drift)
+			windows(10)
+
+			Expect(lap(monitor)).To(PointTo(HaveField("Duration", 4*time.Minute)))
+			Expect(lap(mirror)).To(PointTo(HaveField("Duration", 4*time.Minute)))
+		})
+
+		It("brings a ring created in the middle of another's lap over the same images down to the windows of one", func() {
+			h.s.SetRing(monitor, dockerHub, images, kuikv1alpha1.RegistryCheck{}, monitors)
+			windows(2)
+			h.s.SetRing(mirror, dockerHub, images, kuikv1alpha1.RegistryCheck{}, drift)
+			windows(16)
+
+			Expect(lap(monitor)).To(PointTo(HaveField("Duration", 4*time.Minute)))
+			Expect(lap(mirror)).To(PointTo(HaveField("Duration", 4*time.Minute)))
+		})
 	})
 
 	Context("laps", func() {
