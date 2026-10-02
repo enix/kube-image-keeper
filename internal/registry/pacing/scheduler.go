@@ -84,17 +84,57 @@ func (s *series) next(now time.Time) time.Time {
 	return s.origin.Add(k * s.interval)
 }
 
-// host is the budget of one registry host and the rings that share it.
+// host is the budget of one registry host and the rings and queues that share it.
 type host struct {
 	name  string
 	check series
-	// due is the next check window.
-	due   time.Time
-	rings []*ring
+	copy  series
+	// due and copyDue are the next check and copy windows.
+	due     time.Time
+	copyDue time.Time
+	queues  []*queue
+	// copyTurn is the index of the queue the next copy window goes to.
+	copyTurn int
+	rings    []*ring
 	// turn is the index of the ring the next check window goes to.
 	turn int
 	// cache holds the last response of every reference of the host, whichever ring got it.
 	cache map[string]cached
+}
+
+// queue is the references one mirror still owes from one source host, in its order. It is
+// drained, not cycled: what it holds is persisted nowhere.
+type queue struct {
+	owner  Owner
+	refs   []string
+	copier Copier
+	// next is the reference the next attempt takes, the one after the last attempted: a
+	// failing image does not hold back the others.
+	next string
+}
+
+// take returns the next reference, or the first one when there is none, and moves next to
+// the one after it.
+func (q *queue) take() string {
+	i := max(slices.Index(q.refs, q.next), 0)
+	q.next = q.refs[(i+1)%len(q.refs)]
+	return q.refs[i]
+}
+
+// replace sets the references q owes. When next is gone, typically copied and dropped by
+// the mirror, the position moves on to the first reference after it, in the previous order,
+// that q still owes.
+func (q *queue) replace(refs []string) {
+	if i := slices.Index(q.refs, q.next); i >= 0 {
+		q.next = ""
+		for k := range len(q.refs) {
+			if ref := q.refs[(i+k)%len(q.refs)]; slices.Contains(refs, ref) {
+				q.next = ref
+				break
+			}
+		}
+	}
+	q.refs = slices.Clone(refs)
 }
 
 // cached is a response and the window that obtained it.
@@ -209,7 +249,9 @@ func (s *Scheduler) notify() {
 func (s *Scheduler) phase(h *host) {
 	p := s.cfg.Registries.For(h.name)
 	h.check = series{origin: s.start, interval: p.Check.Interval}
+	h.copy = series{origin: s.start, interval: p.Copy.Interval}
 	h.due = h.check.next(s.start)
+	h.copyDue = h.copy.next(s.start)
 }
 
 // hostFor returns the host named name, created on first use. s.mu is held.
@@ -228,16 +270,52 @@ func (s *Scheduler) hostFor(name string) *host {
 // open opens every window due at now and returns when the next one is. s.mu is held.
 func (s *Scheduler) open(now time.Time) time.Time {
 	var next time.Time
+	earliest := func(t time.Time) {
+		if next.IsZero() || t.Before(next) {
+			next = t
+		}
+	}
 	for _, h := range s.hosts {
 		if !now.Before(h.due) {
 			s.openCheck(h, now)
 			h.due = h.check.next(now)
 		}
-		if next.IsZero() || h.due.Before(next) {
-			next = h.due
+		if !now.Before(h.copyDue) {
+			s.openCopy(h)
+			h.copyDue = h.copy.next(now)
 		}
+		earliest(h.due)
+		earliest(h.copyDue)
 	}
 	return next
+}
+
+// openCopy hands a copy window of h to the next queue, in round-robin. The window is lost
+// when every queue is empty or the previous copy still transfers. s.mu is held.
+func (s *Scheduler) openCopy(h *host) {
+	if h.copy.busy || len(h.queues) == 0 {
+		return
+	}
+	q := h.queues[h.copyTurn%len(h.queues)]
+	h.copyTurn = (h.copyTurn + 1) % len(h.queues)
+	ref := q.take()
+	h.copy.busy = true
+	s.running++
+	go s.copyImage(h, q.copier, ref, s.cfg.Registries.For(h.name).Copy.Timeout)
+}
+
+// copyImage copies ref with c, abandoning it after timeout unless timeout is 0.
+func (s *Scheduler) copyImage(h *host, c Copier, ref string, timeout time.Duration) {
+	ctx, cancel := s.bounded(timeout)
+	// A failed copy stays in the queue of its mirror, which reports it: the window it
+	// spent is all the scheduler accounts for.
+	_ = c.Copy(ctx, ref)
+	cancel()
+
+	s.mu.Lock()
+	h.copy.busy = false
+	s.running--
+	s.mu.Unlock()
 }
 
 // openCheck hands a check window of h to the next ring with an image, in round-robin. A ring
@@ -471,7 +549,29 @@ func (s *Scheduler) RegistryChecks(owner Owner) []kuikv1alpha1.RegistryCheck {
 
 // SetCopyQueue sets the references owner still owes from host, copied by c in that order.
 // An empty refs drops the queue.
-func (s *Scheduler) SetCopyQueue(owner Owner, host string, refs []string, c Copier) {}
+func (s *Scheduler) SetCopyQueue(owner Owner, host string, refs []string, c Copier) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	defer s.notify()
+
+	h := s.hostFor(host)
+	i := slices.IndexFunc(h.queues, func(q *queue) bool { return q.owner == owner })
+	switch {
+	case len(refs) == 0 && i >= 0:
+		h.queues = slices.Delete(h.queues, i, i+1)
+		if len(h.queues) > 0 {
+			h.copyTurn %= len(h.queues)
+		} else {
+			h.copyTurn = 0
+		}
+	case len(refs) == 0:
+	case i >= 0:
+		h.queues[i].replace(refs)
+		h.queues[i].copier = c
+	default:
+		h.queues = append(h.queues, &queue{owner: owner, refs: slices.Clone(refs), copier: c})
+	}
+}
 
 // Collector returns the scheduling health metrics, computed from the current rings and
 // config on every scrape.
