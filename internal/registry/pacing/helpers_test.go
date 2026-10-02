@@ -2,14 +2,18 @@ package pacing
 
 import (
 	"context"
+	"crypto/sha256"
+	"fmt"
 	"sync"
 	"time"
 
+	v1 "github.com/google/go-containerregistry/pkg/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	clocktesting "k8s.io/utils/clock/testing"
 
 	"github.com/enix/kube-image-keeper/internal/config"
+	"github.com/enix/kube-image-keeper/internal/registry"
 )
 
 // origin is when every spec starts its scheduler.
@@ -97,6 +101,13 @@ func (h *harness) advance(d time.Duration) {
 	h.settle()
 }
 
+// answer is the response a fake checker gets for ref: a digest of its own, so that a reused
+// response can be told from a fresh one.
+func answer(ref string) Response {
+	digest := v1.Hash{Algorithm: "sha256", Hex: fmt.Sprintf("%x", sha256.Sum256([]byte(ref)))}
+	return Response{Result: &registry.CheckResult{Descriptor: v1.Descriptor{Digest: digest}}}
+}
+
 // visit is one call a fake checker received.
 type visit struct {
 	Ref string
@@ -146,11 +157,11 @@ func (f *fakeChecker) Check(ctx context.Context, ref string) Response {
 	f.mu.Unlock()
 
 	if held == nil {
-		return Response{}
+		return answer(ref)
 	}
 	select {
 	case <-held:
-		return Response{}
+		return answer(ref)
 	case <-ctx.Done():
 		f.mu.Lock()
 		f.ended[ref] = f.clk.Now()
