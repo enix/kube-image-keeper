@@ -1,0 +1,56 @@
+name: Dependabot
+
+# Approves the Dependabot pull requests that target main and enables auto-merge on them: GitHub
+# merges them by rebase once Conform, Test and E2E pass. Dependabot adds the e2e-ready label
+# itself, see .github/dependabot.yml. Major updates, the kubernetes group and maintenance
+# branches are left to a human review.
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+    branches:
+      - main
+
+permissions: {}
+
+jobs:
+  auto-merge:
+    name: Auto-merge
+    # The actor check skips a push by anyone else on a Dependabot branch.
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PR_URL: ${{ github.event.pull_request.html_url }}
+    steps:
+      - name: Fetch the update metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v3
+
+      # update-type is the highest change of the PR, so one major update in a group excludes it.
+      - name: Leave major updates and the kubernetes group to a review
+        id: policy
+        env:
+          UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
+          GROUP: ${{ steps.metadata.outputs.dependency-group }}
+        run: |
+          if [ "$UPDATE_TYPE" = version-update:semver-major ] || [ "$GROUP" = kubernetes ]; then
+            echo "::notice::Left to a human review (update type: $UPDATE_TYPE, group: ${GROUP:-none})"
+            echo "auto-merge=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "auto-merge=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # A push by Dependabot (a rebase) dismisses the previous approval, so it approves again.
+      - name: Approve
+        if: steps.policy.outputs.auto-merge == 'true'
+        run: gh pr review "$PR_URL" --approve
+
+      - name: Enable auto-merge
+        if: steps.policy.outputs.auto-merge == 'true'
+        run: gh pr merge "$PR_URL" --auto --rebase

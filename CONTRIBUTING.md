@@ -65,6 +65,8 @@ The automated review (CodeRabbit) runs once, when the pull request is opened; co
 
 `Conform`, `Test` and `E2E` are required checks. A pull request that changes no file the e2e suite depends on passes `E2E` without running it and needs no label. Otherwise the suite, which takes minutes on a Kind cluster, runs once, on the branch as it will merge: add the `e2e-ready` label once the pull request is reviewed, its e2e specs are pushed and its `fixup!` commits are autosquashed. Until then, `E2E` fails at once and says what is missing. A failure is fixed with `fixup!` commits, which pause the suite until the next autosquash and force-push.
 
+Dependabot pull requests that target `main` carry the `e2e-ready` label from the start, and a workflow approves them and enables auto-merge: they are merged once the required checks pass. Major updates, the `kubernetes` group and the pull requests that target a maintenance branch are reviewed and merged by hand.
+
 ### Commit scopes
 
 Scopes in commit messages are optional, but when used they must belong to the list below. Each scope fits into one of the following categories:
