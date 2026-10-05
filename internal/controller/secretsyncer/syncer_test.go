@@ -1,6 +1,7 @@
 package secretsyncer
 
 import (
+	"sync/atomic"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -8,6 +9,7 @@ import (
 
 	authorizationv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -143,6 +145,25 @@ var _ = Describe("Secret syncer", func() {
 			createSource(missing, "late", "ghcr.io")
 
 			Eventually(users(ns, cr)).WithTimeout(timeout).Should(Equal(map[string]string{quayGroup: robot, ghcrGroup: "late"}))
+		})
+
+		It("retries a pair whose source could not be read, rather than writing it without that credential", func() {
+			createSource(source, robot, "quay.io")
+			ns := createNamespace(scope)
+			cr := createAlternative(always, scope, group(quayGroup, injectedAuth(source)), group(ghcrGroup, nil))
+			var failed atomic.Bool
+			start(startOptions{wrap: func(c client.Client) client.Client {
+				return failingGet{Client: c, fail: func(key client.ObjectKey, obj client.Object) error {
+					if _, ok := obj.(*corev1.Secret); ok && key.Name == source && failed.CompareAndSwap(false, true) {
+						return apierrors.NewServiceUnavailable("transient")
+					}
+					return nil
+				}}
+			}})
+
+			Eventually(users(ns, cr)).WithTimeout(timeout).Should(Equal(map[string]string{quayGroup: robot}))
+			Expect(failed.Load()).To(BeTrue(), "the first read of the source failed")
+			Expect(failedEvents(cr)()).To(BeEmpty())
 		})
 
 		It("provisions a namespace entering the scope of an Always resource", func() {
