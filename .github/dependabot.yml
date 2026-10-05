@@ -1,10 +1,19 @@
 version: 2
+# The entries that target main add the e2e-ready label: a label added by Dependabot triggers
+# the E2E workflow, one added from a workflow with GITHUB_TOKEN would not. Setting labels
+# replaces the default ones, so each entry lists them again. Except for major updates and the
+# kubernetes group, the PRs are then merged automatically once the required checks pass, see
+# .github/workflows/dependabot.yaml.
 updates:
   - package-ecosystem: "github-actions"
     open-pull-requests-limit: 1
     directory: "/"
     schedule:
       interval: "monthly"
+    labels:
+      - "dependencies"
+      - "github_actions"
+      - "e2e-ready"
     groups:
       minor-and-patch:
         applies-to: version-updates
@@ -30,6 +39,10 @@ updates:
       day: "monday"
       time: "10:00"
       timezone: "Europe/Paris"
+    labels:
+      - "dependencies"
+      - "go"
+      - "e2e-ready"
     # Supply-chain protection: wait a few days before adopting fresh releases.
     # Does not delay security updates.
     cooldown:
@@ -63,6 +76,10 @@ updates:
     directory: "/website"
     schedule:
       interval: "monthly"
+    labels:
+      - "dependencies"
+      - "javascript"
+      - "e2e-ready"
     cooldown:
       default-days: 7
     groups:
@@ -83,6 +100,10 @@ updates:
     directory: "/"
     schedule:
       interval: "monthly"
+    labels:
+      - "dependencies"
+      - "docker"
+      - "e2e-ready"
     groups:
       all:
         applies-to: version-updates
