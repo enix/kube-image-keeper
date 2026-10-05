@@ -75,6 +75,8 @@ type startOptions struct {
 	syncPeriod time.Duration
 	debounce   time.Duration
 	clock      *clock
+	// wrap replaces the client the syncer reads and writes with, to inject failures.
+	wrap func(client.Client) client.Client
 }
 
 // start runs a syncer as syncerUser in a manager of its own, stopped at the end of the spec.
@@ -105,7 +107,11 @@ func start(opts startOptions) *running {
 	if opts.clock != nil {
 		syncerOptions.Now = opts.clock.Now
 	}
-	s, err := New(mgr.GetClient(), syncerOptions)
+	c := mgr.GetClient()
+	if opts.wrap != nil {
+		c = opts.wrap(c)
+	}
+	s, err := New(c, syncerOptions)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(s.SetupWithManager(mgr)).To(Succeed())
 
@@ -119,6 +125,19 @@ func start(opts startOptions) *running {
 	r := &running{registry: registry, stop: func() { stop(); <-done }}
 	DeferCleanup(r.stop)
 	return r
+}
+
+// failingGet is a client whose Get returns the error fail gives, when it gives one.
+type failingGet struct {
+	client.Client
+	fail func(key client.ObjectKey, obj client.Object) error
+}
+
+func (f failingGet) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if err := f.fail(key, obj); err != nil {
+		return err
+	}
+	return f.Client.Get(ctx, key, obj, opts...)
 }
 
 // applies is the value of kuik_secret_applies_total{result}.
