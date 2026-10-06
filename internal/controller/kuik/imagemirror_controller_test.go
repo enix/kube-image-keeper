@@ -13,6 +13,7 @@ import (
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -973,10 +974,112 @@ var _ = Describe("ImageMirror Controller", func() {
 	})
 
 	Describe("deleting the ImageMirror", func() {
-		PIt("holds its finalizer while a pod still runs one of its destination references", func() {})
-		PIt("deletes the tags of this cluster once no pod runs one of its destination references, then releases its finalizer", func() {})
-		PIt("releases its finalizer without deleting anything when cleanup is disabled, once no pod runs one of its destination references", func() {})
-		PIt("removes the series of a deleted mirror", func() {})
+		var (
+			src      *registrytest.Registry
+			ns       string
+			mirrored string
+		)
+		// routedToCopy copies acme/app:v1 of src, then runs a pod routed to the copy.
+		routedToCopy := func(mutate ...func(*kuikv1alpha1.ImageMirror)) *corev1.Pod {
+			GinkgoHelper()
+			src = h.source()
+			src.Push("acme/app:v1", registrytest.Image())
+			ns = h.namespace()
+			first := createPod(ns, unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+			h.mirror(mutate...)
+			h.copyAll(1)
+			Expect(k8sClient.Delete(ctx, first)).To(Succeed())
+			mirrored = h.destination.Host() + "/" + destinationTag(src, "acme/app")
+			return createPod(ns, unique("pod"), container{name: appContainer, image: mirrored, rewrite: &podrecord.Rewrite{
+				By: routing.KindImageMirror + "/" + h.name, Origin: src.Host() + "/acme/app:v1", RewrittenTo: mirrored,
+				Policy: string(kuikv1alpha1.RewritePolicyAlways),
+			}})
+		}
+		deleteMirror := func() {
+			GinkgoHelper()
+			Expect(k8sClient.Delete(ctx, &kuikv1alpha1.ImageMirror{ObjectMeta: metav1.ObjectMeta{Name: h.name}})).To(Succeed())
+		}
+		gone := func() bool {
+			err := k8sClient.Get(ctx, types.NamespacedName{Name: h.name}, &kuikv1alpha1.ImageMirror{})
+			return apierrors.IsNotFound(err)
+		}
+
+		It("holds its finalizer while a pod still runs one of its destination references", func() {
+			routedToCopy()
+			deleteMirror()
+
+			h.reconcile()
+			Expect(gone()).To(BeFalse())
+			Expect(h.copied(destinationTag(src, "acme/app"))()).To(Succeed())
+		})
+
+		It("deletes the tags of this cluster once no pod runs one of its destination references, then releases its finalizer", func() {
+			pod := routedToCopy()
+			h.destination.Push(strings.TrimSuffix(destinationTag(src, "acme/app"), mirrorClusterID)+"cluster-b", registrytest.Image())
+			deleteMirror()
+			h.reconcile()
+
+			Expect(k8sClient.Delete(ctx, pod)).To(Succeed())
+			h.reconcile()
+			Expect(gone()).To(BeTrue())
+			Expect(h.copied(destinationTag(src, "acme/app"))()).NotTo(Succeed())
+			Expect(h.copied(strings.TrimSuffix(destinationTag(src, "acme/app"), mirrorClusterID) + "cluster-b")()).To(Succeed())
+		})
+
+		It("releases its finalizer without deleting anything when cleanup is disabled, once no pod runs one of its destination references", func() {
+			pod := routedToCopy(func(im *kuikv1alpha1.ImageMirror) {
+				disabled := false
+				im.Spec.Cleanup = &kuikv1alpha1.Cleanup{Enabled: &disabled}
+			})
+			deleteMirror()
+			h.reconcile()
+			Expect(gone()).To(BeFalse())
+
+			Expect(k8sClient.Delete(ctx, pod)).To(Succeed())
+			h.reconcile()
+			Expect(gone()).To(BeTrue())
+			Expect(h.copied(destinationTag(src, "acme/app"))()).To(Succeed())
+		})
+
+		It("holds its finalizer while the manage secretRef cannot be read", func() {
+			manage := unique("manage")
+			createSecret(installNamespace, manage, corev1.SecretTypeDockerConfigJson)
+			pod := routedToCopy(func(im *kuikv1alpha1.ImageMirror) { im.Spec.Destination.Manage = secretAuth(manage) })
+			Expect(k8sClient.Delete(ctx, pod)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: installNamespace, Name: manage}})).To(Succeed())
+			deleteMirror()
+
+			h.reconcile()
+			Expect(gone()).To(BeFalse())
+			Expect(h.copied(destinationTag(src, "acme/app"))()).To(Succeed())
+		})
+
+		It("holds its finalizer while the destination refuses tag deletion", func() {
+			pod := routedToCopy()
+			Expect(k8sClient.Delete(ctx, pod)).To(Succeed())
+			h.destination.Intercept(registrytest.Status(http.MethodDelete, "/manifests/", http.StatusMethodNotAllowed, nil))
+			deleteMirror()
+
+			h.reconcile()
+			Expect(gone()).To(BeFalse())
+			Expect(h.copied(destinationTag(src, "acme/app"))()).To(Succeed())
+		})
+
+		It("removes the series of a deleted mirror", func() {
+			h.mirror(withCredentials(unique("missing"), unique("missing")))
+			h.reconcile()
+			_, ok := notReadyGauge(kuikv1alpha1.ReasonSecretNotFound)
+			Expect(ok).To(BeTrue())
+
+			deleteMirror()
+			h.reconcile()
+			Expect(gone()).To(BeTrue())
+			h.reconcile()
+			_, ok = notReadyGauge(kuikv1alpha1.ReasonSecretNotFound)
+			Expect(ok).To(BeFalse())
+			_, ok = gauge(h.metrics, "kuik_mirror_self_checked_timestamp_seconds", map[string]string{labelKind: routing.KindImageMirror, labelName: h.name})
+			Expect(ok).To(BeFalse())
+		})
 	})
 
 	Describe("the routing side", func() {
