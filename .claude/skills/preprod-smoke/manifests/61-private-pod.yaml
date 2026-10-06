@@ -1,0 +1,23 @@
+# Test 11, second half: apply once kuik-inject-imagealternative-kuik-test-private exists in
+# kuik-test. Expected: image rewritten to <private repository>:1.31.6-alpine, that Secret in
+# imagePullSecrets (the pod declares none itself), a Pulled event, Running.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: private
+  namespace: kuik-test
+  labels: {kuik-test/routing: private}
+spec:
+  containers:
+    - name: nginx
+      image: kuik-test-private.invalid/nginx/nginx-unprivileged:1.31.6-alpine
+      # A cached image would skip the pull this test is about.
+      imagePullPolicy: Always
+      resources:
+        requests: {cpu: 10m, memory: 16Mi}
+        limits: {memory: 64Mi}
+      securityContext:
+        runAsNonRoot: true
+        allowPrivilegeEscalation: false
+        capabilities: {drop: [ALL]}
+        seccompProfile: {type: RuntimeDefault}
