@@ -37,7 +37,8 @@ The cluster is not a test cluster: every rule below protects the workloads alrea
 | Deployments | `<fullname>-webhook` (2 replicas by default), `<fullname>-reconciler`, `<fullname>-secret-syncer`; `<fullname>` is the release name, suffixed with `-kube-image-keeper` unless it contains it |
 | Pod selectors | `app.kubernetes.io/name=kube-image-keeper`, plus `app.kubernetes.io/component=<process>` |
 | Manifests | [`manifests/`](./manifests/README.md), next to this file (its README has the expected results) |
-| Test CRs | ImageAlternative `kuik-test-nginx`, ImageMirror `kuik-test-mirror` |
+| Test CRs | ImageAlternatives `kuik-test-nginx`, `kuik-test-pull-secret`, `kuik-test-missing-secret`, ImageMirror `kuik-test-mirror` |
+| Test Secret | `kuik-test-quay-creds` in the kuik namespace: a placeholder, never used for a pull |
 | Test namespaces | `kuik-test` (labelled), `kuik-test-unlabeled` |
 
 Metrics without port-forward, one call per kuik pod (the counters are per replica: only the
@@ -79,8 +80,22 @@ One command each, all with `KUBECONFIG=<path>`:
    policy engine is installed, list its policies in enforce mode (for Kyverno,
    `kubectl get clusterpolicies -o custom-columns=NAME:.metadata.name,ACTION:.spec.validationFailureAction`).
    Report any policy the test pods could break.
+7. The verbosity of every process: `-zap-log-level` in the args of each kuik Deployment, and
+   the Helm values `verbosity`, `webhook.verbosity`, `reconciler.verbosity` and
+   `secretSyncer.verbosity` (`helm -n <ns> get values <release> --all`). Note each value as
+   it is, empty included: an empty process value inherits the root `verbosity`, and cleanup
+   restores it empty.
 
-**STOP. Report the results to the user and wait for the go.**
+**STOP. Report the results to the user and wait for the go.** If any process does not run at
+`debug`, propose to switch them all for the test. `debug` is the highest level kuik logs at.
+The webhook logs there why a candidate was dropped (`Candidate failed its check`), the
+secret syncer each pull Secret it applies, the reconciler each status it writes: without
+them, a missed rewrite or a missing Secret cannot be traced. Without GitOps, on approval,
+set the root `verbosity` and any process value that is not empty:
+`KUBECONFIG=<path> helm upgrade <release> oci://quay.io/enix/charts/kube-image-keeper --version <version> -n <ns> --reuse-values --set verbosity=debug`
+(add `--set <process>.verbosity=debug` for each non-empty one). It restarts the kuik pods
+only; the reconciler and the secret syncer elect a leader again. With GitOps, the user makes
+the change.
 
 ### 3. Adapt the plan
 
@@ -92,7 +107,12 @@ One command each, all with `KUBECONFIG=<path>`:
    3. fallback when the origin is `.invalid` (`fallback` in `30-pods-routing.yaml`);
    4. untouched when the origin answers (`origin-up`);
    5. untouched outside the namespaceSelector (`out-of-scope`);
-   6. ImageMirror with nothing copied keeps the origin (`40-imagemirror.yaml`).
+   6. ImageMirror with nothing copied keeps the origin (`40-imagemirror.yaml`);
+   7. ImageAlternative status after test 3: `activeFallbacks`, `FallbackActive`, `Ready`, the
+      `ImageFallback` event on the pod (reads only, no manifest);
+   8. pull Secret provisioned in the selected namespace only (`50-pull-auth.yaml`);
+   9. missing source Secret reported (same file);
+   10. pull Secret deleted with its ImageAlternative.
 3. Propose simple new tests for what the release adds (for example: status and conditions
    of the CRs once the reconcilers are no longer empty; the mirror pod rewritten once copies
    happen). A new test gets its own manifest file in `manifests/`, scoped as the hard rules
@@ -137,12 +157,16 @@ Write the report where step 1 said. The default is Markdown in the conversation:
 
 **STOP. Only on the user's approval.** Then, one command each:
 
-1. Delete the cluster-scoped CRs first (ImageAlternative `kuik-test-nginx`, ImageMirror
-   `kuik-test-mirror`, any CR added in step 3): deleting the namespaces does not remove them.
-2. Delete namespaces `kuik-test` and `kuik-test-unlabeled`.
-3. Verify nothing named `kuik-test` remains (namespaces, imagealternatives, imagemirrors,
-   and any new kind).
-4. Offer to delete the kubeconfig. The user decides; do not read it.
+1. Delete the cluster-scoped CRs first (the test CRs of [Reference](#reference), any CR
+   added in step 3): deleting the namespaces does not remove them.
+2. Delete the Secret `kuik-test-quay-creds` from the kuik namespace.
+3. Delete namespaces `kuik-test` and `kuik-test-unlabeled`.
+4. Restore every verbosity value noted in step 2, the same way they were switched: the root
+   `verbosity` to its value, and `--set <process>.verbosity=""` for a process value that was
+   empty, never the effective level it resolved to.
+5. Verify nothing named `kuik-test` remains (namespaces, imagealternatives, imagemirrors,
+   the Secret, and any new kind).
+6. Offer to delete the kubeconfig. The user decides; do not read it.
 
 ## Common mistakes
 
