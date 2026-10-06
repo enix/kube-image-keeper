@@ -57,6 +57,23 @@ type mirrorState struct {
 	// there but whose tag of this cluster is gone.
 	recopy    map[string]bool
 	writeBack map[string]bool
+
+	// policy is the driftPolicy the last reconcile read; rings are the hosts this mirror
+	// turns a drift ring on.
+	policy kuikv1alpha1.DriftPolicy
+	rings  map[string]bool
+	// drifted are the copied tags whose upstream digest moved away from the copy; resync
+	// those Sync copies again.
+	drifted map[string]driftEntry
+	resync  map[string]bool
+	// declaring is, for every desired reference, the pod whose pull secrets read it.
+	declaring map[string]*corev1.Pod
+}
+
+// driftEntry is a copied tag whose upstream digest moved, as the last check saw it.
+type driftEntry struct {
+	upstream, copied string
+	at               time.Time
 }
 
 // copySource is the candidates an owed reference may be read from, in the order the webhook
@@ -96,6 +113,10 @@ func newMirrorState() *mirrorState {
 		digests:   map[string]string{},
 		recopy:    map[string]bool{},
 		writeBack: map[string]bool{},
+		rings:     map[string]bool{},
+		drifted:   map[string]driftEntry{},
+		resync:    map[string]bool{},
+		declaring: map[string]*corev1.Pod{},
 	}
 }
 
@@ -275,7 +296,7 @@ func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
 	source, ok := st.sources[ref]
 	// A window of a host reads that host only: a reference handed to a candidate elsewhere
 	// waits for a window there, once the next reconcile moved it to that queue.
-	if !ok || source.host() != c.host || st.copied[ref] {
+	if !ok || source.host() != c.host || (st.copied[ref] && !st.resync[ref]) {
 		st.mu.Unlock()
 		return nil
 	}
@@ -342,11 +363,16 @@ func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
 	case st.recopy[ref]:
 		r.recorder.Eventf(&im, nil, corev1.EventTypeWarning, "ImageRecopied", "Copy",
 			"Copied %s to %s again: something outside kuik deleted it from the destination", ref, destination)
+	case st.resync[ref]:
+		r.recorder.Eventf(&im, nil, corev1.EventTypeNormal, "ImageResynced", "Copy",
+			"Moved the tag of %s at %s onto the upstream's new digest %s", ref, destination, digest)
 	default:
 		r.recorder.Eventf(&im, nil, corev1.EventTypeNormal, "ImageCopied", "Copy", "Copied %s to %s", ref, destination)
 	}
 	delete(st.recopy, ref)
 	delete(st.writeBack, ref)
+	delete(st.resync, ref)
+	delete(st.drifted, ref)
 	return nil
 }
 
@@ -448,13 +474,14 @@ func liveImages(pods []*corev1.Pod) []string {
 
 // owed are the references of desired the destination is not known to hold yet. A reference
 // the last pass found counts as held only in a repository status.repositories lists: an
-// unlisted one would never be swept, so it is copied again, which records it.
+// unlisted one would never be swept, so it is copied again, which records it. A tag Sync
+// resyncs is owed again whatever the destination holds.
 func (st *mirrorState) owed(desired []imagepath.Reference, inventoried func(imagepath.Reference) bool) []imagepath.Reference {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	return slices.DeleteFunc(slices.Clone(desired), func(ref imagepath.Reference) bool {
 		key := ref.String()
-		return st.copied[key] || (st.present[key] && inventoried(ref))
+		return !st.resync[key] && (st.copied[key] || (st.present[key] && inventoried(ref)))
 	})
 }
 
