@@ -181,6 +181,36 @@ func (h *mirrorHarness) deleteTag(ref string) {
 	})).To(Succeed())
 }
 
+// orphan writes the tags of acme/<name> under the destination of a source the mirror does not
+// copy from, as a past copy left them, lists their repository in status.repositories, and
+// returns the destination reference of the first tag, relative to the destination.
+func (h *mirrorHarness) orphan(name string, tags ...string) string {
+	GinkgoHelper()
+	repository := "mirror/quay.io/acme/" + name
+	image := registrytest.Image()
+	for _, tag := range tags {
+		h.destination.Push(repository+":"+tag, image)
+	}
+	h.inventory(h.destination.Host() + "/" + repository)
+	return repository + ":" + tags[0]
+}
+
+// inventory adds repository to the status.repositories of the mirror under test.
+func (h *mirrorHarness) inventory(repository string) {
+	GinkgoHelper()
+	var im kuikv1alpha1.ImageMirror
+	Expect(k8sClient.Get(ctx, types.NamespacedName{Name: h.name}, &im)).To(Succeed())
+	im.Status.Repositories = append(im.Status.Repositories, repository)
+	Expect(k8sClient.Status().Update(ctx, &im)).To(Succeed())
+}
+
+// withRetention sets the cleanup.retention of the mirror under test.
+func withRetention(retention time.Duration) func(*kuikv1alpha1.ImageMirror) {
+	return func(im *kuikv1alpha1.ImageMirror) {
+		im.Spec.Cleanup = &kuikv1alpha1.Cleanup{Retention: &metav1.Duration{Duration: retention}}
+	}
+}
+
 // copyAll runs one copy window per image the mirror owes, n in all, each one waiting for the
 // previous copy to write its manifest: a window opening while a copy runs is lost.
 func (h *mirrorHarness) copyAll(n int) {
