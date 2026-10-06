@@ -68,6 +68,42 @@ type mirrorState struct {
 	resync  map[string]bool
 	// declaring is, for every desired reference, the pod whose pull secrets read it.
 	declaring map[string]*corev1.Pod
+
+	// live are the references the selected pods ran at the last reconcile, nil before the
+	// first one: what tells which reference lost its last pod.
+	live []imagepath.Reference
+	// deleteUnsupported is set once the destination refused a tag deletion as unsupported,
+	// until one succeeds.
+	deleteUnsupported bool
+}
+
+// refusesDeletion reports whether the destination refused the last tag deletion as
+// unsupported.
+func (st *mirrorState) refusesDeletion() bool {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return st.deleteUnsupported
+}
+
+// release returns the references of the previous reconcile no selected pod runs any more,
+// and remembers live for the next one. The first reconcile of a process releases nothing:
+// the sweep finds what fell out of use while it was not running.
+func (st *mirrorState) release(live []imagepath.Reference) []imagepath.Reference {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	previous := st.live
+	st.live = live
+	running := map[string]bool{}
+	for _, ref := range live {
+		running[ref.String()] = true
+	}
+	var released []imagepath.Reference
+	for _, ref := range previous {
+		if !running[ref.String()] {
+			released = append(released, ref)
+		}
+	}
+	return released
 }
 
 // driftEntry is a copied tag whose upstream digest moved, as the last check saw it.

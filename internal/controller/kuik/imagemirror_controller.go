@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -213,9 +214,22 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	st := r.state(im.Name)
-	mirror := plan.Mirror{Path: im.Spec.Destination.Path, ExcludeImages: im.Spec.ExcludeImages, CleanupEnabled: im.Spec.Cleanup.IsEnabled()}
-	desired := plan.Desired(mirror, pods, im.Status.PendingDeletion)
 	clusterID := r.config.Load().ClusterID
+	cleanup := im.Spec.Cleanup.IsEnabled()
+	mirror := plan.Mirror{Path: im.Spec.Destination.Path, ExcludeImages: im.Spec.ExcludeImages, CleanupEnabled: cleanup}
+	live := plan.Desired(plan.Mirror{Path: mirror.Path, ExcludeImages: mirror.ExcludeImages}, pods, nil)
+	now := r.clock.Now()
+	// A reference losing its last pod is held for its retention, which the sweep of the next
+	// pass would only notice an interval later.
+	released := st.release(live)
+	var pending []kuikv1alpha1.PendingDeletion
+	if cleanup {
+		pending = plan.Release(clusterID, mirror.Path, released, live, im.Status.PendingDeletion, now)
+	}
+	// The live references plus the retained ones: reading the pods once is what a mirror
+	// selecting thousands of containers can afford per reconcile.
+	desired := union(live, plan.Desired(mirror, nil, pending))
+	repositories := im.Status.Repositories
 	var (
 		selfChecked *metav1.Time
 		nextPass    time.Duration
@@ -223,8 +237,14 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if !blocked {
 		r.scheduler.SetDestinationScan(destinationHost(im.Spec.Destination.Path))
 		var due bool
-		if due, nextPass = r.passDue(st, r.clock.Now()); due {
+		if due, nextPass = r.passDue(st, now); due {
 			at, err := r.selfCheck(ctx, &im, st, desired)
+			if err == nil && cleanup {
+				var retire []string
+				if pending, retire, err = r.sweep(ctx, &im, st, live, pending, at); err == nil {
+					repositories = slices.DeleteFunc(slices.Clone(repositories), func(repo string) bool { return slices.Contains(retire, repo) })
+				}
+			}
 			switch {
 			case err == nil:
 				selfChecked = &metav1.Time{Time: at}
@@ -276,7 +296,8 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	next.FailedImageCopies = capped.Cap(pass, "failedImageCopies", next.FailedImageCopies,
 		func(e kuikv1alpha1.FailedImageCopy) metav1.Time { return e.Since },
 		func(e kuikv1alpha1.FailedImageCopy) string { return e.Ref })
-	live := plan.Desired(plan.Mirror{Path: mirror.Path, ExcludeImages: mirror.ExcludeImages}, pods, nil)
+	next.PendingDeletion = pending
+	next.Repositories = repositories
 	if selfChecked != nil {
 		next.SelfChecked = selfChecked
 	}
@@ -294,6 +315,12 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	condition.SetAnomaly(&next.Conditions, kuikv1alpha1.ConditionDestinationOutOfSync, counts.Unavailable > 0,
 		kuikv1alpha1.ReasonMissingImages, fmt.Sprintf("%d images not copied yet", counts.Unavailable), im.Generation)
 	next.Truncated = pass.End(&next.Conditions, im.Generation)
+	if notReady == nil && cleanup && st.refusesDeletion() {
+		notReady = &condition.NotReady{
+			Reason:  kuikv1alpha1.ReasonRegistryDeleteUnsupported,
+			Message: "the destination refuses tag deletion: cleanup cannot make progress",
+		}
+	}
 	r.readiness.Set(&im, resource.Kind, resource.Name, &next.Conditions, im.Generation, notReady)
 
 	// The next destination pass is due in nextPass, whatever the pods do meanwhile.
@@ -318,6 +345,20 @@ func (r *ImageMirrorReconciler) forget(resource routing.Resource) {
 	r.limiter.Forget(resource.Kind, resource.Name)
 	r.readiness.Forget(resource.Kind, resource.Name)
 	r.selfChecked.DeleteLabelValues(resource.Kind, resource.Name)
+}
+
+// union returns the references of a and b, once each, sorted as plan.Desired sorts them.
+func union(a, b []imagepath.Reference) []imagepath.Reference {
+	seen := make(map[string]bool, len(a)+len(b))
+	out := make([]imagepath.Reference, 0, len(a)+len(b))
+	for _, ref := range slices.Concat(a, b) {
+		if key := ref.String(); !seen[key] {
+			seen[key] = true
+			out = append(out, ref)
+		}
+	}
+	slices.SortFunc(out, func(x, y imagepath.Reference) int { return strings.Compare(x.String(), y.String()) })
+	return out
 }
 
 // mirrorScope parses the selectors of im, and reports InvalidConfig when one does not parse.
