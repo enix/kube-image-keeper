@@ -100,9 +100,7 @@ func main() {
 		fs.IntVar(&webhookPort, "webhook-port", 9443, "Port the webhook server listens on.")
 	}
 
-	opts := zap.Options{
-		Development: true,
-	}
+	opts := loggerOptions()
 	opts.BindFlags(fs)
 	// ExitOnError: Parse reports the error and exits, -h prints the flags of this process.
 	_ = fs.Parse(os.Args[2:])
@@ -305,7 +303,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	setupLog.Info("Starting manager", "process", proc.name)
+	logStarting(setupLog, proc.name)
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		setupLog.Error(err, "Failed to run manager")
 		os.Exit(1)
