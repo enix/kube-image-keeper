@@ -52,7 +52,8 @@ internal/auth/pullsecret      The desired injected pull Secret of a pair, and it
 internal/config               The global config file: schema, defaults, validation, reload
 internal/routing/podrecord    The three pod annotations the webhook records its decisions in
 internal/status/*             Status building blocks shared by the reconcilers: attribution,
-                              condition, capped (bounded lists), routingstatus
+                              condition, capped (bounded lists), routingstatus, imagemetrics
+                              (the image series ImageMonitor and ImageMirror both export)
 config/                       controller-gen output (CRDs, rbac/role.yaml, webhook), read by envtest
 helm/kube-image-keeper/       The Helm chart, the only deployment path (crds/ and files/ generated)
 test/e2e/                     End-to-end suite, runs on a Kind cluster
