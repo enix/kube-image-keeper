@@ -20,6 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -259,7 +260,7 @@ func (s *Syncer) Reconcile(ctx context.Context, pair pullsecret.Pair) (reconcile
 	}
 	s.applies.WithLabelValues(outcome).Inc()
 	if outcome == resultApplied {
-		log.V(1).Info("Applied pull Secret", "name", *secret.Name)
+		log.V(1).Info("Applied pull Secret", "secret", klog.KRef(pair.Namespace, *secret.Name))
 	}
 
 	s.mu.Lock()
