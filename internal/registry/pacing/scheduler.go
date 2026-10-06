@@ -64,6 +64,9 @@ type Scheduler struct {
 	// start is when Start ran, the origin of every series; zero before.
 	start time.Time
 	hosts map[string]*host
+	// destinations are the hosts of mirror destinations, scanned whole by their ImageMirror
+	// rather than paced: they hold no series and only export their scan interval.
+	destinations map[string]bool
 	// idle is true while the loop waits for its next window, due at due.
 	idle    bool
 	due     time.Time
@@ -162,10 +165,11 @@ type ring struct {
 // New returns a scheduler paced by cfg, whose windows count from Start.
 func New(clk clock.Clock, cfg *config.Config) *Scheduler {
 	return &Scheduler{
-		clk:   clk,
-		cfg:   cfg,
-		wake:  make(chan struct{}, 1),
-		hosts: map[string]*host{},
+		clk:          clk,
+		cfg:          cfg,
+		wake:         make(chan struct{}, 1),
+		hosts:        map[string]*host{},
+		destinations: map[string]bool{},
 	}
 }
 
@@ -600,7 +604,11 @@ func (s *Scheduler) SetCopyQueue(owner Owner, host string, refs []string, c Copi
 
 // SetDestinationScan declares host the destination of an ImageMirror: its scan interval is
 // exported with operation Scan, and no window ever opens on it.
-func (s *Scheduler) SetDestinationScan(host string) {}
+func (s *Scheduler) SetDestinationScan(host string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.destinations[host] = true
+}
 
 // Collector returns the scheduling health metrics, computed from the current rings and
 // config on every scrape.
@@ -664,5 +672,10 @@ func (c collector) Collect(ch chan<- prometheus.Metric) {
 				ch <- prometheus.MustNewConstMetric(cycleDurationDesc, prometheus.GaugeValue, r.cycleDuration.Seconds(), labels...)
 			}
 		}
+	}
+
+	scan := c.s.cfg.Mirror.DestinationScan.Interval.Seconds()
+	for host := range c.s.destinations {
+		ch <- prometheus.MustNewConstMetric(intervalDesc, prometheus.GaugeValue, scan, host, "Scan")
 	}
 }
