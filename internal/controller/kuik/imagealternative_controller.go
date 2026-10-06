@@ -144,7 +144,7 @@ func (r *ImageAlternativeReconciler) Reconcile(ctx context.Context, req ctrl.Req
 			return ctrl.Result{}, err
 		}
 	}
-	pods, err := r.selectedPods(ctx, scope)
+	pods, err := selectedPods(ctx, r, scope)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -246,7 +246,7 @@ func (r *ImageAlternativeReconciler) checkSecrets(ctx context.Context, ia *kuikv
 }
 
 // selectedPods returns the live pods scope selects.
-func (r *ImageAlternativeReconciler) selectedPods(ctx context.Context, s scope) ([]*corev1.Pod, error) {
+func selectedPods(ctx context.Context, r client.Reader, s scope) ([]*corev1.Pod, error) {
 	var namespaces corev1.NamespaceList
 	if err := r.List(ctx, &namespaces); err != nil {
 		return nil, err
