@@ -276,8 +276,44 @@ var _ = Describe("ImageMirror Controller", func() {
 			Eventually(tags("acme/app")).Should(ConsistOf("v1_"+mirrorClusterID, anchor(app)))
 			Eventually(tags("acme/tool")).Should(ConsistOf(anchor(tool)))
 		})
-		PIt("skips a reference whose repository is inventoried and which the destination holds", func() {})
-		PIt("performs a re-copy before the initial copies still pending", func() {})
+		It("skips a reference whose repository is inventoried and which the destination holds", func() {
+			src := h.source()
+			image := registrytest.Image()
+			src.Push("acme/app:v1", image)
+			h.destination.Push(destinationTag(src, "acme/app"), image)
+			src.Reset()
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+			h.mirror()
+			var im kuikv1alpha1.ImageMirror
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: h.name}, &im)).To(Succeed())
+			im.Status.Repositories = []string{h.destinationRepository(src, "acme/app")}
+			Expect(k8sClient.Status().Update(ctx, &im)).To(Succeed())
+
+			h.reconcile()
+			h.window()
+			Consistently(func() []registrytest.Request { return src.Requests("", "/manifests/") }).Should(BeEmpty())
+		})
+
+		It("performs a re-copy before the initial copies still pending", func() {
+			src := h.source()
+			src.Push("acme/zzz:v1", registrytest.Image())
+			src.Push("acme/aaa:v1", registrytest.Image())
+			ns := h.namespace()
+			createPod(ns, unique("pod"), container{name: appContainer, image: src.Host() + "/acme/zzz:v1"})
+			h.mirror()
+			h.reconcile()
+			h.window()
+			Eventually(h.copied(destinationTag(src, "acme/zzz"))).Should(Succeed())
+			h.reconcile()
+
+			h.deleteManifest(destinationTag(src, "acme/zzz"))
+			createPod(ns, unique("pod"), container{name: appContainer, image: src.Host() + "/acme/aaa:v1"})
+			h.pass()
+			h.reconcile()
+			h.window()
+			Eventually(h.copied(destinationTag(src, "acme/zzz"))).Should(Succeed())
+			Expect(h.copied(destinationTag(src, "acme/aaa"))()).NotTo(Succeed())
+		})
 		It("emits ImageCopied on the first copy of an image", func() {
 			src := h.source()
 			src.Push("acme/app:v1", registrytest.Image())
@@ -294,7 +330,24 @@ var _ = Describe("ImageMirror Controller", func() {
 	})
 
 	Describe("choosing the source", func() {
-		PIt("reads an ImageAlternative covering the image when the origin does not answer, for a first copy and a re-copy alike, and writes to the destination derived from the origin", func() {})
+		It("reads an ImageAlternative covering the image when the origin does not answer, for a first copy and a re-copy alike, and writes to the destination derived from the origin", func() {
+			origin, alternative := h.source(), h.source()
+			alternative.Push("acme/app:v1", registrytest.Image())
+			h.alternativeTo(appEntry(origin), appEntry(alternative))
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: origin.Host() + "/acme/app:v1"})
+			h.mirror()
+
+			h.fallBack(alternative)
+			h.window()
+			Eventually(h.copied(destinationTag(origin, "acme/app"))).Should(Succeed())
+			h.reconcile()
+
+			h.deleteManifest(destinationTag(origin, "acme/app"))
+			h.pass()
+			h.fallBack(alternative)
+			h.window()
+			Eventually(h.copied(destinationTag(origin, "acme/app"))).Should(Succeed())
+		})
 		It("reads a private alternative with its own credentials when the origin does not answer", func() {
 			origin := h.source()
 			private := h.source(registrytest.WithBasicAuth("mirror", "s3cr3t"))
@@ -456,13 +509,116 @@ var _ = Describe("ImageMirror Controller", func() {
 	})
 
 	Describe("the self-check", func() {
-		PIt("runs a first pass at startup, then once per mirror.destinationScan.interval", func() {})
-		PIt("stamps selfChecked at the end of a full pass and exports kuik_mirror_self_checked_timestamp_seconds", func() {})
-		PIt("leaves selfChecked as it was when a pass is interrupted", func() {})
-		PIt("re-copies a manifest missing from the destination and emits ImageRecopied", func() {})
-		PIt("writes back a tag of this cluster missing while the manifest is present, without moving a blob", func() {})
-		PIt("sets DestinationOutOfSync True with reason MissingImages while a desired reference is missing, and removes it once complete", func() {})
-		PIt("exports kuik_registry_interval_seconds with operation Scan for its destination host, through the scheduler's collector", func() {})
+		var src *registrytest.Registry
+		// copiedApp copies src's acme/app:v1 to the destination through one window.
+		copiedApp := func() {
+			GinkgoHelper()
+			src = h.source()
+			src.Push("acme/app:v1", registrytest.Image())
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+			h.mirror()
+			h.reconcile()
+			h.window()
+			Eventually(h.copied(destinationTag(src, "acme/app"))).Should(Succeed())
+		}
+		destinationHeads := func() int {
+			return len(h.destination.Requests(http.MethodHead, "/manifests/"))
+		}
+
+		It("runs a first pass at startup, then once per mirror.destinationScan.interval", func() {
+			src := h.source()
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+			h.mirror()
+			h.reconcile()
+			Expect(destinationHeads()).To(BeNumerically(">", 0))
+			h.destination.Reset()
+
+			h.reconcile()
+			Expect(destinationHeads()).To(BeZero())
+			h.pass()
+			h.reconcile()
+			Expect(destinationHeads()).To(BeNumerically(">", 0))
+		})
+
+		It("stamps selfChecked at the end of a full pass and exports kuik_mirror_self_checked_timestamp_seconds", func() {
+			h.mirror()
+			h.reconcile()
+
+			Expect(h.status().SelfChecked).NotTo(BeNil())
+			Expect(h.status().SelfChecked.Time).To(BeTemporally("~", h.clock.Now(), time.Second))
+			v, ok := gauge(h.metrics, "kuik_mirror_self_checked_timestamp_seconds", map[string]string{labelKind: routing.KindImageMirror, labelName: h.name})
+			Expect(ok).To(BeTrue())
+			Expect(v).To(BeNumerically("~", float64(h.clock.Now().Unix()), 1))
+		})
+
+		It("leaves selfChecked as it was when a pass is interrupted", func() {
+			copiedApp()
+			h.reconcile()
+			before := h.status().SelfChecked
+
+			h.destination.Intercept(registrytest.Status(http.MethodHead, "/manifests/", http.StatusInternalServerError, nil))
+			h.pass()
+			h.reconcile()
+			Expect(h.status().SelfChecked).To(Equal(before))
+		})
+
+		It("re-copies a manifest missing from the destination and emits ImageRecopied", func() {
+			copiedApp()
+			h.reconcile()
+			h.deleteManifest(destinationTag(src, "acme/app"))
+
+			h.pass()
+			h.reconcile()
+			h.window()
+			Eventually(h.copied(destinationTag(src, "acme/app"))).Should(Succeed())
+			// The copy writes its tags before it announces them.
+			Eventually(func() []recordedEvent { return h.recorder.withReason("ImageRecopied") }).Should(HaveLen(1))
+			Expect(h.recorder.withReason("ImageRecopied")[0].eventType).To(Equal(corev1.EventTypeWarning))
+		})
+
+		It("writes back a tag of this cluster missing while the manifest is present, without moving a blob", func() {
+			copiedApp()
+			h.reconcile()
+			h.deleteTag(destinationTag(src, "acme/app"))
+			h.destination.Reset()
+
+			h.pass()
+			h.reconcile()
+			h.window()
+			Eventually(h.copied(destinationTag(src, "acme/app"))).Should(Succeed())
+			Expect(h.destination.Requests(http.MethodPost, "/blobs/uploads/")).To(BeEmpty())
+			Expect(h.recorder.withReason("ImageRecopied")).To(BeEmpty())
+		})
+
+		It("sets DestinationOutOfSync True with reason MissingImages while a desired reference is missing, and removes it once complete", func() {
+			src := h.source()
+			src.Push("acme/app:v1", registrytest.Image())
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+			h.mirror()
+			h.reconcile()
+			outOfSync := h.condition(kuikv1alpha1.ConditionDestinationOutOfSync)
+			Expect(outOfSync).NotTo(BeNil())
+			Expect(outOfSync.Status).To(Equal(metav1.ConditionTrue))
+			Expect(outOfSync.Reason).To(Equal(kuikv1alpha1.ReasonMissingImages))
+
+			h.window()
+			Eventually(h.copied(destinationTag(src, "acme/app"))).Should(Succeed())
+			Eventually(func() *metav1.Condition {
+				h.reconcile()
+				return h.condition(kuikv1alpha1.ConditionDestinationOutOfSync)
+			}).Should(BeNil())
+		})
+
+		It("exports kuik_registry_interval_seconds with operation Scan for its destination host, through the scheduler's collector", func() {
+			h.mirror()
+			h.reconcile()
+
+			scheduling := prometheus.NewRegistry()
+			scheduling.MustRegister(h.scheduler.Collector())
+			v, ok := gauge(scheduling, "kuik_registry_interval_seconds", map[string]string{"registry": h.destination.Host(), "operation": "Scan"})
+			Expect(ok).To(BeTrue())
+			Expect(v).To(Equal(time.Hour.Seconds()))
+		})
 	})
 
 	Describe("drift", func() {

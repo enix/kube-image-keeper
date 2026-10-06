@@ -11,6 +11,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	ggcrname "github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -144,6 +146,33 @@ func (h *mirrorHarness) source(opts ...registrytest.Option) *registrytest.Regist
 // window moves the clock to the next window of every host paced every minute.
 func (h *mirrorHarness) window() {
 	h.clock.Step(time.Minute)
+}
+
+// pass moves the clock to the next destination pass.
+func (h *mirrorHarness) pass() {
+	h.clock.Step(h.config.Mirror.DestinationScan.Interval.Duration)
+}
+
+// deleteManifest deletes the manifest ref, relative to the destination, and its tag, as an
+// external garbage collection would. The in-memory registry keeps the tags of a manifest
+// deleted by digest, where a real one drops them: the tag is deleted on its own.
+func (h *mirrorHarness) deleteManifest(ref string) {
+	GinkgoHelper()
+	descriptor, err := h.destination.Head(ref)
+	Expect(err).NotTo(HaveOccurred())
+	repository, _, _ := strings.Cut(ref, ":")
+	digest, err := ggcrname.NewDigest(h.destination.Host()+"/"+repository+"@"+descriptor.Digest.String(), ggcrname.Insecure)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(remote.Delete(digest)).To(Succeed())
+	h.deleteTag(ref)
+}
+
+// deleteTag deletes the tag ref, relative to the destination, and leaves its manifest.
+func (h *mirrorHarness) deleteTag(ref string) {
+	GinkgoHelper()
+	Expect(kuikregistry.NewClient().DeleteTag(ctx, kuikregistry.Endpoint{
+		Reference: h.destination.Host() + "/" + ref, Insecure: true,
+	})).To(Succeed())
 }
 
 // fallBack runs the window of the origin host, which the origin fails to answer, then
