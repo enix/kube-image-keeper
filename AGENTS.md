@@ -45,6 +45,8 @@ internal/registry/registrytest  In-memory registry fakes for the registry specs
 internal/registry/pacing      The windows that pace every read of a source registry: check rings, copy queues
 internal/info                 Build information and the kuik_build_info collector
 internal/imagepath            Image references, repository paths and the segment trie that matches them
+internal/mirrorpath           What an ImageMirror does with one origin: destination reference, tags, exclusion
+internal/mirrorpath/plan      What an ImageMirror owes its destination: desired state, tag sweep, status counts
 internal/auth                 Credential resolution order and the reserved Secret names
 internal/auth/pullsecret      The desired injected pull Secret of a pair, and its grace period
 internal/config               The global config file: schema, defaults, validation, reload
