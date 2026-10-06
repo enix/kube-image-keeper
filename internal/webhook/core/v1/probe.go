@@ -2,6 +2,7 @@ package v1
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"strings"
 	"sync"
@@ -12,6 +13,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
+	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/auth"
 	"github.com/enix/kube-image-keeper/internal/config"
 	"github.com/enix/kube-image-keeper/internal/imagepath"
@@ -20,11 +22,12 @@ import (
 	"github.com/enix/kube-image-keeper/internal/routing"
 )
 
-// checkResponse is what one check answered: the digest and the verdict, so that a cached
-// answer serves whoever asks the same question.
+// checkResponse is what one check answered: the verdict, the digest or the reason it failed,
+// so that a cached answer serves whoever asks the same question.
 type checkResponse struct {
 	available bool
 	digest    string
+	reason    kuikv1alpha1.CheckFailureReason
 }
 
 type cachedCheck struct {
@@ -85,20 +88,21 @@ func (c *checkCache) store(key string, r checkResponse, ttl time.Duration) {
 
 // available probes a candidate with the credentials the node will have: the entry's auth,
 // then the pod's pull secrets, never fallbackAuth. A declared Secret that cannot be read
-// leaves the pod's pull secrets and anonymous, as the kubelet would.
-func (d *PodDefaulter) available(ctx context.Context, pod *corev1.Pod, c routing.Candidate, cfg *config.Config) bool {
+// leaves the pod's pull secrets and anonymous, as the kubelet would. A candidate that failed
+// its check comes with the reason it failed on; one skipped before any check, with none.
+func (d *PodDefaulter) available(ctx context.Context, pod *corev1.Pod, c routing.Candidate, cfg *config.Config) checkResponse {
 	log := logf.FromContext(ctx).WithValues("candidate", c.Reference)
 
 	ref, err := imagepath.Parse(c.Reference)
 	if err != nil {
 		log.V(1).Info("Skipped candidate", "error", err.Error())
-		return false
+		return checkResponse{}
 	}
 	creds, err := d.resolver.Resolve(ctx, ref, c.Config.Auth, pod)
 	if err != nil {
 		log.V(1).Info("Skipped the declared credential of candidate", "error", err.Error())
 		if creds, err = d.resolver.Resolve(ctx, ref, nil, pod); err != nil {
-			return false
+			return checkResponse{}
 		}
 	}
 	auths, identity := authenticators(ctx, c.Reference, creds)
@@ -115,12 +119,16 @@ func (d *PodDefaulter) available(ctx context.Context, pod *corev1.Pod, c routing
 			Auth:      auths,
 		})
 		if err != nil {
-			log.V(1).Info("Candidate failed its check", "error", err.Error())
-			return checkResponse{}
+			var reason kuikv1alpha1.CheckFailureReason
+			if checkErr, ok := errors.AsType[*registry.CheckError](err); ok {
+				reason = checkErr.Reason
+			}
+			log.V(1).Info("Candidate failed its check", "reason", reason, "error", err.Error())
+			return checkResponse{reason: reason}
 		}
 		return checkResponse{available: true, digest: result.Descriptor.Digest.String()}
 	})
-	return response.available
+	return response
 }
 
 // authenticators turns the resolved credentials into the authenticators to try, in order,
