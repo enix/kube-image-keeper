@@ -1,0 +1,25 @@
+# Test 11: a real pull with credentials kuik copied. The user provides a private repository
+# holding a copy of quay.io/nginx/nginx-unprivileged:1.31.6-alpine, and creates in the kuik
+# namespace a docker config Secret that can pull it; the agent never creates or reads it.
+# Render with envsubst, then apply:
+#   KUIK_TEST_PRIVATE_REPOSITORY  the private repository, without tag (registry.example.com/team/nginx)
+#   KUIK_TEST_PULL_AUTH           the name of the Secret in the kuik namespace
+#
+# Expected: Secret kuik-inject-imagealternative-kuik-test-private in kuik-test, with no pod
+# yet. Then apply 61-private-pod.yaml.
+apiVersion: kuik.enix.io/v1alpha1
+kind: ImageAlternative
+metadata:
+  name: kuik-test-private
+spec:
+  namespaceSelector:
+    matchLabels: {kuik.enix.io/test: "true"}
+  podSelector:
+    matchLabels: {kuik-test/routing: private}
+  rewritePolicy: Always
+  alternatives:
+    - repository: kuik-test-private.invalid/nginx/nginx-unprivileged
+    - repository: ${KUIK_TEST_PRIVATE_REPOSITORY}
+      auth:
+        secretRef:
+          name: ${KUIK_TEST_PULL_AUTH}

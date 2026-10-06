@@ -37,7 +37,7 @@ The cluster is not a test cluster: every rule below protects the workloads alrea
 | Deployments | `<fullname>-webhook` (2 replicas by default), `<fullname>-reconciler`, `<fullname>-secret-syncer`; `<fullname>` is the release name, suffixed with `-kube-image-keeper` unless it contains it |
 | Pod selectors | `app.kubernetes.io/name=kube-image-keeper`, plus `app.kubernetes.io/component=<process>` |
 | Manifests | [`manifests/`](./manifests/README.md), next to this file (its README has the expected results) |
-| Test CRs | ImageAlternatives `kuik-test-nginx`, `kuik-test-pull-secret`, `kuik-test-missing-secret`, ImageMirror `kuik-test-mirror` |
+| Test CRs | ImageAlternatives `kuik-test-nginx`, `kuik-test-pull-secret`, `kuik-test-missing-secret`, `kuik-test-private`, ImageMirror `kuik-test-mirror` |
 | Test Secret | `kuik-test-quay-creds` in the kuik namespace: a placeholder, never used for a pull |
 | Test namespaces | `kuik-test` (labelled), `kuik-test-unlabeled` |
 
@@ -62,7 +62,11 @@ Ask the user for anything missing:
 4. whether kuik is managed by GitOps (Flux, Argo CD): if it is, never change kuik's config
    with kubectl or helm;
 5. where to write the report: by default a Markdown report in the conversation (see step 5).
-   The user, or their own memory, may name another destination.
+   The user, or their own memory, may name another destination;
+6. for the real pull (test 11): a private repository holding a copy of
+   `quay.io/nginx/nginx-unprivileged:1.31.6-alpine`, and the name of a docker config Secret
+   in the kuik namespace that can pull it. The user creates that Secret; never create, read
+   or print it. Without them, skip test 11 and report it as not tested.
 
 The previous tag is the latest `v3.*` tag before the version (`git tag --list 'v3.*'`).
 
@@ -112,7 +116,11 @@ the change.
       `ImageFallback` event on the pod (reads only, no manifest);
    8. pull Secret provisioned in the selected namespace only (`50-pull-auth.yaml`);
    9. missing source Secret reported (same file);
-   10. pull Secret deleted with its ImageAlternative.
+   10. pull Secret deleted with its ImageAlternative;
+   11. real pull from the private repository of step 1 with the credentials kuik copied
+       (`60-private-pull.yaml` rendered with `envsubst`, then `61-private-pod.yaml` once the
+       pull Secret exists). Check the pod, its `imagePullSecrets` and its events; never
+       decode the injected Secret.
 3. Propose simple new tests for what the release adds (for example: status and conditions
    of the CRs once the reconcilers are no longer empty; the mirror pod rewritten once copies
    happen). A new test gets its own manifest file in `manifests/`, scoped as the hard rules
@@ -164,6 +172,7 @@ Write the report where step 1 said. The default is Markdown in the conversation:
 4. Restore every verbosity value noted in step 2, the same way they were switched: the root
    `verbosity` to its value, and `--set <process>.verbosity=""` for a process value that was
    empty, never the effective level it resolved to.
+   The user's Secret of test 11 stays: offer its deletion, the user does it.
 5. Verify nothing named `kuik-test` remains (namespaces, imagealternatives, imagemirrors,
    the Secret, and any new kind).
 6. Offer to delete the kubeconfig. The user decides; do not read it.

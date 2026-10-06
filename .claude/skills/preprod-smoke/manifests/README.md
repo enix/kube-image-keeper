@@ -36,6 +36,15 @@ kubectl get events.events.k8s.io -A --field-selector reason=PullSecretInjectionF
 kubectl delete imagealternative kuik-test-pull-secret
 kubectl get secret -n kuik-test kuik-inject-imagealternative-kuik-test-pull-secret --ignore-not-found
 
+# 11. a real pull with the copied credentials (the user created the Secret named below)
+export KUIK_TEST_PRIVATE_REPOSITORY=registry.example.com/team/nginx-unprivileged
+export KUIK_TEST_PULL_AUTH=my-registry-creds
+envsubst < 60-private-pull.yaml | kubectl apply -f -
+kubectl get secret -n kuik-test kuik-inject-imagealternative-kuik-test-private -o name
+kubectl apply -f 61-private-pod.yaml
+kubectl get pod -n kuik-test private -o custom-columns='IMAGE:.spec.containers[0].image,PULL:.spec.imagePullSecrets[*].name,PHASE:.status.phase'
+kubectl get events -n kuik-test --field-selector involvedObject.name=private
+
 # Check every test pod: image, kuik annotations, phase
 kubectl get pods -n kuik-test -o custom-columns='NAME:.metadata.name,IMAGE:.spec.containers[0].image,REWRITES:.metadata.annotations.kuik\.enix\.io/rewrites,PHASE:.status.phase'
 kubectl get pods -n kuik-test-unlabeled -o custom-columns='NAME:.metadata.name,IMAGE:.spec.containers[0].image,REWRITES:.metadata.annotations.kuik\.enix\.io/rewrites,PHASE:.status.phase'
@@ -48,6 +57,7 @@ for POD in $(kubectl -n "$NS" get pods -l app.kubernetes.io/component=webhook -o
 done
 
 # Cleanup: the cluster-scoped CRs first, then the namespaces
+kubectl delete --ignore-not-found imagealternative kuik-test-private
 kubectl delete --ignore-not-found -f 50-pull-auth.yaml -f 40-imagemirror.yaml -f 30-pods-routing.yaml -f 20-imagealternative.yaml -f 10-pod-no-cr.yaml
 kubectl delete -f 00-namespaces.yaml
 ```
@@ -62,6 +72,7 @@ the admission counts the rewrite, so read every webhook pod and sum.
 | `origin-up` | kuik-test | unchanged (Quay) | none | Running |
 | `out-of-scope` | kuik-test-unlabeled | unchanged (`kuik-test.invalid/...`) | none | ImagePullBackOff |
 | `mirror` | kuik-test | unchanged (Quay) | none | Running |
+| `private` | kuik-test | `<private repository>:1.31.6-alpine` | `rewrites`, by `ImageAlternative/kuik-test-private`; `imagePullSecrets` holds `kuik-inject-imagealternative-kuik-test-private` | Running, after a `Pulled` event |
 
 | Resource | Expected |
 | -------- | -------- |
