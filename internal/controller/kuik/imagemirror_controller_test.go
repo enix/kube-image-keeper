@@ -86,7 +86,20 @@ var _ = Describe("ImageMirror Controller", func() {
 			Expect(h.condition(kuikv1alpha1.ConditionReady).Reason).To(Equal(kuikv1alpha1.ReasonInvalidConfig))
 		})
 
-		PIt("sets Ready False with reason RegistryDeleteUnsupported once the destination refuses a tag deletion, and stops deleting there", func() {})
+		It("sets Ready False with reason RegistryDeleteUnsupported once the destination refuses a tag deletion, and stops deleting there", func() {
+			h.mirror(withRetention(0))
+			h.orphan("old", "v1_"+mirrorClusterID)
+			h.orphan("older", "v1_"+mirrorClusterID)
+			h.destination.Intercept(registrytest.Status(http.MethodDelete, "/manifests/", http.StatusMethodNotAllowed, nil))
+			h.reconcile()
+
+			h.pass()
+			h.reconcile()
+			ready := h.condition(kuikv1alpha1.ConditionReady)
+			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			Expect(ready.Reason).To(Equal(kuikv1alpha1.ReasonRegistryDeleteUnsupported))
+			Expect(h.destination.Requests(http.MethodDelete, "/manifests/")).To(HaveLen(1))
+		})
 
 		It("emits ResourceNotReady on the mirror and exports kuik_resource_not_ready while Ready is False", func() {
 			h.mirror(withCredentials(unique("missing"), unique("missing")))
@@ -185,7 +198,21 @@ var _ = Describe("ImageMirror Controller", func() {
 			Expect(h.copied(destinationTag(src, "acme/done"))()).NotTo(Succeed())
 		})
 
-		PIt("lets a reference go once its pods are Succeeded or Failed, starting its retention", func() {})
+		It("lets a reference go once its pods are Succeeded or Failed, starting its retention", func() {
+			src := h.source()
+			src.Push("acme/job:v1", registrytest.Image())
+			pod := createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/job:v1"})
+			h.mirror()
+			h.copyAll(1)
+
+			setPhase(pod, corev1.PodSucceeded)
+			h.reconcile()
+			Expect(h.status().PendingDeletion).To(ConsistOf(And(
+				HaveField("Ref", h.destination.Host()+"/"+destinationTag(src, "acme/job")),
+				HaveField("Origin", src.Host()+"/acme/job:v1"),
+				HaveField("UnusedSince.Time", BeTemporally("~", h.clock.Now(), time.Second)),
+			)))
+		})
 
 		It("never copies the images of static pods", func() {
 			src := h.source()
@@ -203,7 +230,26 @@ var _ = Describe("ImageMirror Controller", func() {
 			Eventually(h.copied(destinationTag(src, "acme/app"))).Should(Succeed())
 			Consistently(h.copied(destinationTag(src, "acme/static"))).ShouldNot(Succeed())
 		})
-		PIt("keeps the origin of a rewritten pod out of pendingDeletion while the pod runs the mirror copy", func() {})
+		It("keeps the origin of a rewritten pod out of pendingDeletion while the pod runs the mirror copy", func() {
+			src := h.source()
+			src.Push("acme/app:v1", registrytest.Image())
+			ns := h.namespace()
+			first := createPod(ns, unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+			h.mirror()
+			h.copyAll(1)
+
+			// The next pod is routed to the copy, and the first one goes.
+			mirrored := h.destination.Host() + "/" + destinationTag(src, "acme/app")
+			createPod(ns, unique("pod"), container{name: appContainer, image: mirrored, rewrite: &podrecord.Rewrite{
+				By: routing.KindImageMirror + "/" + h.name, Origin: src.Host() + "/acme/app:v1", RewrittenTo: mirrored,
+				Policy: string(kuikv1alpha1.RewritePolicyOnFailure),
+			}})
+			Expect(k8sClient.Delete(ctx, first)).To(Succeed())
+			h.reconcile()
+			h.pass()
+			h.reconcile()
+			Expect(h.status().PendingDeletion).To(BeEmpty())
+		})
 	})
 
 	Describe("copying", func() {
@@ -827,12 +873,103 @@ var _ = Describe("ImageMirror Controller", func() {
 	})
 
 	Describe("cleanup", func() {
-		PIt("emits OrphanTagFound once when the sweep finds a tag of this cluster the desired state does not expect", func() {})
-		PIt("removes a tag from the destination once its retention elapsed, leaving the other clusters' tags, and emits ImageDeleted", func() {})
-		PIt("records no orphan, deletes nothing and retires no repository in a pass where the destination does not answer", func() {})
-		PIt("re-copies a retained reference missing from the destination", func() {})
-		PIt("emits ImageDeletionFailed when the destination refuses a deletion", func() {})
-		PIt("deletes nothing and holds nothing in pendingDeletion when cleanup is disabled", func() {})
+		own := "v1_" + mirrorClusterID
+
+		It("emits OrphanTagFound once when the sweep finds a tag of this cluster the desired state does not expect", func() {
+			h.mirror()
+			h.orphan("old", own)
+			h.reconcile()
+			h.pass()
+			h.reconcile()
+
+			events := h.recorder.withReason("OrphanTagFound")
+			Expect(events).To(HaveLen(1))
+			Expect(events[0].eventType).To(Equal(corev1.EventTypeWarning))
+			Expect(h.status().PendingDeletion).To(ConsistOf(HaveField("Origin", "")))
+		})
+
+		It("removes a tag from the destination once its retention elapsed, leaving the other clusters' tags, and emits ImageDeleted", func() {
+			h.mirror(withRetention(90 * time.Minute))
+			ref := h.orphan("old", own, "v1_cluster-b")
+			h.reconcile()
+
+			h.pass()
+			h.reconcile()
+			Expect(h.copied(ref)()).To(Succeed())
+			h.pass()
+			h.reconcile()
+			Expect(h.copied(ref)()).NotTo(Succeed())
+			Expect(h.copied("mirror/quay.io/acme/old:v1_cluster-b")()).To(Succeed())
+			Expect(h.recorder.withReason("ImageDeleted")).To(HaveLen(1))
+			Expect(h.status().PendingDeletion).To(BeEmpty())
+		})
+
+		It("records no orphan, deletes nothing and retires no repository in a pass where the destination does not answer", func() {
+			h.mirror(withRetention(0))
+			h.orphan("old", own)
+			h.orphan("theirs", "v1_cluster-b")
+			before := h.status().Repositories
+			h.destination.Intercept(registrytest.Status(http.MethodGet, "/tags/list", http.StatusInternalServerError, nil))
+
+			h.reconcile()
+			h.pass()
+			h.reconcile()
+			Expect(h.status().PendingDeletion).To(BeEmpty())
+			Expect(h.status().Repositories).To(ConsistOf(before))
+			Expect(h.destination.Requests(http.MethodDelete, "")).To(BeEmpty())
+		})
+
+		It("re-copies a retained reference missing from the destination", func() {
+			src := h.source()
+			src.Push("acme/job:v1", registrytest.Image())
+			pod := createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/job:v1"})
+			h.mirror()
+			h.copyAll(1)
+			setPhase(pod, corev1.PodSucceeded)
+			h.reconcile()
+			Expect(h.status().PendingDeletion).NotTo(BeEmpty())
+
+			h.deleteManifest(destinationTag(src, "acme/job"))
+			h.pass()
+			h.reconcile()
+			h.window()
+			Eventually(h.copied(destinationTag(src, "acme/job"))).Should(Succeed())
+		})
+
+		It("emits ImageDeletionFailed when the destination refuses a deletion", func() {
+			h.mirror(withRetention(0))
+			ref := h.orphan("old", own)
+			h.destination.Intercept(registrytest.Status(http.MethodDelete, "/manifests/", http.StatusInternalServerError, nil))
+			h.reconcile()
+
+			h.pass()
+			h.reconcile()
+			events := h.recorder.withReason("ImageDeletionFailed")
+			Expect(events).To(HaveLen(1))
+			Expect(events[0].eventType).To(Equal(corev1.EventTypeWarning))
+			Expect(h.status().PendingDeletion).To(ConsistOf(HaveField("Ref", h.destination.Host()+"/"+ref)))
+		})
+
+		It("deletes nothing and holds nothing in pendingDeletion when cleanup is disabled", func() {
+			src := h.source()
+			src.Push("acme/job:v1", registrytest.Image())
+			pod := createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/job:v1"})
+			h.mirror(func(im *kuikv1alpha1.ImageMirror) {
+				disabled := false
+				im.Spec.Cleanup = &kuikv1alpha1.Cleanup{Enabled: &disabled}
+			})
+			h.orphan("old", own)
+			h.copyAll(1)
+			setPhase(pod, corev1.PodFailed)
+
+			h.reconcile()
+			h.pass()
+			h.reconcile()
+			h.pass()
+			h.reconcile()
+			Expect(h.status().PendingDeletion).To(BeEmpty())
+			Expect(h.destination.Requests(http.MethodDelete, "")).To(BeEmpty())
+		})
 	})
 
 	Describe("deleting the ImageMirror", func() {
