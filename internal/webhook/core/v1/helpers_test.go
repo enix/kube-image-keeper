@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -11,10 +12,14 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"go.uber.org/zap/zapcore"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
@@ -242,4 +247,66 @@ func pullSecrets(pod *corev1.Pod) []string {
 		names = append(names, s.Name)
 	}
 	return names
+}
+
+// The messages of the lines that log a routing decision, one per outcome of a container.
+const (
+	msgRewrote     = "Rewrote container image"
+	msgKept        = "Kept container image"
+	msgNoCandidate = "Found no available candidate for container image"
+	msgConceded    = "Conceded container image"
+)
+
+// requestUID is the UID of the admission requests admitLogged sends.
+const requestUID types.UID = "3f2a9c1e-request"
+
+// admitLogged runs admit with request UID requestUID, capturing every line the admission
+// logs up to V(1), each decoded from its JSON form.
+func admitLogged(d *PodDefaulter, namespace string, pod *corev1.Pod) (*corev1.Pod, []map[string]any) {
+	GinkgoHelper()
+	var out bytes.Buffer
+	log := zap.New(zap.WriteTo(&out), zap.Level(zapcore.DebugLevel), zap.JSONEncoder())
+	mutated := pod.DeepCopy()
+	req := admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
+		UID:       requestUID,
+		Namespace: namespace,
+		Operation: admissionv1.Create,
+	}}
+	Expect(d.Default(logf.IntoContext(admission.NewContextWithRequest(ctx, req), log), mutated)).To(Succeed())
+
+	var lines []map[string]any
+	for line := range strings.SplitSeq(strings.TrimSpace(out.String()), "\n") {
+		if line == "" {
+			continue
+		}
+		var entry map[string]any
+		Expect(json.Unmarshal([]byte(line), &entry)).To(Succeed(), "line %q", line)
+		lines = append(lines, entry)
+	}
+	return mutated, lines
+}
+
+// decisions are the lines of lines that log a routing decision.
+func decisions(lines []map[string]any) []map[string]any {
+	var found []map[string]any
+	for _, line := range lines {
+		switch line["msg"] {
+		case msgRewrote, msgKept, msgNoCandidate, msgConceded:
+			found = append(found, line)
+		}
+	}
+	return found
+}
+
+// decision is the one decision line of container.
+func decision(lines []map[string]any, container string) map[string]any {
+	GinkgoHelper()
+	var found []map[string]any
+	for _, line := range decisions(lines) {
+		if line["container"] == container {
+			found = append(found, line)
+		}
+	}
+	Expect(found).To(HaveLen(1), "decision lines of %s in %v", container, lines)
+	return found[0]
 }
