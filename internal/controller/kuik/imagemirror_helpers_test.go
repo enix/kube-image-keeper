@@ -28,17 +28,22 @@ import (
 	"github.com/enix/kube-image-keeper/internal/registry/registrytest"
 )
 
-const mirrorClusterID = "cluster-a"
+const (
+	mirrorClusterID = "cluster-a"
+	labelRegistry   = "registry"
+)
 
 // mirrorHarness runs an ImageMirrorReconciler against an in-memory destination registry, its
 // copies and drift checks paced by a scheduler on a fake clock.
 type mirrorHarness struct {
-	name        string
-	metrics     *prometheus.Registry
-	recorder    *eventRecorder
-	clock       *clocktesting.FakeClock
-	config      *config.Config
-	scheduler   *pacing.Scheduler
+	name      string
+	metrics   *prometheus.Registry
+	recorder  *eventRecorder
+	clock     *clocktesting.FakeClock
+	config    *config.Config
+	scheduler *pacing.Scheduler
+	// stop stops the scheduler, as a process ending would.
+	stop        context.CancelFunc
 	destination *registrytest.Registry
 	reconciler  *ImageMirrorReconciler
 }
@@ -73,6 +78,7 @@ func newMirrorHarness() *mirrorHarness {
 	h.scheduler = pacing.New(h.clock, h.config)
 	schedulerCtx, stop := context.WithCancel(ctx)
 	go func() { _ = h.scheduler.Start(schedulerCtx) }()
+	h.stop = stop
 	DeferCleanup(stop)
 
 	var err error
@@ -175,6 +181,33 @@ func (h *mirrorHarness) deleteTag(ref string) {
 	})).To(Succeed())
 }
 
+// copyAll runs one copy window per image the mirror owes, n in all, each one waiting for the
+// previous copy to write its manifest: a window opening while a copy runs is lost.
+func (h *mirrorHarness) copyAll(n int) {
+	GinkgoHelper()
+	start := len(h.destination.Requests(http.MethodPut, "/manifests/"))
+	for i := range n {
+		h.reconcile()
+		h.window()
+		Eventually(func() int {
+			return len(h.destination.Requests(http.MethodPut, "/manifests/"))
+		}).Should(BeNumerically(">", start+i))
+	}
+	h.reconcile()
+}
+
+// checked returns how many manifest HEADs src received for repository:v1.
+func checked(src *registrytest.Registry, repository string) func() int {
+	return func() int {
+		return len(src.Requests(http.MethodHead, "/v2/"+repository+"/manifests/v1"))
+	}
+}
+
+// withDrift sets the driftPolicy of the mirror under test.
+func withDrift(policy kuikv1alpha1.DriftPolicy) func(*kuikv1alpha1.ImageMirror) {
+	return func(im *kuikv1alpha1.ImageMirror) { im.Spec.DriftPolicy = policy }
+}
+
 // fallBack runs the window of the origin host, which the origin fails to answer, then
 // reconciles until the reference waits in the copy queue of alternative.
 func (h *mirrorHarness) fallBack(alternative *registrytest.Registry) {
@@ -191,7 +224,7 @@ func (h *mirrorHarness) fallBack(alternative *registrytest.Registry) {
 func (h *mirrorHarness) queued(reg *registrytest.Registry) bool {
 	scheduling := prometheus.NewRegistry()
 	scheduling.MustRegister(h.scheduler.Collector())
-	_, ok := gauge(scheduling, "kuik_registry_interval_seconds", map[string]string{"registry": reg.Host(), "operation": "Copy"})
+	_, ok := gauge(scheduling, "kuik_registry_interval_seconds", map[string]string{labelRegistry: reg.Host(), "operation": "Copy"})
 	return ok
 }
 
