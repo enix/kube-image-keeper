@@ -187,6 +187,11 @@ func NewIndex(alternatives []kuikv1alpha1.ImageAlternative, mirrors []kuikv1alph
 		return cmp.Compare(a.Name, b.Name)
 	})
 	for _, cr := range mirrors {
+		// A mirror being deleted waits for the pods running its copies to go before its tags
+		// are deleted: routing a new pod to it would keep it waiting.
+		if cr.DeletionTimestamp != nil {
+			continue
+		}
 		index.mirrors = append(index.mirrors, mirrorResource{
 			name:  cr.Name,
 			spec:  cr.Spec,
