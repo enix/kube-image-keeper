@@ -180,6 +180,38 @@ var _ = Describe("Copy", func() {
 		}, kuikv1alpha1.CopyDestinationUnreachable),
 	)
 
+	DescribeTable("failed side",
+		func(setup func() (Endpoint, Endpoint), destination bool) {
+			source, target := setup()
+
+			_, err := client.Copy(ctx, source, target, []string{copyTag})
+
+			copyErr, ok := errors.AsType[*CopyError](err)
+			Expect(ok).To(BeTrue())
+			Expect(copyErr.Destination).To(Equal(destination))
+		},
+		Entry("is the source on a 401 from the source", func() (Endpoint, Endpoint) {
+			src = newRegistry(registrytest.WithBasicAuth(user, password))
+			src.Push("app:v1", registrytest.Image())
+			return endpoint(src, "app:v1"), endpoint(dst, "mirror/app")
+		}, false),
+		Entry("is the destination on a 401 from the destination", func() (Endpoint, Endpoint) {
+			src.Push("app:v1", registrytest.Image())
+			dst = newRegistry(registrytest.WithBasicAuth(user, password))
+			return endpoint(src, "app:v1"), endpoint(dst, "mirror/app")
+		}, true),
+		Entry("is the source on a 429 from the source", func() (Endpoint, Endpoint) {
+			src.Push("app:v1", registrytest.Image())
+			src.Intercept(registrytest.Status("", "/manifests/", http.StatusTooManyRequests, nil))
+			return endpoint(src, "app:v1"), endpoint(dst, "mirror/app")
+		}, false),
+		Entry("is the destination on a 429 from the destination", func() (Endpoint, Endpoint) {
+			src.Push("app:v1", registrytest.Image())
+			dst.Intercept(registrytest.Status(http.MethodPut, "/manifests/", http.StatusTooManyRequests, nil))
+			return endpoint(src, "app:v1"), endpoint(dst, "mirror/app")
+		}, true),
+	)
+
 	Context("when the source fails after its manifest was read", func() {
 		It("attributes a failure on a blob redirected to another host to the source", func() {
 			blobStore := registrytest.ClosedHost()

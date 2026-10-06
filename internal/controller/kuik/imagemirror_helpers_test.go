@@ -31,6 +31,8 @@ import (
 const (
 	mirrorClusterID = "cluster-a"
 	labelRegistry   = "registry"
+	labelReason     = "reason"
+	labelImage      = "image"
 )
 
 // mirrorHarness runs an ImageMirrorReconciler against an in-memory destination registry, its
@@ -202,6 +204,103 @@ func (h *mirrorHarness) inventory(repository string) {
 	Expect(k8sClient.Get(ctx, types.NamespacedName{Name: h.name}, &im)).To(Succeed())
 	im.Status.Repositories = append(im.Status.Repositories, repository)
 	Expect(k8sClient.Status().Update(ctx, &im)).To(Succeed())
+}
+
+// counter returns the value of the counter metric of registry carrying labels, 0 when the
+// series does not exist.
+func counter(registry *prometheus.Registry, metric string, labels map[string]string) float64 {
+	GinkgoHelper()
+	families, err := registry.Gather()
+	Expect(err).NotTo(HaveOccurred())
+	for _, f := range families {
+		if f.GetName() != metric {
+			continue
+		}
+	series:
+		for _, m := range f.GetMetric() {
+			got := map[string]string{}
+			for _, l := range m.GetLabel() {
+				got[l.GetName()] = l.GetValue()
+			}
+			for k, v := range labels {
+				if got[k] != v {
+					continue series
+				}
+			}
+			return m.GetCounter().GetValue()
+		}
+	}
+	return 0
+}
+
+// observations returns how many samples the histogram metric of registry holds, all series
+// summed.
+func observations(registry *prometheus.Registry, metric string) uint64 {
+	GinkgoHelper()
+	families, err := registry.Gather()
+	Expect(err).NotTo(HaveOccurred())
+	var n uint64
+	for _, f := range families {
+		if f.GetName() == metric {
+			for _, m := range f.GetMetric() {
+				n += m.GetHistogram().GetSampleCount()
+			}
+		}
+	}
+	return n
+}
+
+// manyImages runs n images in pods of a selected namespace, spread over ten source
+// registries so that their windows open side by side, all on their sources, the same content
+// under every reference. Each image has a repository of its own with repositories, else they
+// are tags of one repository per source: a first copy into a repository writes the status,
+// which n repositories make slow. It returns the pods, the sources, and each image relative to
+// its source.
+func (h *mirrorHarness) manyImages(n int, repositories bool) ([]*corev1.Pod, []*registrytest.Registry, []string) {
+	GinkgoHelper()
+	sources := make([]*registrytest.Registry, 10)
+	for i := range sources {
+		sources[i] = h.source()
+	}
+	image := registrytest.Image()
+	ns := h.namespace()
+	var pods []*corev1.Pod
+	refs := make([]string, 0, n)
+	containers := make([]container, 0, 10)
+	for i := range n {
+		src := sources[i%len(sources)]
+		ref := fmt.Sprintf("acme/app:t%03d", i)
+		if repositories {
+			ref = fmt.Sprintf("acme/r%03d:v1", i)
+		}
+		src.Push(ref, image)
+		refs = append(refs, ref)
+		containers = append(containers, container{name: fmt.Sprintf("c%d", i%10), image: src.Host() + "/" + ref})
+		if len(containers) == 10 || i == n-1 {
+			pods = append(pods, createPod(ns, unique("pod"), containers...))
+			containers = nil
+		}
+	}
+	for _, src := range sources {
+		src.Reset()
+	}
+	return pods, sources, refs
+}
+
+// windowsUntil opens windows until done holds, reconciling every ten windows: with hundreds of
+// images a reconcile costs more than a window. A window opening while the previous copy or
+// check of its host still runs is lost, so the count is not fixed.
+func (h *mirrorHarness) windowsUntil(done func() bool) {
+	GinkgoHelper()
+	Eventually(func() bool {
+		h.reconcile()
+		for range 10 {
+			h.window()
+			time.Sleep(5 * time.Millisecond)
+		}
+		h.reconcile()
+		return done()
+	}).WithTimeout(3 * time.Minute).WithPolling(time.Millisecond).Should(BeTrue())
 }
 
 // withRetention sets the cleanup.retention of the mirror under test.
