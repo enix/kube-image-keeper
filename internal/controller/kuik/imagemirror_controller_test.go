@@ -2,17 +2,107 @@ package kuik
 
 import (
 	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+
+	"github.com/prometheus/client_golang/prometheus"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
+	kuikregistry "github.com/enix/kube-image-keeper/internal/registry"
+	"github.com/enix/kube-image-keeper/internal/routing"
+	"github.com/enix/kube-image-keeper/internal/routing/podrecord"
+	"github.com/enix/kube-image-keeper/internal/status/condition"
 )
 
 var _ = Describe("ImageMirror Controller", func() {
+	var h *mirrorHarness
+	BeforeEach(func() {
+		h = newMirrorHarness()
+	})
+
+	withCredentials := func(manage, pull string) func(*kuikv1alpha1.ImageMirror) {
+		return func(im *kuikv1alpha1.ImageMirror) {
+			im.Spec.Destination.Manage = secretAuth(manage)
+			im.Spec.Destination.Pull = secretAuth(pull)
+		}
+	}
+	notReadyGauge := func(reason string) (float64, bool) {
+		return gauge(h.metrics, "kuik_resource_not_ready", map[string]string{
+			labelKind: routing.KindImageMirror, labelName: h.name, "reason": reason,
+		})
+	}
+
 	Describe("Ready", func() {
-		PIt("sets Ready True with reason IsReady for a mirror whose manage and pull secretRefs resolve", func() {})
-		PIt("sets Ready False with reason SecretNotFound for a manage secretRef naming an absent Secret", func() {})
-		PIt("sets Ready False with reason SecretMalformed for a pull secretRef naming a Secret that is not a dockerconfigjson", func() {})
-		PIt("sets Ready False with reason InvalidConfig for a selector that does not parse", func() {})
+		It("sets Ready True with reason IsReady for a mirror whose manage and pull secretRefs resolve", func() {
+			manage, pull := unique("manage"), unique("pull")
+			createSecret(installNamespace, manage, corev1.SecretTypeDockerConfigJson)
+			createSecret(installNamespace, pull, corev1.SecretTypeDockerConfigJson)
+			h.mirror(withCredentials(manage, pull))
+			h.reconcile()
+			Expect(h.condition(kuikv1alpha1.ConditionReady).Status).To(Equal(metav1.ConditionTrue))
+			Expect(h.condition(kuikv1alpha1.ConditionReady).Reason).To(Equal(kuikv1alpha1.ReasonIsReady))
+		})
+
+		It("sets Ready False with reason SecretNotFound for a manage secretRef naming an absent Secret", func() {
+			pull := unique("pull")
+			createSecret(installNamespace, pull, corev1.SecretTypeDockerConfigJson)
+			h.mirror(withCredentials(unique("missing"), pull))
+			h.reconcile()
+			Expect(h.condition(kuikv1alpha1.ConditionReady).Status).To(Equal(metav1.ConditionFalse))
+			Expect(h.condition(kuikv1alpha1.ConditionReady).Reason).To(Equal(kuikv1alpha1.ReasonSecretNotFound))
+		})
+
+		It("sets Ready False with reason SecretMalformed for a pull secretRef naming a Secret that is not a dockerconfigjson", func() {
+			manage, pull := unique("manage"), unique("opaque")
+			createSecret(installNamespace, manage, corev1.SecretTypeDockerConfigJson)
+			createSecret(installNamespace, pull, corev1.SecretTypeOpaque)
+			h.mirror(withCredentials(manage, pull))
+			h.reconcile()
+			Expect(h.condition(kuikv1alpha1.ConditionReady).Status).To(Equal(metav1.ConditionFalse))
+			Expect(h.condition(kuikv1alpha1.ConditionReady).Reason).To(Equal(kuikv1alpha1.ReasonSecretMalformed))
+		})
+
+		It("sets Ready False with reason InvalidConfig for a selector that does not parse", func() {
+			h.mirror(func(im *kuikv1alpha1.ImageMirror) {
+				im.Spec.PodSelector = &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{
+					{Key: appContainer, Operator: "Bogus", Values: []string{"web"}},
+				}}
+			})
+			h.reconcile()
+			Expect(h.condition(kuikv1alpha1.ConditionReady).Status).To(Equal(metav1.ConditionFalse))
+			Expect(h.condition(kuikv1alpha1.ConditionReady).Reason).To(Equal(kuikv1alpha1.ReasonInvalidConfig))
+		})
+
 		PIt("sets Ready False with reason RegistryDeleteUnsupported once the destination refuses a tag deletion, and stops deleting there", func() {})
-		PIt("emits ResourceNotReady on the mirror and exports kuik_resource_not_ready while Ready is False", func() {})
-		PIt("sets Ready back to IsReady, emits ResourceReady and removes kuik_resource_not_ready once the cause is fixed", func() {})
+
+		It("emits ResourceNotReady on the mirror and exports kuik_resource_not_ready while Ready is False", func() {
+			h.mirror(withCredentials(unique("missing"), unique("missing")))
+			h.reconcile()
+			events := h.recorder.withReason(condition.EventResourceNotReady)
+			Expect(events).To(HaveLen(1))
+			Expect(events[0].regarding.(*kuikv1alpha1.ImageMirror).Name).To(Equal(h.name))
+			v, ok := notReadyGauge(kuikv1alpha1.ReasonSecretNotFound)
+			Expect(ok).To(BeTrue())
+			Expect(v).To(Equal(1.0))
+		})
+
+		It("sets Ready back to IsReady, emits ResourceReady and removes kuik_resource_not_ready once the cause is fixed", func() {
+			manage, pull := unique("manage"), unique("pull")
+			createSecret(installNamespace, pull, corev1.SecretTypeDockerConfigJson)
+			h.mirror(withCredentials(manage, pull))
+			h.reconcile()
+			Expect(h.condition(kuikv1alpha1.ConditionReady).Status).To(Equal(metav1.ConditionFalse))
+
+			createSecret(installNamespace, manage, corev1.SecretTypeDockerConfigJson)
+			h.reconcile()
+			Expect(h.condition(kuikv1alpha1.ConditionReady).Status).To(Equal(metav1.ConditionTrue))
+			Expect(h.recorder.withReason(condition.EventResourceReady)).To(HaveLen(1))
+			_, ok := notReadyGauge(kuikv1alpha1.ReasonSecretNotFound)
+			Expect(ok).To(BeFalse())
+		})
 		PIt("leaves Ready True when the copy of one image fails", func() {})
 	})
 
@@ -88,8 +178,41 @@ var _ = Describe("ImageMirror Controller", func() {
 	})
 
 	Describe("the routing side", func() {
-		PIt("writes the pods and containers gauges, the anomaly lists and their conditions from the pods' annotations", func() {})
-		PIt("leaves the routing side empty under rewritePolicy None", func() {})
+		// routedPod is a pod in a selected namespace with one container the mirror rewrote and
+		// one no candidate could serve.
+		routedPod := func() {
+			mirrored := h.destination.Host() + "/mirror/quay.io/thanos/thanos:v0.42.2_" + mirrorClusterID
+			createPod(h.namespace(), unique("pod"),
+				container{name: "thanos", image: mirrored, rewrite: &podrecord.Rewrite{
+					By: routing.KindImageMirror + "/" + h.name, Origin: thanosImage, RewrittenTo: mirrored,
+					Policy: string(kuikv1alpha1.RewritePolicyOnFailure),
+				}},
+				container{name: "gone", image: "quay.io/acme/gone:1.0", offering: []string{routing.KindImageMirror + "/" + h.name}},
+			)
+		}
+
+		It("writes the pods and containers gauges, the anomaly lists and their conditions from the pods' annotations", func() {
+			h.mirror()
+			routedPod()
+			h.reconcile()
+
+			status := h.status()
+			Expect(status.Pods).NotTo(BeNil())
+			Expect(status.Pods.Tracked).To(Equal(int32(1)))
+			Expect(status.Containers.Rewritten).To(Equal(int32(1)))
+			Expect(status.NoAlternatives).To(HaveLen(1))
+			Expect(h.condition(kuikv1alpha1.ConditionAlternativesExhausted).Status).To(Equal(metav1.ConditionTrue))
+		})
+
+		It("leaves the routing side empty under rewritePolicy None", func() {
+			h.mirror(func(im *kuikv1alpha1.ImageMirror) { im.Spec.RewritePolicy = kuikv1alpha1.RewritePolicyNone })
+			routedPod()
+			h.reconcile()
+
+			status := h.status()
+			Expect(status.RoutingStatus).To(Equal(kuikv1alpha1.RoutingStatus{}))
+			Expect(h.condition(kuikv1alpha1.ConditionAlternativesExhausted)).To(BeNil())
+		})
 	})
 
 	Describe("metrics", func() {
@@ -107,8 +230,38 @@ var _ = Describe("ImageMirror Controller", func() {
 	})
 
 	Describe("writing the status", func() {
-		PIt("writes no status before the lease is held, and writes it once the lease is held", func() {})
-		PIt("skips the write when the status did not change", func() {})
+		It("writes no status before the lease is held, and writes it once the lease is held", func() {
+			fresh, err := NewImageMirrorReconciler(k8sClient, k8sClient.Scheme(), ImageMirrorOptions{
+				APIReader: k8sClient, ClusterResourceNamespace: installNamespace, Recorder: h.recorder,
+				Registerer: prometheus.NewRegistry(), Scheduler: h.scheduler, Registry: kuikregistry.NewClient(),
+				Config: h.config, Clock: h.clock,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			h.mirror()
+			request := reconcile.Request{NamespacedName: types.NamespacedName{Name: h.name}}
+
+			result, err := fresh.Reconcile(ctx, request)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(BeNumerically(">", 0))
+			Expect(h.condition(kuikv1alpha1.ConditionReady)).To(BeNil())
+
+			fresh.Elected(h.clock.Now())
+			_, err = fresh.Reconcile(ctx, request)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(h.condition(kuikv1alpha1.ConditionReady)).NotTo(BeNil())
+		})
+
+		It("skips the write when the status did not change", func() {
+			h.mirror()
+			h.reconcile()
+			var before kuikv1alpha1.ImageMirror
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: h.name}, &before)).To(Succeed())
+
+			h.reconcile()
+			var after kuikv1alpha1.ImageMirror
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: h.name}, &after)).To(Succeed())
+			Expect(after.ResourceVersion).To(Equal(before.ResourceVersion))
+		})
 	})
 
 	Describe("with a manager", func() {
