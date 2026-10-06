@@ -1,0 +1,56 @@
+# Tests 8 to 10: the secret syncer. No pod uses these resources, so the placeholder
+# credential below is never used for a pull. Change the Secret's namespace to the kuik
+# namespace if it is not kuik-system.
+#
+# Test 8: kuik-test-pull-secret. Expected: Secret
+# kuik-inject-imagealternative-kuik-test-pull-secret in kuik-test (not in
+# kuik-test-unlabeled), type kubernetes.io/dockerconfigjson, with an auths key for
+# quay.io/nginx/nginx-unprivileged; Ready reason IsReady.
+#
+# Test 9: kuik-test-missing-secret. Expected: Ready reason SecretNotFound and a
+# PullSecretInjectionFailed event on the resource.
+#
+# Test 10: delete kuik-test-pull-secret. Expected: its pull Secret leaves kuik-test.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kuik-test-quay-creds
+  namespace: kuik-system
+type: kubernetes.io/dockerconfigjson
+stringData:
+  # Placeholder, not a credential: user kuik-test, password placeholder.
+  .dockerconfigjson: '{"auths":{"quay.io":{"username":"kuik-test","password":"placeholder","auth":"a3Vpay10ZXN0OnBsYWNlaG9sZGVy"}}}'
+---
+apiVersion: kuik.enix.io/v1alpha1
+kind: ImageAlternative
+metadata:
+  name: kuik-test-pull-secret
+spec:
+  namespaceSelector:
+    matchLabels: {kuik.enix.io/test: "true"}
+  podSelector:
+    matchLabels: {kuik-test/routing: pull-secret}
+  rewritePolicy: Always
+  alternatives:
+    - repository: kuik-test-secret.invalid/nginx/nginx-unprivileged
+    - repository: quay.io/nginx/nginx-unprivileged
+      auth:
+        secretRef:
+          name: kuik-test-quay-creds
+---
+apiVersion: kuik.enix.io/v1alpha1
+kind: ImageAlternative
+metadata:
+  name: kuik-test-missing-secret
+spec:
+  namespaceSelector:
+    matchLabels: {kuik.enix.io/test: "true"}
+  podSelector:
+    matchLabels: {kuik-test/routing: missing-secret}
+  rewritePolicy: Always
+  alternatives:
+    - repository: kuik-test-missing.invalid/nginx/nginx-unprivileged
+    - repository: quay.io/nginx/nginx-unprivileged
+      auth:
+        secretRef:
+          name: kuik-test-absent-creds
