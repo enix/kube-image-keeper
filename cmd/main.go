@@ -28,6 +28,7 @@ import (
 	kuikcontroller "github.com/enix/kube-image-keeper/internal/controller/kuik"
 	"github.com/enix/kube-image-keeper/internal/controller/secretsyncer"
 	"github.com/enix/kube-image-keeper/internal/info"
+	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/enix/kube-image-keeper/internal/registry/pacing"
 	webhookcorev1 "github.com/enix/kube-image-keeper/internal/webhook/core/v1"
 	// +kubebuilder:scaffold:imports
@@ -246,13 +247,26 @@ func main() {
 			setupLog.Error(err, "Failed to create controller", "controller", "kuik-imagealternative")
 			os.Exit(1)
 		}
-		if err := (&kuikcontroller.ImageMirrorReconciler{
-			Client: mgr.GetClient(),
-			Scheme: mgr.GetScheme(),
-		}).SetupWithManager(mgr); err != nil {
+		imageMirrors, err := kuikcontroller.NewImageMirrorReconciler(mgr.GetClient(), mgr.GetScheme(),
+			kuikcontroller.ImageMirrorOptions{
+				APIReader:                mgr.GetAPIReader(),
+				ClusterResourceNamespace: clusterResourceNamespace,
+				Recorder:                 mgr.GetEventRecorder("kuik-reconciler"),
+				Registerer:               metrics.Registry,
+				Scheduler:                scheduler,
+				Registry:                 registry.NewClient(),
+				Config:                   globalConfig,
+				Clock:                    clock.RealClock{},
+			})
+		if err != nil {
 			setupLog.Error(err, "Failed to create controller", "controller", "kuik-imagemirror")
 			os.Exit(1)
 		}
+		if err := imageMirrors.SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "Failed to create controller", "controller", "kuik-imagemirror")
+			os.Exit(1)
+		}
+		onConfigChange = append(onConfigChange, imageMirrors.SetConfig)
 		if err := (&kuikcontroller.ImageMonitorReconciler{
 			Client: mgr.GetClient(),
 			Scheme: mgr.GetScheme(),
