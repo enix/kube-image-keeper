@@ -3,6 +3,8 @@ package kuik
 import (
 	"context"
 	"errors"
+	"fmt"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -61,6 +63,8 @@ type ImageMirrorReconciler struct {
 	// elected is set once the lease is held; no status is written before it.
 	elected atomic.Bool
 
+	selfChecked *prometheus.GaugeVec
+
 	statesMu sync.Mutex
 	states   map[string]*mirrorState
 	// wakeFn asks for a reconcile of a mirror once a copy or a check of it ended. Nil without
@@ -113,6 +117,14 @@ func NewImageMirrorReconciler(c client.Client, scheme *runtime.Scheme, opts Imag
 	if err != nil {
 		return nil, err
 	}
+	// The HELP text is that of docs/v3/observability.md, "Scheduling health".
+	selfChecked := prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "kuik_mirror_self_checked_timestamp_seconds",
+		Help: "Unix timestamp at which the last full comparison of the destination finished",
+	}, []string{"kind", "name"})
+	if err := opts.Registerer.Register(selfChecked); err != nil {
+		return nil, err
+	}
 	r := &ImageMirrorReconciler{
 		Client:    c,
 		Scheme:    scheme,
@@ -128,6 +140,7 @@ func NewImageMirrorReconciler(c client.Client, scheme *runtime.Scheme, opts Imag
 		scheduler:      opts.Scheduler,
 		registry:       opts.Registry,
 		clock:          opts.Clock,
+		selfChecked:    selfChecked,
 		states:         map[string]*mirrorState{},
 	}
 	if err := r.sourceResolver.SetFallbackAuth(opts.Config.FallbackAuth); err != nil {
@@ -201,12 +214,34 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	st := r.state(im.Name)
 	mirror := plan.Mirror{Path: im.Spec.Destination.Path, ExcludeImages: im.Spec.ExcludeImages, CleanupEnabled: im.Spec.Cleanup.IsEnabled()}
 	desired := plan.Desired(mirror, pods, im.Status.PendingDeletion)
+	clusterID := r.config.Load().ClusterID
+	var (
+		selfChecked *metav1.Time
+		nextPass    time.Duration
+	)
 	if !blocked {
+		r.scheduler.SetDestinationScan(destinationHost(im.Spec.Destination.Path))
+		var due bool
+		if due, nextPass = r.passDue(st, r.clock.Now()); due {
+			at, err := r.selfCheck(ctx, &im, st, desired)
+			switch {
+			case err == nil:
+				selfChecked = &metav1.Time{Time: at}
+				r.selfChecked.WithLabelValues(resource.Kind, resource.Name).Set(float64(at.Unix()))
+			case errors.Is(err, errPassInterrupted):
+				logf.FromContext(ctx).V(1).Info("Interrupted ImageMirror destination pass", "error", err.Error())
+			default:
+				return ctrl.Result{}, err
+			}
+		}
 		sources, err := r.copySources(ctx, desired, pods)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		r.owe(&im, st, st.owed(desired), sources)
+		inventoried := func(ref imagepath.Reference) bool {
+			return slices.Contains(im.Status.Repositories, destinationRepository(&im, ref, clusterID))
+		}
+		r.owe(&im, st, st.owed(desired, inventoried), sources)
 	}
 
 	// Under rewritePolicy None the mirror never routes, so it has no routing side at all.
@@ -230,20 +265,29 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		func(e kuikv1alpha1.FailedImageCopy) metav1.Time { return e.Since },
 		func(e kuikv1alpha1.FailedImageCopy) string { return e.Ref })
 	live := plan.Desired(plan.Mirror{Path: mirror.Path, ExcludeImages: mirror.ExcludeImages}, pods, nil)
+	if selfChecked != nil {
+		next.SelfChecked = selfChecked
+	}
+	present, copied := st.verdicts()
 	counts := plan.Counts(plan.Observed{
-		ClusterID: r.config.Load().ClusterID,
-		Path:      mirror.Path,
-		Live:      live,
-		Images:    liveImages(pods),
-		Copied:    st.copiedSet(),
-		Status:    next,
+		ClusterID:   clusterID,
+		Path:        mirror.Path,
+		Live:        live,
+		Images:      liveImages(pods),
+		SelfChecked: present,
+		Copied:      copied,
+		Status:      next,
 	})
 	next.Images = &kuikv1alpha1.MirrorImages{Copy: &counts}
+	condition.SetAnomaly(&next.Conditions, kuikv1alpha1.ConditionDestinationOutOfSync, counts.Unavailable > 0,
+		kuikv1alpha1.ReasonMissingImages, fmt.Sprintf("%d images not copied yet", counts.Unavailable), im.Generation)
 	next.Truncated = pass.End(&next.Conditions, im.Generation)
 	r.readiness.Set(&im, resource.Kind, resource.Name, &next.Conditions, im.Generation, notReady)
 
+	// The next destination pass is due in nextPass, whatever the pods do meanwhile.
+	result := ctrl.Result{RequeueAfter: nextPass}
 	if equality.Semantic.DeepEqual(im.Status, next) {
-		return ctrl.Result{}, nil
+		return result, nil
 	}
 	im.Status = next
 	if err := r.Status().Update(ctx, &im); err != nil {
@@ -254,13 +298,14 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 	logf.FromContext(ctx).V(1).Info("Updated ImageMirror status")
-	return ctrl.Result{}, nil
+	return result, nil
 }
 
 func (r *ImageMirrorReconciler) forget(resource routing.Resource) {
 	r.tracker.Forget(resource)
 	r.limiter.Forget(resource.Kind, resource.Name)
 	r.readiness.Forget(resource.Kind, resource.Name)
+	r.selfChecked.DeleteLabelValues(resource.Kind, resource.Name)
 }
 
 // mirrorScope parses the selectors of im, and reports InvalidConfig when one does not parse.
