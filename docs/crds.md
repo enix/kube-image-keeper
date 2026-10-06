@@ -210,7 +210,7 @@ spec:
 | `spec.namespaceSelector` | | Namespaces this resource applies to. Empty matches every namespace |
 | `spec.excludeImages[]` | | Globs of images to keep out of the mirror: no copy, no candidate, no tag at the destination. See [excluding images](#excluding-images) |
 | `spec.rewritePolicy` | | `OnFailure` (default), `Always` or `None`, see [`rewritePolicy`](#rewritepolicy) |
-| `spec.destination.path` | ✅ | Registry path the **full** original reference is appended to, hostname included: `registry.tld/mirror/` turns `docker.io/library/nginx:1.27` into `registry.tld/mirror/docker.io/library/nginx:1.27_<clusterID>`. The registry must accept deeply nested repository paths |
+| `spec.destination.path` | ✅ | Registry path the **full** original reference is appended to, hostname included: `registry.tld/mirror/` turns `docker.io/library/nginx:1.27` into `registry.tld/mirror/docker.io/library/nginx:1.27_<clusterID>`. The registry must accept deeply nested repository paths. Immutable: the tags written under a previous path could never be cleaned up |
 | `spec.destination.insecure` | | kuik pushes to and reads this registry over HTTP |
 | `spec.destination.manage.auth` | | Controller credential at the destination: pushes, self-check reads, tag listings and deletions. Needs read as well as write. Its `injectPullSecret` is ignored |
 | `spec.destination.pull.auth` | | Credential the kubelet pulls the mirrored images with, injected in the namespaces that need it |

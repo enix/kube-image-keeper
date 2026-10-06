@@ -31,7 +31,10 @@ type MirrorDestination struct {
 	// path is the registry path the full original reference is appended to, hostname
 	// included: `registry.tld/mirror/` turns `docker.io/library/nginx:1.27` into
 	// `registry.tld/mirror/docker.io/library/nginx:1.27_<clusterID>`.
+	// It cannot change once the mirror exists: status.repositories lists the repositories
+	// under the old path, and the tags written there would never be swept again.
 	// +kubebuilder:validation:Pattern=`^(localhost(:[0-9]+)?|[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)+(:[0-9]+)?|[a-zA-Z0-9-]+:[0-9]+)(/[a-z0-9]+((\.|_|__|-+)[a-z0-9]+)*)*/?$`
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="destination.path is immutable"
 	// +required
 	Path string `json:"path"`
 
