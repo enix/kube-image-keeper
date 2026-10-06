@@ -174,6 +174,14 @@ var _ = Describe("Candidates", func() {
 			index := NewIndex(nil, mirrors(prodMirror(onFailure)))
 			Expect(references(index.Candidates(request(mirrorNginx), options))).To(Equal([]string{mirrorNginx}))
 		})
+
+		It("offers none while the ImageMirror is being deleted, so that no new pod delays its deletion", func() {
+			m := prodMirror(onFailure)
+			deleting := metav1.Now()
+			m.DeletionTimestamp = &deleting
+			index := NewIndex(nil, mirrors(m))
+			Expect(references(index.Candidates(request(nginx), options))).To(Equal([]string{dockerNginx}))
+		})
 	})
 
 	Context("for a container with imagePullPolicy Always", func() {
