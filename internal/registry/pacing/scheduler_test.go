@@ -15,12 +15,14 @@ import (
 const (
 	dockerHub = "docker.io"
 	quayIO    = "quay.io"
-	quayImage = "quay.io/a/a:1"
-	imageA    = "docker.io/library/a:1"
-	imageB    = "docker.io/library/b:1"
-	imageC    = "docker.io/library/c:1"
-	imageX    = "docker.io/library/x:1"
-	imageY    = "docker.io/library/y:1"
+	// destinationHost is the host of a mirror destination, which kuik scans but never paces.
+	destinationHost = "registry.tld"
+	quayImage       = "quay.io/a/a:1"
+	imageA          = "docker.io/library/a:1"
+	imageB          = "docker.io/library/b:1"
+	imageC          = "docker.io/library/c:1"
+	imageX          = "docker.io/library/x:1"
+	imageY          = "docker.io/library/y:1"
 )
 
 var (
@@ -748,6 +750,25 @@ var _ = Describe("Scheduler", func() {
 				"operation=Check,registry=quay.io":   300,
 				"operation=Copy,registry=quay.io":    180,
 			}))
+		})
+
+		It("exposes the destination scan interval of a mirror destination host with operation Scan", func() {
+			cfg := pacing(time.Minute, 3*time.Minute, nil)
+			cfg.Mirror.DestinationScan.Interval = config.Duration{Duration: time.Hour}
+			h.s.SetConfig(cfg)
+			h.s.SetDestinationScan(destinationHost)
+
+			Expect(gauges(h.s.Collector(), "kuik_registry_interval_seconds")).To(HaveKeyWithValue("operation=Scan,registry="+destinationHost, 3600.0))
+		})
+
+		It("opens no window on a destination host whose scan interval it exposes", func() {
+			h.s.SetDestinationScan(destinationHost)
+			windows(3)
+
+			series := gauges(h.s.Collector(), "kuik_registry_interval_seconds")
+			Expect(series).To(HaveKey("operation=Scan,registry=" + destinationHost))
+			Expect(series).NotTo(HaveKey("operation=Check,registry=" + destinationHost))
+			Expect(series).NotTo(HaveKey("operation=Copy,registry=" + destinationHost))
 		})
 
 		It("reflects a reload in kuik_registry_interval_seconds", func() {
