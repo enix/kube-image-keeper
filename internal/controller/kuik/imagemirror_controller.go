@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -241,6 +242,13 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		inventoried := func(ref imagepath.Reference) bool {
 			return slices.Contains(im.Status.Repositories, destinationRepository(&im, ref, clusterID))
 		}
+		st.mu.Lock()
+		st.declaring = map[string]*corev1.Pod{}
+		for ref, copySource := range sources {
+			st.declaring[ref] = copySource.pod
+		}
+		st.mu.Unlock()
+		r.turnRings(&im, st, desired)
 		r.owe(&im, st, st.owed(desired, inventoried), sources)
 	}
 
@@ -260,6 +268,10 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	routingstatus.SetConditions(&next.Conditions, resource.Kind, routingStatus, im.Generation)
 	pass := r.limiter.Begin(resource.Kind, resource.Name)
 	routingstatus.Cap(pass, &next.RoutingStatus)
+	next.DriftedImages = capped.Cap(pass, "driftedImages", r.reportDrift(&im, st),
+		func(e kuikv1alpha1.MirrorDriftedImage) metav1.Time { return e.Since },
+		func(e kuikv1alpha1.MirrorDriftedImage) string { return e.Ref })
+	next.Checks = r.checks(&im)
 	next.FailedImageCopies = r.reportFailures(&im, st, desired)
 	next.FailedImageCopies = capped.Cap(pass, "failedImageCopies", next.FailedImageCopies,
 		func(e kuikv1alpha1.FailedImageCopy) metav1.Time { return e.Since },
