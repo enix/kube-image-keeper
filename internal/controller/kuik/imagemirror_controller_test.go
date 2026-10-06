@@ -3,6 +3,7 @@ package kuik
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/http"
 	"strings"
 	"time"
@@ -1121,17 +1122,230 @@ var _ = Describe("ImageMirror Controller", func() {
 	})
 
 	Describe("metrics", func() {
-		PIt("exports the images.copy gauges as kuik_images_tracked, kuik_images_checked and kuik_mirror_tags_orphan", func() {})
-		PIt("exports kuik_image_copy_failed for each failing copy, its registry label naming the side that failed, and drops it once the copy succeeds", func() {})
-		PIt("exports kuik_image_drifted for each driftedImages entry, and drops it once the copy matches again", func() {})
-		PIt("counts kuik_mirror_copies_total by Initial, Recopy and Resync", func() {})
-		PIt("counts kuik_mirror_tags_deleted_total by Unused and Orphan", func() {})
-		PIt("observes kuik_mirror_copy_duration_seconds only when metrics.copyDuration is enabled", func() {})
+		mirrorLabels := func(extra map[string]string) map[string]string {
+			labels := map[string]string{labelKind: routing.KindImageMirror, labelName: h.name}
+			maps.Copy(labels, extra)
+			return labels
+		}
+		copyLabels := func(state string) map[string]string {
+			return mirrorLabels(map[string]string{"reference": "copy", "state": state})
+		}
+
+		It("exports the images.copy gauges as kuik_images_tracked, kuik_images_checked and kuik_mirror_tags_orphan", func() {
+			src := h.source()
+			src.Push("acme/app:v1", registrytest.Image())
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+			h.mirror()
+			h.orphan("old", "v1_"+mirrorClusterID)
+			h.copyAll(1)
+			h.pass()
+			h.reconcile()
+
+			standby, _ := gauge(h.metrics, "kuik_images_tracked", copyLabels("standby"))
+			Expect(standby).To(Equal(1.0))
+			available, _ := gauge(h.metrics, "kuik_images_checked", copyLabels("available"))
+			Expect(available).To(Equal(1.0))
+			orphans, _ := gauge(h.metrics, "kuik_mirror_tags_orphan", mirrorLabels(nil))
+			Expect(orphans).To(Equal(1.0))
+		})
+
+		It("exports kuik_image_copy_failed for each failing copy, its registry label naming the side that failed, and drops it once the copy succeeds", func() {
+			src := h.source()
+			src.Push("acme/app:v1", registrytest.Image())
+			createPod(h.namespace(), unique("pod"),
+				container{name: "app", image: src.Host() + "/acme/app:v1"},
+				container{name: "gone", image: src.Host() + "/acme/gone:v1"},
+			)
+			rejectPushes(h.destination)
+			h.mirror()
+			h.reconcile()
+			failed := func(image, registry, reason string) func() bool {
+				return func() bool {
+					h.reconcile()
+					_, ok := gauge(h.metrics, "kuik_image_copy_failed", mirrorLabels(map[string]string{
+						labelImage: src.Host() + "/" + image, labelRegistry: registry, labelReason: reason,
+					}))
+					return ok
+				}
+			}
+			Eventually(func() bool {
+				h.window()
+				return failed("acme/app:v1", h.destination.Host(), string(kuikv1alpha1.CopyPushRejected))() &&
+					failed("acme/gone:v1", src.Host(), string(kuikv1alpha1.CopySourceNotFound))()
+			}).Should(BeTrue())
+
+			acceptPushes(h.destination)
+			Eventually(func() bool {
+				h.window()
+				return failed("acme/app:v1", h.destination.Host(), string(kuikv1alpha1.CopyPushRejected))()
+			}).Should(BeFalse())
+		})
+
+		It("names the destination in the registry label of kuik_image_copy_failed when the destination refuses the push credential", func() {
+			src := h.source()
+			src.Push("acme/app:v1", registrytest.Image())
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+			h.destination.Intercept(registrytest.Status(http.MethodPut, "/manifests/", http.StatusUnauthorized, nil))
+			h.mirror()
+			h.reconcile()
+
+			Eventually(func() bool {
+				h.window()
+				h.reconcile()
+				_, ok := gauge(h.metrics, "kuik_image_copy_failed", mirrorLabels(map[string]string{
+					labelImage: src.Host() + "/acme/app:v1", labelRegistry: h.destination.Host(),
+					labelReason: string(kuikv1alpha1.CopyUnauthorized),
+				}))
+				return ok
+			}).Should(BeTrue())
+		})
+
+		It("exports kuik_image_drifted for each driftedImages entry, and drops it once the copy matches again", func() {
+			src := h.source()
+			original := registrytest.Image()
+			src.Push("acme/app:v1", original)
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+			h.mirror(withDrift(kuikv1alpha1.DriftPolicyWarn))
+			h.copyAll(1)
+			drifted := func() bool {
+				_, ok := gauge(h.metrics, "kuik_image_drifted", mirrorLabels(map[string]string{
+					labelImage: src.Host() + "/acme/app:v1", labelRegistry: src.Host(),
+				}))
+				return ok
+			}
+			checkWindow := func() {
+				h.window()
+				h.reconcile()
+			}
+
+			src.Push("acme/app:v1", registrytest.Image())
+			Eventually(func() bool { checkWindow(); return drifted() }).Should(BeTrue())
+			src.Push("acme/app:v1", original)
+			Eventually(func() bool { checkWindow(); return drifted() }).Should(BeFalse())
+		})
+
+		It("counts kuik_mirror_copies_total by Initial, Recopy and Resync", func() {
+			src := h.source()
+			src.Push("acme/app:v1", registrytest.Image())
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+			h.mirror(withDrift(kuikv1alpha1.DriftPolicySync))
+			copies := func(reason string) func() float64 {
+				return func() float64 {
+					return counter(h.metrics, "kuik_mirror_copies_total", mirrorLabels(map[string]string{labelReason: reason}))
+				}
+			}
+
+			h.copyAll(1)
+			Expect(copies("Initial")()).To(Equal(1.0))
+
+			upstream := src.Push("acme/app:v1", registrytest.Image())
+			Eventually(func() string {
+				h.window()
+				h.reconcile()
+				descriptor, err := h.destination.Head(destinationTag(src, "acme/app"))
+				Expect(err).NotTo(HaveOccurred())
+				return descriptor.Digest.String()
+			}).Should(Equal(upstream.String()))
+			Eventually(copies("Resync")).Should(Equal(1.0))
+
+			h.deleteManifest(destinationTag(src, "acme/app"))
+			h.pass()
+			h.reconcile()
+			h.window()
+			Eventually(copies("Recopy")).Should(Equal(1.0))
+			Expect(copies("Initial")()).To(Equal(1.0))
+		})
+
+		It("counts kuik_mirror_tags_deleted_total by Unused and Orphan", func() {
+			src := h.source()
+			src.Push("acme/job:v1", registrytest.Image())
+			pod := createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/job:v1"})
+			h.mirror(withRetention(0))
+			h.orphan("old", "v1_"+mirrorClusterID)
+			h.copyAll(1)
+			setPhase(pod, corev1.PodSucceeded)
+			h.reconcile()
+
+			h.pass()
+			h.reconcile()
+			deleted := func(reason string) float64 {
+				return counter(h.metrics, "kuik_mirror_tags_deleted_total", mirrorLabels(map[string]string{labelReason: reason}))
+			}
+			Expect(deleted("Unused")).To(Equal(1.0))
+			Expect(deleted("Orphan")).To(Equal(1.0))
+		})
+
+		It("observes kuik_mirror_copy_duration_seconds only when metrics.copyDuration is enabled", func() {
+			src := h.source()
+			src.Push("acme/app:v1", registrytest.Image())
+			src.Push("acme/tool:v1", registrytest.Image())
+			ns := h.namespace()
+			createPod(ns, unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+			h.mirror()
+			h.copyAll(1)
+			Expect(observations(h.metrics, "kuik_mirror_copy_duration_seconds")).To(BeZero())
+
+			enabled := mirrorConfig()
+			enabled.Metrics.CopyDuration = true
+			h.reconciler.SetConfig(enabled)
+			createPod(ns, unique("pod"), container{name: appContainer, image: src.Host() + "/acme/tool:v1"})
+			h.copyAll(1)
+			Expect(observations(h.metrics, "kuik_mirror_copy_duration_seconds")).To(Equal(uint64(1)))
+		})
 	})
 
 	Describe("bounded lists", func() {
-		PIt("caps failedImageCopies and driftedImages over 500 entries, records it in truncated and sets ListCapacityPressure", func() {})
-		PIt("never caps repositories, pendingDeletion or checks.registries", func() {})
+		const over = 501
+		// copiedAll holds once the destination holds every image: a copy may write more than
+		// one manifest, so the number of writes does not tell.
+		copiedAll := func() bool {
+			copied := h.status().Images
+			return copied != nil && copied.Copy != nil && copied.Copy.Available == over
+		}
+
+		It("caps failedImageCopies and driftedImages over 500 entries, records it in truncated and sets ListCapacityPressure", func() {
+			h.mirror(withDrift(kuikv1alpha1.DriftPolicyWarn))
+			_, sources, refs := h.manyImages(over, false)
+			h.windowsUntil(copiedAll)
+
+			// Every upstream tag moves.
+			moved := registrytest.Image()
+			for i, ref := range refs {
+				sources[i%len(sources)].Push(ref, moved)
+			}
+			h.windowsUntil(func() bool { return h.status().Truncated["driftedImages"] == 1 })
+			Expect(h.status().DriftedImages).To(HaveLen(500))
+
+			// Then over 500 images no source holds.
+			missing := h.source()
+			ns := h.namespace()
+			for i := range over {
+				createPod(ns, unique("pod"), container{name: appContainer, image: fmt.Sprintf("%s/acme/gone%03d:v1", missing.Host(), i)})
+			}
+			h.windowsUntil(func() bool { return h.status().Truncated["failedImageCopies"] == 1 })
+			Expect(h.status().FailedImageCopies).To(HaveLen(500))
+			pressure := h.condition(kuikv1alpha1.ConditionListCapacityPressure)
+			Expect(pressure).NotTo(BeNil())
+			Expect(pressure.Status).To(Equal(metav1.ConditionTrue))
+			Expect(pressure.Reason).To(Equal(kuikv1alpha1.ReasonListTruncated))
+		})
+
+		It("never caps repositories, pendingDeletion or checks.registries", func() {
+			h.mirror(withDrift(kuikv1alpha1.DriftPolicyWarn))
+			pods, _, _ := h.manyImages(over, true)
+			h.windowsUntil(copiedAll)
+			Expect(h.status().Repositories).To(HaveLen(over))
+
+			for _, pod := range pods {
+				setPhase(pod, corev1.PodSucceeded)
+			}
+			h.reconcile()
+			status := h.status()
+			Expect(status.PendingDeletion).To(HaveLen(over))
+			Expect(status.Repositories).To(HaveLen(over))
+			Expect(status.Checks.Registries).To(HaveLen(10))
+			Expect(status.Truncated).To(BeEmpty())
+		})
 	})
 
 	Describe("writing the status", func() {
