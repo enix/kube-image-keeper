@@ -10,6 +10,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -190,10 +191,10 @@ func (r *Resolver) podPullSecrets(ctx context.Context, pod *corev1.Pod) (Credent
 			// Not granted in this namespace: no credential here, for every Secret of the pod.
 			return Credential{}, false
 		case err != nil:
-			log.V(1).Info("Skipped pod pull Secret", "namespace", pod.Namespace, "name", ref.Name, "error", err.Error())
+			log.V(1).Info("Skipped pod pull Secret", "secret", klog.KRef(pod.Namespace, ref.Name), "error", err.Error())
 			continue
 		case secret.Type != corev1.SecretTypeDockerConfigJson && secret.Type != corev1.SecretTypeDockercfg:
-			log.V(1).Info("Skipped pod pull Secret", "namespace", pod.Namespace, "name", ref.Name, "type", string(secret.Type))
+			log.V(1).Info("Skipped pod pull Secret", "secret", klog.KRef(pod.Namespace, ref.Name), "type", string(secret.Type))
 			continue
 		}
 		secrets = append(secrets, secret)
