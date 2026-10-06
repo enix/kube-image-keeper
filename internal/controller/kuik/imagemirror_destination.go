@@ -5,12 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 	"time"
+
+	corev1 "k8s.io/api/core/v1"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/imagepath"
 	"github.com/enix/kube-image-keeper/internal/mirrorpath"
+	"github.com/enix/kube-image-keeper/internal/mirrorpath/plan"
 	"github.com/enix/kube-image-keeper/internal/registry"
 )
 
@@ -93,6 +98,84 @@ func (r *ImageMirrorReconciler) selfCheck(ctx context.Context, im *kuikv1alpha1.
 	st.writeBack = writeBack
 	st.lastPass = now
 	return now, nil
+}
+
+// sweep lists every repository of status.repositories, records in pendingDeletion the tags of
+// this cluster the live references do not expect, deletes by tag those whose retention
+// elapsed, and returns the new pendingDeletion and the repositories to retire. A listing that
+// fails interrupts the pass, which records, deletes and retires nothing.
+func (r *ImageMirrorReconciler) sweep(ctx context.Context, im *kuikv1alpha1.ImageMirror, st *mirrorState, live []imagepath.Reference, pending []kuikv1alpha1.PendingDeletion, now time.Time) ([]kuikv1alpha1.PendingDeletion, []string, error) {
+	log := logf.FromContext(ctx)
+	manage, err := r.manageAuth(ctx, im)
+	if err != nil {
+		return nil, nil, err
+	}
+	endpoint := func(ref string) registry.Endpoint {
+		return registry.Endpoint{Reference: ref, Insecure: im.Spec.Destination.Insecure, Auth: manage(ref)}
+	}
+	listed := map[string][]string{}
+	for _, repository := range im.Status.Repositories {
+		tags, err := r.registry.ListTags(ctx, endpoint(repository))
+		if err != nil {
+			return nil, nil, fmt.Errorf("%w: %w", errPassInterrupted, err)
+		}
+		listed[repository] = tags
+	}
+
+	retention := 7 * 24 * time.Hour
+	if im.Spec.Cleanup != nil && im.Spec.Cleanup.Retention != nil {
+		retention = im.Spec.Cleanup.Retention.Duration
+	}
+	result := plan.Sweep{
+		ClusterID: r.config.Load().ClusterID,
+		Path:      im.Spec.Destination.Path,
+		Retention: retention,
+		Live:      live,
+		Listed:    listed,
+		Pending:   pending,
+		Now:       now,
+	}.Run()
+
+	known := map[string]bool{}
+	for _, entry := range pending {
+		known[entry.Ref] = true
+	}
+	for _, entry := range result.Pending {
+		// The entry persists, so a restart or a leader change does not announce it again.
+		if entry.Origin == "" && !known[entry.Ref] {
+			r.recorder.Eventf(im, nil, corev1.EventTypeWarning, "OrphanTagFound", "Sweep",
+				"Found %s, a tag of this cluster no tracked reference accounts for; it is deleted once its retention elapsed", entry.Ref)
+		}
+	}
+
+	deleted := map[string]bool{}
+	for _, ref := range result.Delete {
+		err := r.registry.DeleteTag(ctx, endpoint(ref))
+		switch {
+		case err == nil:
+			deleted[ref] = true
+			st.mu.Lock()
+			st.deleteUnsupported = false
+			st.mu.Unlock()
+			// Events expire: the log is what records every deletion.
+			log.Info("Deleted ImageMirror tag", "image", ref)
+			r.recorder.Eventf(im, nil, corev1.EventTypeNormal, "ImageDeleted", "Delete", "Deleted %s, unused for longer than its retention", ref)
+		case errors.Is(err, registry.ErrDeleteUnsupported):
+			// The registry will keep refusing: stop there, the next pass tries once more.
+			log.Info("Stopped deleting ImageMirror tags: the destination refuses tag deletion", "image", ref, "error", err.Error())
+			st.mu.Lock()
+			st.deleteUnsupported = true
+			st.mu.Unlock()
+		default:
+			log.Info("Failed to delete ImageMirror tag", "image", ref, "error", err.Error())
+			r.recorder.Eventf(im, nil, corev1.EventTypeWarning, "ImageDeletionFailed", "Delete", "Failed to delete %s: %v", ref, err)
+		}
+		if errors.Is(err, registry.ErrDeleteUnsupported) {
+			break
+		}
+	}
+	remaining := slices.DeleteFunc(result.Pending, func(e kuikv1alpha1.PendingDeletion) bool { return deleted[e.Ref] })
+	return remaining, result.Retire, nil
 }
 
 func manifestNotFound(err error) bool {
