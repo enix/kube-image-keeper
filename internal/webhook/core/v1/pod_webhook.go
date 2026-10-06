@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/go-logr/logr"
 	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
 	toolscache "k8s.io/client-go/tools/cache"
@@ -171,12 +172,21 @@ func (d *PodDefaulter) Default(ctx context.Context, pod *corev1.Pod) error {
 
 	// A pod created through a namespaced endpoint may carry no namespace yet.
 	probed := *pod
-	if probed.Namespace == "" {
-		if req, err := admission.RequestFromContext(ctx); err == nil {
-			probed.Namespace = req.Namespace
-		}
+	req, reqErr := admission.RequestFromContext(ctx)
+	if probed.Namespace == "" && reqErr == nil {
+		probed.Namespace = req.Namespace
 	}
 	a.probed = &probed
+
+	// Every line of the admission names it; a pod created from generateName has no name yet.
+	log := logf.FromContext(ctx).WithValues("requestID", req.UID, "namespace", probed.Namespace)
+	if pod.Name != "" {
+		log = log.WithValues("pod", pod.Name)
+	} else {
+		log = log.WithValues("generateName", pod.GenerateName)
+	}
+	ctx = logf.IntoContext(ctx, log)
+
 	a.namespaceLabels = d.namespaceLabels(ctx, probed.Namespace)
 
 	before := readRecords(ctx, pod)
@@ -190,7 +200,7 @@ func (d *PodDefaulter) Default(ctx context.Context, pod *corev1.Pod) error {
 func (d *PodDefaulter) namespaceLabels(ctx context.Context, namespace string) map[string]string {
 	var ns corev1.Namespace
 	if err := d.namespaces.Get(ctx, client.ObjectKey{Name: namespace}, &ns); err != nil {
-		logf.FromContext(ctx).V(1).Info("Failed to read Namespace, selecting on no label", "namespace", namespace, "error", err.Error())
+		logf.FromContext(ctx).V(1).Info("Failed to read Namespace, selecting on no label", "error", err.Error())
 		return nil
 	}
 	return ns.Labels
@@ -251,6 +261,7 @@ func (a *pass) route(ctx context.Context, r podrecord.Records) {
 				// conceded: another webhook took the field over.
 				r.Conceded[c.Name] = entry
 				delete(r.Rewrites, c.Name)
+				containerLog(ctx, c).Info("Conceded container image", rewriteValues(entry)...)
 			}
 			continue
 		}
@@ -273,7 +284,7 @@ func (a *pass) candidates(ctx context.Context, c *corev1.Container) (pending, bo
 	}
 	origin, err := imagepath.Parse(c.Image)
 	if err != nil {
-		logf.FromContext(ctx).V(1).Info("Left container with an unparsable image", "container", c.Name, "error", err.Error())
+		containerLog(ctx, c).V(1).Info("Left container with an unparsable image", "error", err.Error())
 		return pending{}, false
 	}
 	result := a.index.Candidates(a.request(origin, c.ImagePullPolicy), a.options())
@@ -313,17 +324,18 @@ func (a *pass) resolve(ctx context.Context, news []pending, r podrecord.Records)
 	}
 
 	retained := make([]int, len(keys))
+	reasons := make([]kuikv1alpha1.CheckFailureReason, len(keys))
 	var wg sync.WaitGroup
 	for i, key := range keys {
 		wg.Go(func() {
-			retained[i] = a.firstAvailable(ctx, groups[key][0].result.Candidates)
+			retained[i], reasons[i] = a.firstAvailable(ctx, groups[key][0].result.Candidates)
 		})
 	}
 	wg.Wait()
 
 	for i, key := range keys {
 		for _, p := range groups[key] {
-			a.apply(p, retained[i], r)
+			a.apply(ctx, p, retained[i], reasons[i], r)
 		}
 	}
 }
@@ -335,19 +347,29 @@ func listKey(candidates []routing.Candidate) string {
 	return string(key)
 }
 
-// firstAvailable returns the index of the first candidate that answers, or -1.
-func (a *pass) firstAvailable(ctx context.Context, candidates []routing.Candidate) int {
+// firstAvailable returns the index of the first candidate that answers, or -1, and the
+// reason the original failed its check on, empty when it was not checked or answered.
+func (a *pass) firstAvailable(ctx context.Context, candidates []routing.Candidate) (int, kuikv1alpha1.CheckFailureReason) {
+	var originReason kuikv1alpha1.CheckFailureReason
 	for i, c := range candidates {
-		if a.available(ctx, a.probed, c, a.cfg) {
-			return i
+		response := a.available(ctx, a.probed, c, a.cfg)
+		if response.available {
+			return i, originReason
+		}
+		if c.Resource == nil {
+			originReason = response.reason
 		}
 	}
-	return -1
+	return -1, originReason
 }
 
-// apply records the outcome of a resolution on its container.
-func (a *pass) apply(p pending, retained int, r podrecord.Records) {
+// apply records the outcome of a resolution on its container, and logs it. The noise of the
+// line follows rewritePolicy as the Pod events do: a rewrite under Always is the steady state,
+// logged at V(1); one under OnFailure means the original failed, logged at Info. See
+// docs/v3/observability.md, "Noise is not configurable, it follows rewritePolicy".
+func (a *pass) apply(ctx context.Context, p pending, retained int, originReason kuikv1alpha1.CheckFailureReason, r podrecord.Records) {
 	name := p.container.Name
+	log := containerLog(ctx, p.container)
 	if retained < 0 {
 		offering := make([]string, 0, len(p.result.Offering))
 		for _, res := range p.result.Offering {
@@ -355,21 +377,50 @@ func (a *pass) apply(p pending, retained int, r podrecord.Records) {
 			AlternativesExhaustedTotal.WithLabelValues(res.Kind, res.Name).Inc()
 		}
 		r.NoAlternatives[name] = offering
+		values := []any{"resources", offering}
+		if originReason != "" {
+			values = append(values, "reason", originReason)
+		}
+		log.Info("Found no available candidate for container image", values...)
 		return
 	}
 	c := p.result.Candidates[retained]
 	if c.Resource == nil {
 		// The original answered: nothing happened, nothing is recorded.
+		log.V(1).Info("Kept container image")
 		return
 	}
 	p.container.Image = c.Reference
-	r.Rewrites[name] = Rewrite{
+	entry := Rewrite{
 		By:          c.Resource.String(),
 		Origin:      p.origin.String(),
 		RewrittenTo: c.Reference,
 		Policy:      string(c.Policy),
 	}
+	r.Rewrites[name] = entry
 	RewritesTotal.WithLabelValues(c.Resource.Kind, c.Resource.Name, string(c.Policy)).Inc()
+
+	values := rewriteValues(entry)
+	if originReason != "" {
+		values = append(values, "reason", originReason)
+	}
+	if c.Policy == kuikv1alpha1.RewritePolicyAlways {
+		log.V(1).Info("Rewrote container image", values...)
+	} else {
+		log.Info("Rewrote container image", values...)
+	}
+}
+
+// containerLog is the logger of the lines about one container, named with the image it
+// carries at admission.
+func containerLog(ctx context.Context, c *corev1.Container) logr.Logger {
+	return logf.FromContext(ctx).WithValues("container", c.Name, "image", c.Image)
+}
+
+// rewriteValues are the fields of a rewrite entry as log values, in the words of
+// kuik.enix.io/rewrites: the resource is its by, the candidate its rewrittenTo.
+func rewriteValues(entry Rewrite) []any {
+	return []any{"resource", entry.By, "policy", entry.Policy, "origin", entry.Origin, "candidate", entry.RewrittenTo}
 }
 
 // reconcilePullSecrets makes the pod carry a kuik-injected name if and only if a container
