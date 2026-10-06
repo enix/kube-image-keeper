@@ -45,6 +45,18 @@ type mirrorState struct {
 	fresh []kuikv1alpha1.FailedImageCopy
 	// queues are the hosts this mirror holds a copy queue on.
 	queues map[string]bool
+
+	// present are the references the last whole destination pass found, keyed by their String
+	// form; lastPass is when that pass ran, zero before the first.
+	present  map[string]bool
+	lastPass time.Time
+	// digests are the digests the destination is known to hold each reference at, from a
+	// pass or a copy: what tells a deleted manifest from a deleted tag.
+	digests map[string]string
+	// recopy are the references the destination lost; writeBack those whose manifest is still
+	// there but whose tag of this cluster is gone.
+	recopy    map[string]bool
+	writeBack map[string]bool
 }
 
 // copySource is the candidates an owed reference may be read from, in the order the webhook
@@ -76,10 +88,14 @@ type copyFailure struct {
 
 func newMirrorState() *mirrorState {
 	return &mirrorState{
-		copied:  map[string]bool{},
-		sources: map[string]*copySource{},
-		failed:  map[string]copyFailure{},
-		queues:  map[string]bool{},
+		copied:    map[string]bool{},
+		sources:   map[string]*copySource{},
+		failed:    map[string]copyFailure{},
+		queues:    map[string]bool{},
+		present:   map[string]bool{},
+		digests:   map[string]string{},
+		recopy:    map[string]bool{},
+		writeBack: map[string]bool{},
 	}
 }
 
@@ -131,10 +147,21 @@ func (r *ImageMirrorReconciler) owe(im *kuikv1alpha1.ImageMirror, st *mirrorStat
 	for host := range queues {
 		st.queues[host] = true
 	}
+	recopy := maps.Clone(st.recopy)
 	st.mu.Unlock()
 
 	for host, refs := range queues {
-		slices.Sort(refs)
+		// A lost copy is an availability hole pods may be routed to right now; an initial
+		// copy is background work.
+		slices.SortFunc(refs, func(a, b string) int {
+			if recopy[a] != recopy[b] {
+				if recopy[a] {
+					return -1
+				}
+				return 1
+			}
+			return strings.Compare(a, b)
+		})
 		r.scheduler.SetCopyQueue(owner, host, refs, mirrorCopier{r: r, name: im.Name, host: host})
 	}
 	for _, host := range gone {
@@ -248,7 +275,7 @@ func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
 	source, ok := st.sources[ref]
 	// A window of a host reads that host only: a reference handed to a candidate elsewhere
 	// waits for a window there, once the next reconcile moved it to that queue.
-	if !ok || source.host() != c.host {
+	if !ok || source.host() != c.host || st.copied[ref] {
 		st.mu.Unlock()
 		return nil
 	}
@@ -277,7 +304,7 @@ func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
 		return nil
 	}
 
-	destination := mirrorpath.Destination(im.Spec.Destination.Path, imagepath.Reference{Host: source.origin.Host, Segments: source.origin.Segments}, r.config.Load().ClusterID)
+	destination := destinationRepository(&im, source.origin, r.config.Load().ClusterID)
 	// The registry offers no way to list the repositories a client populated: the one that
 	// is not recorded before its first push is never swept.
 	if err := r.recordRepository(ctx, &im, destination); err != nil {
@@ -288,7 +315,7 @@ func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
 		return err
 	}
 	destinationEndpoint := registry.Endpoint{Reference: destination, Insecure: im.Spec.Destination.Insecure, Auth: manage(destination)}
-	_, err = r.registry.Copy(ctx, sourceEndpoint, destinationEndpoint, mirrorpath.Tags(source.origin, r.config.Load().ClusterID))
+	digest, err := r.registry.Copy(ctx, sourceEndpoint, destinationEndpoint, mirrorpath.Tags(source.origin, r.config.Load().ClusterID))
 
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -307,8 +334,19 @@ func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
 	}
 	delete(st.failed, ref)
 	st.copied[ref] = true
+	st.digests[ref] = digest.String()
 	source.next = 0
-	r.recorder.Eventf(&im, nil, corev1.EventTypeNormal, "ImageCopied", "Copy", "Copied %s to %s", ref, destination)
+	switch {
+	case st.writeBack[ref]:
+		// The manifest was there: only this cluster's tag was written back, nothing was lost.
+	case st.recopy[ref]:
+		r.recorder.Eventf(&im, nil, corev1.EventTypeWarning, "ImageRecopied", "Copy",
+			"Copied %s to %s again: something outside kuik deleted it from the destination", ref, destination)
+	default:
+		r.recorder.Eventf(&im, nil, corev1.EventTypeNormal, "ImageCopied", "Copy", "Copied %s to %s", ref, destination)
+	}
+	delete(st.recopy, ref)
+	delete(st.writeBack, ref)
 	return nil
 }
 
@@ -408,18 +446,23 @@ func liveImages(pods []*corev1.Pod) []string {
 	return images
 }
 
-// owed are the references of desired the destination is not known to hold yet.
-func (st *mirrorState) owed(desired []imagepath.Reference) []imagepath.Reference {
+// owed are the references of desired the destination is not known to hold yet. A reference
+// the last pass found counts as held only in a repository status.repositories lists: an
+// unlisted one would never be swept, so it is copied again, which records it.
+func (st *mirrorState) owed(desired []imagepath.Reference, inventoried func(imagepath.Reference) bool) []imagepath.Reference {
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	return slices.DeleteFunc(slices.Clone(desired), func(ref imagepath.Reference) bool { return st.copied[ref.String()] })
+	return slices.DeleteFunc(slices.Clone(desired), func(ref imagepath.Reference) bool {
+		key := ref.String()
+		return st.copied[key] || (st.present[key] && inventoried(ref))
+	})
 }
 
-// copiedSet is a snapshot of the references copied by this process.
-func (st *mirrorState) copiedSet() map[string]bool {
+// verdicts are snapshots of the references the last pass found and of those copied since.
+func (st *mirrorState) verdicts() (present, copied map[string]bool) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	return maps.Clone(st.copied)
+	return maps.Clone(st.present), maps.Clone(st.copied)
 }
 
 // reportFailures returns the failedImageCopies of im: one entry per desired reference whose
