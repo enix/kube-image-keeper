@@ -19,7 +19,10 @@ import (
 // side the reason of the first credential tried.
 type CopyError struct {
 	Reason kuikv1alpha1.CopyFailureReason
-	Err    error
+	// Destination reports that the failure was observed on the destination, which
+	// Unauthorized and QuotaExceeded do not tell.
+	Destination bool
+	Err         error
 }
 
 func (e *CopyError) Error() string { return string(e.Reason) + ": " + e.Err.Error() }
@@ -77,7 +80,8 @@ func (c *Client) Copy(ctx context.Context, src, dst Endpoint, tags []string) (v1
 			// The blobs read during the transfer are source requests too.
 			RequestsTotal.WithLabelValues(registryLabel(srcRef), "Copy", checkResultLabel(fromSource.err)).Inc()
 		}
-		return v1.Hash{}, &CopyError{Reason: copyFailureReason(decisive), Err: errors.Join(errs...)}
+		_, fromSource := errors.AsType[*sourceError](decisive)
+		return v1.Hash{}, &CopyError{Reason: copyFailureReason(decisive), Destination: !fromSource, Err: errors.Join(errs...)}
 	}
 	return source.Digest, nil
 }

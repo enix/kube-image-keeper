@@ -3,6 +3,7 @@ package kuik
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -15,12 +16,16 @@ import (
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/auth"
 	"github.com/enix/kube-image-keeper/internal/config"
 	"github.com/enix/kube-image-keeper/internal/imagepath"
+	"github.com/enix/kube-image-keeper/internal/mirrorpath/plan"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/enix/kube-image-keeper/internal/registry/pacing"
 	"github.com/enix/kube-image-keeper/internal/routing"
@@ -41,16 +46,37 @@ type ImageMirrorReconciler struct {
 	StatusInterval time.Duration
 
 	namespace string
-	resolver  *auth.Resolver
-	tracker   *routingstatus.Tracker
-	limiter   *capped.Limiter
-	readiness *condition.Readiness
-	scheduler *pacing.Scheduler
-	registry  *registry.Client
-	clock     clock.Clock
-	config    atomic.Pointer[config.Config]
+	// resolver reads the Secrets the mirror names; sourceResolver also the pod pull secrets
+	// and fallbackAuth, to read a source as the background loops do.
+	resolver       *auth.Resolver
+	sourceResolver *auth.Resolver
+	recorder       events.EventRecorder
+	tracker        *routingstatus.Tracker
+	limiter        *capped.Limiter
+	readiness      *condition.Readiness
+	scheduler      *pacing.Scheduler
+	registry       *registry.Client
+	clock          clock.Clock
+	config         atomic.Pointer[config.Config]
 	// elected is set once the lease is held; no status is written before it.
 	elected atomic.Bool
+
+	statesMu sync.Mutex
+	states   map[string]*mirrorState
+	// wakeFn asks for a reconcile of a mirror once a copy or a check of it ended. Nil without
+	// a manager.
+	wakeFn func(name string)
+}
+
+// conflictWait is how long a reconcile whose status write lost a race waits before trying
+// again.
+const conflictWait = 100 * time.Millisecond
+
+// wake asks for a reconcile of the mirror name.
+func (r *ImageMirrorReconciler) wake(name string) {
+	if r.wakeFn != nil {
+		r.wakeFn(name)
+	}
 }
 
 // ImageMirrorOptions are what an ImageMirrorReconciler reads, copies and reports with.
@@ -93,13 +119,19 @@ func NewImageMirrorReconciler(c client.Client, scheme *runtime.Scheme, opts Imag
 		namespace: opts.ClusterResourceNamespace,
 		// Webhook mode skips fallbackAuth: Ready answers for the Secrets the mirror itself
 		// names, never for the global config.
-		resolver:  auth.NewResolver(opts.APIReader, opts.ClusterResourceNamespace, auth.ModeWebhook),
-		tracker:   tracker,
-		limiter:   limiter,
-		readiness: readiness,
-		scheduler: opts.Scheduler,
-		registry:  opts.Registry,
-		clock:     opts.Clock,
+		resolver:       auth.NewResolver(opts.APIReader, opts.ClusterResourceNamespace, auth.ModeWebhook),
+		sourceResolver: auth.NewResolver(opts.APIReader, opts.ClusterResourceNamespace, auth.ModeReconciler),
+		recorder:       opts.Recorder,
+		tracker:        tracker,
+		limiter:        limiter,
+		readiness:      readiness,
+		scheduler:      opts.Scheduler,
+		registry:       opts.Registry,
+		clock:          opts.Clock,
+		states:         map[string]*mirrorState{},
+	}
+	if err := r.sourceResolver.SetFallbackAuth(opts.Config.FallbackAuth); err != nil {
+		return nil, err
 	}
 	r.config.Store(opts.Config)
 	return r, nil
@@ -108,6 +140,9 @@ func NewImageMirrorReconciler(c client.Client, scheme *runtime.Scheme, opts Imag
 // SetConfig applies a reloaded global config.
 func (r *ImageMirrorReconciler) SetConfig(cfg *config.Config) {
 	r.config.Store(cfg)
+	if err := r.sourceResolver.SetFallbackAuth(cfg.FallbackAuth); err != nil {
+		logf.Log.Info("Kept the previous fallbackAuth of the ImageMirror reconciler", "error", err.Error())
+	}
 }
 
 // Elected records when the lease was acquired: pod events go only to pods created since.
@@ -149,15 +184,29 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	scope, notReady := mirrorScope(&im)
+	// A mirror copies unless it cannot: selectors that do not parse select nothing, and a
+	// manage credential that cannot be read writes nothing.
+	blocked := notReady != nil
 	if notReady == nil {
 		var err error
-		if notReady, err = r.checkSecrets(ctx, &im); err != nil {
+		if notReady, blocked, err = r.checkSecrets(ctx, &im); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
 	pods, err := selectedPods(ctx, r, scope)
 	if err != nil {
 		return ctrl.Result{}, err
+	}
+
+	st := r.state(im.Name)
+	mirror := plan.Mirror{Path: im.Spec.Destination.Path, ExcludeImages: im.Spec.ExcludeImages, CleanupEnabled: im.Spec.Cleanup.IsEnabled()}
+	desired := plan.Desired(mirror, pods, im.Status.PendingDeletion)
+	if !blocked {
+		sources, err := r.copySources(ctx, desired, pods)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		r.owe(&im, st, st.owed(desired), sources)
 	}
 
 	// Under rewritePolicy None the mirror never routes, so it has no routing side at all.
@@ -176,6 +225,20 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	routingstatus.SetConditions(&next.Conditions, resource.Kind, routingStatus, im.Generation)
 	pass := r.limiter.Begin(resource.Kind, resource.Name)
 	routingstatus.Cap(pass, &next.RoutingStatus)
+	next.FailedImageCopies = r.reportFailures(&im, st, desired)
+	next.FailedImageCopies = capped.Cap(pass, "failedImageCopies", next.FailedImageCopies,
+		func(e kuikv1alpha1.FailedImageCopy) metav1.Time { return e.Since },
+		func(e kuikv1alpha1.FailedImageCopy) string { return e.Ref })
+	live := plan.Desired(plan.Mirror{Path: mirror.Path, ExcludeImages: mirror.ExcludeImages}, pods, nil)
+	counts := plan.Counts(plan.Observed{
+		ClusterID: r.config.Load().ClusterID,
+		Path:      mirror.Path,
+		Live:      live,
+		Images:    liveImages(pods),
+		Copied:    st.copiedSet(),
+		Status:    next,
+	})
+	next.Images = &kuikv1alpha1.MirrorImages{Copy: &counts}
 	next.Truncated = pass.End(&next.Conditions, im.Generation)
 	r.readiness.Set(&im, resource.Kind, resource.Name, &next.Conditions, im.Generation, notReady)
 
@@ -184,6 +247,10 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 	im.Status = next
 	if err := r.Status().Update(ctx, &im); err != nil {
+		// A copy records its repository in the same status: the next reconcile reads it.
+		if apierrors.IsConflict(err) {
+			return ctrl.Result{RequeueAfter: conflictWait}, nil
+		}
 		return ctrl.Result{}, err
 	}
 	logf.FromContext(ctx).V(1).Info("Updated ImageMirror status")
@@ -212,7 +279,9 @@ func mirrorScope(im *kuikv1alpha1.ImageMirror) (scope, *condition.NotReady) {
 // checkSecrets reads the Secret of the manage and pull secretRefs of im, and reports
 // SecretNotFound or SecretMalformed for the first one that is missing or not a
 // dockerconfigjson. A credential left out is anonymous and reads nothing.
-func (r *ImageMirrorReconciler) checkSecrets(ctx context.Context, im *kuikv1alpha1.ImageMirror) (*condition.NotReady, error) {
+// It also reports whether copying is impossible: only the manage credential writes the
+// destination, so a broken pull credential leaves Ready False and the copies running.
+func (r *ImageMirrorReconciler) checkSecrets(ctx context.Context, im *kuikv1alpha1.ImageMirror) (*condition.NotReady, bool, error) {
 	for _, credentials := range []*kuikv1alpha1.DestinationCredentials{im.Spec.Destination.Manage, im.Spec.Destination.Pull} {
 		if credentials == nil {
 			continue
@@ -220,23 +289,34 @@ func (r *ImageMirrorReconciler) checkSecrets(ctx context.Context, im *kuikv1alph
 		_, err := r.resolver.Resolve(ctx, imagepath.Reference{}, &credentials.Auth, nil)
 		var notFound *auth.ErrSecretNotFound
 		var malformed *auth.ErrSecretMalformed
+		manage := credentials == im.Spec.Destination.Manage
 		switch {
 		case err == nil:
 		case errors.As(err, &notFound):
-			return &condition.NotReady{Reason: kuikv1alpha1.ReasonSecretNotFound, Message: err.Error()}, nil
+			return &condition.NotReady{Reason: kuikv1alpha1.ReasonSecretNotFound, Message: err.Error()}, manage, nil
 		case errors.As(err, &malformed):
-			return &condition.NotReady{Reason: kuikv1alpha1.ReasonSecretMalformed, Message: err.Error()}, nil
+			return &condition.NotReady{Reason: kuikv1alpha1.ReasonSecretMalformed, Message: err.Error()}, manage, nil
 		default:
-			return nil, err
+			return nil, false, err
 		}
 	}
-	return nil, nil
+	return nil, false, nil
 }
 
-// SetupWithManager sets up the controller with the Manager.
+// SetupWithManager sets up the controller with the Manager. A copy or a check that ended
+// asks for a reconcile of its mirror through a channel.
 func (r *ImageMirrorReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	wakes := make(chan event.TypedGenericEvent[*kuikv1alpha1.ImageMirror], 1024)
+	r.wakeFn = func(name string) {
+		select {
+		case wakes <- event.TypedGenericEvent[*kuikv1alpha1.ImageMirror]{Object: &kuikv1alpha1.ImageMirror{ObjectMeta: metav1.ObjectMeta{Name: name}}}:
+		default:
+			// A full channel already holds reconciles enough to pick this change up.
+		}
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kuikv1alpha1.ImageMirror{}).
+		WatchesRawSource(source.Channel(wakes, &handler.TypedEnqueueRequestForObject[*kuikv1alpha1.ImageMirror]{})).
 		Named("kuik-imagemirror").
 		Complete(r)
 }

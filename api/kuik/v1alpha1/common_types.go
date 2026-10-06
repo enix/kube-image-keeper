@@ -211,8 +211,8 @@ const (
 	CheckUnreachable CheckFailureReason = "Unreachable"
 )
 
-// CopyFailureReason is what a failed copy observed on one image. A copy touches two endpoints,
-// so where both sides can fail the same way the reason names the side that did.
+// CopyFailureReason is what a failed copy observed on one image. A copy touches two endpoints:
+// a reason that does not name its side (Unauthorized, QuotaExceeded) comes from either.
 // +kubebuilder:validation:Enum=SourceNotFound;PushRejected;Unauthorized;QuotaExceeded;SourceUnreachable;DestinationUnreachable
 type CopyFailureReason string
 
