@@ -75,6 +75,8 @@ type mirrorState struct {
 	// deleteUnsupported is set once the destination refused a tag deletion as unsupported,
 	// until one succeeds.
 	deleteUnsupported bool
+	// held counts the tries of the finalizer holding the deleted mirror.
+	held uint
 }
 
 // refusesDeletion reports whether the destination refused the last tag deletion as

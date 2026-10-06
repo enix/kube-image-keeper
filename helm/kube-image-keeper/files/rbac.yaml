@@ -25,7 +25,6 @@ rules:
   - kuik.enix.io
   resources:
   - imagealternatives
-  - imagemirrors
   - imagemonitors
   verbs:
   - get
@@ -39,6 +38,22 @@ rules:
   - imagemonitors/status
   verbs:
   - patch
+  - update
+- apiGroups:
+  - kuik.enix.io
+  resources:
+  - imagemirrors
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kuik.enix.io
+  resources:
+  - imagemirrors/finalizers
+  verbs:
   - update
 ---
 apiVersion: rbac.authorization.k8s.io/v1

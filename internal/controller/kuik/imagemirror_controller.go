@@ -20,6 +20,7 @@ import (
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -197,6 +198,18 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		return ctrl.Result{}, err
 	}
+	if !im.DeletionTimestamp.IsZero() {
+		return r.finalize(ctx, &im, resource)
+	}
+	if controllerutil.AddFinalizer(&im, mirrorFinalizer) {
+		if err := r.Update(ctx, &im); err != nil {
+			if apierrors.IsConflict(err) {
+				return ctrl.Result{RequeueAfter: conflictWait}, nil
+			}
+			return ctrl.Result{}, err
+		}
+		logf.FromContext(ctx).Info("Added the finalizer of the ImageMirror")
+	}
 
 	scope, notReady := mirrorScope(&im)
 	// A mirror copies unless it cannot: selectors that do not parse select nothing, and a
@@ -345,6 +358,7 @@ func (r *ImageMirrorReconciler) forget(resource routing.Resource) {
 	r.limiter.Forget(resource.Kind, resource.Name)
 	r.readiness.Forget(resource.Kind, resource.Name)
 	r.selfChecked.DeleteLabelValues(resource.Kind, resource.Name)
+	r.drop(resource.Name)
 }
 
 // union returns the references of a and b, once each, sorted as plan.Desired sorts them.
