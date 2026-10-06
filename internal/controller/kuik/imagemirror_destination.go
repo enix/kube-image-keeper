@@ -17,6 +17,7 @@ import (
 	"github.com/enix/kube-image-keeper/internal/mirrorpath"
 	"github.com/enix/kube-image-keeper/internal/mirrorpath/plan"
 	"github.com/enix/kube-image-keeper/internal/registry"
+	"github.com/enix/kube-image-keeper/internal/routing"
 )
 
 // errPassInterrupted ends a destination pass that could not read the whole destination.
@@ -148,17 +149,22 @@ func (r *ImageMirrorReconciler) sweep(ctx context.Context, im *kuikv1alpha1.Imag
 		}
 	}
 
+	entries := make(map[string]kuikv1alpha1.PendingDeletion, len(result.Pending))
+	for _, entry := range result.Pending {
+		entries[entry.Ref] = entry
+	}
 	deleted := map[string]bool{}
 	for _, ref := range result.Delete {
 		err := r.registry.DeleteTag(ctx, endpoint(ref))
 		switch {
 		case err == nil:
 			deleted[ref] = true
+			r.metrics.deletedTag(routing.KindImageMirror, im.Name, entries[ref])
 			st.mu.Lock()
 			st.deleteUnsupported = false
 			st.mu.Unlock()
 			// Events expire: the log is what records every deletion.
-			log.Info("Deleted ImageMirror tag", "image", ref)
+			log.Info("Deleted ImageMirror tag", "image", ref, "reason", deletionReason(entries[ref]))
 			r.recorder.Eventf(im, nil, corev1.EventTypeNormal, "ImageDeleted", "Delete", "Deleted %s, unused for longer than its retention", ref)
 		case errors.Is(err, registry.ErrDeleteUnsupported):
 			// The registry will keep refusing: stop there, the next pass tries once more.
@@ -176,6 +182,15 @@ func (r *ImageMirrorReconciler) sweep(ctx context.Context, im *kuikv1alpha1.Imag
 	}
 	remaining := slices.DeleteFunc(result.Pending, func(e kuikv1alpha1.PendingDeletion) bool { return deleted[e.Ref] })
 	return remaining, result.Retire, nil
+}
+
+// deletionReason is why a tag was deleted: Unused when a pod event recorded it with its
+// origin, Orphan when the sweep found it with none.
+func deletionReason(entry kuikv1alpha1.PendingDeletion) string {
+	if entry.Origin == "" {
+		return deletedOrphan
+	}
+	return deletedUnused
 }
 
 func manifestNotFound(err error) bool {

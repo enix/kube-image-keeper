@@ -66,7 +66,7 @@ type ImageMirrorReconciler struct {
 	// elected is set once the lease is held; no status is written before it.
 	elected atomic.Bool
 
-	selfChecked *prometheus.GaugeVec
+	metrics *mirrorMetrics
 
 	statesMu sync.Mutex
 	states   map[string]*mirrorState
@@ -120,12 +120,8 @@ func NewImageMirrorReconciler(c client.Client, scheme *runtime.Scheme, opts Imag
 	if err != nil {
 		return nil, err
 	}
-	// The HELP text is that of docs/v3/observability.md, "Scheduling health".
-	selfChecked := prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "kuik_mirror_self_checked_timestamp_seconds",
-		Help: "Unix timestamp at which the last full comparison of the destination finished",
-	}, []string{"kind", "name"})
-	if err := opts.Registerer.Register(selfChecked); err != nil {
+	metrics, err := newMirrorMetrics(opts.Registerer)
+	if err != nil {
 		return nil, err
 	}
 	r := &ImageMirrorReconciler{
@@ -143,7 +139,7 @@ func NewImageMirrorReconciler(c client.Client, scheme *runtime.Scheme, opts Imag
 		scheduler:      opts.Scheduler,
 		registry:       opts.Registry,
 		clock:          opts.Clock,
-		selfChecked:    selfChecked,
+		metrics:        metrics,
 		states:         map[string]*mirrorState{},
 	}
 	if err := r.sourceResolver.SetFallbackAuth(opts.Config.FallbackAuth); err != nil {
@@ -261,7 +257,7 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			switch {
 			case err == nil:
 				selfChecked = &metav1.Time{Time: at}
-				r.selfChecked.WithLabelValues(resource.Kind, resource.Name).Set(float64(at.Unix()))
+				r.metrics.selfChecked.WithLabelValues(resource.Kind, resource.Name).Set(float64(at.Unix()))
 			case errors.Is(err, errPassInterrupted):
 				logf.FromContext(ctx).V(1).Info("Interrupted ImageMirror destination pass", "error", err.Error())
 			default:
@@ -327,6 +323,9 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	next.Images = &kuikv1alpha1.MirrorImages{Copy: &counts}
 	condition.SetAnomaly(&next.Conditions, kuikv1alpha1.ConditionDestinationOutOfSync, counts.Unavailable > 0,
 		kuikv1alpha1.ReasonMissingImages, fmt.Sprintf("%d images not copied yet", counts.Unavailable), im.Generation)
+	// The series carry every failing and drifted image, where the status keeps a sample.
+	failed, drifted := st.anomalies()
+	r.metrics.report(resource.Kind, resource.Name, counts, failed, drifted)
 	next.Truncated = pass.End(&next.Conditions, im.Generation)
 	if notReady == nil && cleanup && st.refusesDeletion() {
 		notReady = &condition.NotReady{
@@ -357,7 +356,7 @@ func (r *ImageMirrorReconciler) forget(resource routing.Resource) {
 	r.tracker.Forget(resource)
 	r.limiter.Forget(resource.Kind, resource.Name)
 	r.readiness.Forget(resource.Kind, resource.Name)
-	r.selfChecked.DeleteLabelValues(resource.Kind, resource.Name)
+	r.metrics.forget(resource.Kind, resource.Name)
 	r.drop(resource.Name)
 }
 

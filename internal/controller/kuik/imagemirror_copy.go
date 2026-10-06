@@ -374,7 +374,9 @@ func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
 		return err
 	}
 	destinationEndpoint := registry.Endpoint{Reference: destination, Insecure: im.Spec.Destination.Insecure, Auth: manage(destination)}
+	started := time.Now()
 	digest, err := r.registry.Copy(ctx, sourceEndpoint, destinationEndpoint, mirrorpath.Tags(source.origin, r.config.Load().ClusterID))
+	took := time.Since(started)
 
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -395,17 +397,21 @@ func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
 	st.copied[ref] = true
 	st.digests[ref] = digest.String()
 	source.next = 0
+	observe := r.config.Load().Metrics.CopyDuration
 	switch {
 	case st.writeBack[ref]:
 		// The manifest was there: only this cluster's tag was written back, nothing was lost.
 	case st.recopy[ref]:
 		r.recorder.Eventf(&im, nil, corev1.EventTypeWarning, "ImageRecopied", "Copy",
 			"Copied %s to %s again: something outside kuik deleted it from the destination", ref, destination)
+		r.metrics.copied(routing.KindImageMirror, c.name, copyRecopy, took, observe)
 	case st.resync[ref]:
 		r.recorder.Eventf(&im, nil, corev1.EventTypeNormal, "ImageResynced", "Copy",
 			"Moved the tag of %s at %s onto the upstream's new digest %s", ref, destination, digest)
+		r.metrics.copied(routing.KindImageMirror, c.name, copyResync, took, observe)
 	default:
 		r.recorder.Eventf(&im, nil, corev1.EventTypeNormal, "ImageCopied", "Copy", "Copied %s to %s", ref, destination)
+		r.metrics.copied(routing.KindImageMirror, c.name, copyInitial, took, observe)
 	}
 	delete(st.recopy, ref)
 	delete(st.writeBack, ref)
@@ -521,6 +527,13 @@ func (st *mirrorState) owed(desired []imagepath.Reference, inventoried func(imag
 		key := ref.String()
 		return !st.resync[key] && (st.copied[key] || (st.present[key] && inventoried(ref)))
 	})
+}
+
+// anomalies are snapshots of the failing copies and of the drifted tags.
+func (st *mirrorState) anomalies() (map[string]copyFailure, []string) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return maps.Clone(st.failed), slices.Sorted(maps.Keys(st.drifted))
 }
 
 // verdicts are snapshots of the references the last pass found and of those copied since.
