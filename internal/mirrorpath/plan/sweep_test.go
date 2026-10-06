@@ -1,4 +1,4 @@
-package mirrorpath
+package plan
 
 import (
 	. "github.com/onsi/ginkgo/v2"
