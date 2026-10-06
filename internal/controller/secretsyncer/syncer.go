@@ -259,8 +259,14 @@ func (s *Syncer) Reconcile(ctx context.Context, pair pullsecret.Pair) (reconcile
 		outcome = resultNoop
 	}
 	s.applies.WithLabelValues(outcome).Inc()
+	// A changed Secret is a state change, logged at Info. The first apply after a restart may
+	// have changed nothing, and every pair takes one: it stays at V(1).
 	if outcome == resultApplied {
-		log.V(1).Info("Applied pull Secret", "secret", klog.KRef(pair.Namespace, *secret.Name))
+		applyLog := log
+		if last == nil {
+			applyLog = log.V(1)
+		}
+		applyLog.Info("Applied pull Secret", "secret", klog.KRef(pair.Namespace, *secret.Name))
 	}
 
 	s.mu.Lock()
