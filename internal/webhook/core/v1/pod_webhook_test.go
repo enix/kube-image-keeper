@@ -584,6 +584,153 @@ var _ = Describe("Pod webhook", func() {
 		})
 	})
 
+	Context("logs", func() {
+
+		It("tags every line of an admission with its request UID, namespace and pod name", func() {
+			fail(origin)
+			pod := newPod(namespace, ref(origin))
+			pod.Name = "web"
+			_, lines := admitLogged(d, namespace, pod)
+			Expect(lines).NotTo(BeEmpty())
+			for _, line := range lines {
+				Expect(line).To(HaveKeyWithValue("requestID", string(requestUID)))
+				Expect(line).To(HaveKeyWithValue("namespace", namespace))
+				Expect(line).To(HaveKeyWithValue("pod", "web"))
+			}
+		})
+
+		It("names the pod by its generateName when it has no name yet", func() {
+			fail(origin)
+			_, lines := admitLogged(d, namespace, newPod(namespace, ref(origin)))
+			Expect(lines).NotTo(BeEmpty())
+			for _, line := range lines {
+				Expect(line).To(HaveKeyWithValue("generateName", "routed-"))
+				Expect(line).NotTo(HaveKey("pod"))
+			}
+		})
+
+		It("tags the lines about one container with the container name and its image", func() {
+			fail(origin)
+			origin.Push("library/redis:8", image)
+			redis := origin.Host() + "/library/redis:8"
+			_, lines := admitLogged(d, namespace, newPod(namespace, ref(origin), redis))
+			Expect(decision(lines, appContainer)).To(HaveKeyWithValue("image", ref(origin)))
+			Expect(decision(lines, "app-1")).To(HaveKeyWithValue("image", redis))
+		})
+
+		It("logs a rewrite under OnFailure at Info, with the resource, the policy, the origin, the candidate and the reason the origin failed", func() {
+			fail(origin)
+			admitted, lines := admitLogged(d, namespace, newPod(namespace, ref(origin)))
+			line := decision(lines, appContainer)
+			Expect(line).To(HaveKeyWithValue("msg", msgRewrote))
+			Expect(line).To(HaveKeyWithValue("level", "info"))
+			Expect(line).To(HaveKeyWithValue("resource", "ImageAlternative/library"))
+			Expect(line).To(HaveKeyWithValue("policy", "OnFailure"))
+			Expect(line).To(HaveKeyWithValue("origin", rewrites(admitted, AnnotationRewrites)[appContainer].Origin))
+			Expect(line).To(HaveKeyWithValue("candidate", ref(alt)))
+			Expect(line).To(HaveKeyWithValue("reason", string(kuikv1alpha1.CheckManifestNotFound)))
+		})
+
+		It("logs a rewrite under OnFailure with no reason when the origin was demoted and never probed", func() {
+			demoted := group(origin)
+			demoted.Unavailable = true
+			d.SetResources([]kuikv1alpha1.ImageAlternative{alternative("library", onFailure, demoted, group(alt))}, nil)
+			_, lines := admitLogged(d, namespace, newPod(namespace, ref(origin)))
+			Expect(manifestHeads(origin)).To(BeZero())
+			line := decision(lines, appContainer)
+			Expect(line).To(HaveKeyWithValue("msg", msgRewrote))
+			Expect(line).To(HaveKeyWithValue("policy", "OnFailure"))
+			Expect(line).NotTo(HaveKey("reason"))
+		})
+
+		It("logs the same rewrite line, reason included, when activeCheckCache answers instead of a probe", func() {
+			fail(origin)
+			_, first := admitLogged(d, namespace, newPod(namespace, ref(origin)))
+			heads := manifestHeads(origin) + manifestHeads(alt)
+			_, second := admitLogged(d, namespace, newPod(namespace, ref(origin)))
+			Expect(manifestHeads(origin) + manifestHeads(alt)).To(Equal(heads))
+			without := func(line map[string]any) map[string]any {
+				delete(line, "ts")
+				return line
+			}
+			Expect(without(decision(second, appContainer))).To(Equal(without(decision(first, appContainer))))
+			Expect(decision(second, appContainer)).To(HaveKeyWithValue("reason", string(kuikv1alpha1.CheckManifestNotFound)))
+		})
+
+		It("logs a rewrite under Always at V(1) only, with no reason", func() {
+			d.SetResources([]kuikv1alpha1.ImageAlternative{alternative("library", always, group(origin), group(alt))}, nil)
+			_, lines := admitLogged(d, namespace, newPod(namespace, ref(origin)))
+			line := decision(lines, appContainer)
+			Expect(line).To(HaveKeyWithValue("msg", msgRewrote))
+			Expect(line).To(HaveKeyWithValue("level", "debug"))
+			Expect(line).To(HaveKeyWithValue("policy", "Always"))
+			Expect(line).NotTo(HaveKey("reason"))
+		})
+
+		It("logs the original answering at V(1) only, under Always as under OnFailure", func() {
+			fail(alt)
+			for _, policy := range []kuikv1alpha1.RewritePolicy{always, onFailure} {
+				d := newDefaulter(testConfig())
+				d.SetResources([]kuikv1alpha1.ImageAlternative{alternative("library", policy, group(origin), group(alt))}, nil)
+				_, lines := admitLogged(d, namespace, newPod(namespace, ref(origin)))
+				line := decision(lines, appContainer)
+				Expect(line).To(HaveKeyWithValue("msg", msgKept), "under %s", policy)
+				Expect(line).To(HaveKeyWithValue("level", "debug"), "under %s", policy)
+			}
+		})
+
+		It("logs a container no candidate served at Info, with every resource that offered one", func() {
+			fail(origin)
+			fail(alt)
+			destination := newRegistry()
+			fail(destination)
+			d.SetResources([]kuikv1alpha1.ImageAlternative{library},
+				[]kuikv1alpha1.ImageMirror{imageMirror("prod-mirror", onFailure, destination)})
+			_, lines := admitLogged(d, namespace, newPod(namespace, ref(origin)))
+			line := decision(lines, appContainer)
+			Expect(line).To(HaveKeyWithValue("msg", msgNoCandidate))
+			Expect(line).To(HaveKeyWithValue("level", "info"))
+			Expect(line["resources"]).To(ConsistOf("ImageAlternative/library", "ImageMirror/prod-mirror"))
+		})
+
+		It("logs a rewrite conceded on a reinvocation at Info, with the resource, the policy, the origin, the reference kuik placed and the image that replaced it", func() {
+			fail(origin)
+			first := admit(d, namespace, newPod(namespace, ref(origin)))
+			entry := rewrites(first, AnnotationRewrites)[appContainer]
+			first.Spec.Containers[0].Image = injected
+			_, lines := admitLogged(d, namespace, first)
+			line := decision(lines, appContainer)
+			Expect(line).To(HaveKeyWithValue("msg", msgConceded))
+			Expect(line).To(HaveKeyWithValue("level", "info"))
+			Expect(line).To(HaveKeyWithValue("resource", entry.By))
+			Expect(line).To(HaveKeyWithValue("policy", entry.Policy))
+			Expect(line).To(HaveKeyWithValue("origin", entry.Origin))
+			Expect(line).To(HaveKeyWithValue("candidate", entry.RewrittenTo))
+			Expect(line).To(HaveKeyWithValue("image", injected))
+		})
+
+		It("logs no decision again for a container already recorded", func() {
+			fail(origin)
+			// alt has no redis: app-1 lands in no-alternatives, app in rewrites.
+			origin.Push("library/redis:8", image)
+			first := admit(d, namespace, newPod(namespace, ref(origin), origin.Host()+"/library/redis:8"))
+			Expect(rewrites(first, AnnotationRewrites)).To(HaveKey(appContainer))
+			Expect(noAlternatives(first)).To(HaveKey("app-1"))
+			_, lines := admitLogged(d, namespace, first)
+			Expect(decisions(lines)).To(BeEmpty())
+		})
+
+		It("logs the decision of a container another webhook added between two rounds", func() {
+			fail(origin)
+			first := admit(d, namespace, newPod(namespace, ref(origin)))
+			first.Spec.Containers = append(first.Spec.Containers, corev1.Container{
+				Name: "sidecar", Image: ref(origin), ImagePullPolicy: corev1.PullIfNotPresent,
+			})
+			_, lines := admitLogged(d, namespace, first)
+			Expect(decisions(lines)).To(ConsistOf(HaveKeyWithValue("container", "sidecar")))
+		})
+	})
+
 	Context("through the API server", func() {
 		// create creates a pod through the API server, which calls the served webhook.
 		create := func(pod *corev1.Pod) *corev1.Pod {
