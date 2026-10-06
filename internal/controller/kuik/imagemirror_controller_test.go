@@ -1,9 +1,13 @@
 package kuik
 
 import (
+	"net/http"
+	"time"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -11,7 +15,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
+	"github.com/enix/kube-image-keeper/internal/config"
 	kuikregistry "github.com/enix/kube-image-keeper/internal/registry"
+	"github.com/enix/kube-image-keeper/internal/registry/registrytest"
 	"github.com/enix/kube-image-keeper/internal/routing"
 	"github.com/enix/kube-image-keeper/internal/routing/podrecord"
 	"github.com/enix/kube-image-keeper/internal/status/condition"
@@ -103,40 +109,350 @@ var _ = Describe("ImageMirror Controller", func() {
 			_, ok := notReadyGauge(kuikv1alpha1.ReasonSecretNotFound)
 			Expect(ok).To(BeFalse())
 		})
-		PIt("leaves Ready True when the copy of one image fails", func() {})
+		Context("with a destination credential that cannot be read", func() {
+			var src *registrytest.Registry
+			BeforeEach(func() {
+				src = h.source()
+				src.Push("acme/app:v1", registrytest.Image())
+				src.Reset()
+				createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+			})
+
+			It("keeps copying while only the pull secretRef cannot be read", func() {
+				manage := unique("manage")
+				createSecret(installNamespace, manage, corev1.SecretTypeDockerConfigJson)
+				h.mirror(withCredentials(manage, unique("missing")))
+				h.reconcile()
+				h.window()
+
+				Eventually(h.copied(destinationTag(src, "acme/app"))).Should(Succeed())
+				Expect(h.condition(kuikv1alpha1.ConditionReady).Status).To(Equal(metav1.ConditionFalse))
+			})
+
+			It("copies nothing while the manage secretRef cannot be read", func() {
+				pull := unique("pull")
+				createSecret(installNamespace, pull, corev1.SecretTypeDockerConfigJson)
+				h.mirror(withCredentials(unique("missing"), pull))
+				h.reconcile()
+				h.window()
+
+				Consistently(func() []registrytest.Request { return src.Requests("", "/manifests/") }).Should(BeEmpty())
+				Expect(h.copied(destinationTag(src, "acme/app"))()).NotTo(Succeed())
+			})
+		})
+
+		It("leaves Ready True when the copy of one image fails", func() {
+			src := h.source()
+			src.Push("acme/app:v1", registrytest.Image())
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+			rejectPushes(h.destination)
+			h.mirror()
+			h.reconcile()
+			h.window()
+
+			Eventually(func() []kuikv1alpha1.FailedImageCopy {
+				h.reconcile()
+				return h.status().FailedImageCopies
+			}).Should(HaveLen(1))
+			Expect(h.condition(kuikv1alpha1.ConditionReady).Status).To(Equal(metav1.ConditionTrue))
+		})
 	})
 
 	Describe("the desired state", func() {
-		PIt("copies the images of the live pods its podSelector and namespaceSelector select, and only those", func() {})
+		It("copies the images of the live pods its podSelector and namespaceSelector select, and only those", func() {
+			src := h.source()
+			for _, repository := range []string{"acme/app", "acme/other", "acme/done"} {
+				src.Push(repository+":v1", registrytest.Image())
+			}
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+			unselected := unique("ns")
+			createNamespace(unselected, nil)
+			createPod(unselected, unique("pod"), container{name: appContainer, image: src.Host() + "/acme/other:v1"})
+			done := createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/done:v1"})
+			setPhase(done, corev1.PodSucceeded)
+			h.mirror()
+
+			for range 3 {
+				h.reconcile()
+				h.window()
+			}
+			Eventually(h.copied(destinationTag(src, "acme/app"))).Should(Succeed())
+			Consistently(h.copied(destinationTag(src, "acme/other"))).ShouldNot(Succeed())
+			Expect(h.copied(destinationTag(src, "acme/done"))()).NotTo(Succeed())
+		})
+
 		PIt("lets a reference go once its pods are Succeeded or Failed, starting its retention", func() {})
-		PIt("never copies the images of static pods", func() {})
+
+		It("never copies the images of static pods", func() {
+			src := h.source()
+			src.Push("acme/app:v1", registrytest.Image())
+			src.Push("acme/static:v1", registrytest.Image())
+			ns := h.namespace()
+			createPod(ns, unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+			staticPod(ns, src.Host()+"/acme/static:v1")
+			h.mirror()
+
+			for range 2 {
+				h.reconcile()
+				h.window()
+			}
+			Eventually(h.copied(destinationTag(src, "acme/app"))).Should(Succeed())
+			Consistently(h.copied(destinationTag(src, "acme/static"))).ShouldNot(Succeed())
+		})
 		PIt("keeps the origin of a rewritten pod out of pendingDeletion while the pod runs the mirror copy", func() {})
 	})
 
 	Describe("copying", func() {
-		PIt("copies a reference on a copy window of its origin host", func() {})
-		PIt("records the repository in status.repositories before the first push into it", func() {})
-		PIt("pushes the origin-derived tag of a tagged reference, plus the anchor of a pinned one, and the anchor alone without a tag", func() {})
+		It("copies a reference on a copy window of its origin host", func() {
+			src := h.source()
+			src.Push("acme/app:v1", registrytest.Image())
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+			h.mirror()
+			h.reconcile()
+
+			Consistently(h.copied(destinationTag(src, "acme/app"))).ShouldNot(Succeed())
+			h.window()
+			Eventually(h.copied(destinationTag(src, "acme/app"))).Should(Succeed())
+		})
+
+		It("writes to a destination that requires its manage credential", func() {
+			h.destination = h.source(registrytest.WithBasicAuth("writer", "s3cr3t"))
+			src := h.source()
+			src.Push("acme/app:v1", registrytest.Image())
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+			h.mirror(func(im *kuikv1alpha1.ImageMirror) {
+				im.Spec.Destination.Manage = &kuikv1alpha1.DestinationCredentials{Auth: kuikv1alpha1.Auth{
+					SecretRef: &kuikv1alpha1.SecretReference{Name: createCredentials(h.destination.Host(), "writer", "s3cr3t")},
+				}}
+			})
+			h.reconcile()
+
+			h.window()
+			Eventually(h.copied(destinationTag(src, "acme/app"))).Should(Succeed())
+		})
+
+		It("records the repository in status.repositories before the first push into it", func() {
+			src := h.source()
+			src.Push("acme/app:v1", registrytest.Image())
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+			rejectPushes(h.destination)
+			h.mirror()
+			h.reconcile()
+			h.window()
+
+			Eventually(func() []string { return h.status().Repositories }).Should(ContainElement(h.destinationRepository(src, "acme/app")))
+			Expect(h.copied(destinationTag(src, "acme/app"))()).NotTo(Succeed())
+		})
+
+		It("pushes the origin-derived tag of a tagged reference, plus the anchor of a pinned one, and the anchor alone without a tag", func() {
+			src := h.source()
+			app := src.Push("acme/app:v1", registrytest.Image())
+			tool := src.Push("acme/tool:v2", registrytest.Image())
+			createPod(h.namespace(), unique("pod"),
+				container{name: "tagged", image: src.Host() + "/acme/app:v1"},
+				container{name: "pinned", image: src.Host() + "/acme/app:v1@" + app.String()},
+				container{name: "digest", image: src.Host() + "/acme/tool@" + tool.String()},
+			)
+			h.mirror()
+			// A window opening while the previous copy still runs is lost: each copy writes
+			// its manifest before the next window.
+			for copies := range 3 {
+				h.reconcile()
+				h.window()
+				Eventually(func() int {
+					return len(h.destination.Requests(http.MethodPut, "/manifests/"))
+				}).Should(BeNumerically(">", copies))
+			}
+
+			anchor := func(d v1.Hash) string { return "sha256-" + d.Hex + "_" + mirrorClusterID }
+			tags := func(repository string) func() []string {
+				return func() []string {
+					listed, _ := kuikregistry.NewClient().ListTags(ctx, kuikregistry.Endpoint{
+						Reference: h.destinationRepository(src, repository), Insecure: true,
+					})
+					return listed
+				}
+			}
+			Eventually(tags("acme/app")).Should(ConsistOf("v1_"+mirrorClusterID, anchor(app)))
+			Eventually(tags("acme/tool")).Should(ConsistOf(anchor(tool)))
+		})
 		PIt("skips a reference whose repository is inventoried and which the destination holds", func() {})
 		PIt("performs a re-copy before the initial copies still pending", func() {})
-		PIt("emits ImageCopied on the first copy of an image", func() {})
-		PIt("reaches the destination over plain HTTP only when destination.insecure is set", func() {})
+		It("emits ImageCopied on the first copy of an image", func() {
+			src := h.source()
+			src.Push("acme/app:v1", registrytest.Image())
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+			h.mirror()
+			h.reconcile()
+			h.window()
+
+			Eventually(func() []recordedEvent { return h.recorder.withReason("ImageCopied") }).Should(HaveLen(1))
+			event := h.recorder.withReason("ImageCopied")[0]
+			Expect(event.regarding.(*kuikv1alpha1.ImageMirror).Name).To(Equal(h.name))
+			Expect(event.eventType).To(Equal(corev1.EventTypeNormal))
+		})
 	})
 
 	Describe("choosing the source", func() {
 		PIt("reads an ImageAlternative covering the image when the origin does not answer, for a first copy and a re-copy alike, and writes to the destination derived from the origin", func() {})
-		PIt("reads a private alternative with its own credentials when the origin does not answer", func() {})
-		PIt("skips the alternatives marked unavailable", func() {})
-		PIt("tries last an origin matching an alternative marked unavailable", func() {})
-		PIt("spends a copy window of the alternative's host, not the origin's, on a copy that alternative serves", func() {})
+		It("reads a private alternative with its own credentials when the origin does not answer", func() {
+			origin := h.source()
+			private := h.source(registrytest.WithBasicAuth("mirror", "s3cr3t"))
+			private.Push("acme/app:v1", registrytest.Image())
+			entry := appEntry(private)
+			entry.Auth = &kuikv1alpha1.Auth{SecretRef: &kuikv1alpha1.SecretReference{Name: createCredentials(private.Host(), "mirror", "s3cr3t")}}
+			h.alternativeTo(appEntry(origin), entry)
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: origin.Host() + "/acme/app:v1"})
+			h.mirror()
+
+			h.fallBack(private)
+			h.window()
+			Eventually(h.copied(destinationTag(origin, "acme/app"))).Should(Succeed())
+		})
+
+		It("skips the alternatives marked unavailable", func() {
+			origin, dead, alive := h.source(), h.source(), h.source()
+			dead.Push("acme/app:v1", registrytest.Image())
+			dead.Reset()
+			alive.Push("acme/app:v1", registrytest.Image())
+			marked := appEntry(dead)
+			marked.Unavailable = true
+			h.alternativeTo(appEntry(origin), marked, appEntry(alive))
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: origin.Host() + "/acme/app:v1"})
+			h.mirror()
+
+			h.fallBack(alive)
+			h.window()
+			Eventually(h.copied(destinationTag(origin, "acme/app"))).Should(Succeed())
+			Expect(dead.Requests("", "/manifests/")).To(BeEmpty())
+		})
+
+		It("tries last an origin matching an alternative marked unavailable", func() {
+			origin, alive := h.source(), h.source()
+			origin.Push("acme/app:v1", registrytest.Image())
+			origin.Reset()
+			alive.Push("acme/app:v1", registrytest.Image())
+			marked := appEntry(origin)
+			marked.Unavailable = true
+			h.alternativeTo(marked, appEntry(alive))
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: origin.Host() + "/acme/app:v1"})
+			h.mirror()
+
+			for range 2 {
+				h.reconcile()
+				h.window()
+			}
+			Eventually(h.copied(destinationTag(origin, "acme/app"))).Should(Succeed())
+			Expect(origin.Requests("", "/manifests/")).To(BeEmpty())
+		})
+
+		It("spends a copy window of the alternative's host, not the origin's, on a copy that alternative serves", func() {
+			origin, alternative := h.source(), h.source()
+			alternative.Push("acme/app:v1", registrytest.Image())
+			slow := mirrorConfig()
+			slow.Registries.Hosts = map[string]config.RegistryPacing{alternative.Host(): {Copy: &config.Window{
+				Interval: &config.Duration{Duration: 5 * time.Minute}, Timeout: &config.Duration{},
+			}}}
+			h.scheduler.SetConfig(slow)
+			h.alternativeTo(appEntry(origin), appEntry(alternative))
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: origin.Host() + "/acme/app:v1"})
+			h.mirror()
+
+			h.fallBack(alternative)
+			h.clock.Step(3 * time.Minute)
+			Consistently(h.copied(destinationTag(origin, "acme/app"))).ShouldNot(Succeed())
+			h.window()
+			Eventually(h.copied(destinationTag(origin, "acme/app"))).Should(Succeed())
+		})
 	})
 
 	Describe("copy failures", func() {
-		PIt("records the reason of a failed copy in failedImageCopies, since stamped once and lastAttempt refreshed on each retry", func() {})
-		PIt("records SourceNotFound when no source answers, and emits ImageUnrecoverable", func() {})
-		PIt("removes the failedImageCopies entry once the copy succeeds", func() {})
-		PIt("emits ImageCopyFailed coalesced per reason over the failures of a pass", func() {})
-		PIt("retries a failed copy on a later copy window", func() {})
+		var src *registrytest.Registry
+		// failingCopy makes the copy of src's acme/app:v1 fail at its first window.
+		failingCopy := func() {
+			src = h.source()
+			src.Push("acme/app:v1", registrytest.Image())
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+			rejectPushes(h.destination)
+			h.mirror()
+			h.reconcile()
+			h.window()
+		}
+		failures := func() []kuikv1alpha1.FailedImageCopy {
+			h.reconcile()
+			return h.status().FailedImageCopies
+		}
+
+		It("records the reason of a failed copy in failedImageCopies, since stamped once and lastAttempt refreshed on each retry", func() {
+			failingCopy()
+			Eventually(failures).Should(ConsistOf(HaveField("Reason", kuikv1alpha1.CopyPushRejected)))
+			first := h.status().FailedImageCopies[0]
+
+			h.window()
+			Eventually(func() time.Time {
+				return failures()[0].LastAttempt.Time
+			}).Should(BeTemporally(">", first.LastAttempt.Time))
+			Expect(h.status().FailedImageCopies[0].Since).To(Equal(first.Since))
+			Expect(first.Ref).To(Equal(src.Host() + "/acme/app:v1"))
+		})
+
+		It("records SourceNotFound when no source answers, and emits ImageUnrecoverable", func() {
+			gone := h.source()
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: gone.Host() + "/acme/gone:v1"})
+			h.mirror()
+			h.reconcile()
+			h.window()
+
+			Eventually(failures).Should(ConsistOf(HaveField("Reason", kuikv1alpha1.CopySourceNotFound)))
+			events := h.recorder.withReason("ImageUnrecoverable")
+			Expect(events).To(HaveLen(1))
+			Expect(events[0].eventType).To(Equal(corev1.EventTypeWarning))
+		})
+
+		It("removes the failedImageCopies entry once the copy succeeds", func() {
+			failingCopy()
+			Eventually(failures).Should(HaveLen(1))
+
+			acceptPushes(h.destination)
+			h.window()
+			Eventually(failures).Should(BeEmpty())
+		})
+
+		It("emits ImageCopyFailed coalesced per reason over the failures of a pass", func() {
+			src := h.source()
+			src.Push("acme/app:v1", registrytest.Image())
+			src.Push("acme/tool:v1", registrytest.Image())
+			createPod(h.namespace(), unique("pod"),
+				container{name: "app", image: src.Host() + "/acme/app:v1"},
+				container{name: "tool", image: src.Host() + "/acme/tool:v1"},
+			)
+			rejectPushes(h.destination)
+			h.mirror()
+			h.reconcile()
+			// One copy per window, and a window opening while a copy still runs is lost: open
+			// windows until both images failed, with no reconcile in between.
+			pushed := func(repository string) bool {
+				return len(h.destination.Requests(http.MethodPut, "/acme/"+repository+"/manifests/")) > 0
+			}
+			Eventually(func() bool {
+				h.window()
+				return pushed("app") && pushed("tool")
+			}).Should(BeTrue())
+
+			h.reconcile()
+			events := h.recorder.withReason("ImageCopyFailed")
+			Expect(events).To(HaveLen(1))
+			Expect(events[0].note).To(ContainSubstring("2 images under " + src.Host() + "/acme/"))
+		})
+
+		It("retries a failed copy on a later copy window", func() {
+			failingCopy()
+			Eventually(failures).Should(HaveLen(1))
+
+			acceptPushes(h.destination)
+			h.window()
+			Eventually(h.copied(destinationTag(src, "acme/app"))).Should(Succeed())
+		})
 	})
 
 	Describe("the self-check", func() {
