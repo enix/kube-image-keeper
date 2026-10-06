@@ -113,6 +113,15 @@ var _ = Describe("ImageMirror", func() {
 			Expect(apierrors.IsInvalid(err)).To(BeTrue(), "%v", err)
 			Expect(err).To(MatchError(ContainSubstring("exactly one of secretRef or provider")))
 		})
+
+		It("rejects a change of destination.path once the mirror exists, its repositories inventory living under the old path", func() {
+			im := newImageMirror("registry.tld/mirror/")
+			Expect(k8sClient.Create(ctx, im)).To(Succeed())
+
+			im.Spec.Destination.Path = "registry.tld/other/"
+			err := k8sClient.Update(ctx, im)
+			Expect(apierrors.IsInvalid(err)).To(BeTrue(), "%v", err)
+		})
 	})
 
 	Context("excludeImages", func() {
