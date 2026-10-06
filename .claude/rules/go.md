@@ -22,6 +22,20 @@ paths:
   [Kubernetes style](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-instrumentation/logging.md#message-style-guidelines):
   capitalised, no trailing period, past tense, object type named (`"Created Deployment"`,
   not `"Created"`), balanced key-value pairs.
+  - Levels: `Info` for a decision or a state change, `V(1)` for per-candidate or per-check
+    detail. An expected failure (a registry unreachable, a copy retried) goes at `Info` or
+    `V(1)` with an `"error"` key, never `log.Error`: `log.Error` is for what an operator must
+    act on. Only DPanic carries a stacktrace.
+  - Log an error or return it, never both: controller-runtime already logs a returned error
+    as `"Reconciler error"`.
+  - Keys: `"image"` (a container's image as its pod spec writes it, `nginx`; any other image
+    reference in canonical form, `docker.io/library/nginx:latest`), `"registry"`, `"reason"` (a reason of
+    `docs/v3/observability.md`), `"candidate"`, `"resource"` (`<kind>/<name>`), `"path"` (a
+    file); `klog.KObj` / `klog.KRef` for a Kubernetes object, under its lowercase kind
+    (`"secret"`, `"pod"`). No synonym: a key that names an image is `"image"`, whatever its role
+    in the line, unless two images share it (the webhook's `"origin"`).
+  - Every deletion is logged at `Info`: events expire, logs are the audit trail.
+  - Never log the content of a Secret, only its reference (`klog.KRef`).
 - **RBAC** ([0009](../../notes/0009-rbac-rules-from-markers-bindings-from-chart.md)): rules
   are `// +kubebuilder:rbac` markers on the code that exercises the permission, each with
   `roleName=` naming its process (`webhook`, `reconciler`, `secret-syncer`) or
