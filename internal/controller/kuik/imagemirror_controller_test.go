@@ -1,7 +1,10 @@
 package kuik
 
 import (
+	"context"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -17,6 +20,7 @@ import (
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/config"
 	kuikregistry "github.com/enix/kube-image-keeper/internal/registry"
+	"github.com/enix/kube-image-keeper/internal/registry/pacing"
 	"github.com/enix/kube-image-keeper/internal/registry/registrytest"
 	"github.com/enix/kube-image-keeper/internal/routing"
 	"github.com/enix/kube-image-keeper/internal/routing/podrecord"
@@ -615,22 +619,211 @@ var _ = Describe("ImageMirror Controller", func() {
 
 			scheduling := prometheus.NewRegistry()
 			scheduling.MustRegister(h.scheduler.Collector())
-			v, ok := gauge(scheduling, "kuik_registry_interval_seconds", map[string]string{"registry": h.destination.Host(), "operation": "Scan"})
+			v, ok := gauge(scheduling, "kuik_registry_interval_seconds", map[string]string{labelRegistry: h.destination.Host(), "operation": "Scan"})
 			Expect(ok).To(BeTrue())
 			Expect(v).To(Equal(time.Hour.Seconds()))
 		})
 	})
 
 	Describe("drift", func() {
-		PIt("re-reads no upstream tag and reports no checks.registries under driftPolicy Ignore", func() {})
-		PIt("re-reads the copied tags of each source host on a ring of that host under Warn or Sync", func() {})
-		PIt("puts no reference pinned without a tag on a ring, never in driftedImages nor drifted", func() {})
-		PIt("persists the ring cursor in checks.registries and resumes from it", func() {})
-		PIt("reports each ring's size, cycleStarted and cycleDuration in checks.registries and as the kuik_check_* series", func() {})
-		PIt("reports a moved upstream digest in driftedImages and emits CopyOutOfDate under Warn, leaving the copy as it is", func() {})
-		PIt("re-pushes the upstream's new digest, repoints the tag and emits ImageResynced under Sync", func() {})
-		PIt("keeps the anchor of a pinned digest when Sync repoints its tag", func() {})
-		PIt("removes the driftedImages entry once the copy matches the upstream again", func() {})
+		var src *registrytest.Registry
+		// mirrored creates the mirror with mutate, a pod running the images of repositories at
+		// tag v1 of src, and copies them all.
+		mirrored := func(mutate func(*kuikv1alpha1.ImageMirror), repositories ...string) {
+			GinkgoHelper()
+			src = h.source()
+			containers := make([]container, 0, len(repositories))
+			for i, repository := range repositories {
+				src.Push(repository+":v1", registrytest.Image())
+				containers = append(containers, container{name: fmt.Sprintf("c%d", i), image: src.Host() + "/" + repository + ":v1"})
+			}
+			createPod(h.namespace(), unique("pod"), containers...)
+			h.mirror(mutate)
+			h.copyAll(len(repositories))
+			src.Reset()
+		}
+		// drifted moves the upstream tag acme/app:v1 of src to a new image and returns it.
+		drifted := func() v1.Hash {
+			return src.Push("acme/app:v1", registrytest.Image())
+		}
+		// checkWindow runs one check window and waits for its HEAD on acme/app:v1.
+		checkWindow := func() {
+			GinkgoHelper()
+			before := checked(src, "acme/app")()
+			h.window()
+			Eventually(checked(src, "acme/app")).Should(BeNumerically(">", before))
+			h.reconcile()
+		}
+		destinationDigest := func(ref string) string {
+			GinkgoHelper()
+			descriptor, err := h.destination.Head(ref)
+			Expect(err).NotTo(HaveOccurred())
+			return descriptor.Digest.String()
+		}
+
+		It("re-reads no upstream tag and reports no checks.registries under driftPolicy Ignore", func() {
+			mirrored(withDrift(kuikv1alpha1.DriftPolicyIgnore), "acme/app")
+			for range 3 {
+				h.window()
+				h.reconcile()
+			}
+			Consistently(checked(src, "acme/app")).Should(BeZero())
+			Expect(h.status().Checks).To(BeNil())
+		})
+
+		It("re-reads the copied tags of each source host on a ring of that host under Warn or Sync", func() {
+			mirrored(withDrift(kuikv1alpha1.DriftPolicyWarn), "acme/app")
+			checkWindow()
+			Expect(h.status().Checks).NotTo(BeNil())
+			Expect(h.status().Checks.Registries).To(ConsistOf(HaveField("Registry", src.Host())))
+		})
+
+		It("puts no reference pinned without a tag on a ring, never in driftedImages nor drifted", func() {
+			src = h.source()
+			digest := src.Push("acme/app:v1", registrytest.Image())
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app@" + digest.String()})
+			h.mirror(withDrift(kuikv1alpha1.DriftPolicyWarn))
+			h.copyAll(1)
+			drifted()
+			src.Reset()
+
+			for range 3 {
+				h.window()
+				h.reconcile()
+			}
+			Consistently(func() []registrytest.Request { return src.Requests(http.MethodHead, "/manifests/") }).Should(BeEmpty())
+			Expect(h.status().DriftedImages).To(BeEmpty())
+			Expect(h.status().Images.Copy.Drifted).To(BeZero())
+		})
+
+		It("persists the ring cursor in checks.registries and resumes from it", func() {
+			// Copied under Ignore, so that no ring turns during the copies: the ring Warn starts
+			// has no cursor and reads the first tag in lexicographic order.
+			mirrored(withDrift(kuikv1alpha1.DriftPolicyIgnore), "acme/app", "acme/tool")
+			var im kuikv1alpha1.ImageMirror
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: h.name}, &im)).To(Succeed())
+			im.Spec.DriftPolicy = kuikv1alpha1.DriftPolicyWarn
+			Expect(k8sClient.Update(ctx, &im)).To(Succeed())
+			h.reconcile()
+			checkWindow()
+			Expect(checked(src, "acme/tool")()).To(BeZero())
+			Expect(h.status().Checks.Registries).To(ConsistOf(HaveField("Cursor", src.Host()+"/acme/app:v1")))
+
+			// A new process: its own scheduler, its first windows a full interval away.
+			h.stop()
+			restarted := pacing.New(h.clock, h.config)
+			restartedCtx, stop := context.WithCancel(ctx)
+			DeferCleanup(stop)
+			go func() { _ = restarted.Start(restartedCtx) }()
+			h.scheduler = restarted
+			var err error
+			h.reconciler, err = NewImageMirrorReconciler(k8sClient, k8sClient.Scheme(), ImageMirrorOptions{
+				APIReader: k8sClient, ClusterResourceNamespace: installNamespace, Recorder: h.recorder,
+				Registerer: prometheus.NewRegistry(), Scheduler: restarted, Registry: kuikregistry.NewClient(),
+				Config: h.config, Clock: h.clock,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			h.reconciler.Elected(h.clock.Now())
+			h.reconcile()
+			src.Reset()
+
+			h.window()
+			Eventually(checked(src, "acme/tool")).Should(Equal(1))
+			Expect(checked(src, "acme/app")()).To(BeZero())
+		})
+
+		It("reports each ring's size, cycleStarted and cycleDuration in checks.registries and as the kuik_check_* series", func() {
+			mirrored(withDrift(kuikv1alpha1.DriftPolicyWarn), "acme/app")
+			Eventually(func() *metav1.Duration {
+				checkWindow()
+				registries := h.status().Checks.Registries
+				if len(registries) == 0 {
+					return nil
+				}
+				return registries[0].CycleDuration
+			}).ShouldNot(BeNil())
+
+			ring := h.status().Checks.Registries[0]
+			Expect(ring.Images).To(Equal(int32(1)))
+			Expect(ring.CycleStarted).NotTo(BeNil())
+			scheduling := prometheus.NewRegistry()
+			scheduling.MustRegister(h.scheduler.Collector())
+			labels := map[string]string{labelKind: routing.KindImageMirror, labelName: h.name, labelRegistry: src.Host()}
+			size, ok := gauge(scheduling, "kuik_check_ring_images", labels)
+			Expect(ok).To(BeTrue())
+			Expect(size).To(Equal(1.0))
+			_, ok = gauge(scheduling, "kuik_check_cycle_duration_seconds", labels)
+			Expect(ok).To(BeTrue())
+		})
+
+		It("reports a moved upstream digest in driftedImages and emits CopyOutOfDate under Warn, leaving the copy as it is", func() {
+			mirrored(withDrift(kuikv1alpha1.DriftPolicyWarn), "acme/app")
+			copiedDigest := destinationDigest(destinationTag(src, "acme/app"))
+			upstream := drifted()
+
+			checkWindow()
+			Expect(h.status().DriftedImages).To(ConsistOf(And(
+				HaveField("Ref", src.Host()+"/acme/app:v1"),
+				HaveField("UpstreamDigest", upstream.String()),
+				HaveField("CopiedDigest", copiedDigest),
+			)))
+			events := h.recorder.withReason("CopyOutOfDate")
+			Expect(events).To(HaveLen(1))
+			Expect(events[0].eventType).To(Equal(corev1.EventTypeWarning))
+			h.window()
+			h.reconcile()
+			Expect(destinationDigest(destinationTag(src, "acme/app"))).To(Equal(copiedDigest))
+		})
+
+		It("re-pushes the upstream's new digest, repoints the tag and emits ImageResynced under Sync", func() {
+			mirrored(withDrift(kuikv1alpha1.DriftPolicySync), "acme/app")
+			upstream := drifted()
+
+			checkWindow()
+			h.window()
+			Eventually(func() string { return destinationDigest(destinationTag(src, "acme/app")) }).Should(Equal(upstream.String()))
+			Eventually(func() []recordedEvent { return h.recorder.withReason("ImageResynced") }).Should(HaveLen(1))
+			Expect(h.recorder.withReason("ImageResynced")[0].eventType).To(Equal(corev1.EventTypeNormal))
+		})
+
+		It("keeps the anchor of a pinned digest when Sync repoints its tag", func() {
+			src = h.source()
+			pinned := src.Push("acme/app:v1", registrytest.Image())
+			createPod(h.namespace(), unique("pod"),
+				container{name: "tagged", image: src.Host() + "/acme/app:v1"},
+				container{name: "pinned", image: src.Host() + "/acme/app:v1@" + pinned.String()},
+			)
+			h.mirror(withDrift(kuikv1alpha1.DriftPolicySync))
+			h.copyAll(2)
+			src.Reset()
+			upstream := drifted()
+
+			checkWindow()
+			h.window()
+			Eventually(func() string { return destinationDigest(destinationTag(src, "acme/app")) }).Should(Equal(upstream.String()))
+			anchor := strings.TrimSuffix(destinationTag(src, "acme/app"), "v1_"+mirrorClusterID) + "sha256-" + pinned.Hex + "_" + mirrorClusterID
+			Expect(destinationDigest(anchor)).To(Equal(pinned.String()))
+		})
+
+		It("removes the driftedImages entry once the copy matches the upstream again", func() {
+			src = h.source()
+			original := registrytest.Image()
+			src.Push("acme/app:v1", original)
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+			h.mirror(withDrift(kuikv1alpha1.DriftPolicyWarn))
+			h.copyAll(1)
+			src.Reset()
+			drifted()
+			checkWindow()
+			Expect(h.status().DriftedImages).To(HaveLen(1))
+
+			// The upstream tag moves back onto the copied image.
+			src.Push("acme/app:v1", original)
+			Eventually(func() []kuikv1alpha1.MirrorDriftedImage {
+				checkWindow()
+				return h.status().DriftedImages
+			}).Should(BeEmpty())
+		})
 	})
 
 	Describe("cleanup", func() {
