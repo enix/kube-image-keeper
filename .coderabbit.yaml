@@ -178,4 +178,6 @@ reviews:
         syntax for Starlight. Flag ":::note" directives (the right form is
         a GitHub alert, "> [!NOTE]"), site routes like "/crds/" (the right
         form is a relative link, "./crds.md"), and a missing leading H1 or
-        frontmatter description.
+        frontmatter description. Outside docs/v3/ (the design spec, which
+        states the target), flag a page describing a behaviour the code
+        does not have yet: docs ship with the PR that wires the behaviour.
