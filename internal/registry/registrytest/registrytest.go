@@ -5,7 +5,6 @@ package registrytest
 import (
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -199,13 +198,11 @@ func (r *Registry) serveTagsPage(w http.ResponseWriter, req *http.Request) {
 	_, _ = w.Write(body)
 }
 
-// ClosedHost returns a host:port on which nothing listens.
+// ClosedHost returns a host:port that refuses every connection. Port 0 is reserved: no
+// listener is ever given it, unlike a port freed by a closed listener, which any other
+// listener can take before the spec dials it.
 func ClosedHost() string {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	must(err)
-	host := listener.Addr().String()
-	must(listener.Close())
-	return host
+	return "127.0.0.1:0"
 }
 
 // Image returns a random single-platform image.
