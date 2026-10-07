@@ -23,12 +23,15 @@ gh_outbound="gh[[:space:]]+${opts}(pr[[:space:]]+(create|merge|close|reopen|read
 # gh api writes with an explicit method, or implicitly (POST) as soon as it sends fields.
 gh_api="gh[[:space:]]+${opts}api[[:space:]][^;&|]*(-X|--method)[[:space:]=]*(POST|PATCH|PUT|DELETE)|gh[[:space:]]+${opts}api[[:space:]][^;&|]*(-f|-F|--field|--raw-field|--input)"
 # The Makefile forwards to task. run and its run:* subtasks use the current kubeconfig;
-# the e2e tasks create and delete a Kind cluster.
-task_outbound="(task|make)[[:space:]]+${opts}(deploy|kind-deploy|undeploy|install|uninstall|docker-push|docker-buildx|run(:[a-z-]+)?|setup-test-e2e|test-e2e|cleanup-test-e2e)"
+# the e2e tasks create and delete a Kind cluster; smoke-run and smoke-cleanup write to the
+# cluster they are given (smoke-check only reads).
+task_outbound="(task|make)[[:space:]]+${opts}(deploy|kind-deploy|undeploy|install|uninstall|docker-push|docker-buildx|run(:[a-z-]+)?|setup-test-e2e|test-e2e|cleanup-test-e2e|smoke-run|smoke-cleanup)"
+# The smoke suite run directly, around the tasks: any test of it may write to a cluster.
+go_smoke="go[[:space:]]+test[[:space:]][^;&|]*-tags[[:space:]=]+[^[:space:];&|]*smoke"
 docker_push="docker[[:space:]]+${opts}((image|manifest)[[:space:]]+)?push|docker[[:space:]][^;&|]*--push(=[^[:space:]]*)?"
 helm_outbound="helm[[:space:]]+${opts}(install|upgrade|uninstall|delete|rollback)"
 kubectl_outbound="kubectl[[:space:]]+${opts}(apply|create|delete|replace|patch|edit|scale|rollout|drain|cordon|uncordon|taint|label|annotate|set|expose|autoscale|exec|cp|run|debug|attach)"
-pattern="(^|[;&|(\`[:space:]])($git_push|$gh_outbound|$gh_api|$task_outbound|$docker_push|$helm_outbound|$kubectl_outbound)([[:space:]]|\)|$)"
+pattern="(^|[;&|(\`[:space:]])($git_push|$gh_outbound|$gh_api|$task_outbound|$go_smoke|$docker_push|$helm_outbound|$kubectl_outbound)([[:space:]]|\)|$)"
 
 if printf '%s' "$cmd" | grep -Eq "$pattern"; then
   jq -n '{

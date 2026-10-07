@@ -57,6 +57,8 @@ internal/status/*             Status building blocks shared by the reconcilers: 
 config/                       controller-gen output (CRDs, rbac/role.yaml, webhook), read by envtest
 helm/kube-image-keeper/       The Helm chart, the only deployment path (crds/ and files/ generated)
 test/e2e/                     End-to-end suite, runs on a Kind cluster
+test/smoke/                   Smoke suite of a release on a cluster where kuik runs (e2e-framework,
+                              tag smoke), driven by the preprod-smoke skill
 hack/                         Developer tools run with go run (the test outline, the values check)
 website/                      The docs site (Astro Starlight), see .claude/rules/docs.md
 PROJECT                       Kubebuilder metadata
@@ -130,7 +132,8 @@ build are in [`.claude/rules/docs.md`](./.claude/rules/docs.md).
 
 - `settings.json`: no AI attribution on commits and PRs
   ([CONTRIBUTING](./CONTRIBUTING.md#use-of-ai-tools)), an allowlist of the read-only and
-  build commands, `ask` rules that back the outbound hook up, `deny` rules on the
+  build commands plus `task smoke-check` (read-only), `ask` rules that back the outbound
+  hook up, `deny` rules on the
   project's secret files (`.env`, keys; `Read` only, a Bash `cat` is not covered), and the
   hooks below.
 - `hooks/guard-generated-files.sh` refuses Edit and Write on the generated files of
@@ -138,7 +141,8 @@ build are in [`.claude/rules/docs.md`](./.claude/rules/docs.md).
   (`sed -i`, `>`) is not covered.
 - `hooks/confirm-outbound-actions.sh` asks the user before any command that leaves the
   working copy (`git push`, `gh pr|issue` writes, `docker push`, releases, `task deploy`
-  or `run`, the e2e tasks, `helm install`, `kubectl apply|label`...), in every permission
+  or `run`, the e2e tasks, `task smoke-run|smoke-cleanup` and any `go test -tags smoke`,
+  `helm install`, `kubectl apply|label`...), in every permission
   mode, even when several tasks share one call (`task build deploy`). Not forbidden: the
   user decides, the agent never does it on its own
   ([0003](./notes/0003-agent-orchestration.md)).
@@ -151,7 +155,8 @@ build are in [`.claude/rules/docs.md`](./.claude/rules/docs.md).
   description for the user to confirm, keeps it in step),
   [`e2e-spec`](./.claude/skills/e2e-spec/SKILL.md) (e2e specs on Kind, added last in a PR)
   and [`preprod-smoke`](./.claude/skills/preprod-smoke/SKILL.md) (smoke test of a release on
-  a shared cluster, scoped test CRs, stops for approval).
+  a shared cluster through the `test/smoke/` suite and its tasks, scoped test CRs, stops for
+  approval before `smoke-run` and `smoke-cleanup`).
 - `agents/`: [`spec-reviewer`](./.claude/agents/spec-reviewer.md) (read-only conformance
   review of a change against `docs/v3/`, keeps the spec out of the main context) and
   [`v2-archaeologist`](./.claude/agents/v2-archaeologist.md) (reads v2 on `2.3.x` with
