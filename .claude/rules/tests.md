@@ -21,7 +21,10 @@ paths:
   and left alone by the `feat` commits.
 - **A wrong test is reported, never edited to pass.** A spec that contradicts `docs/v3/` or
   cannot be written as stated goes to the maintainer with the section it relies on. It
-  changes only with the maintainer's approval, in its own `test` commit.
+  changes only with the maintainer's approval, in its own `test` commit. The same holds for
+  any change to a test after its `test` commit: a `fixup!` of a `test` commit, a fix to a
+  test helper, a relaxed assertion. Show the maintainer its diff and its reason before
+  committing it.
 - **Regression tests follow a fix.** When a review (human, `spec-reviewer`, CodeRabbit)
   finds a bug the outline missed, the fix may come first and its regression spec in its own
   `test` commit after it. That commit says it is one: subject
