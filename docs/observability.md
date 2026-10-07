@@ -1,19 +1,21 @@
 ---
-description: The events and Prometheus metrics kuik emits, what each one means and when it fires.
+description: The events, Prometheus metrics and logs kuik emits, what each one means and how to read them.
 ---
 
-# Events and metrics
+# Events, metrics and logs
 
-kuik reports on three channels besides the status of its resources:
+kuik reports on four channels besides the status of its resources:
 
 | Channel | Holds | Read it with |
 | ------- | ----- | ------------ |
 | [Pod annotations](./crds.md#what-the-webhook-records-on-a-pod) | what the webhook decided for each container of a pod | `kubectl get pod -o yaml` |
 | [Events](#events) | the moment something changed, on the object you will inspect | `kubectl describe`, `kubectl get events` |
 | [Metrics](#metrics) | the status aggregates over time, and the anomalies as series | Prometheus |
+| [Logs](#logs) | every decision of a process, every deletion, and the detail behind them at `debug` | `kubectl logs`, [hl](#reading-the-logs) |
 
 Events expire after the API server's `event-ttl` (1 hour by default): they are not an audit
-log. Alert on the metrics.
+log. The [logs](#logs) are, once a log pipeline keeps them: a pod's own logs go with it. Alert on
+the metrics.
 
 ## Events
 
@@ -153,3 +155,72 @@ The secret syncer exports this counter, see [Injected pull secrets](./concepts/p
 The syncer applies blind, so a healthy steady state is mostly `Noop`. A rate of `Applied` that
 stays high means something is flapping. The first apply of each Secret after the syncer starts
 counts as `Applied`, even when it changes nothing: expect one per Secret at startup.
+
+## Logs
+
+Deployed by the chart, each process writes one JSON object per line on its standard error:
+
+```json
+{"level":"info","ts":"2026-10-07T10:00:00.000Z","logger":"setup","msg":"Starting manager","process":"reconciler","version":"3.0.0-alpha.3","revision":"252a096","built":"2026-10-06T09:00:00Z","goversion":"go1.26.0","goos":"linux","goarch":"amd64"}
+```
+
+- `level`, `ts` (ISO 8601), `logger` and `msg` come first, then the key-value pairs of the line.
+- The keys are stable: `image`, `registry`, `resource` (`<kind>/<name>`), `reason`, and a
+  Kubernetes object under its lowercase kind (`pod`, `secret`) as `{"name":"...","namespace":"..."}`.
+- The first line of a process is `Starting manager`, with the same build labels as
+  `kuik_build_info`.
+- Every deletion kuik makes itself is logged at `info`; what the garbage collector removes
+  through an owner reference is not.
+- The content of a Secret is never logged, only its namespace and name.
+- `error` is for what an operator must act on. An expected failure, such as an unreachable
+  registry, is logged at `info` or `debug` with an `error` key.
+
+### Verbosity
+
+The `verbosity` value of the chart sets the level, for all processes at the root or for one in
+its block (`webhook`, `reconciler`, `secretSyncer`):
+
+| Level | Shows |
+| ----- | ----- |
+| `info` (default) | decisions and state changes |
+| `debug` | also the detail behind them: each candidate tried, each check |
+| `error` | only what needs an operator |
+
+```bash
+helm upgrade kube-image-keeper oci://quay.io/enix/charts/kube-image-keeper:$VERSION \
+  --namespace kuik-system --reuse-values --set reconciler.verbosity=debug
+```
+
+### Reading the logs
+
+JSON lines are made for log pipelines (Loki, Elasticsearch...). To read them in a terminal, we
+recommend [hl](https://github.com/pamburus/hl): it renders JSON and logfmt lines and passes any
+other line through unchanged, so it is safe on the logs of any pod. All pods of a process at once:
+
+```bash
+kubectl logs -n kuik-system -l app.kubernetes.io/component=reconciler -f --prefix \
+  | hl --allow-prefix --paging=never
+```
+
+[`jq`](https://jqlang.org) works too: `kubectl logs ... | jq -r '"\(.ts) \(.level) \(.msg)"'`.
+
+#### In Sofka
+
+[Sofka](https://github.com/nklmilojevic/sofka) is the Kubernetes TUI we recommend. Since
+0.31.1, its log view renders each record on one row: time, level, message, then the other
+fields. Make it the view a log session starts in, in `~/.config/sofka/config.toml`:
+
+```toml
+[logs]
+json_view = "record"
+```
+
+Lines that are not JSON stay raw, so the setting is safe for every pod. In a log view, `J`
+cycles raw, record and indented JSON.
+
+#### In k9s
+
+[k9s](https://k9scli.io) cannot render the records itself. Its community plugin
+[`log-hl.yaml`](https://github.com/derailed/k9s/blob/master/plugins/log-hl.yaml) follows the
+logs of a pod or a container through hl: add its entries to `~/.config/k9s/plugins.yaml`, then
+press `Shift-L`.
