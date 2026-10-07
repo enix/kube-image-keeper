@@ -11,8 +11,8 @@ User documentation lives under `docs/` and is published from `main` at
 [kuik.enix.io](https://kuik.enix.io) by `.github/workflows/website.yaml`: a broken page
 ships as soon as it is merged. The markdown is the single source of truth; read it
 alongside the code. Today: `docs/crds.md` (CRD reference, kept in step with
-`api/kuik/v1alpha1`), `docs/configuration.md`, `docs/observability.md` (events and
-metrics, kept in step with what the reconciler emits), `docs/guides/development.md` (local
+`api/kuik/v1alpha1`), `docs/configuration.md`, `docs/observability.md` (events,
+metrics and logs, kept in step with what the processes emit), `docs/guides/development.md` (local
 workflow), the use cases and `docs/concepts/` (how kuik works, picked up by the Concepts
 sidebar automatically). The v2 user docs are served from the `2.3.x` branch, not
 from here.

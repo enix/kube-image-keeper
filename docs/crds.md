@@ -54,7 +54,7 @@ The webhook probes the candidates in order and places the first one that answers
 | `kuik.enix.io/conceded-rewrites` | was rewritten, then another mutating webhook replaced the image, and kuik stood down | the entry that was in `rewrites`, unchanged |
 | `kuik.enix.io/no-alternatives` | kept its image: no candidate answered | the resources that offered one, as `["<kind>/<name>", ...]` |
 
-When the retained candidate's `auth` injects a pull secret, the pod's `imagePullSecrets` also gets `kuik-inject-<kind>-<name>`. The webhook exports two counters, `kuik_routing_rewrites_total{kind, name, policy}` and `kuik_routing_alternatives_exhausted_total{kind, name}`, listed with the reconciler's events and series in [Events and metrics](./observability.md).
+When the retained candidate's `auth` injects a pull secret, the pod's `imagePullSecrets` also gets `kuik-inject-<kind>-<name>`. The webhook exports two counters, `kuik_routing_rewrites_total{kind, name, policy}` and `kuik_routing_alternatives_exhausted_total{kind, name}`, listed with the reconciler's events and series in [Events, metrics and logs](./observability.md).
 
 ### `auth`
 
@@ -168,7 +168,7 @@ Rejected at admission:
 | `status.truncated` | Per capped list, how many entries were left out, see [bounded lists](#status-conventions) |
 | `status.conditions` | `Ready`, `FallbackActive`, `AlternativesExhausted`, `ListCapacityPressure` |
 
-The same counts, the anomalies as series and the events on the pods are in [Events and metrics](./observability.md).
+The same counts, the anomalies as series and the events on the pods are in [Events, metrics and logs](./observability.md).
 
 ## ImageMirror
 

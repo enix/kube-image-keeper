@@ -78,6 +78,8 @@ export RUN_FLAG_ZAP_ENCODER=json RUN_ADDITIONAL_ARGS="2>&1 | hl --paging=never"
 task run
 ```
 
+To read the logs of a deployed kuik, from the command line, Sofka or k9s, see [Reading the logs](../observability.md#reading-the-logs).
+
 ## Grant a process a permission
 
 Each process runs under its own ServiceAccount and holds only its own rules. Declare a permission with a `// +kubebuilder:rbac` marker on the code that uses it, naming its process with `roleName=webhook`, `roleName=reconciler` or `roleName=secret-syncer` (`namespace=kuik-system` for a Role in the install namespace), then run `task manifests`. The chart binds the generated roles to the ServiceAccounts, and `helm template` fails on a marker without `roleName=`.
