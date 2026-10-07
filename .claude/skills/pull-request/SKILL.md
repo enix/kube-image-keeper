@@ -111,6 +111,8 @@ describes a dropped file misleads the reviewer and CodeRabbit alike.
   `conform` check stays red on `fixup!` commits, which keeps the PR from merging unsquashed.
 - Do not push while a review runs: CodeRabbit drops it ("head changed") and must be asked
   again.
+- Read the body of each review, not only its threads: the `quiet` profile folds findings
+  into the review body without opening a thread.
 - Triage each comment: fix it (a `fixup!` commit), or accept it as a limit and say so in
   the description.
 - Resolve a thread once its fix is pushed. Reply only when resolving without a fix: one
