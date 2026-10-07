@@ -2,7 +2,7 @@
 name: pull-request
 description: Use when opening a pull request on kuik, rewriting its description, or answering its automated review; prepares the branch, drafts a short readable description for the user to confirm, and keeps it in step with the branch.
 argument-hint: "[PR number]"
-allowed-tools: Bash(git log *) Bash(git diff *) Bash(git status *) Bash(git fetch *) Bash(gh pr view *) Bash(gh pr diff *) Bash(gh pr checks *) Read Grep Glob Write
+allowed-tools: Bash(git log *) Bash(git diff *) Bash(git status *) Bash(git fetch *) Bash(gh pr view *) Bash(gh pr diff *) Bash(gh pr checks *) Bash(hack/wait-coderabbit.sh *) Read Grep Glob Write
 ---
 
 # Pull request
@@ -101,6 +101,11 @@ describes a dropped file misleads the reviewer and CodeRabbit alike.
 
 ## 5. The automated review
 
+- As soon as a review is due (the PR opened, `@coderabbitai review` posted), run
+  `hack/wait-coderabbit.sh <n>` in the background and go on. When it exits 0, read the
+  review at once: fix as `fixup!` commits what is unambiguous and local to the branch, and
+  ask the user about the rest (a design choice, a disagreement, code outside the branch).
+  When it exits 1, no review came within the hour: tell the user.
 - CodeRabbit reviews once when the PR opens. For later commits, comment
   `@coderabbitai review`. After a force-push (a rebase, the autosquash), comment
   `@coderabbitai full review` instead: the incremental review lost its base.

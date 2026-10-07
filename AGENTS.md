@@ -54,7 +54,8 @@ internal/status/*             Status building blocks shared by the reconcilers: 
 config/                       controller-gen output (CRDs, rbac/role.yaml, webhook), read by envtest
 helm/kube-image-keeper/       The Helm chart, the only deployment path (crds/ and files/ generated)
 test/e2e/                     End-to-end suite, runs on a Kind cluster
-hack/                         Developer tools run with go run (the test outline, the values check)
+hack/                         Developer tools run with go run (the test outline, the values check),
+                              and the CodeRabbit review wait of the pull-request skill
 website/                      The docs site (Astro Starlight), see .claude/rules/docs.md
 PROJECT                       Kubebuilder metadata
 ```
