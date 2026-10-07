@@ -112,6 +112,7 @@ the others. A top-level `AfterEach` dumps logs, events and pod descriptions on f
 | Mistake | Fix |
 | ------- | --- |
 | e2e specs written with the first `test` commit | Add them in the last commit, once the PR is ready |
+| A new file under `test/e2e/` without `//go:build e2e` | Start every file with it: `task test` skips `test/e2e/`, so the miss passes locally |
 | Running the suite on the current kubeconfig, or on a real cluster | `KUBECONFIG=<tmp>/e2e-kubeconfig task test-e2e`, Kind only |
 | Creating the pod right after the CR | Poll `replicasRouting` until every replica sees the CR |
 | Waiting on a server-side dry run | It reaches one replica only: ask each pod with `replicasRouting` |
