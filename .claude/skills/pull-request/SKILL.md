@@ -31,6 +31,10 @@ explicit go: show the text first, then run the command.
   names it in one line.
 - Conventional commit subjects with the scopes of `.conform.yaml`; the PR title is the
   subject of the main commit, or a subject that covers them all.
+- Before drafting the description of a PR that changes behaviour, run the
+  [`spec-reviewer`](../../agents/spec-reviewer.md) agent on the whole branch
+  (`origin/main...HEAD`), not only the last component: it reads the commits together.
+  Fold what it finds into the commits as above.
 
 ## 2. Draft the description
 
