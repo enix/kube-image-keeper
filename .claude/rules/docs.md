@@ -17,6 +17,10 @@ workflow), the use cases and `docs/concepts/` (how kuik works, picked up by the 
 sidebar automatically). The v2 user docs are served from the `2.3.x` branch, not
 from here.
 
+The user docs describe what the code on `main` does, nothing ahead of it: a behaviour is
+documented in the PR that wires it, never in an earlier one. This does not apply to
+`docs/v3/`, which states the target.
+
 `docs/v3/` (the design documents) is listed in `UNPUBLISHED_DOCS` of
 `website/scripts/sync-docs.mjs` and renders on GitHub only. `notes/` is never published.
 
