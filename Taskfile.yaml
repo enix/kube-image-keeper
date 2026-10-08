@@ -284,6 +284,28 @@ tasks:
         {{if .COMMIT_MSG_FILE}}head -n1 '{{.COMMIT_MSG_FILE}}' | grep -qE '^(fixup|squash|amend)! ' && exit 0{{end}}
         {{.LOCALBIN}}/conform enforce {{if .COMMIT_MSG_FILE}}--commit-msg-file={{.COMMIT_MSG_FILE}}{{else}}--base-branch={{.BASE_BRANCH}}{{end}}
 
+  check-commits:
+    desc: Check each commit since BASE_BRANCH (after an autosquash) - feat commits pass task test (no e2e), the others build and vet
+    cmds:
+      # A scratch detached worktree, removed even on failure: the branch is never rebased nor
+      # checked out. The envtest binaries stay in ENVTEST_BIN_DIR, outside of it.
+      - |
+        set -e
+        commits=$(git rev-list --reverse '{{.BASE_BRANCH}}..HEAD')
+        dir=$(mktemp -d)
+        trap 'git worktree remove --force "$dir" || rm -rf "$dir"; git worktree prune' EXIT
+        git worktree add --quiet --detach "$dir" HEAD
+        for c in $commits; do
+          # --force: task test regenerates files the next checkout would otherwise refuse to overwrite.
+          git -C "$dir" checkout --quiet --force "$c"
+          subject=$(git log -1 --format=%s "$c")
+          echo "== $(git log -1 --format=%h "$c") $subject"
+          case "$subject" in
+            feat*) task -d "$dir" test ;;
+            *) (cd "$dir" && go build ./... && go vet -tags e2e ./...) ;;
+          esac
+        done
+
   # ---------------------------------------------------------------------------------------------
   # Build
 
