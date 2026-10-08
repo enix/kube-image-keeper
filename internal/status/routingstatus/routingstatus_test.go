@@ -562,4 +562,16 @@ var _ = Describe("Routing status", func() {
 			}
 		})
 	})
+
+	Describe("the election guard", func() {
+		It("holds a status write back with a requeue until the lease is acquired", func() {
+			unelected, err := NewTracker(events, prometheus.NewRegistry())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(unelected.ElectionWait()).To(BeNumerically(">", 0))
+		})
+
+		It("lets a status write through once the lease is acquired", func() {
+			Expect(tracker.ElectionWait()).To(BeZero())
+		})
+	})
 })
