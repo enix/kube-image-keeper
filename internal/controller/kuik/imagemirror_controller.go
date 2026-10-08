@@ -16,14 +16,21 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
@@ -431,9 +438,111 @@ func (r *ImageMirrorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			// A full channel already holds reconciles enough to pick this change up.
 		}
 	}
+	if r.StatusInterval == 0 {
+		r.StatusInterval = DefaultStatusInterval
+	}
+	// The reconciler reads Secrets in the cluster resource namespace only, so it watches them
+	// through a cache of that namespace alone.
+	secrets, err := cache.New(mgr.GetConfig(), cache.Options{
+		Scheme:            mgr.GetScheme(),
+		Mapper:            mgr.GetRESTMapper(),
+		DefaultNamespaces: map[string]cache.Config{r.namespace: {}},
+	})
+	if err != nil {
+		return err
+	}
+	if err := mgr.Add(secrets); err != nil {
+		return err
+	}
+	// Runs once this replica holds the lease, which is when pod events may be emitted.
+	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+		r.Elected(time.Now())
+		<-ctx.Done()
+		return nil
+	})); err != nil {
+		return err
+	}
+
+	// Pod and CR events are debounced alike (docs/v3/spec.md, "mirror: pacing the destination
+	// kuik owns"): a creation or a deletion of the mirror reconciles at once, a spec change
+	// StatusInterval later.
+	onlyCreateDelete := predicate.Funcs{UpdateFunc: func(event.UpdateEvent) bool { return false }}
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&kuikv1alpha1.ImageMirror{}).
+		For(&kuikv1alpha1.ImageMirror{}, builder.WithPredicates(onlyCreateDelete)).
+		Watches(&kuikv1alpha1.ImageMirror{}, delayedUpdates(r.StatusInterval)).
+		Watches(&corev1.Pod{}, delayed(r.StatusInterval, r.mirrorsSelecting)).
+		Watches(&corev1.Namespace{}, delayed(r.StatusInterval, r.allMirrors)).
+		WatchesRawSource(source.Kind[client.Object](secrets, &corev1.Secret{},
+			handler.EnqueueRequestsFromMapFunc(r.mirrorsNaming))).
 		WatchesRawSource(source.Channel(wakes, &handler.TypedEnqueueRequestForObject[*kuikv1alpha1.ImageMirror]{})).
 		Named("kuik-imagemirror").
 		Complete(r)
+}
+
+// delayedUpdates enqueues an ImageMirror whose spec changed, after interval.
+func delayedUpdates(interval time.Duration) handler.EventHandler {
+	return handler.Funcs{
+		UpdateFunc: func(_ context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+			if e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration() {
+				q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{Name: e.ObjectNew.GetName()}}, interval)
+			}
+		},
+	}
+}
+
+// mirrorsSelecting maps a pod to the ImageMirrors that select it.
+func (r *ImageMirrorReconciler) mirrorsSelecting(ctx context.Context, obj client.Object) []reconcile.Request {
+	pod, ok := obj.(*corev1.Pod)
+	if !ok {
+		return nil
+	}
+	var ns corev1.Namespace
+	if err := r.Get(ctx, types.NamespacedName{Name: pod.Namespace}, &ns); err != nil {
+		// Without the namespace labels, every mirror may select the pod.
+		return r.allMirrors(ctx, obj)
+	}
+	var list kuikv1alpha1.ImageMirrorList
+	if err := r.List(ctx, &list); err != nil {
+		return nil
+	}
+	var requests []reconcile.Request
+	for i := range list.Items {
+		// A deleted mirror waits for the pods running its copies: it hears of them all.
+		s, _ := mirrorScope(&list.Items[i])
+		if s.selects(pod, ns.Labels) || !list.Items[i].DeletionTimestamp.IsZero() {
+			requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{Name: list.Items[i].Name}})
+		}
+	}
+	return requests
+}
+
+// allMirrors maps any object to every ImageMirror.
+func (r *ImageMirrorReconciler) allMirrors(ctx context.Context, _ client.Object) []reconcile.Request {
+	var list kuikv1alpha1.ImageMirrorList
+	if err := r.List(ctx, &list); err != nil {
+		return nil
+	}
+	requests := make([]reconcile.Request, 0, len(list.Items))
+	for _, im := range list.Items {
+		requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{Name: im.Name}})
+	}
+	return requests
+}
+
+// mirrorsNaming maps a Secret to the ImageMirrors whose manage or pull secretRef names it.
+func (r *ImageMirrorReconciler) mirrorsNaming(ctx context.Context, obj client.Object) []reconcile.Request {
+	var list kuikv1alpha1.ImageMirrorList
+	if err := r.List(ctx, &list); err != nil {
+		return nil
+	}
+	var requests []reconcile.Request
+	for _, im := range list.Items {
+		for _, credentials := range []*kuikv1alpha1.DestinationCredentials{im.Spec.Destination.Manage, im.Spec.Destination.Pull} {
+			if credentials != nil && credentials.Auth.SecretRef != nil && credentials.Auth.SecretRef.Name == obj.GetName() {
+				requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{Name: im.Name}})
+				break
+			}
+		}
+	}
+	return requests
 }
