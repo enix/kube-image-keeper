@@ -61,9 +61,12 @@ check fails until then, unless the PR changes no path the suite depends on.
 | kuik left a pod untouched | Proves nothing alone. Order the specs so that a rewrite proves the webhook is called before any "untouched" spec |
 | A config change | `setConfig` (`kubectl patch` of the ConfigMap), never `helm upgrade`, and allow up to 3m for the kubelet to sync it into the pods. Prove it loaded through behaviour: `webhook.availabilityCheck.timeout: 1ms` fails every probe, so a replica that loaded it stops rewriting |
 
-The suite needs internet access: there is no in-cluster registry and no containerd or Kind
-configuration (a plain HTTP registry does not work: the webhook probes an original over
-HTTPS even when it matches an `insecure: true` entry). cert-manager is pulled the same way.
+The suite needs internet access: images come from public registries and there is no
+containerd or Kind configuration, so the kubelet never pulls from an in-cluster registry (a
+plain HTTP registry does not work: the webhook probes an original over HTTPS even when it
+matches an `insecure: true` entry). cert-manager is pulled the same way. The one in-cluster
+registry is the ImageMirror destination of `mirror_test.go`: kuik writes to it, no pod pulls
+from it, so its mirrors use `rewritePolicy: None`.
 
 The chart is deployed once per suite, in `BeforeSuite` / `AfterSuite`, and never a second
 time: Ginkgo shuffles the top-level containers, so one container's `BeforeAll` would not cover
@@ -100,6 +103,10 @@ the others. A top-level `AfterEach` dumps logs, events and pod descriptions on f
   - `scaleWebhook`, `webhookPods`, `webhookRestarts`, `deploymentAvailable`: the webhook
     Deployment and its pods; `webhookRestarts` is what a "without a restart" spec compares.
   - `kubectlStdin`: kubectl with a manifest on stdin.
+- [`mirror_test.go`](../../../test/e2e/mirror_test.go): the `Image mirroring` container. A
+  distribution v3 registry in `kuik-e2e-registry` (htpasswd, tag deletion on), addressed by
+  its DNS name so that `destination.insecure` matters, and pods in `kuik-e2e-mirror`.
+  `registryTags` reads the tags of a repository from the registry's storage.
 - [`test/utils`](../../../test/utils/utils.go): `Run` (runs a command from the project
   directory), `LoadImageToKindClusterWithName`, `GetNonEmptyLines`, the cert-manager install
   helpers.
@@ -118,5 +125,5 @@ the others. A top-level `AfterEach` dumps logs, events and pod descriptions on f
 | An HTTP call without a timeout inside `Eventually` | `Eventually` never interrupts a hung poll: bound the client |
 | A bare `exec.Command` | `utils.Run` waits for the process with no deadline: use `kubectl`, `makeTarget` or `runBounded` |
 | An "untouched" spec with nothing proving the webhook ran | Order it after a spec that shows a rewrite |
-| An in-cluster plain HTTP registry | `registry.k8s.io` for an answer, `.invalid` for a failure |
+| An in-cluster plain HTTP registry for an image a pod pulls or the webhook probes | `registry.k8s.io` for an answer, `.invalid` for a failure; the ImageMirror destination is the one exception |
 | `helm upgrade` to change the config | `kubectl patch` the ConfigMap, wait up to 3m |
