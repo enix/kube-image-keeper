@@ -17,6 +17,10 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes/scheme"
+	ctrl "sigs.k8s.io/controller-runtime"
+	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/config"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
@@ -1389,7 +1393,69 @@ var _ = Describe("ImageMirror Controller", func() {
 	})
 
 	Describe("with a manager", func() {
-		PIt("reports again after the debounce when a selected pod is created or deleted", func() {})
-		PIt("reports again after the debounce when its spec changes", func() {})
+		const debounce = 2 * time.Second
+		// start runs the reconciler in a manager of its own, reporting debounce after a change.
+		start := func() {
+			mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+				Scheme:                 scheme.Scheme,
+				Metrics:                metricsserver.Options{BindAddress: "0"},
+				HealthProbeBindAddress: "0",
+				Controller:             ctrlconfig.Controller{SkipNameValidation: new(true)},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			r, err := NewImageMirrorReconciler(mgr.GetClient(), mgr.GetScheme(), ImageMirrorOptions{
+				APIReader: mgr.GetAPIReader(), ClusterResourceNamespace: installNamespace, Recorder: h.recorder,
+				Registerer: prometheus.NewRegistry(), Scheduler: h.scheduler, Registry: kuikregistry.NewClient(),
+				Config: h.config, Clock: h.clock,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			r.StatusInterval = debounce
+			Expect(r.SetupWithManager(mgr)).To(Succeed())
+			managerCtx, cancel := context.WithCancel(ctx)
+			DeferCleanup(cancel)
+			go func() {
+				defer GinkgoRecover()
+				Expect(mgr.Start(managerCtx)).To(Succeed())
+			}()
+		}
+		tracked := func() int32 {
+			pods := h.status().Pods
+			if pods == nil {
+				return 0
+			}
+			return pods.Tracked
+		}
+
+		It("reports again after the debounce when a selected pod is created or deleted", func() {
+			h.mirror()
+			ns := h.namespace()
+			start()
+			Eventually(h.status).WithTimeout(10 * time.Second).Should(HaveField("SelfChecked", Not(BeNil())))
+			// The informers replay the existing namespaces and pods as created at start-up: let
+			// the reconcile they ask for, debounce later, pass before the change under test.
+			time.Sleep(debounce + debounce/2)
+
+			pod := createPod(ns, unique("pod"), container{name: appContainer, image: thanosImage})
+			Consistently(tracked).WithTimeout(debounce / 2).Should(BeZero())
+			Eventually(tracked).WithTimeout(10 * time.Second).Should(Equal(int32(1)))
+
+			Expect(k8sClient.Delete(ctx, pod)).To(Succeed())
+			Consistently(tracked).WithTimeout(debounce / 2).Should(Equal(int32(1)))
+			Eventually(tracked).WithTimeout(10 * time.Second).Should(BeZero())
+		})
+
+		It("reports again after the debounce when its spec changes", func() {
+			h.mirror()
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: thanosImage})
+			start()
+			Eventually(tracked).WithTimeout(10 * time.Second).Should(Equal(int32(1)))
+
+			var im kuikv1alpha1.ImageMirror
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: h.name}, &im)).To(Succeed())
+			im.Spec.RewritePolicy = kuikv1alpha1.RewritePolicyNone
+			Expect(k8sClient.Update(ctx, &im)).To(Succeed())
+			Consistently(tracked).WithTimeout(debounce / 2).Should(Equal(int32(1)))
+			Eventually(tracked).WithTimeout(10 * time.Second).Should(BeZero())
+		})
 	})
 })
