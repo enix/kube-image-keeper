@@ -131,8 +131,11 @@ var _ = Describe("Manager", Ordered, func() {
 			Entry("the secret syncer reads the ImageMirrors", "secret-syncer", "get", "imagemirrors", allNamespaces, true),
 			Entry("the webhook cannot create an ImageMirror", "webhook", "create", "imagemirrors", allNamespaces, false),
 			Entry("the webhook cannot delete an ImageMirror", "webhook", "delete", "imagemirrors", allNamespaces, false),
-			Entry("the reconciler cannot update an ImageMirror, only its status",
-				"reconciler", "update", "imagemirrors", allNamespaces, false),
+			// An ImageMirror carries the finalizer that deletes its tags: only its metadata is written.
+			Entry("the reconciler updates an ImageMirror, for its cleanup finalizer",
+				"reconciler", "update", "imagemirrors", allNamespaces, true),
+			Entry("the reconciler cannot update an ImageMonitor, only its status",
+				"reconciler", "update", "imagemonitors", allNamespaces, false),
 
 			// .../status: update, patch for the reconciler only
 			Entry("the webhook cannot write a status", "webhook", "patch", "imagemirrors/status", allNamespaces, false),
