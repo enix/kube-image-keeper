@@ -1295,7 +1295,11 @@ var _ = Describe("ImageMirror Controller", func() {
 	})
 
 	Describe("bounded lists", func() {
-		const over = 501
+		// The cap holds whatever its value: a small one is exceeded by a handful of images.
+		const capacity, over = 5, 6
+		BeforeEach(func() {
+			h.withListCapacity(capacity)
+		})
 		// copiedAll holds once the destination holds every image: a copy may write more than
 		// one manifest, so the number of writes does not tell.
 		copiedAll := func() bool {
@@ -1303,7 +1307,7 @@ var _ = Describe("ImageMirror Controller", func() {
 			return copied != nil && copied.Copy != nil && copied.Copy.Available == over
 		}
 
-		It("caps failedImageCopies and driftedImages over 500 entries, records it in truncated and sets ListCapacityPressure", func() {
+		It("caps failedImageCopies and driftedImages over the list capacity, records it in truncated and sets ListCapacityPressure", func() {
 			h.mirror(withDrift(kuikv1alpha1.DriftPolicyWarn))
 			_, sources, refs := h.manyImages(over, false)
 			h.windowsUntil(copiedAll)
@@ -1314,16 +1318,17 @@ var _ = Describe("ImageMirror Controller", func() {
 				sources[i%len(sources)].Push(ref, moved)
 			}
 			h.windowsUntil(func() bool { return h.status().Truncated["driftedImages"] == 1 })
-			Expect(h.status().DriftedImages).To(HaveLen(500))
+			Expect(h.status().DriftedImages).To(HaveLen(capacity))
 
-			// Then over 500 images no source holds.
+			// Then more images than the cap that no source holds.
 			missing := h.source()
-			ns := h.namespace()
+			gone := make([]container, 0, over)
 			for i := range over {
-				createPod(ns, unique("pod"), container{name: appContainer, image: fmt.Sprintf("%s/acme/gone%03d:v1", missing.Host(), i)})
+				gone = append(gone, container{name: fmt.Sprintf("gone%d", i), image: fmt.Sprintf("%s/acme/gone%d:v1", missing.Host(), i)})
 			}
+			createPod(h.namespace(), unique("pod"), gone...)
 			h.windowsUntil(func() bool { return h.status().Truncated["failedImageCopies"] == 1 })
-			Expect(h.status().FailedImageCopies).To(HaveLen(500))
+			Expect(h.status().FailedImageCopies).To(HaveLen(capacity))
 			pressure := h.condition(kuikv1alpha1.ConditionListCapacityPressure)
 			Expect(pressure).NotTo(BeNil())
 			Expect(pressure.Status).To(Equal(metav1.ConditionTrue))
@@ -1343,7 +1348,7 @@ var _ = Describe("ImageMirror Controller", func() {
 			status := h.status()
 			Expect(status.PendingDeletion).To(HaveLen(over))
 			Expect(status.Repositories).To(HaveLen(over))
-			Expect(status.Checks.Registries).To(HaveLen(10))
+			Expect(status.Checks.Registries).To(HaveLen(over))
 			Expect(status.Truncated).To(BeEmpty())
 		})
 	})

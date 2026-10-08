@@ -100,6 +100,19 @@ var _ = Describe("Bounded lists", func() {
 		Expect(err).NotTo(HaveOccurred())
 	})
 
+	It("caps the lists at the capacity it was built with, ListCapacityPressure following 80% of it", func() {
+		small, err := NewLimiter(prometheus.NewRegistry(), WithCapacity(5))
+		Expect(err).NotTo(HaveOccurred())
+
+		kept, truncated, conditions := write(small, kind, entries(6))
+		Expect(kept).To(HaveLen(5))
+		Expect(truncated).To(Equal(map[string]int32{list: 1}))
+		Expect(meta.FindStatusCondition(conditions, kuikv1alpha1.ConditionListCapacityPressure).Reason).To(Equal(kuikv1alpha1.ReasonListTruncated))
+
+		_, _, conditions = write(small, kind, entries(4))
+		Expect(meta.FindStatusCondition(conditions, kuikv1alpha1.ConditionListCapacityPressure).Reason).To(Equal(kuikv1alpha1.ReasonListNearCapacity))
+	})
+
 	Describe("Cap", func() {
 		It("keeps a list under the cap whole", func() {
 			kept, _, _ := write(limiter, kind, entries(Capacity))

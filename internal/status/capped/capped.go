@@ -46,8 +46,17 @@ const (
 	labelList = "list"
 )
 
+// Option configures a Limiter.
+type Option func(*Limiter)
+
+// WithCapacity caps every list at capacity instead of Capacity, ListCapacityPressure going
+// True from 80% of it.
+func WithCapacity(capacity int) Option {
+	return func(*Limiter) {}
+}
+
 // NewLimiter returns a limiter exporting the kuik_status_list_* series to registerer.
-func NewLimiter(registerer prometheus.Registerer) (*Limiter, error) {
+func NewLimiter(registerer prometheus.Registerer, opts ...Option) (*Limiter, error) {
 	labels := []string{labelKind, labelName, labelList}
 	l := &Limiter{
 		entries: prometheus.NewGaugeVec(prometheus.GaugeOpts{

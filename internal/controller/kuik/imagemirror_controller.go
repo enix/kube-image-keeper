@@ -104,6 +104,8 @@ type ImageMirrorOptions struct {
 	Config *config.Config
 	// Clock dates the destination passes and the status entries.
 	Clock clock.Clock
+	// ListCapacity caps the anomaly lists of the status. Zero means capped.Capacity.
+	ListCapacity int
 }
 
 // NewImageMirrorReconciler returns a reconciler writing with c.

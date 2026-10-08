@@ -99,6 +99,27 @@ func newMirrorHarness() *mirrorHarness {
 	return h
 }
 
+// withListCapacity builds the reconciler again with anomaly lists capped at capacity, so that a
+// handful of entries exceeds the cap. Its series go to a new registry.
+func (h *mirrorHarness) withListCapacity(capacity int) {
+	GinkgoHelper()
+	h.metrics = prometheus.NewRegistry()
+	var err error
+	h.reconciler, err = NewImageMirrorReconciler(k8sClient, k8sClient.Scheme(), ImageMirrorOptions{
+		APIReader:                k8sClient,
+		ClusterResourceNamespace: installNamespace,
+		Recorder:                 h.recorder,
+		Registerer:               h.metrics,
+		Scheduler:                h.scheduler,
+		Registry:                 kuikregistry.NewClient(),
+		Config:                   h.config,
+		Clock:                    h.clock,
+		ListCapacity:             capacity,
+	})
+	Expect(err).NotTo(HaveOccurred())
+	h.reconciler.Elected(h.clock.Now().Add(-time.Minute))
+}
+
 // mirror creates the ImageMirror under test, copying to the in-memory destination and
 // selecting the namespaces labelled with its own name.
 func (h *mirrorHarness) mirror(mutate ...func(*kuikv1alpha1.ImageMirror)) {
