@@ -21,6 +21,7 @@
       "Bash(task fmt *)",
       "Bash(task vet *)",
       "Bash(task conform *)",
+      "Bash(task check-commits *)",
       "Bash(go run ./hack/*)",
       "Bash(go doc *)",
       "Bash(git show 2.3.x*)",

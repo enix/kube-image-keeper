@@ -150,7 +150,9 @@ describes a dropped file misleads the reviewer and CodeRabbit alike.
   GIT_SEQUENCE_EDITOR=: git rebase -i --autosquash <sha>
   ```
 
-  Catching up with `main` is not part of the autosquash (step 6).
+  Then run `task check-commits`: in a scratch worktree, every commit builds and vets, and
+  every `feat` commit passes `task test`. Catching up with `main` is not part of the
+  autosquash (step 6).
 - Once the review is over, the final e2e `test` commit pushed and the branch autosquashed,
   ask the user to add the `e2e-ready` label (`gh pr edit <n> --add-label e2e-ready`): the
   required `E2E` check fails until it is there. Skip this when the PR changes no path the
