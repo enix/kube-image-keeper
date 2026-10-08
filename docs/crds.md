@@ -241,6 +241,15 @@ The mirror's own `destination.path` is excluded on top of this list, which is wh
 
 The destination must conform to the OCI Distribution spec, accept arbitrarily nested repository paths, and refuse a manifest whose blobs it does not hold. With `cleanup.enabled`, it must also support tag deletion (`DELETE /v2/<name>/manifests/<tag>`) and run its own garbage collection of untagged manifests: kuik deletes tags only, never manifests or blobs. A registry that rejects tag deletion flips the `Ready` condition to `False` with reason `RegistryDeleteUnsupported`.
 
+### Deleting an ImageMirror
+
+A deleted `ImageMirror` stops routing new pods at once, then stays `Terminating` until kuik has released it:
+
+1. While a live pod runs an image under `destination.path`, it waits: a node rescheduling that pod would find the copy gone. Roll those workloads onto their origin to release it.
+2. With `cleanup.enabled`, it then deletes every tag of this cluster in `status.repositories`, whatever their retention. It keeps waiting while the `manage` credential cannot be read, or while the destination refuses tag deletion: released, it would take with it the only inventory of the tags left behind.
+
+It retries after 10 seconds, doubling up to 30 minutes, and sooner when a pod goes. A destination that never accepts tag deletion holds the mirror for good: set `cleanup.enabled: false` before deleting it to leave the tags in place.
+
 ### Status
 
 The copy side first, then the routing side, which is field for field an [`ImageAlternative`'s](#status).

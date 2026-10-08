@@ -38,9 +38,23 @@ created.
 
 | Reason | Type | Emitted when |
 | ------ | ---- | ------------ |
-| `ResourceNotReady` | Warning | The `Ready` condition goes `False`. The message carries its reason: `InvalidConfig`, `SecretNotFound`, `SecretMalformed` |
+| `ResourceNotReady` | Warning | The `Ready` condition goes `False`. The message carries its reason: `InvalidConfig`, `SecretNotFound`, `SecretMalformed`, and `RegistryDeleteUnsupported` on an `ImageMirror` whose destination refuses tag deletion |
 | `ResourceReady` | Normal | `Ready` goes back to `True` |
 | `PullSecretInjectionFailed` | Warning | The secret syncer could not resolve a credential of the resource for one namespace, and wrote the [injected Secret](./concepts/pull-secrets.md) without it. The message carries the reason (`SecretNotFound`, `SecretMalformed`), the entry's path and the namespace. Emitted by the secret syncer, once while the failure lasts |
+
+### On an ImageMirror
+
+| Reason | Type | Emitted when |
+| ------ | ---- | ------------ |
+| `ImageCopied` | Normal | An image was copied to the destination for the first time. A new mirror emits a burst of them |
+| `ImageRecopied` | Warning | A copy the destination held went missing and was copied again: something outside kuik deleted it while pods may be routed to it |
+| `ImageResynced` | Normal | Under `driftPolicy: Sync`, a destination tag was moved onto the upstream's new digest |
+| `CopyOutOfDate` | Warning | Under `driftPolicy: Warn`, the upstream tag moved away from the copy, which is left as it is. Once per drift |
+| `ImageCopyFailed` | Warning | Copies failed since the last status write. Failures sharing a reason and a registry make one event, naming the image, or how many images failed under their common prefix |
+| `ImageUnrecoverable` | Warning | No source can supply an image any more (`SourceNotFound` on the origin and every alternative). Pods still running it do so from a node cache. Once, when the copy starts failing that way |
+| `OrphanTagFound` | Warning | The sweep found a tag of this cluster no tracked image accounts for. It is deleted once its retention elapsed. Once per tag |
+| `ImageDeleted` | Normal | A tag was deleted after its retention elapsed |
+| `ImageDeletionFailed` | Warning | The destination refused a tag deletion |
 
 ## Metrics
 
@@ -63,6 +77,23 @@ alone, since an `ImageAlternative` and an `ImageMirror` may share a name.
 overlap, so the pod gauges do not sum across resources; the `rewritten`, `conceded` and
 `stale` containers do, exactly one resource counting each.
 
+### Mirror
+
+An `ImageMirror` exports its copy side, `status.images.copy`, and what it does to its
+destination.
+
+| Metric | Type | Value |
+| ------ | ---- | ----- |
+| `kuik_images_tracked{kind, name, reference, state}` | gauge | References the mirror holds at its destination (`reference="copy"`), by `state`: `running`, `standby`, `retained` |
+| `kuik_images_checked{kind, name, reference, state}` | gauge | The same references by verdict of the last destination pass or copy: `available`, `unavailable` |
+| `kuik_mirror_tags_orphan{kind, name}` | gauge | Tags of this cluster the sweep found that no tracked reference accounts for, held before deletion. Counted in tags |
+| `kuik_mirror_copies_total{kind, name, reason}` | counter | Images pushed to the destination, by `reason`: `Initial`, `Recopy` after a copy went missing, `Resync` after an upstream digest moved |
+| `kuik_mirror_tags_deleted_total{kind, name, reason}` | counter | Tags deleted once their retention elapsed, by `reason`: `Unused`, `Orphan` |
+| `kuik_mirror_self_checked_timestamp_seconds{kind, name}` | gauge | End of the last whole destination pass, `status.selfChecked` |
+| `kuik_mirror_copy_duration_seconds{kind, name}` | histogram | Seconds one copy took. Off by default: one series per bucket per mirror. Enable it with `metrics.copyDuration: true` in the [global config](./configuration.md) |
+
+`sum without(state) (kuik_images_tracked{reference="copy"})` is `status.images.copy.tracked`.
+
 ### Anomalies
 
 These series exist only while their anomaly does: alert on their presence. The four `_pods`
@@ -75,6 +106,8 @@ hold every affected image, whatever the cap on the status lists.
 | `kuik_alternatives_exhausted_pods{kind, name, image, registry}` | `status.noAlternatives`. Every resource that offered a candidate counts the pod: do not sum |
 | `kuik_rewrite_conceded_pods{kind, name, image, registry}` | `status.concededRewrites` |
 | `kuik_rewrite_stale_pods{kind, name, image, registry}` | `status.staleRewrites` |
+| `kuik_image_copy_failed{kind, name, image, registry, reason}` | `ImageMirror.status.failedImageCopies`. `1` per image whose copy fails; `registry` is the side that failed: the source on `SourceNotFound`, `SourceUnreachable`, the destination on `PushRejected`, `DestinationUnreachable`, whichever side answered on `Unauthorized`, `QuotaExceeded` |
+| `kuik_image_drifted{kind, name, image, registry}` | `status.driftedImages`. `1` per tag whose upstream digest moved away from the copy, under `driftPolicy: Warn`, and briefly under `Sync` until the resync |
 
 `kuik_resource_not_ready{kind, name, reason}` is `1` while the `Ready` condition of a
 resource is `False`, carrying its reason.
@@ -104,7 +137,7 @@ reconciler exports these series.
 | `kuik_check_cycle_duration_seconds{kind, name, registry}` | gauge | Last completed lap of the ring a resource turns over a registry, `status.checks.registries[].cycleDuration`. Absent until a first lap completes |
 | `kuik_check_cycle_started_timestamp_seconds{kind, name, registry}` | gauge | Start of the lap in progress, `cycleStarted` |
 | `kuik_check_ring_images{kind, name, registry}` | gauge | Size of the ring, `images` |
-| `kuik_registry_interval_seconds{registry, operation}` | gauge | `check.interval` (`Check`) and `copy.interval` (`Copy`) of a host, as currently loaded |
+| `kuik_registry_interval_seconds{registry, operation}` | gauge | `check.interval` (`Check`) and `copy.interval` (`Copy`) of a host, as currently loaded, and `mirror.destinationScan.interval` (`Scan`) of a mirror destination |
 
 Alert on a lap against its best case rather than on a literal: see
 [Watching the pace](./concepts/pacing.md#watching-the-pace).
