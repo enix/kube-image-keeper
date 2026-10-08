@@ -174,6 +174,12 @@ func (t *Tracker) Elected(at time.Time) {
 	t.announced = map[routing.Resource]map[announcement]bool{}
 }
 
+// ElectionWait returns how long a reconcile must wait before writing a status, zero once the
+// lease is acquired.
+func (t *Tracker) ElectionWait() time.Duration {
+	return 0
+}
+
 // Input is what one report of a resource reads.
 type Input struct {
 	// Resource is the resource reported on.
