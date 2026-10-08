@@ -31,6 +31,8 @@ const (
 type Limiter struct {
 	entries, capacity *prometheus.GaugeVec
 	dropped           *prometheus.CounterVec
+	// limit is the cap of every list, Capacity unless an option set another.
+	limit int
 
 	mu sync.Mutex
 	// out holds, per resource and list, the keys left out at the last write.
@@ -52,7 +54,12 @@ type Option func(*Limiter)
 // WithCapacity caps every list at capacity instead of Capacity, ListCapacityPressure going
 // True from 80% of it.
 func WithCapacity(capacity int) Option {
-	return func(*Limiter) {}
+	return func(l *Limiter) { l.limit = capacity }
+}
+
+// near is the number of entries from which ListCapacityPressure goes True: 80% of the cap.
+func (l *Limiter) near() int {
+	return l.limit * 8 / 10
 }
 
 // NewLimiter returns a limiter exporting the kuik_status_list_* series to registerer.
@@ -82,6 +89,10 @@ func NewLimiter(registerer prometheus.Registerer, opts ...Option) (*Limiter, err
 	}
 	if l.dropped, err = register(registerer, l.dropped); err != nil {
 		return nil, err
+	}
+	l.limit = Capacity
+	for _, opt := range opts {
+		opt(l)
 	}
 	return l, nil
 }
@@ -138,11 +149,11 @@ func Cap[T any](p *Pass, list string, entries []T, since func(T) metav1.Time, ke
 		return cmp.Compare(key(a), key(b))
 	})
 	c := capped{name: list, out: map[string]bool{}}
-	if len(sorted) > Capacity {
-		for _, e := range sorted[Capacity:] {
+	if limit := p.limiter.limit; len(sorted) > limit {
+		for _, e := range sorted[limit:] {
 			c.out[key(e)] = true
 		}
-		sorted = sorted[:Capacity]
+		sorted = sorted[:limit]
 	}
 	c.written = len(sorted)
 	p.lists = append(p.lists, c)
@@ -168,7 +179,7 @@ func (p *Pass) End(conditions *[]metav1.Condition, generation int64) map[string]
 	for _, c := range p.lists {
 		labels := prometheus.Labels{labelKind: p.resource.kind, labelName: p.resource.name, labelList: c.name}
 		l.entries.With(labels).Set(float64(c.written))
-		l.capacity.With(labels).Set(Capacity)
+		l.capacity.With(labels).Set(float64(l.limit))
 		// Touch the counter so the series exists before anything is dropped.
 		counter := l.dropped.With(labels)
 		for k := range c.out {
@@ -185,7 +196,7 @@ func (p *Pass) End(conditions *[]metav1.Condition, generation int64) map[string]
 			}
 			truncated[c.name] = int32(len(c.out))
 			over = append(over, c.name)
-		case c.written >= NearCapacity:
+		case c.written >= l.near():
 			near = append(near, c.name)
 		}
 	}
@@ -196,7 +207,7 @@ func (p *Pass) End(conditions *[]metav1.Condition, generation int64) map[string]
 			fmt.Sprintf("entries left out of %s", strings.Join(over, ", ")), generation))
 	case len(near) > 0:
 		meta.SetStatusCondition(conditions, pressure(kuikv1alpha1.ReasonListNearCapacity,
-			fmt.Sprintf("%s at %d%% of the cap of %d entries or more", strings.Join(near, ", "), NearCapacity*100/Capacity, Capacity), generation))
+			fmt.Sprintf("%s at %d%% of the cap of %d entries or more", strings.Join(near, ", "), l.near()*100/l.limit, l.limit), generation))
 	default:
 		meta.RemoveStatusCondition(conditions, kuikv1alpha1.ConditionListCapacityPressure)
 	}

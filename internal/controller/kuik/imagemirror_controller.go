@@ -114,7 +114,11 @@ func NewImageMirrorReconciler(c client.Client, scheme *runtime.Scheme, opts Imag
 	if err != nil {
 		return nil, err
 	}
-	limiter, err := capped.NewLimiter(opts.Registerer)
+	var capacity []capped.Option
+	if opts.ListCapacity > 0 {
+		capacity = append(capacity, capped.WithCapacity(opts.ListCapacity))
+	}
+	limiter, err := capped.NewLimiter(opts.Registerer, capacity...)
 	if err != nil {
 		return nil, err
 	}
