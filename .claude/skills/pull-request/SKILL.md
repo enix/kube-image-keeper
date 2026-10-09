@@ -117,7 +117,13 @@ describes a dropped file misleads the reviewer and CodeRabbit alike.
   ([`tests.md`](../../rules/tests.md)).
 - Resolve a thread once its fix is pushed. Reply only when resolving without a fix: one
   sentence on why. CONTRIBUTING asks the author to answer reviews: post the reply yourself,
-  the outbound hook asks the user before every write on GitHub.
+  the outbound hook asks the user before every write on GitHub. No thread is left open at
+  the merge: this lists the open ones, and must print nothing.
+
+  ```sh
+  gh api graphql -f query='query { repository(owner: "enix", name: "kube-image-keeper") { pullRequest(number: <n>) { reviewThreads(first: 100) { nodes { id isResolved path } } } } }' --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved | not)'
+  ```
+
 - When the review is over, autosquash and force-push once. `git diff <head before> HEAD`
   must be empty: the content did not change, so no new review is needed.
 - Once the review is over, the final e2e `test` commit pushed and the branch autosquashed,
