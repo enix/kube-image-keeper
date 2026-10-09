@@ -318,6 +318,24 @@ var _ = Describe("ImageMonitor", func() {
 			Expect(originOf(name).Tracked).To(Equal(int32(1)))
 		})
 
+		It("counts an origin as running when a container another rewrite placed it in carries it", func() {
+			newMonitor(name)
+			ns := selectedNamespace()
+			// ghcr.io thanos is the origin of a container routed to the reloader, and the
+			// reference kuik placed in a container whose origin is thanos.
+			placedGhcr := routedToGhcr(thanosImage)
+			routedAway := container{name: appContainer, image: reloaderImage, rewrite: &podrecord.Rewrite{
+				By: routing.KindImageAlternative + "/other", Origin: ghcrThanosImage, RewrittenTo: reloaderImage,
+				Policy: string(kuikv1alpha1.RewritePolicyOnFailure),
+			}}
+			runningPod(ns, []container{placedGhcr})
+			runningPod(ns, []container{routedAway})
+			reconcileIt()
+			// thanos is standby, ghcr.io thanos runs in the first pod.
+			Expect(originOf(name).Standby).To(Equal(int32(1)))
+			Expect(originOf(name).Running).To(Equal(int32(1)))
+		})
+
 		It("requeues instead of dropping its images when the pod cache returns no pod while images are tracked", func() {
 			newMonitor(name)
 			pod := runningPod(selectedNamespace(), []container{running(appContainer, thanosImage)})
