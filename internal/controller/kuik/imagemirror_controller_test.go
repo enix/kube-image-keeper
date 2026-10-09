@@ -1204,6 +1204,130 @@ var _ = Describe("ImageMirror Controller", func() {
 		})
 	})
 
+	Describe("restarting", func() {
+		var (
+			src      *registrytest.Registry
+			original v1.Image
+		)
+		// failingAndDrifted copies acme/app:v1 of src under Warn, moves its upstream tag off the
+		// original copied, and runs acme/gone:v1, which src lacks, until both show in the status.
+		failingAndDrifted := func() {
+			GinkgoHelper()
+			src = h.source()
+			original = registrytest.Image()
+			src.Push("acme/app:v1", original)
+			createPod(h.namespace(), unique("pod"),
+				container{name: appContainer, image: src.Host() + "/acme/app:v1"},
+				container{name: "missing", image: src.Host() + "/acme/gone:v1"},
+			)
+			h.mirror(withDrift(kuikv1alpha1.DriftPolicyWarn))
+			h.windowsUntil(func() bool {
+				return h.copied(destinationTag(src, "acme/app"))() == nil && len(h.status().FailedImageCopies) == 1
+			})
+			src.Push("acme/app:v1", registrytest.Image())
+			h.windowsUntil(func() bool { return len(h.status().DriftedImages) == 1 })
+		}
+
+		It("keeps the failing and drifted images, their since and their counts, and announces none of them again", func() {
+			failingAndDrifted()
+			before := h.status()
+
+			h.restart()
+			h.reconcile()
+			after := h.status()
+			Expect(after.FailedImageCopies).To(ConsistOf(HaveField("Since", before.FailedImageCopies[0].Since)))
+			Expect(after.DriftedImages).To(ConsistOf(HaveField("Since", before.DriftedImages[0].Since)))
+			Expect(after.Images.Copy.MissingSource).To(Equal(int32(1)))
+			Expect(after.Images.Copy.Drifted).To(Equal(int32(1)))
+
+			for range 3 {
+				h.window()
+				h.reconcile()
+			}
+			Expect(h.recorder.withReason("ImageUnrecoverable")).To(HaveLen(1))
+			Expect(h.recorder.withReason("CopyOutOfDate")).To(HaveLen(1))
+		})
+
+		It("clears a failing or drifted image kept over a restart once the loops see it fixed", func() {
+			failingAndDrifted()
+			h.restart()
+			h.reconcile()
+
+			src.Push("acme/gone:v1", registrytest.Image())
+			src.Push("acme/app:v1", original)
+			h.windowsUntil(func() bool {
+				status := h.status()
+				return len(status.FailedImageCopies) == 0 && len(status.DriftedImages) == 0
+			})
+		})
+
+		It("keeps a drifted image over a restart whose first pass is interrupted, and announces it no more", func() {
+			failingAndDrifted()
+			before := h.status().DriftedImages[0]
+
+			h.restart()
+			h.destination.Intercept(registrytest.Status(http.MethodHead, "/manifests/", http.StatusInternalServerError, nil))
+			h.reconcile()
+			// Back before any window opens: the pass, still due, finds the copy again.
+			acceptPushes(h.destination)
+			h.reconcile()
+			h.windowsUntil(func() bool { return len(h.status().DriftedImages) == 1 })
+			Expect(h.status().DriftedImages[0].Since).To(Equal(before.Since))
+			Expect(h.recorder.withReason("CopyOutOfDate")).To(HaveLen(1))
+		})
+
+		It("never moves a drifted tag under Warn when the first pass after a restart is interrupted", func() {
+			failingAndDrifted()
+			descriptor, err := h.destination.Head(destinationTag(src, "acme/app"))
+			Expect(err).NotTo(HaveOccurred())
+			copiedDigest := descriptor.Digest
+			appTag := func() v1.Hash {
+				d, err := h.destination.Head(destinationTag(src, "acme/app"))
+				Expect(err).NotTo(HaveOccurred())
+				return d.Digest
+			}
+
+			h.restart()
+			h.destination.Intercept(registrytest.Status(http.MethodHead, "/manifests/", http.StatusInternalServerError, nil))
+			h.reconcile()
+			// The destination answers again before the next pass: a window opens first.
+			acceptPushes(h.destination)
+			h.window()
+			Consistently(appTag).WithTimeout(time.Second).Should(Equal(copiedDigest))
+
+			h.reconcile()
+			h.window()
+			Consistently(appTag).WithTimeout(time.Second).Should(Equal(copiedDigest))
+		})
+
+		It("copies an image missing from the destination once the first pass after a restart completes", func() {
+			src = h.source()
+			src.Push("acme/app:v1", registrytest.Image())
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+			h.mirror()
+			h.copyAll(1)
+			h.deleteManifest(destinationTag(src, "acme/app"))
+
+			h.restart()
+			h.destination.Intercept(registrytest.Status(http.MethodHead, "/manifests/", http.StatusInternalServerError, nil))
+			h.reconcile()
+			acceptPushes(h.destination)
+			h.reconcile()
+			h.window()
+			Eventually(h.copied(destinationTag(src, "acme/app"))).Should(Succeed())
+		})
+
+		It("drops a failure kept over a restart once a pass finds the image at the destination", func() {
+			failingAndDrifted()
+			h.destination.Push(destinationTag(src, "acme/gone"), registrytest.Image())
+			h.inventory(h.destinationRepository(src, "acme/gone"))
+
+			h.restart()
+			h.reconcile()
+			Expect(h.status().FailedImageCopies).To(BeEmpty())
+		})
+	})
+
 	Describe("the routing side", func() {
 		// routedPod is a pod in a selected namespace with one container the mirror rewrote and
 		// one no candidate could serve.

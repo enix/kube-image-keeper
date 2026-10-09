@@ -125,6 +125,32 @@ func (h *mirrorHarness) withListCapacity(capacity int) {
 	h.reconciler.Elected(h.clock.Now().Add(-time.Minute))
 }
 
+// restart replaces the scheduler and the reconciler with new ones on the same objects, as a
+// new process would: nothing of the previous memory survives. Its series go to a new registry.
+func (h *mirrorHarness) restart() {
+	GinkgoHelper()
+	h.stop()
+	h.scheduler = pacing.New(h.clock, h.config)
+	schedulerCtx, stop := context.WithCancel(ctx)
+	go func() { _ = h.scheduler.Start(schedulerCtx) }()
+	h.stop = stop
+	DeferCleanup(stop)
+	h.metrics = prometheus.NewRegistry()
+	var err error
+	h.reconciler, err = NewImageMirrorReconciler(k8sClient, k8sClient.Scheme(), ImageMirrorOptions{
+		APIReader:                k8sClient,
+		ClusterResourceNamespace: installNamespace,
+		Recorder:                 h.recorder,
+		Registerer:               h.metrics,
+		Scheduler:                h.scheduler,
+		Registry:                 kuikregistry.NewClient(),
+		Config:                   h.config,
+		Clock:                    h.clock,
+	})
+	Expect(err).NotTo(HaveOccurred())
+	h.reconciler.Elected(h.clock.Now())
+}
+
 // withStatusConflict builds the reconciler again on a client whose next status write of an
 // ImageMirror fails with a conflict whenever conflict is set, which that write clears. Its
 // series go to a new registry.
