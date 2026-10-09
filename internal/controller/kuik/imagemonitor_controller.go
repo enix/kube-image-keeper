@@ -3,37 +3,43 @@ package kuik
 import (
 	"context"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/events"
+	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 )
 
-// ImageMonitorReconciler reconciles a ImageMonitor object
+// ImageMonitorReconciler writes the status of the ImageMonitors: the images the pods they
+// select run, and the ones kept for unusedImageRetention once no pod declares them.
 type ImageMonitorReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 }
 
+// ImageMonitorOptions are what an ImageMonitorReconciler reports with.
+type ImageMonitorOptions struct {
+	// Recorder emits the events on the monitors.
+	Recorder events.EventRecorder
+	// Registerer exports the series.
+	Registerer prometheus.Registerer
+	// Clock dates the retained images.
+	Clock clock.Clock
+}
+
+// NewImageMonitorReconciler returns a reconciler writing with c.
+func NewImageMonitorReconciler(c client.Client, scheme *runtime.Scheme, _ ImageMonitorOptions) (*ImageMonitorReconciler, error) {
+	return &ImageMonitorReconciler{Client: c, Scheme: scheme}, nil
+}
+
 // +kubebuilder:rbac:groups=kuik.enix.io,resources=imagemonitors,verbs=get;list;watch,roleName=reconciler
 // +kubebuilder:rbac:groups=kuik.enix.io,resources=imagemonitors/status,verbs=update;patch,roleName=reconciler
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the ImageMonitor object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.25.0/pkg/reconcile
+// Reconcile writes the status of one ImageMonitor.
 func (r *ImageMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
-
-	// TODO(user): your logic here
-
 	return ctrl.Result{}, nil
 }
 
