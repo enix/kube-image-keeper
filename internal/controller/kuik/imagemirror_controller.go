@@ -276,6 +276,8 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				)
 				if swept, retire, err = r.sweep(ctx, &im, st, live, pending, at); err == nil {
 					pending = swept
+					// A reference the sweep let go is copied no more.
+					desired = union(live, plan.Desired(mirror, nil, pending))
 					repositories = slices.DeleteFunc(slices.Clone(repositories), func(repo string) bool { return slices.Contains(retire, repo) })
 				}
 			}
