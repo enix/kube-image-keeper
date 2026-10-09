@@ -86,7 +86,13 @@ the spec section it covers, with its GitHub link:
 Covers docs/v3/status.md, "Conditions and their reasons": https://github.com/enix/kube-image-keeper/blob/main/docs/v3/status.md#conditions-and-their-reasons
 ```
 
-Then stop. The user reviews the cases before any body or
+A pull request stays issue-sized, about 30 specs at most. When the outline holds more, as an
+epic (a feature too large for one review) does, propose its cut into such pull requests,
+each mergeable on its own (`main` stays coherent, nothing is half-wired), each with its
+docs and, last, its e2e specs. The issues of an epic are grouped under the GitHub
+milestones of the release: its beta, then its GA.
+
+Then stop. The user reviews the cases, and the cut, before any body or
 implementation exists. An agent ends its turn here; a human pauses.
 
 The outline may be committed as a WIP `test(<scope>): outline ...` commit. It is squashed
@@ -99,7 +105,12 @@ the user agrees.
 
 ## 5. Fill the bodies, before any implementation
 
-Once the user agrees, work one component at a time, in 2 commits:
+Once the user agrees, keep a todo list with Claude Code's task tools for the pull request,
+one task per step of the plan (each outline group, each `test`/`feat` pair, the docs, the
+e2e specs, each step of the [`pull-request`](../pull-request/SKILL.md) skill), updated as
+it goes. A list that grows too long is the sign the pull request must be cut further.
+
+Work one component at a time, in 2 commits:
 
 1. `test(<scope>): ...`: turn `PIt` into `It` (`PEntry` into `Entry`) and write the full
    bodies against the stubs. The specs fail at this commit, as expected; `task lint-fix`
