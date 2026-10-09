@@ -92,6 +92,13 @@ func (r *ImageMirrorReconciler) selfCheck(ctx context.Context, im *kuikv1alpha1.
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	st.present = present
+	// A reference the destination holds is copied no more, unless Sync resyncs it: its failure
+	// is over.
+	for key := range present {
+		if !st.resync[key] {
+			delete(st.failed, key)
+		}
+	}
 	// What was copied since the last pass is in present now, or lost again.
 	st.copied = map[string]bool{}
 	maps.Copy(st.digests, digests)

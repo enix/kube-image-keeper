@@ -236,6 +236,7 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	st := r.state(im.Name)
+	st.seed(&im)
 	clusterID := r.config.Load().ClusterID
 	cleanup := im.Spec.Cleanup.IsEnabled()
 	mirror := plan.Mirror{Path: im.Spec.Destination.Path, ExcludeImages: im.Spec.ExcludeImages, CleanupEnabled: cleanup}
