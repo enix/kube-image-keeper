@@ -267,10 +267,17 @@ func main() {
 			os.Exit(1)
 		}
 		onConfigChange = append(onConfigChange, imageMirrors.SetConfig)
-		if err := (&kuikcontroller.ImageMonitorReconciler{
-			Client: mgr.GetClient(),
-			Scheme: mgr.GetScheme(),
-		}).SetupWithManager(mgr); err != nil {
+		imageMonitors, err := kuikcontroller.NewImageMonitorReconciler(mgr.GetClient(), mgr.GetScheme(),
+			kuikcontroller.ImageMonitorOptions{
+				Recorder:   mgr.GetEventRecorder("kuik-reconciler"),
+				Registerer: metrics.Registry,
+				Clock:      clock.RealClock{},
+			})
+		if err != nil {
+			setupLog.Error(err, "Failed to create controller", "controller", "kuik-imagemonitor")
+			os.Exit(1)
+		}
+		if err := imageMonitors.SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "Failed to create controller", "controller", "kuik-imagemonitor")
 			os.Exit(1)
 		}
