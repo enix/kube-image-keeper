@@ -6,6 +6,7 @@ import (
 	"maps"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -518,6 +519,37 @@ var _ = Describe("ImageMirror Controller", func() {
 			Expect(events[0].eventType).To(Equal(corev1.EventTypeWarning))
 		})
 
+		It("records the reason of the source failure, not SourceNotFound, when a source fails to answer, and emits no ImageUnrecoverable", func() {
+			broken := h.source()
+			broken.Close()
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: broken.Host() + "/acme/app:v1"})
+			h.mirror()
+			h.reconcile()
+			h.window()
+
+			Eventually(failures).Should(ConsistOf(HaveField("Reason", kuikv1alpha1.CopySourceUnreachable)))
+			Expect(h.recorder.withReason("ImageUnrecoverable")).To(BeEmpty())
+		})
+
+		It("records the failure of an origin that does not answer over an alternative that lacks the manifest, naming the origin", func() {
+			origin := h.source()
+			origin.Close()
+			lacking := h.source()
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: origin.Host() + "/acme/app:v1"})
+			h.alternativeTo(appEntry(origin), appEntry(lacking))
+			h.mirror()
+			h.fallBack(lacking)
+			h.window()
+
+			Eventually(failures).Should(ConsistOf(HaveField("Reason", kuikv1alpha1.CopySourceUnreachable)))
+			_, ok := gauge(h.metrics, "kuik_image_copy_failed", map[string]string{
+				labelKind: routing.KindImageMirror, labelName: h.name, labelImage: origin.Host() + "/acme/app:v1",
+				labelRegistry: origin.Host(), labelReason: string(kuikv1alpha1.CopySourceUnreachable),
+			})
+			Expect(ok).To(BeTrue())
+			Expect(h.recorder.withReason("ImageUnrecoverable")).To(BeEmpty())
+		})
+
 		It("removes the failedImageCopies entry once the copy succeeds", func() {
 			failingCopy()
 			Eventually(failures).Should(HaveLen(1))
@@ -1016,6 +1048,53 @@ var _ = Describe("ImageMirror Controller", func() {
 			h.reconcile()
 			Expect(gone()).To(BeFalse())
 			Expect(h.copied(destinationTag(src, "acme/app"))()).To(Succeed())
+		})
+
+		It("copies no image it owed before its deletion while its finalizer holds it", func() {
+			routedToCopy()
+			src.Push("acme/tool:v1", registrytest.Image())
+			createPod(ns, unique("pod"), container{name: appContainer, image: src.Host() + "/acme/tool:v1"})
+			h.reconcile()
+			deleteMirror()
+
+			h.reconcile()
+			Expect(gone()).To(BeFalse())
+			for range 3 {
+				h.window()
+				Consistently(h.copied(destinationTag(src, "acme/tool"))).WithTimeout(time.Second).ShouldNot(Succeed())
+			}
+		})
+
+		It("waits for a copy still running when it is deleted, then deletes the tag that copy wrote", func() {
+			src = h.source()
+			src.Push("acme/app:v1", registrytest.Image())
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+			// The copy holds on its manifest push until released.
+			entered, release := make(chan struct{}), make(chan struct{})
+			var enter, done sync.Once
+			unblock := func() { done.Do(func() { close(release) }) }
+			DeferCleanup(unblock)
+			h.destination.Intercept(func(_ http.ResponseWriter, r *http.Request) bool {
+				if r.Method == http.MethodPut && strings.Contains(r.URL.Path, "/manifests/") {
+					enter.Do(func() { close(entered) })
+					<-release
+				}
+				return false
+			})
+			h.mirror()
+			h.reconcile()
+			h.window()
+			Eventually(entered).Should(BeClosed())
+
+			deleteMirror()
+			h.reconcile()
+			Expect(gone()).To(BeFalse())
+			unblock()
+			Eventually(func() bool {
+				h.reconcile()
+				return gone()
+			}).Should(BeTrue())
+			Expect(h.copied(destinationTag(src, "acme/app"))()).NotTo(Succeed())
 		})
 
 		It("deletes the tags of this cluster once no pod runs one of its destination references, then releases its finalizer", func() {
