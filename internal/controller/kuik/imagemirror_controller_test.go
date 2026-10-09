@@ -709,6 +709,19 @@ var _ = Describe("ImageMirror Controller", func() {
 			Expect(ok).To(BeTrue())
 			Expect(v).To(Equal(time.Hour.Seconds()))
 		})
+
+		It("drops the Scan series of its destination host while it cannot write there", func() {
+			h.mirror()
+			h.reconcile()
+			Expect(h.scanned()).To(BeTrue())
+
+			var im kuikv1alpha1.ImageMirror
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: h.name}, &im)).To(Succeed())
+			im.Spec.Destination.Manage = secretAuth(unique("missing"))
+			Expect(k8sClient.Update(ctx, &im)).To(Succeed())
+			h.reconcile()
+			Expect(h.scanned()).To(BeFalse())
+		})
 	})
 
 	Describe("drift", func() {
@@ -1185,6 +1198,17 @@ var _ = Describe("ImageMirror Controller", func() {
 			h.reconcile()
 			Expect(gone()).To(BeFalse())
 			Expect(h.copied(destinationTag(src, "acme/app"))()).To(Succeed())
+		})
+
+		It("drops the Scan series of its destination host once released", func() {
+			h.mirror()
+			h.reconcile()
+			Expect(h.scanned()).To(BeTrue())
+
+			deleteMirror()
+			h.reconcile()
+			Expect(gone()).To(BeTrue())
+			Expect(h.scanned()).To(BeFalse())
 		})
 
 		It("removes the series of a deleted mirror", func() {

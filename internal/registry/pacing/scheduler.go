@@ -604,11 +604,14 @@ func (s *Scheduler) SetCopyQueue(owner Owner, host string, refs []string, c Copi
 
 // SetDestinationScan declares host the destination of an ImageMirror: its scan interval is
 // exported with operation Scan, and no window ever opens on it.
-func (s *Scheduler) SetDestinationScan(host string) {
+func (s *Scheduler) SetDestinationScan(_ Owner, host string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.destinations[host] = true
 }
+
+// RemoveDestinationScan releases the destination owner scans.
+func (s *Scheduler) RemoveDestinationScan(Owner) {}
 
 // Collector returns the scheduling health metrics, computed from the current rings and
 // config on every scrape.

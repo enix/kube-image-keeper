@@ -259,7 +259,7 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		nextPass    time.Duration
 	)
 	if !blocked {
-		r.scheduler.SetDestinationScan(destinationHost(im.Spec.Destination.Path))
+		r.scheduler.SetDestinationScan(pacing.Owner{Kind: resource.Kind, Name: resource.Name}, destinationHost(im.Spec.Destination.Path))
 		var due bool
 		if due, nextPass = r.passDue(st, now); due {
 			at, err := r.selfCheck(ctx, &im, st, desired)
