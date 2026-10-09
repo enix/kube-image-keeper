@@ -1025,6 +1025,24 @@ var _ = Describe("ImageMirror Controller", func() {
 			Eventually(h.copied(destinationTag(src, "acme/job"))).Should(Succeed())
 		})
 
+		It("copies no more a reference whose retention elapsed while its tag was missing from the destination", func() {
+			src := h.source()
+			src.Push("acme/job:v1", registrytest.Image())
+			pod := createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/job:v1"})
+			h.mirror(withRetention(30 * time.Minute))
+			h.copyAll(1)
+			setPhase(pod, corev1.PodSucceeded)
+			h.reconcile()
+			Expect(h.status().PendingDeletion).NotTo(BeEmpty())
+
+			h.deleteManifest(destinationTag(src, "acme/job"))
+			h.pass()
+			h.reconcile()
+			Expect(h.status().PendingDeletion).To(BeEmpty())
+			h.window()
+			Consistently(h.copied(destinationTag(src, "acme/job"))).WithTimeout(time.Second).ShouldNot(Succeed())
+		})
+
 		It("emits ImageDeletionFailed when the destination refuses a deletion", func() {
 			h.mirror(withRetention(0))
 			ref := h.orphan("old", own)
