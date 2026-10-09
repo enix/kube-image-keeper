@@ -45,6 +45,8 @@ type mirrorState struct {
 	fresh []kuikv1alpha1.FailedImageCopy
 	// queues are the hosts this mirror holds a copy queue on.
 	queues map[string]bool
+	// seeded is set once the memory took over what the status held before this process.
+	seeded bool
 	// stopping is set once the mirror is deleted: no copy starts any more. inFlight counts the
 	// copies running.
 	stopping bool
@@ -490,6 +492,44 @@ func (st *mirrorState) ended() {
 	st.inFlight--
 }
 
+// seed takes over, on the first reconcile of a process, the failing copies the status of im
+// holds, as announced already: a restart keeps their since, their count and their events.
+func (st *mirrorState) seed(im *kuikv1alpha1.ImageMirror) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.seeded {
+		return
+	}
+	st.seeded = true
+	for _, e := range im.Status.FailedImageCopies {
+		at := e.Since.Time
+		if e.LastAttempt != nil {
+			at = e.LastAttempt.Time
+		}
+		st.failed[e.Ref] = copyFailure{reason: e.Reason, registry: failedRegistry(im, e), at: at, announced: true}
+	}
+	for _, e := range im.Status.DriftedImages {
+		st.drifted[e.Ref] = driftEntry{upstream: e.UpstreamDigest, copied: e.CopiedDigest, at: e.Since.Time, announced: true}
+		// The ring re-reads only a tag whose copy is known: an interrupted first pass would
+		// otherwise drop the drift. The next whole pass overwrites it.
+		if _, ok := st.digests[e.Ref]; !ok {
+			st.digests[e.Ref] = e.CopiedDigest
+		}
+	}
+}
+
+// failedRegistry is the side a failure of the status names: the destination for a push, the
+// source otherwise. The status does not record which side refused a credential or a quota:
+// the source is assumed until the next attempt tells.
+func failedRegistry(im *kuikv1alpha1.ImageMirror, e kuikv1alpha1.FailedImageCopy) string {
+	ref := e.Ref
+	if e.Reason == kuikv1alpha1.CopyPushRejected || e.Reason == kuikv1alpha1.CopyDestinationUnreachable {
+		ref = im.Spec.Destination.Path
+	}
+	host, _, _ := strings.Cut(ref, "/")
+	return host
+}
+
 // fail records failure for ref, reported at the next status write. st.mu is held.
 func (st *mirrorState) fail(ref string, failure copyFailure) {
 	if previous, ok := st.failed[ref]; ok && previous.reason == failure.reason {
@@ -591,14 +631,17 @@ func liveImages(pods []*corev1.Pod) []string {
 
 // owed are the references of desired the destination is not known to hold yet. A reference
 // the last pass found counts as held only in a repository status.repositories lists: an
-// unlisted one would never be swept, so it is copied again, which records it. A tag Sync
-// resyncs is owed again whatever the destination holds.
+// unlisted one would never be swept, so it is copied again, which records it. Until a first
+// pass of this process completes, a reference of a listed repository waits for it: copying
+// it blind could move a tag driftPolicy Warn keeps. A tag Sync resyncs is owed again whatever
+// the destination holds.
 func (st *mirrorState) owed(desired []imagepath.Reference, inventoried func(imagepath.Reference) bool) []imagepath.Reference {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	return slices.DeleteFunc(slices.Clone(desired), func(ref imagepath.Reference) bool {
 		key := ref.String()
-		return !st.resync[key] && (st.copied[key] || (st.present[key] && inventoried(ref)))
+		held := st.present[key] || st.lastPass.IsZero()
+		return !st.resync[key] && (st.copied[key] || (held && inventoried(ref)))
 	})
 }
 
