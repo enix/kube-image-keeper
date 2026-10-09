@@ -96,6 +96,17 @@ destination.
 
 `sum without(state) (kuik_images_tracked{reference="copy"})` is `status.images.copy.tracked`.
 
+### Monitor
+
+An `ImageMonitor` exports the origin references of the pods it selects, `status.images.origin`.
+
+| Metric | Type | Value |
+| ------ | ---- | ----- |
+| `kuik_images_tracked{kind, name, reference, state}` | gauge | Origin references the monitor tracks (`reference="origin"`), by `state`: `running`, `standby`, `retained` |
+| `kuik_images_checked{kind, name, reference, state}` | gauge | The same references by verdict of their last check: `available`, `unavailable` |
+
+`sum without(state) (kuik_images_tracked{reference="origin"})` is `status.images.origin.tracked`.
+
 ### Anomalies
 
 These series exist only while their anomaly does: alert on their presence. The four `_pods`

@@ -295,6 +295,10 @@ spec:
 
 A monitor tracks the **origin** reference of every container: the reference its spec declares, or, where a standing kuik rewrite put a different one there, the origin that rewrite recorded. It therefore never sees a mirror's reference in place of the origin it replaced.
 
+The pods that count are the live ones (`Pending` or `Running`) the selectors select, static pods included. Init containers count, ephemeral containers never do. An image several pods declare counts once: `running` when a container runs that exact reference, `standby` when every container declaring it was routed elsewhere.
+
+When no pod declares an image any more, it moves to `status.retainedImages` for `unusedImageRetention`, with the digest its most recently started container ran, and leaves it as soon as a pod declares it again. The monitor learns that an image went unused by watching its pods: an image whose last pod goes away while no reconciler runs is not retained.
+
 Checks are paced per registry host by the operator's [`registries` configuration](./configuration.md#keys): one image per window, so every tracked image comes back once per lap, the `cycleDuration` reported in status. See [Registry pacing](./concepts/pacing.md).
 
 ### Status
