@@ -242,7 +242,8 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	live := plan.Desired(plan.Mirror{Path: mirror.Path, ExcludeImages: mirror.ExcludeImages}, pods, nil)
 	now := r.clock.Now()
 	// A reference losing its last pod is held for its retention, which the sweep of the next
-	// pass would only notice an interval later.
+	// pass would only notice an interval later. Live is remembered once the status holding the
+	// release is written: a lost write releases it again.
 	released := st.release(live)
 	var pending []kuikv1alpha1.PendingDeletion
 	if cleanup {
@@ -262,8 +263,13 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if due, nextPass = r.passDue(st, now); due {
 			at, err := r.selfCheck(ctx, &im, st, desired)
 			if err == nil && cleanup {
-				var retire []string
-				if pending, retire, err = r.sweep(ctx, &im, st, live, pending, at); err == nil {
+				// An interrupted sweep keeps pendingDeletion as it was.
+				var (
+					swept  []kuikv1alpha1.PendingDeletion
+					retire []string
+				)
+				if swept, retire, err = r.sweep(ctx, &im, st, live, pending, at); err == nil {
+					pending = swept
 					repositories = slices.DeleteFunc(slices.Clone(repositories), func(repo string) bool { return slices.Contains(retire, repo) })
 				}
 			}
@@ -324,6 +330,9 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		next.SelfChecked = selfChecked
 	}
 	present, copied := st.verdicts()
+	// The series carry every failing and drifted image, where the status keeps a sample.
+	failed, drifted := st.anomalies()
+	reasons, driftedRefs := counted(failed, drifted)
 	counts := plan.Counts(plan.Observed{
 		ClusterID:   clusterID,
 		Path:        mirror.Path,
@@ -331,13 +340,13 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		Images:      liveImages(pods),
 		SelfChecked: present,
 		Copied:      copied,
+		Drifted:     driftedRefs,
+		Failed:      reasons,
 		Status:      next,
 	})
 	next.Images = &kuikv1alpha1.MirrorImages{Copy: &counts}
 	condition.SetAnomaly(&next.Conditions, kuikv1alpha1.ConditionDestinationOutOfSync, counts.Unavailable > 0,
 		kuikv1alpha1.ReasonMissingImages, fmt.Sprintf("%d images not copied yet", counts.Unavailable), im.Generation)
-	// The series carry every failing and drifted image, where the status keeps a sample.
-	failed, drifted := st.anomalies()
 	r.metrics.report(resource.Kind, resource.Name, counts, failed, drifted)
 	next.Truncated = pass.End(&next.Conditions, im.Generation)
 	if notReady == nil && cleanup && st.refusesDeletion() {
@@ -351,6 +360,7 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// The next destination pass is due in nextPass, whatever the pods do meanwhile.
 	result := ctrl.Result{RequeueAfter: nextPass}
 	if equality.Semantic.DeepEqual(im.Status, next) {
+		st.remember(live)
 		return result, nil
 	}
 	im.Status = next
@@ -361,6 +371,7 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		return ctrl.Result{}, err
 	}
+	st.remember(live)
 	logf.FromContext(ctx).V(1).Info("Updated ImageMirror status")
 	return result, nil
 }
@@ -371,6 +382,19 @@ func (r *ImageMirrorReconciler) forget(resource routing.Resource) {
 	r.readiness.Forget(resource.Kind, resource.Name)
 	r.metrics.forget(resource.Kind, resource.Name)
 	r.drop(resource.Name)
+}
+
+// counted indexes the reason of each failing copy, and the drifted references.
+func counted(failed map[string]copyFailure, drifted []string) (map[string]kuikv1alpha1.CopyFailureReason, map[string]bool) {
+	reasons := make(map[string]kuikv1alpha1.CopyFailureReason, len(failed))
+	for ref, failure := range failed {
+		reasons[ref] = failure.reason
+	}
+	driftedRefs := make(map[string]bool, len(drifted))
+	for _, ref := range drifted {
+		driftedRefs[ref] = true
+	}
+	return reasons, driftedRefs
 }
 
 // union returns the references of a and b, once each, sorted as plan.Desired sorts them.

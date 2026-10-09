@@ -3,6 +3,7 @@ package plan
 import (
 	"cmp"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -25,6 +26,11 @@ type Observed struct {
 	SelfChecked map[string]bool
 	// Copied are the references copied since the last self-check, keyed the same way.
 	Copied map[string]bool
+	// Drifted are the drifted references and Failed the reason of each failing copy, as the
+	// reconciler remembers them, keyed the same way: the status lists are a capped sample, so
+	// they count along with them.
+	Drifted map[string]bool
+	Failed  map[string]kuikv1alpha1.CopyFailureReason
 	// Status is the mirror's status: pendingDeletion, failedImageCopies and driftedImages.
 	Status kuikv1alpha1.ImageMirrorStatus
 }
@@ -64,12 +70,26 @@ func Counts(o Observed) kuikv1alpha1.CopyCounts {
 	}
 	c.Unavailable = c.Tracked - c.Available
 
-	c.Drifted = int32(len(o.Status.DriftedImages))
-	for _, failed := range o.Status.FailedImageCopies {
-		if failed.Reason == kuikv1alpha1.CopySourceNotFound {
-			c.MissingSource++
+	drifted := maps.Clone(o.Drifted)
+	if drifted == nil {
+		drifted = map[string]bool{}
+	}
+	for _, entry := range o.Status.DriftedImages {
+		drifted[entry.Ref] = true
+	}
+	missing := map[string]bool{}
+	for ref, reason := range o.Failed {
+		if reason == kuikv1alpha1.CopySourceNotFound {
+			missing[ref] = true
 		}
 	}
+	for _, failed := range o.Status.FailedImageCopies {
+		if failed.Reason == kuikv1alpha1.CopySourceNotFound {
+			missing[failed.Ref] = true
+		}
+	}
+	c.Drifted = int32(len(drifted))
+	c.MissingSource = int32(len(missing))
 	return c
 }
 
