@@ -5,16 +5,14 @@ package smoke
 import (
 	"context"
 	"fmt"
-	"slices"
-	"strings"
 	"testing"
 	"time"
 
+	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
 	"sigs.k8s.io/e2e-framework/pkg/features"
 
@@ -31,21 +29,16 @@ type rewritesBeforeKey struct{}
 // (namespace label and pod label), and deletes them once every test passed. The feature
 // names carry the test numbers of the report: 1 is TestInstall.
 func TestRouting(t *testing.T) {
+	g := NewWithT(t)
 	ctx, cfg := context.Background(), testenv.EnvConf()
-	if err := refuseLeftovers(ctx, cfg); err != nil {
-		t.Fatal(err)
-	}
-	if err := checkPullAuth(ctx, cfg); err != nil {
-		t.Fatal(err)
-	}
+	g.Expect(refuseLeftovers(ctx, cfg)).To(Succeed())
+	g.Expect(checkPullAuth(ctx, cfg)).To(Succeed())
 	t.Cleanup(func() {
 		if t.Failed() {
 			t.Log("Test resources left in place for the diagnosis; run task smoke-cleanup when done.")
 			return
 		}
-		if err := cleanup(ctx, cfg); err != nil {
-			t.Error(err)
-		}
+		g.Expect(cleanup(ctx, cfg)).To(Succeed())
 	})
 	testenv.Test(t, noCR(), fallback(), imageMirror(), pullSecret(), missingSecret(), privatePull())
 }
@@ -86,8 +79,9 @@ func scoped(
 func noCR() features.Feature {
 	return features.New("test 2: a pod no kuik CR selects").
 		Setup(func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-			ensureNamespaces(ctx, t, cfg)
-			create(ctx, t, cfg, testPod(testNamespace, "no-cr", nginx, nil))
+			g := NewWithT(t)
+			ensureNamespaces(ctx, g, cfg)
+			create(ctx, g, cfg, testPod(testNamespace, "no-cr", nginx, nil))
 			return ctx
 		}).
 		Assess("keeps its image and gets no kuik annotation", expectPodUntouched(testNamespace, "no-cr", nginx)).
@@ -106,12 +100,13 @@ func fallback() features.Feature {
 	routed := map[string]string{routingLabel: "alternative"}
 	return features.New("tests 3, 4, 5 and 7: an ImageAlternative whose origin never resolves").
 		Setup(func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-			ensureNamespaces(ctx, t, cfg)
-			before := rewritesTotal(ctx, t, alternative.Name)
-			create(ctx, t, cfg, alternative)
-			create(ctx, t, cfg, testPod(testNamespace, "fallback", unresolvable, routed))
-			create(ctx, t, cfg, testPod(testNamespace, "origin-up", nginx, routed))
-			create(ctx, t, cfg, testPod(unlabeledNamespace, "out-of-scope", unresolvable, routed))
+			g := NewWithT(t)
+			ensureNamespaces(ctx, g, cfg)
+			before := rewritesTotal(ctx, g, alternative.Name)
+			create(ctx, g, cfg, alternative)
+			create(ctx, g, cfg, testPod(testNamespace, "fallback", unresolvable, routed))
+			create(ctx, g, cfg, testPod(testNamespace, "origin-up", nginx, routed))
+			create(ctx, g, cfg, testPod(unlabeledNamespace, "out-of-scope", unresolvable, routed))
 			return context.WithValue(ctx, rewritesBeforeKey{}, before)
 		}).
 		Assess("test 3: rewrites the selected pod to the alternative and records it", expectFallback(alternative.Name)).
@@ -125,64 +120,53 @@ func fallback() features.Feature {
 
 func expectFallback(name string) features.Func {
 	return func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-		pod := getPod(ctx, t, cfg, testNamespace, "fallback")
-		waitPodReady(t, cfg, pod)
-		pod = getPod(ctx, t, cfg, testNamespace, "fallback")
-		expectImage(t, pod, nginx)
-		if rewrites := pod.Annotations[podrecord.AnnotationRewrites]; !strings.Contains(rewrites, "ImageAlternative/"+name) {
-			t.Errorf("annotation %s = %q, expected ImageAlternative/%s", podrecord.AnnotationRewrites, rewrites, name)
-		}
+		g := NewWithT(t)
+		pod := getPod(ctx, g, cfg, testNamespace, "fallback")
+		waitPodReady(ctx, g, cfg, pod)
+		pod = getPod(ctx, g, cfg, testNamespace, "fallback")
+		expectImage(ctx, g, pod, nginx)
+		g.Expect(pod.Annotations).To(
+			HaveKeyWithValue(podrecord.AnnotationRewrites, ContainSubstring("ImageAlternative/"+name)))
 		return ctx
 	}
 }
 
 func expectOneRewrite(name string) features.Func {
 	return func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
+		g := NewWithT(t)
 		before, ok := ctx.Value(rewritesBeforeKey{}).(float64)
-		if !ok {
-			t.Fatal("the rewrite count before the test is missing")
-		}
-		if got := rewritesTotal(ctx, t, name) - before; got != 1 {
-			t.Errorf("kuik_routing_rewrites_total grew by %v, expected 1", got)
-		}
+		g.Expect(ok).To(BeTrue(), "the rewrite count before the test is missing")
+		g.Expect(rewritesTotal(ctx, g, name)-before).To(BeEquivalentTo(1), "growth of kuik_routing_rewrites_total")
 		return ctx
 	}
 }
 
 func expectOutOfScope(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-	waitFor(t, 90*time.Second, "out-of-scope failing its pull", func(ctx context.Context) (bool, error) {
-		pod := getPod(ctx, t, cfg, unlabeledNamespace, "out-of-scope")
-		for _, status := range pod.Status.ContainerStatuses {
-			if w := status.State.Waiting; w != nil && slices.Contains([]string{"ErrImagePull", "ImagePullBackOff"}, w.Reason) {
-				return true, nil
-			}
-		}
-		return false, nil
-	})
-	pod := getPod(ctx, t, cfg, unlabeledNamespace, "out-of-scope")
-	expectImage(t, pod, unresolvable)
-	expectUntouched(t, pod)
+	g := NewWithT(t)
+	waitFor(g, 90*time.Second, func(g Gomega) {
+		pod := getPod(ctx, g, cfg, unlabeledNamespace, "out-of-scope")
+		g.Expect(pod.Status.ContainerStatuses).To(ContainElement(HaveField("State.Waiting",
+			HaveValue(HaveField("Reason", BeElementOf("ErrImagePull", "ImagePullBackOff"))))))
+	}, "out-of-scope failing its pull")
+	pod := getPod(ctx, g, cfg, unlabeledNamespace, "out-of-scope")
+	expectImage(ctx, g, pod, unresolvable)
+	expectUntouched(g, pod)
 	return ctx
 }
 
 func expectFallbackStatus(name string) features.Func {
 	return func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
+		g := NewWithT(t)
 		var live kuikv1alpha1.ImageAlternative
-		waitFor(t, 60*time.Second, "FallbackActive True", func(ctx context.Context) (bool, error) {
-			if err := cfg.Client().Resources().Get(ctx, name, "", &live); err != nil {
-				return false, err
-			}
-			return meta.IsStatusConditionTrue(live.Status.Conditions, "FallbackActive"), nil
-		})
-		expectReadyReason(t, &live, "IsReady")
-		if !slices.ContainsFunc(live.Status.ActiveFallbacks, func(f kuikv1alpha1.ActiveFallback) bool {
-			return f.RewrittenTo == nginx
-		}) {
-			t.Errorf("activeFallbacks %+v does not list %s", live.Status.ActiveFallbacks, nginx)
-		}
-		waitFor(t, 60*time.Second, "ImageFallback event on pod fallback", func(ctx context.Context) (bool, error) {
-			return podEvent(ctx, testNamespace, "fallback", "ImageFallback")
-		})
+		waitFor(g, 60*time.Second, func(g Gomega) {
+			g.Expect(cfg.Client().Resources().Get(ctx, name, "", &live)).To(Succeed())
+			g.Expect(meta.IsStatusConditionTrue(live.Status.Conditions, "FallbackActive")).To(BeTrue())
+		}, "FallbackActive True on %s", name)
+		g.Expect(readyReason(&live)).To(Equal("IsReady"), "reason of the Ready condition of %s", name)
+		g.Expect(live.Status.ActiveFallbacks).To(ContainElement(HaveField("RewrittenTo", nginx)))
+		waitFor(g, 60*time.Second, func(g Gomega) {
+			g.Expect(podEvent(ctx, testNamespace, "fallback", "ImageFallback")).To(BeTrue())
+		}, "ImageFallback event on pod fallback")
 		return ctx
 	}
 }
@@ -200,9 +184,10 @@ func imageMirror() features.Feature {
 	}
 	return features.New("test 6: an ImageMirror whose destination never answers").
 		Setup(func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-			ensureNamespaces(ctx, t, cfg)
-			create(ctx, t, cfg, mirror)
-			create(ctx, t, cfg, testPod(testNamespace, "mirror", nginx, map[string]string{routingLabel: "mirror"}))
+			g := NewWithT(t)
+			ensureNamespaces(ctx, g, cfg)
+			create(ctx, g, cfg, mirror)
+			create(ctx, g, cfg, testPod(testNamespace, "mirror", nginx, map[string]string{routingLabel: "mirror"}))
 			return ctx
 		}).
 		Assess("leaves the pod on its origin, without a rewrite", expectMirrorUnused).
@@ -210,13 +195,12 @@ func imageMirror() features.Feature {
 }
 
 func expectMirrorUnused(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-	pod := getPod(ctx, t, cfg, testNamespace, "mirror")
-	waitPodReady(t, cfg, pod)
-	pod = getPod(ctx, t, cfg, testNamespace, "mirror")
-	expectImage(t, pod, nginx)
-	if rewrites, ok := pod.Annotations[podrecord.AnnotationRewrites]; ok {
-		t.Errorf("pod mirror rewritten: %s", rewrites)
-	}
+	g := NewWithT(t)
+	pod := getPod(ctx, g, cfg, testNamespace, "mirror")
+	waitPodReady(ctx, g, cfg, pod)
+	pod = getPod(ctx, g, cfg, testNamespace, "mirror")
+	expectImage(ctx, g, pod, nginx)
+	g.Expect(pod.Annotations).NotTo(HaveKey(podrecord.AnnotationRewrites))
 	return ctx
 }
 
@@ -239,37 +223,39 @@ func pullSecret() features.Feature {
 	}
 	return features.New("tests 8 and 10: an Always ImageAlternative with credentials").
 		Setup(func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-			ensureNamespaces(ctx, t, cfg)
-			create(ctx, t, cfg, placeholder)
-			create(ctx, t, cfg, withAuth)
+			g := NewWithT(t)
+			ensureNamespaces(ctx, g, cfg)
+			create(ctx, g, cfg, placeholder)
+			create(ctx, g, cfg, withAuth)
 			return ctx
 		}).
 		Assess("test 8: gets its pull Secret in the selected namespaces only, before any pod",
-			func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-				secret := waitSecret(t, cfg, testNamespace, injected)
-				if secret.Type != corev1.SecretTypeDockerConfigJson {
-					t.Errorf("%s has type %s", injected, secret.Type)
-				}
-				err := cfg.Client().Resources().Get(ctx, injected, unlabeledNamespace, &corev1.Secret{})
-				if !apierrors.IsNotFound(err) {
-					t.Errorf("%s in %s: %v, expected not found", injected, unlabeledNamespace, err)
-				}
-				waitFor(t, 30*time.Second, "Ready IsReady on "+withAuth.Name, readyReason(cfg, withAuth.Name, "IsReady"))
-				return ctx
-			}).
+			expectPullSecretProvisioned(withAuth.Name, injected)).
 		Assess("test 10: loses its pull Secret once deleted", expectPullSecretDeleted(withAuth, injected)).
 		Feature()
 }
 
+func expectPullSecretProvisioned(name, injected string) features.Func {
+	return func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
+		g := NewWithT(t)
+		secret := waitSecret(ctx, g, cfg, testNamespace, injected)
+		g.Expect(secret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
+		err := cfg.Client().Resources().Get(ctx, injected, unlabeledNamespace, &corev1.Secret{})
+		g.Expect(apierrors.IsNotFound(err)).To(BeTrue(),
+			"%s in %s: %v, expected not found", injected, unlabeledNamespace, err)
+		waitReadyReason(ctx, g, cfg, name, "IsReady", 30*time.Second)
+		return ctx
+	}
+}
+
 func expectPullSecretDeleted(alternative *kuikv1alpha1.ImageAlternative, injected string) features.Func {
 	return func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-		if err := cfg.Client().Resources().Delete(ctx, alternative); err != nil {
-			t.Fatal(err)
-		}
-		waitFor(t, 60*time.Second, injected+" deleted", func(ctx context.Context) (bool, error) {
+		g := NewWithT(t)
+		g.Expect(cfg.Client().Resources().Delete(ctx, alternative)).To(Succeed())
+		waitFor(g, 60*time.Second, func(g Gomega) {
 			err := cfg.Client().Resources().Get(ctx, injected, testNamespace, &corev1.Secret{})
-			return apierrors.IsNotFound(err), client.IgnoreNotFound(err)
-		})
+			g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "%s: %v", injected, err)
+		}, "%s deleted from %s", injected, testNamespace)
 		return ctx
 	}
 }
@@ -284,8 +270,9 @@ func missingSecret() features.Feature {
 	}
 	return features.New("test 9: an ImageAlternative whose source Secret is missing").
 		Setup(func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-			ensureNamespaces(ctx, t, cfg)
-			create(ctx, t, cfg, missing)
+			g := NewWithT(t)
+			ensureNamespaces(ctx, g, cfg)
+			create(ctx, g, cfg, missing)
 			return ctx
 		}).
 		Assess("reports it in Ready and as a PullSecretInjectionFailed event", expectSecretNotFound(missing.Name)).
@@ -294,10 +281,11 @@ func missingSecret() features.Feature {
 
 func expectSecretNotFound(name string) features.Func {
 	return func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-		waitFor(t, 60*time.Second, "Ready SecretNotFound on "+name, readyReason(cfg, name, "SecretNotFound"))
-		waitFor(t, 60*time.Second, "PullSecretInjectionFailed event on "+name, func(ctx context.Context) (bool, error) {
-			return resourceEvent(ctx, name, "PullSecretInjectionFailed")
-		})
+		g := NewWithT(t)
+		waitReadyReason(ctx, g, cfg, name, "SecretNotFound", 60*time.Second)
+		waitFor(g, 60*time.Second, func(g Gomega) {
+			g.Expect(resourceEvent(ctx, name, "PullSecretInjectionFailed")).To(BeTrue())
+		}, "PullSecretInjectionFailed event on %s", name)
 		return ctx
 	}
 }
@@ -315,30 +303,28 @@ func expectPrivatePull(ctx context.Context, t *testing.T, cfg *envconf.Config) c
 	if *privateRepo == "" {
 		t.Skip("no --private-repo and --pull-auth")
 	}
-	ensureNamespaces(ctx, t, cfg)
+	g := NewWithT(t)
+	ensureNamespaces(ctx, g, cfg)
 	// Built here, after the flags are parsed.
-	create(ctx, t, cfg, &kuikv1alpha1.ImageAlternative{
+	create(ctx, g, cfg, &kuikv1alpha1.ImageAlternative{
 		ObjectMeta: metav1.ObjectMeta{Name: "kuik-test-private"},
 		Spec: scoped("private", kuikv1alpha1.RewritePolicyAlways,
 			kuikv1alpha1.Alternative{Repository: "kuik-test-private.invalid/nginx/nginx-unprivileged"},
 			withSecret(*privateRepo, *pullAuth)),
 	})
-	waitSecret(t, cfg, testNamespace, injected)
+	waitSecret(ctx, g, cfg, testNamespace, injected)
 	pod := testPod(testNamespace, "private", "kuik-test-private.invalid/nginx/nginx-unprivileged:1.31.6-alpine",
 		map[string]string{routingLabel: "private"})
 	// A cached image would skip the pull this test is about.
 	pod.Spec.Containers[0].ImagePullPolicy = corev1.PullAlways
-	create(ctx, t, cfg, pod)
-	waitPodReady(t, cfg, pod)
-	pod = getPod(ctx, t, cfg, testNamespace, "private")
-	expectImage(t, pod, *privateRepo+":1.31.6-alpine")
-	holds := func(r corev1.LocalObjectReference) bool { return r.Name == injected }
-	if !slices.ContainsFunc(pod.Spec.ImagePullSecrets, holds) {
-		t.Errorf("imagePullSecrets %+v does not hold %s", pod.Spec.ImagePullSecrets, injected)
-	}
-	waitFor(t, 30*time.Second, "Pulled event on pod private", func(ctx context.Context) (bool, error) {
-		return podEvent(ctx, testNamespace, "private", "Pulled")
-	})
+	create(ctx, g, cfg, pod)
+	waitPodReady(ctx, g, cfg, pod)
+	pod = getPod(ctx, g, cfg, testNamespace, "private")
+	expectImage(ctx, g, pod, *privateRepo+":1.31.6-alpine")
+	g.Expect(pod.Spec.ImagePullSecrets).To(ContainElement(HaveField("Name", injected)))
+	waitFor(g, 30*time.Second, func(g Gomega) {
+		g.Expect(podEvent(ctx, testNamespace, "private", "Pulled")).To(BeTrue())
+	}, "Pulled event on pod private")
 	return ctx
 }
 
@@ -351,56 +337,47 @@ func withSecret(repository, secret string) kuikv1alpha1.Alternative {
 
 func expectPodUntouched(namespace, name, image string) features.Func {
 	return func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
-		pod := getPod(ctx, t, cfg, namespace, name)
-		waitPodReady(t, cfg, pod)
-		pod = getPod(ctx, t, cfg, namespace, name)
-		expectImage(t, pod, image)
-		expectUntouched(t, pod)
+		g := NewWithT(t)
+		pod := getPod(ctx, g, cfg, namespace, name)
+		waitPodReady(ctx, g, cfg, pod)
+		pod = getPod(ctx, g, cfg, namespace, name)
+		expectImage(ctx, g, pod, image)
+		expectUntouched(g, pod)
 		return ctx
 	}
 }
 
-func expectImage(t *testing.T, pod *corev1.Pod, image string) {
-	t.Helper()
-	if got := pod.Spec.Containers[0].Image; got != image {
-		t.Errorf("pod %s runs %s, expected %s%s", pod.Name, got, image, webhookLogs(context.Background(), pod.Name))
-	}
+// expectImage checks container 0 of pod; the failure carries the webhook log lines about it.
+func expectImage(ctx context.Context, g Gomega, pod *corev1.Pod, image string) {
+	g.Expect(pod.Spec.Containers[0].Image).To(Equal(image),
+		func() string { return fmt.Sprintf("image of pod %s%s", pod.Name, webhookLogs(ctx, pod.Name)) })
 }
 
-func expectUntouched(t *testing.T, pod *corev1.Pod) {
-	t.Helper()
-	for _, key := range []string{podrecord.AnnotationRewrites, podrecord.AnnotationNoAlternatives} {
-		if v, ok := pod.Annotations[key]; ok {
-			t.Errorf("pod %s carries %s=%s", pod.Name, key, v)
-		}
-	}
+func expectUntouched(g Gomega, pod *corev1.Pod) {
+	g.Expect(pod.Annotations).NotTo(HaveKey(podrecord.AnnotationRewrites), "pod %s", pod.Name)
+	g.Expect(pod.Annotations).NotTo(HaveKey(podrecord.AnnotationNoAlternatives), "pod %s", pod.Name)
 }
 
-func expectReadyReason(t *testing.T, alternative *kuikv1alpha1.ImageAlternative, reason string) {
-	t.Helper()
-	if ready := meta.FindStatusCondition(alternative.Status.Conditions, "Ready"); ready == nil || ready.Reason != reason {
-		t.Errorf("%s: Ready condition %+v, expected reason %s", alternative.Name, ready, reason)
+// readyReason is the reason of the Ready condition of an ImageAlternative, empty without one.
+func readyReason(alternative *kuikv1alpha1.ImageAlternative) string {
+	if ready := meta.FindStatusCondition(alternative.Status.Conditions, "Ready"); ready != nil {
+		return ready.Reason
 	}
+	return ""
 }
 
-// readyReason polls the Ready condition of an ImageAlternative until it has reason.
-func readyReason(cfg *envconf.Config, name, reason string) func(context.Context) (bool, error) {
-	return func(ctx context.Context) (bool, error) {
+func waitReadyReason(ctx context.Context, g Gomega, cfg *envconf.Config, name, reason string, timeout time.Duration) {
+	waitFor(g, timeout, func(g Gomega) {
 		var live kuikv1alpha1.ImageAlternative
-		if err := cfg.Client().Resources().Get(ctx, name, "", &live); err != nil {
-			return false, err
-		}
-		ready := meta.FindStatusCondition(live.Status.Conditions, "Ready")
-		return ready != nil && ready.Reason == reason, nil
-	}
+		g.Expect(cfg.Client().Resources().Get(ctx, name, "", &live)).To(Succeed())
+		g.Expect(readyReason(&live)).To(Equal(reason))
+	}, "Ready %s on %s", reason, name)
 }
 
-func waitSecret(t *testing.T, cfg *envconf.Config, namespace, name string) *corev1.Secret {
-	t.Helper()
+func waitSecret(ctx context.Context, g Gomega, cfg *envconf.Config, namespace, name string) *corev1.Secret {
 	var secret corev1.Secret
-	waitFor(t, 60*time.Second, name+" in "+namespace, func(ctx context.Context) (bool, error) {
-		err := cfg.Client().Resources().Get(ctx, name, namespace, &secret)
-		return err == nil, client.IgnoreNotFound(err)
-	})
+	waitFor(g, 60*time.Second, func(g Gomega) {
+		g.Expect(cfg.Client().Resources().Get(ctx, name, namespace, &secret)).To(Succeed())
+	}, "%s in %s", name, namespace)
 	return &secret
 }

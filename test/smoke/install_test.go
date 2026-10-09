@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -60,33 +61,25 @@ func helm(ctx context.Context, cfg *envconf.Config, args ...string) ([]byte, err
 }
 
 func expectRelease(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
+	g := NewWithT(t)
 	out, err := helm(ctx, cfg, "list", "-o", "json")
-	if err != nil {
-		t.Fatalf("cannot list the Helm releases of %s: %v", *kuikNamespace, err)
-	}
+	g.Expect(err).NotTo(HaveOccurred(), "list the Helm releases of %s", *kuikNamespace)
 	var releases []struct {
 		Name       string `json:"name"`
 		Chart      string `json:"chart"`
 		AppVersion string `json:"app_version"`
 		Status     string `json:"status"`
 	}
-	if err := json.Unmarshal(out, &releases); err != nil {
-		t.Fatal(err)
+	g.Expect(json.Unmarshal(out, &releases)).To(Succeed())
+	g.Expect(releases).To(ContainElement(HaveField("Name", *release), &releases),
+		"Helm release %s in %s", *release, *kuikNamespace)
+	r := releases[0]
+	g.Expect(r.Status).To(Equal("deployed"), "status of release %s", r.Name)
+	if *kuikVersion != "" {
+		g.Expect(r.Chart).To(Equal("kube-image-keeper-"+*kuikVersion), "chart of release %s", r.Name)
+		g.Expect(r.AppVersion).To(Equal(*kuikVersion), "app version of release %s", r.Name)
 	}
-	for _, r := range releases {
-		if r.Name != *release {
-			continue
-		}
-		if r.Status != "deployed" {
-			t.Fatalf("release %s is %s", r.Name, r.Status)
-		}
-		if *kuikVersion != "" && (r.Chart != "kube-image-keeper-"+*kuikVersion || r.AppVersion != *kuikVersion) {
-			t.Fatalf("release %s: chart %s, app %s, expected %s", r.Name, r.Chart, r.AppVersion, *kuikVersion)
-		}
-		t.Logf("release %s: chart %s, app %s, %s", r.Name, r.Chart, r.AppVersion, r.Status)
-		return ctx
-	}
-	t.Fatalf("no Helm release %s in %s", *release, *kuikNamespace)
+	t.Logf("release %s: chart %s, app %s, %s", r.Name, r.Chart, r.AppVersion, r.Status)
 	return ctx
 }
 
@@ -94,19 +87,16 @@ func expectRelease(ctx context.Context, t *testing.T, cfg *envconf.Config) conte
 // value inherits the root one), and the level each process runs at: the skill restores the
 // former after the test and asks for debug when the latter is lower.
 func logVerbosity(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
+	g := NewWithT(t)
 	out, err := helm(ctx, cfg, "get", "values", *release, "--all", "-o", "json")
-	if err != nil {
-		t.Fatalf("cannot read the Helm values of %s: %v", *release, err)
-	}
+	g.Expect(err).NotTo(HaveOccurred(), "read the Helm values of %s", *release)
 	var values struct {
 		Verbosity    string                     `json:"verbosity"`
 		Webhook      struct{ Verbosity string } `json:"webhook"`
 		Reconciler   struct{ Verbosity string } `json:"reconciler"`
 		SecretSyncer struct{ Verbosity string } `json:"secretSyncer"`
 	}
-	if err := json.Unmarshal(out, &values); err != nil {
-		t.Fatal(err)
-	}
+	g.Expect(json.Unmarshal(out, &values)).To(Succeed())
 	t.Logf("Helm verbosity: root %q, webhook %q, reconciler %q, secretSyncer %q",
 		values.Verbosity, values.Webhook.Verbosity, values.Reconciler.Verbosity, values.SecretSyncer.Verbosity)
 
@@ -116,9 +106,7 @@ func logVerbosity(ctx context.Context, t *testing.T, cfg *envconf.Config) contex
 	}
 	for _, process := range []string{"webhook", "reconciler", "secret-syncer"} {
 		deploy, err := clientset.AppsV1().Deployments(*kuikNamespace).Get(ctx, fullname+"-"+process, metav1.GetOptions{})
-		if err != nil {
-			t.Fatalf("cannot read the Deployment of the %s: %v", process, err)
-		}
+		g.Expect(err).NotTo(HaveOccurred(), "read the Deployment of the %s", process)
 		level := "unknown"
 		container := deploy.Spec.Template.Spec.Containers[0]
 		for _, arg := range append(container.Command, container.Args...) {
@@ -136,42 +124,33 @@ func logVerbosity(ctx context.Context, t *testing.T, cfg *envconf.Config) contex
 }
 
 func expectPodsRunning(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
+	g := NewWithT(t)
 	list, err := clientset.CoreV1().Pods(*kuikNamespace).List(ctx, metav1.ListOptions{LabelSelector: kuikPods})
-	if err != nil {
-		t.Fatalf("cannot list the kuik pods: %v", err)
-	}
-	if len(list.Items) == 0 {
-		t.Fatalf("no kuik pod in %s", *kuikNamespace)
-	}
+	g.Expect(err).NotTo(HaveOccurred(), "list the kuik pods")
+	g.Expect(list.Items).NotTo(BeEmpty(), "no kuik pod in %s", *kuikNamespace)
 	for _, pod := range list.Items {
-		if pod.Status.Phase != corev1.PodRunning {
-			t.Errorf("%s is %s", pod.Name, pod.Status.Phase)
-		}
-		for _, c := range pod.Status.ContainerStatuses {
-			if c.RestartCount > 0 {
-				t.Errorf("%s/%s restarted %d times", pod.Name, c.Name, c.RestartCount)
-			}
-		}
+		g.Expect(pod.Status.Phase).To(Equal(corev1.PodRunning), "phase of %s", pod.Name)
+		g.Expect(pod.Status.ContainerStatuses).To(HaveEach(HaveField("RestartCount", BeZero())),
+			"restarts of %s", pod.Name)
 	}
 	t.Logf("%d kuik pods Running, none restarted", len(list.Items))
 	return ctx
 }
 
 func expectNoErrorLogs(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
+	g := NewWithT(t)
 	list, err := clientset.CoreV1().Pods(*kuikNamespace).List(ctx, metav1.ListOptions{LabelSelector: kuikPods})
-	if err != nil {
-		t.Fatalf("cannot list the kuik pods: %v", err)
-	}
+	g.Expect(err).NotTo(HaveOccurred(), "list the kuik pods")
 	for _, pod := range list.Items {
 		logs, err := clientset.CoreV1().Pods(*kuikNamespace).GetLogs(pod.Name, &corev1.PodLogOptions{}).DoRaw(ctx)
-		if err != nil {
-			t.Fatalf("cannot read the logs of %s: %v", pod.Name, err)
-		}
+		g.Expect(err).NotTo(HaveOccurred(), "read the logs of %s", pod.Name)
+		var errors []string
 		for line := range strings.Lines(string(logs)) {
 			if errorLine.MatchString(line) {
-				t.Errorf("%s: %s", pod.Name, strings.TrimSpace(line))
+				errors = append(errors, strings.TrimSpace(line))
 			}
 		}
+		g.Expect(errors).To(BeEmpty(), "error lines in the logs of %s", pod.Name)
 	}
 	return ctx
 }
@@ -179,10 +158,10 @@ func expectNoErrorLogs(ctx context.Context, t *testing.T, _ *envconf.Config) con
 // expectBuildInfo checks kuik_build_info on every webhook replica: the version, and the
 // revision against the commit of tag v<version> when the tag is known locally.
 func expectBuildInfo(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
+	g := NewWithT(t)
 	list, err := clientset.CoreV1().Pods(*kuikNamespace).List(ctx, metav1.ListOptions{LabelSelector: webhookPods})
-	if err != nil || len(list.Items) == 0 {
-		t.Fatalf("cannot find the webhook pods: %v", err)
-	}
+	g.Expect(err).NotTo(HaveOccurred(), "list the webhook pods")
+	g.Expect(list.Items).NotTo(BeEmpty(), "no webhook pod in %s", *kuikNamespace)
 	revision := ""
 	if *kuikVersion != "" {
 		out, err := exec.CommandContext(ctx, "git", "rev-parse", "-q", "--verify", "v"+*kuikVersion+"^{commit}").Output()
@@ -193,25 +172,21 @@ func expectBuildInfo(ctx context.Context, t *testing.T, _ *envconf.Config) conte
 	}
 	for _, pod := range list.Items {
 		body, err := clientset.CoreV1().Pods(*kuikNamespace).ProxyGet("", pod.Name, "8080", "metrics", nil).DoRaw(ctx)
-		if err != nil {
-			t.Fatalf("cannot read the metrics of %s: %v", pod.Name, err)
-		}
+		g.Expect(err).NotTo(HaveOccurred(), "read the metrics of %s", pod.Name)
 		info := ""
 		for line := range strings.Lines(string(body)) {
 			if strings.HasPrefix(line, "kuik_build_info{") {
 				info = strings.TrimSpace(line)
 			}
 		}
-		switch {
-		case info == "":
-			t.Errorf("%s exports no kuik_build_info", pod.Name)
-		case *kuikVersion != "" && !strings.Contains(info, fmt.Sprintf("version=%q", *kuikVersion)):
-			t.Errorf("%s: %s, expected version %s", pod.Name, info, *kuikVersion)
-		case revision != "" && !strings.Contains(info, fmt.Sprintf("revision=%q", revision)):
-			t.Errorf("%s: %s, expected revision %s", pod.Name, info, revision)
-		default:
-			t.Logf("%s: %s", pod.Name, info)
+		g.Expect(info).NotTo(BeEmpty(), "kuik_build_info of %s", pod.Name)
+		if *kuikVersion != "" {
+			g.Expect(info).To(ContainSubstring(fmt.Sprintf("version=%q", *kuikVersion)), "version of %s", pod.Name)
 		}
+		if revision != "" {
+			g.Expect(info).To(ContainSubstring(fmt.Sprintf("revision=%q", revision)), "revision of %s", pod.Name)
+		}
+		t.Logf("%s: %s", pod.Name, info)
 	}
 	return ctx
 }
@@ -241,9 +216,7 @@ func logAdmissionPolicies(ctx context.Context, t *testing.T, cfg *envconf.Config
 
 func logKyvernoEnforced(ctx context.Context, t *testing.T, cfg *envconf.Config) {
 	client, err := dynamic.NewForConfig(cfg.Client().RESTConfig())
-	if err != nil {
-		t.Fatal(err)
-	}
+	NewWithT(t).Expect(err).NotTo(HaveOccurred())
 	gvr := schema.GroupVersionResource{Group: "kyverno.io", Version: "v1", Resource: "clusterpolicies"}
 	list, err := client.Resource(gvr).List(ctx, metav1.ListOptions{})
 	if err != nil {

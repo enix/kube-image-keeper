@@ -9,9 +9,9 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"testing"
 	"time"
 
+	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -49,29 +49,21 @@ var (
 
 // create creates obj after the checks that keep a shared cluster safe, and fails the test
 // on any of them. It sets ownerLabel itself.
-func create(ctx context.Context, t *testing.T, cfg *envconf.Config, obj client.Object) {
-	t.Helper()
-	if err := guard(obj); err != nil {
-		t.Fatal(err)
-	}
+func create(ctx context.Context, g Gomega, cfg *envconf.Config, obj client.Object) {
+	g.Expect(guard(obj)).To(Succeed())
 	obj.SetLabels(labels.Merge(obj.GetLabels(), map[string]string{ownerLabel: labelTrue}))
 
 	r := cfg.Client().Resources()
 	live, ok := obj.DeepCopyObject().(client.Object)
-	if !ok {
-		t.Fatalf("cannot copy %s", describe(obj))
+	g.Expect(ok).To(BeTrue(), "copy %s", describe(obj))
+	err := r.Get(ctx, obj.GetName(), obj.GetNamespace(), live)
+	if err == nil {
+		g.Expect(live.GetLabels()).To(HaveKeyWithValue(ownerLabel, labelTrue),
+			"%s exists and was not created by the smoke test: refusing to touch it", describe(obj))
+		g.Expect(err).To(HaveOccurred(), "%s is left from an earlier run: run task smoke-cleanup", describe(obj))
 	}
-	switch err := r.Get(ctx, obj.GetName(), obj.GetNamespace(), live); {
-	case err == nil && live.GetLabels()[ownerLabel] != labelTrue:
-		t.Fatalf("%s exists and was not created by the smoke test: refusing to touch it", describe(obj))
-	case err == nil:
-		t.Fatalf("%s is left from an earlier run: run with --cleanup-only", describe(obj))
-	case !apierrors.IsNotFound(err):
-		t.Fatalf("cannot look up %s: %v", describe(obj), err)
-	}
-	if err := r.Create(ctx, obj); err != nil {
-		t.Fatalf("cannot create %s: %v", describe(obj), err)
-	}
+	g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "look up %s: %v", describe(obj), err)
+	g.Expect(r.Create(ctx, obj)).To(Succeed(), "create %s", describe(obj))
 }
 
 // guard refuses an object cleanup could not find, and a kuik CR that could select a pod
@@ -101,8 +93,7 @@ func guard(obj client.Object) error {
 }
 
 // ensureNamespaces creates the test namespaces, once per run: TestInstall never creates them.
-func ensureNamespaces(ctx context.Context, t *testing.T, cfg *envconf.Config) {
-	t.Helper()
+func ensureNamespaces(ctx context.Context, g Gomega, cfg *envconf.Config) {
 	for _, name := range testNamespaces {
 		ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}}
 		if name == testNamespace {
@@ -112,7 +103,7 @@ func ensureNamespaces(ctx context.Context, t *testing.T, cfg *envconf.Config) {
 		if err := cfg.Client().Resources().Get(ctx, name, "", &live); err == nil && live.Labels[ownerLabel] == labelTrue {
 			continue
 		}
-		create(ctx, t, cfg, ns)
+		create(ctx, g, cfg, ns)
 	}
 }
 

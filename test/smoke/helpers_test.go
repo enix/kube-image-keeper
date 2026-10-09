@@ -9,15 +9,13 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"testing"
 	"time"
 
+	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
-	"sigs.k8s.io/e2e-framework/klient/wait"
-	"sigs.k8s.io/e2e-framework/klient/wait/conditions"
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
 )
 
@@ -54,49 +52,37 @@ func testPod(namespace, name, image string, podLabels map[string]string) *corev1
 	}
 }
 
-// waitFor polls cond every 3 s for at most timeout.
-func waitFor(t *testing.T, timeout time.Duration, what string, cond func(ctx context.Context) (bool, error)) {
-	t.Helper()
-	err := wait.For(cond, wait.WithTimeout(timeout), wait.WithInterval(3*time.Second), wait.WithImmediate())
-	if err != nil {
-		t.Fatalf("%s: %v", what, err)
-	}
+// waitFor retries check every 3 s for at most timeout, until its assertions hold.
+func waitFor(g Gomega, timeout time.Duration, check func(Gomega), description ...any) {
+	g.Eventually(check).WithTimeout(timeout).WithPolling(3*time.Second).Should(Succeed(), description...)
 }
 
-func waitPodReady(t *testing.T, cfg *envconf.Config, pod *corev1.Pod) {
-	t.Helper()
-	cond := conditions.New(cfg.Client().Resources()).PodReady(pod)
-	if err := wait.For(cond, wait.WithTimeout(150*time.Second), wait.WithInterval(3*time.Second)); err != nil {
-		t.Fatalf("pod %s is not Ready: %v%s", pod.Name, err, webhookLogs(context.Background(), pod.Name))
-	}
+// waitPodReady waits for pod to be Ready; the failure carries the webhook log lines about it.
+func waitPodReady(ctx context.Context, g Gomega, cfg *envconf.Config, pod *corev1.Pod) {
+	waitFor(g, 150*time.Second, func(g Gomega) {
+		live := getPod(ctx, g, cfg, pod.Namespace, pod.Name)
+		g.Expect(live.Status.Conditions).To(ContainElement(And(
+			HaveField("Type", corev1.PodReady), HaveField("Status", corev1.ConditionTrue))))
+	}, func() string { return fmt.Sprintf("pod %s Ready%s", pod.Name, webhookLogs(ctx, pod.Name)) })
 }
 
 // getPod reads pod back: create does not refresh the object with what the webhook changed.
-func getPod(ctx context.Context, t *testing.T, cfg *envconf.Config, namespace, name string) *corev1.Pod {
-	t.Helper()
+func getPod(ctx context.Context, g Gomega, cfg *envconf.Config, namespace, name string) *corev1.Pod {
 	var pod corev1.Pod
-	if err := cfg.Client().Resources().Get(ctx, name, namespace, &pod); err != nil {
-		t.Fatalf("cannot read pod %s: %v", name, err)
-	}
+	g.Expect(cfg.Client().Resources().Get(ctx, name, namespace, &pod)).To(Succeed(), "read pod %s", name)
 	return &pod
 }
 
 // rewritesTotal sums kuik_routing_rewrites_total of the resource over every webhook replica:
 // each replica counts only the admissions it served.
-func rewritesTotal(ctx context.Context, t *testing.T, name string) float64 {
-	t.Helper()
-	pods, err := clientset.CoreV1().Pods(*kuikNamespace).List(ctx, metav1.ListOptions{
-		LabelSelector: "app.kubernetes.io/name=kube-image-keeper,app.kubernetes.io/component=webhook",
-	})
-	if err != nil || len(pods.Items) == 0 {
-		t.Fatalf("cannot find the webhook pods: %v", err)
-	}
+func rewritesTotal(ctx context.Context, g Gomega, name string) float64 {
+	pods, err := clientset.CoreV1().Pods(*kuikNamespace).List(ctx, metav1.ListOptions{LabelSelector: webhookPods})
+	g.Expect(err).NotTo(HaveOccurred(), "list the webhook pods")
+	g.Expect(pods.Items).NotTo(BeEmpty(), "no webhook pod in %s", *kuikNamespace)
 	var total float64
 	for _, pod := range pods.Items {
 		body, err := clientset.CoreV1().Pods(*kuikNamespace).ProxyGet("", pod.Name, "8080", "metrics", nil).DoRaw(ctx)
-		if err != nil {
-			t.Fatalf("cannot read the metrics of %s: %v", pod.Name, err)
-		}
+		g.Expect(err).NotTo(HaveOccurred(), "read the metrics of %s", pod.Name)
 		total += sumSeries(body, "kuik_routing_rewrites_total", fmt.Sprintf("name=%q", name))
 	}
 	return total
@@ -143,9 +129,7 @@ func resourceEvent(ctx context.Context, name, reason string) (bool, error) {
 
 // webhookLogs returns the webhook log lines naming pod, for a failure message.
 func webhookLogs(ctx context.Context, pod string) string {
-	pods, err := clientset.CoreV1().Pods(*kuikNamespace).List(ctx, metav1.ListOptions{
-		LabelSelector: "app.kubernetes.io/name=kube-image-keeper,app.kubernetes.io/component=webhook",
-	})
+	pods, err := clientset.CoreV1().Pods(*kuikNamespace).List(ctx, metav1.ListOptions{LabelSelector: webhookPods})
 	if err != nil {
 		return ""
 	}
