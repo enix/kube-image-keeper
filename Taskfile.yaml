@@ -128,6 +128,11 @@ tasks:
     cmds:
       - '{{.LOCALBIN}}/golangci-lint run --fix'
 
+  lint-hooks:
+    desc: Check the outbound Claude Code hook on its table of commands (needs jq and git)
+    cmds:
+      - sh .claude/hooks/confirm-outbound-actions.test.sh
+
   lint-config:
     desc: Verify the golangci-lint configuration
     deps: [tools:golangci-lint]

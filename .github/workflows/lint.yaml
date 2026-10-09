@@ -50,6 +50,9 @@ jobs:
       - name: Run lint
         run: task lint
 
+      - name: Check the outbound Claude Code hook
+        run: task lint-hooks
+
       - name: Lint the Helm chart
         run: task helm-lint
 

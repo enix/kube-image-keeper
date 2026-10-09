@@ -150,7 +150,19 @@ build are in [`.claude/rules/docs.md`](./.claude/rules/docs.md).
   or `run`, the e2e tasks, `helm install`, `kubectl apply|label`...), in every permission
   mode, even when several tasks share one call (`task build deploy`). Not forbidden: the
   user decides, the agent never does it on its own
-  ([0003](./notes/0003-agent-orchestration.md)).
+  ([0003](./notes/0003-agent-orchestration.md)). To let a session drive its own pull
+  request, 3 single commands go through: `git push origin <current feature branch>`
+  (`-u` and `--force-with-lease` included; a bare `git push` still asks, it may follow an
+  upstream on `main`; never a plain `--force`, `main`, a maintenance or release branch or a
+  tag; the branch name starts with a letter or a digit, and `origin` is this repository with
+  no push refmap, URL rewrite or `push.followTags`),
+  `gh pr edit <n> --add-label e2e-ready` on the pull request of the current branch, and a
+  read written
+  `gh api graphql -f query='...' [--jq '...']`, with no quote, backslash, `$` or backtick
+  inside the single quotes and no `mutation` (any other form asks). Each form must match the
+  whole command, so no quoting can hide a second command. `gh pr merge` still asks.
+  `confirm-outbound-actions.test.sh` checks it on a table of commands in a throwaway
+  repository: `task lint-hooks`, run by the Lint workflow.
 - `rules/`: the path-scoped conventions above.
 - `skills/`: [`test-outline`](./.claude/skills/test-outline/SKILL.md) (the spec-first Ginkgo
   workflow, picked up whenever specs are written),
