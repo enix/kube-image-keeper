@@ -1,6 +1,6 @@
 # 0002 — development pipeline and epics
 
-**Date:** 2026-08-21 · **Amended:** 2026-09-17, 2026-10-09 (milestones renamed epics) · **Status:** active
+**Date:** 2026-08-21 · **Amended:** 2026-09-17, 2026-10-09 (milestones renamed epics; reference to a private page removed) · **Status:** active
 
 How the v3 build is organised. Amendments are marked inline and dated.
 
@@ -19,7 +19,7 @@ How the v3 build is organised. Amendments are marked inline and dated.
 - **Phase 2 — epics** (see below).
 - **Phase 3 — the build.** *(Amended 2026-09-17:)* epic by epic, one task at a
   time, driven by Paul with an agent in front of him: what to do, what to commit, when to
-  open and merge a pull request. Progress is tracked in the shared artefact. See
+  open and merge a pull request. See
   [0003](./0003-agent-orchestration.md). Tests are written as natural-language cases,
   one per behaviour, and those cases are the `It` and `Entry` strings of the Ginkgo
   specs ([0004](./0004-test-framework.md)), so the reviewed English lands in git next to
