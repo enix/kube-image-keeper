@@ -1,0 +1,38 @@
+name: Close stale issues and PRs
+
+on:
+  schedule:
+    - cron: "30 1 * * *"
+  # Manual run, in dry-run mode by default: the action only logs what it would do
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: "Log what would be done without labelling, commenting or closing anything"
+        type: boolean
+        default: true
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Close stale issues and PRs
+        uses: actions/stale@4391f3da665fdf50b6810c1a66712fb9ba21aa93 # version: v11.0.0
+        with:
+          close-issue-message: This issue was closed because it has been stalled for
+            14 days with no activity.
+          days-before-issue-close: "14"
+          days-before-issue-stale: "90"
+          days-before-pr-close: "-1"
+          days-before-pr-stale: "45"
+          debug-only: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run }}
+          exempt-issue-labels: "v3"
+          operations-per-run: "100"
+          stale-issue-message: This issue is stale because it has been open 90 days
+            with no activity. Remove stale label or comment or this will be closed
+            in 14 days.
+          stale-pr-message: This PR is stale because it has been open 45 days with
+            no activity.
