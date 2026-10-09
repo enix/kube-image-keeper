@@ -38,6 +38,7 @@ const (
 	labelRegistry   = "registry"
 	labelReason     = "reason"
 	labelImage      = "image"
+	labelOperation  = "operation"
 )
 
 // mirrorHarness runs an ImageMirrorReconciler against an in-memory destination registry, its
@@ -436,6 +437,14 @@ func (h *mirrorHarness) queued(reg *registrytest.Registry) bool {
 	scheduling := prometheus.NewRegistry()
 	scheduling.MustRegister(h.scheduler.Collector())
 	_, ok := gauge(scheduling, "kuik_registry_interval_seconds", map[string]string{labelRegistry: reg.Host(), "operation": "Copy"})
+	return ok
+}
+
+// scanned reports whether the scheduler exports the Scan interval of the destination host.
+func (h *mirrorHarness) scanned() bool {
+	scheduling := prometheus.NewRegistry()
+	scheduling.MustRegister(h.scheduler.Collector())
+	_, ok := gauge(scheduling, "kuik_registry_interval_seconds", map[string]string{labelRegistry: h.destination.Host(), labelOperation: "Scan"})
 	return ok
 }
 

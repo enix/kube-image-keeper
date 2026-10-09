@@ -756,13 +756,38 @@ var _ = Describe("Scheduler", func() {
 			cfg := pacing(time.Minute, 3*time.Minute, nil)
 			cfg.Mirror.DestinationScan.Interval = config.Duration{Duration: time.Hour}
 			h.s.SetConfig(cfg)
-			h.s.SetDestinationScan(destinationHost)
+			h.s.SetDestinationScan(mirror, destinationHost)
 
 			Expect(gauges(h.s.Collector(), "kuik_registry_interval_seconds")).To(HaveKeyWithValue("operation=Scan,registry="+destinationHost, 3600.0))
 		})
 
+		It("drops the Scan series of a destination host once its last mirror releases it", func() {
+			h.s.SetDestinationScan(mirror, destinationHost)
+			h.s.RemoveDestinationScan(mirror)
+
+			Expect(gauges(h.s.Collector(), "kuik_registry_interval_seconds")).NotTo(HaveKey("operation=Scan,registry=" + destinationHost))
+		})
+
+		It("keeps the Scan series of a destination host while another mirror still scans it", func() {
+			other := Owner{Kind: mirror.Kind, Name: "other"}
+			h.s.SetDestinationScan(mirror, destinationHost)
+			h.s.SetDestinationScan(other, destinationHost)
+			h.s.RemoveDestinationScan(mirror)
+
+			Expect(gauges(h.s.Collector(), "kuik_registry_interval_seconds")).To(HaveKey("operation=Scan,registry=" + destinationHost))
+		})
+
+		It("moves the Scan series to the new destination host of a mirror", func() {
+			h.s.SetDestinationScan(mirror, destinationHost)
+			h.s.SetDestinationScan(mirror, quayIO)
+
+			series := gauges(h.s.Collector(), "kuik_registry_interval_seconds")
+			Expect(series).To(HaveKey("operation=Scan,registry=" + quayIO))
+			Expect(series).NotTo(HaveKey("operation=Scan,registry=" + destinationHost))
+		})
+
 		It("opens no window on a destination host whose scan interval it exposes", func() {
-			h.s.SetDestinationScan(destinationHost)
+			h.s.SetDestinationScan(mirror, destinationHost)
 			windows(3)
 
 			series := gauges(h.s.Collector(), "kuik_registry_interval_seconds")
