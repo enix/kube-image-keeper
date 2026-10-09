@@ -60,8 +60,8 @@ Rationale in [0005](./0005-decision-log-filter.md).
   review, then architecture, then the build epic by epic; epics ordered by
   dependency, API types first, e2e last.
 - [0003 — how the work is driven](./0003-agent-orchestration.md): Paul drives every task
-  with an agent in front of him and tracks progress in the shared artefact; nothing runs
-  unattended, he alone commits, opens and merges.
+  with an agent in front of him; nothing runs unattended, he alone commits, opens and
+  merges.
 - [0004 — Ginkgo everywhere as the single test framework](./0004-test-framework.md):
   Ginkgo/Gomega is the only test framework, `DescribeTable` for tables, no
   `[]struct{}` + `t.Run`. Section "Fast feedback" superseded by
