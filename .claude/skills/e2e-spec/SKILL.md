@@ -55,6 +55,7 @@ check fails until then, unless the PR changes no path the suite depends on.
 | An origin that is unavailable | A `.invalid` host (`kuik-e2e.invalid/...`): it fails fast, at DNS |
 | A slow or blackholed candidate | A documentation address (`192.0.2.1`, TEST-NET-1, never routed): the connection hangs until the timeout |
 | A registry that answers | `registry.k8s.io/pause:3.10`: HTTPS, non-root, fits the restricted Pod Security profile |
+| An image an ImageMirror copies | Pin one single-platform Linux manifest by digest, chosen by the node architecture: a mirror copies an index whole, and the Windows layers of `pause:3.10` weigh some 570 MB |
 | Every webhook replica has seen a new CR or config | Each replica has its own informers and config: poll `replicasRouting` until each replica answers as expected. It sends an AdmissionReview to each pod through `kubectl proxy`. Admission through the API server, a server-side dry run included, reaches one replica only |
 | A rewrite happened | Assert the rewritten image and the `kuik.enix.io/rewrites` annotation (`kuik.enix.io/no-alternatives` when every candidate failed) |
 | A counter moved | The kuik counters are per replica: `webhookMetric` reads one on each webhook pod (`kubectl get --raw /api/v1/namespaces/<ns>/pods/<pod>:8080/proxy/metrics`). Compare pod by pod when every replica must move, as after a config reload; sum when any replica may serve the admission |

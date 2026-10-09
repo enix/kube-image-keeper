@@ -11,6 +11,15 @@ Target: `$ARGUMENTS` (an existing PR number, or empty to open one from the curre
 Every step that writes on GitHub (create, edit, comment, resolve) waits for the user's
 explicit go: show the text first, then run the command.
 
+## 0. Size the pull request
+
+An epic (a feature too large for one review) never ships as one pull request. It is cut
+into issue-sized pull requests of about 30 specs, each mergeable on its own: `main` stays
+coherent, nothing is half-wired, and each carries its docs and, last, its e2e specs.
+Propose the cut once the outline exists; the maintainer validates it before any body is
+written. The issues are grouped under the GitHub milestones of the release: its beta, then
+its GA.
+
 ## 1. Prepare the branch
 
 - Rebase on `origin/main` (`git fetch origin` first); never merge `main` into the branch.
