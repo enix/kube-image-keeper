@@ -2,10 +2,11 @@
 
 **Date:** 2026-10-09 · **Status:** decided
 
-**Decision:** Supersedes section "Decision" of [0004](./0004-test-framework.md). Ginkgo/Gomega
-stays the only test framework, except the smoke suite `test/smoke/` (run against a cluster
-where kuik is already installed): it uses `sigs.k8s.io/e2e-framework` and asserts through
-`testing.T`, with a client built from an explicit `--kubeconfig` and `--context` only.
+**Decision:** Amends section "Decision" of [0004](./0004-test-framework.md) for one suite.
+The smoke suite `test/smoke/` (run against a cluster where kuik is already installed) runs on
+`sigs.k8s.io/e2e-framework` instead of Ginkgo, with a client built from an explicit
+`--kubeconfig` and `--context` only. It still asserts with Gomega (`NewWithT`), and Ginkgo
+stays the runner of every other suite.
 
 **Why:**
 
