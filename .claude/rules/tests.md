@@ -55,6 +55,9 @@ paths:
   go test ./internal/controller/kuik -v -ginkgo.focus 'text of the It'
   ```
 
+- **A flaky spec is made deterministic, not rerun.** Find what it races with (a counter read
+  before the request is counted, a timer) and make the spec wait for it or control it. Never
+  rerun it in a loop to measure how flaky it is.
 - **e2e** (`test/e2e/`, `task test-e2e`) runs on an isolated Kind cluster: the task
   creates `KIND_CLUSTER` when it is missing and deletes it afterwards only in that case. Never
   run it against a real cluster. Follow the
