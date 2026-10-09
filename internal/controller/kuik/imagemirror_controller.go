@@ -258,8 +258,13 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		selfChecked *metav1.Time
 		nextPass    time.Duration
 	)
+	scanner := pacing.Owner{Kind: resource.Kind, Name: resource.Name}
+	if blocked {
+		// A mirror that cannot write its destination scans it no more.
+		r.scheduler.RemoveDestinationScan(scanner)
+	}
 	if !blocked {
-		r.scheduler.SetDestinationScan(pacing.Owner{Kind: resource.Kind, Name: resource.Name}, destinationHost(im.Spec.Destination.Path))
+		r.scheduler.SetDestinationScan(scanner, destinationHost(im.Spec.Destination.Path))
 		var due bool
 		if due, nextPass = r.passDue(st, now); due {
 			at, err := r.selfCheck(ctx, &im, st, desired)

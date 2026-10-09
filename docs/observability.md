@@ -137,7 +137,7 @@ reconciler exports these series.
 | `kuik_check_cycle_duration_seconds{kind, name, registry}` | gauge | Last completed lap of the ring a resource turns over a registry, `status.checks.registries[].cycleDuration`. Absent until a first lap completes |
 | `kuik_check_cycle_started_timestamp_seconds{kind, name, registry}` | gauge | Start of the lap in progress, `cycleStarted` |
 | `kuik_check_ring_images{kind, name, registry}` | gauge | Size of the ring, `images` |
-| `kuik_registry_interval_seconds{registry, operation}` | gauge | `check.interval` (`Check`) and `copy.interval` (`Copy`) of a host, as currently loaded, and `mirror.destinationScan.interval` (`Scan`) of a mirror destination |
+| `kuik_registry_interval_seconds{registry, operation}` | gauge | `check.interval` (`Check`) and `copy.interval` (`Copy`) of a host, as currently loaded, and `mirror.destinationScan.interval` (`Scan`) of a destination an ImageMirror scans, gone once no mirror scans it |
 
 Alert on a lap against its best case rather than on a literal: see
 [Watching the pace](./concepts/pacing.md#watching-the-pace).

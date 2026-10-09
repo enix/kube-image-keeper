@@ -64,9 +64,9 @@ type Scheduler struct {
 	// start is when Start ran, the origin of every series; zero before.
 	start time.Time
 	hosts map[string]*host
-	// destinations are the hosts of mirror destinations, scanned whole by their ImageMirror
-	// rather than paced: they hold no series and only export their scan interval.
-	destinations map[string]bool
+	// destinations are the destination hosts of the mirrors, by mirror, scanned whole rather
+	// than paced: they hold no series and only export their scan interval.
+	destinations map[Owner]string
 	// idle is true while the loop waits for its next window, due at due.
 	idle    bool
 	due     time.Time
@@ -169,7 +169,7 @@ func New(clk clock.Clock, cfg *config.Config) *Scheduler {
 		cfg:          cfg,
 		wake:         make(chan struct{}, 1),
 		hosts:        map[string]*host{},
-		destinations: map[string]bool{},
+		destinations: map[Owner]string{},
 	}
 }
 
@@ -602,16 +602,21 @@ func (s *Scheduler) SetCopyQueue(owner Owner, host string, refs []string, c Copi
 	}
 }
 
-// SetDestinationScan declares host the destination of an ImageMirror: its scan interval is
-// exported with operation Scan, and no window ever opens on it.
-func (s *Scheduler) SetDestinationScan(_ Owner, host string) {
+// SetDestinationScan declares host the destination owner scans, in place of any previous one:
+// its scan interval is exported with operation Scan, and no window ever opens on it.
+func (s *Scheduler) SetDestinationScan(owner Owner, host string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.destinations[host] = true
+	s.destinations[owner] = host
 }
 
-// RemoveDestinationScan releases the destination owner scans.
-func (s *Scheduler) RemoveDestinationScan(Owner) {}
+// RemoveDestinationScan releases the destination owner scans: its Scan series goes once no
+// other owner scans the same host.
+func (s *Scheduler) RemoveDestinationScan(owner Owner) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.destinations, owner)
+}
 
 // Collector returns the scheduling health metrics, computed from the current rings and
 // config on every scrape.
@@ -678,7 +683,11 @@ func (c collector) Collect(ch chan<- prometheus.Metric) {
 	}
 
 	scan := c.s.cfg.Mirror.DestinationScan.Interval.Seconds()
-	for host := range c.s.destinations {
-		ch <- prometheus.MustNewConstMetric(intervalDesc, prometheus.GaugeValue, scan, host, "Scan")
+	scanned := map[string]bool{}
+	for _, host := range c.s.destinations {
+		if !scanned[host] {
+			scanned[host] = true
+			ch <- prometheus.MustNewConstMetric(intervalDesc, prometheus.GaugeValue, scan, host, "Scan")
+		}
 	}
 }
