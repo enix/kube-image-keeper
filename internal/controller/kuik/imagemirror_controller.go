@@ -70,8 +70,6 @@ type ImageMirrorReconciler struct {
 	registry       *registry.Client
 	clock          clock.Clock
 	config         atomic.Pointer[config.Config]
-	// elected is set once the lease is held; no status is written before it.
-	elected atomic.Bool
 
 	metrics *mirrorMetrics
 
@@ -173,7 +171,6 @@ func (r *ImageMirrorReconciler) SetConfig(cfg *config.Config) {
 // Elected records when the lease was acquired: pod events go only to pods created since.
 func (r *ImageMirrorReconciler) Elected(at time.Time) {
 	r.tracker.Elected(at)
-	r.elected.Store(true)
 }
 
 // +kubebuilder:rbac:groups=kuik.enix.io,resources=imagemirrors,verbs=get;list;watch,roleName=reconciler
@@ -192,10 +189,8 @@ func (r *ImageMirrorReconciler) Elected(at time.Time) {
 
 // Reconcile copies what one ImageMirror owes its destination and writes its status.
 func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	// A report before the lease time is known would persist a staleRewrites entry without its
-	// RewriteStale, which the next leader would then never announce.
-	if !r.elected.Load() {
-		return ctrl.Result{RequeueAfter: electionWait}, nil
+	if wait := r.tracker.ElectionWait(); wait > 0 {
+		return ctrl.Result{RequeueAfter: wait}, nil
 	}
 	resource := routing.Resource{Kind: routing.KindImageMirror, Name: req.Name}
 
