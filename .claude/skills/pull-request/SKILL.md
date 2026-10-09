@@ -9,11 +9,13 @@ allowed-tools: Bash(git log *) Bash(git diff *) Bash(git status *) Bash(git fetc
 
 Target: `$ARGUMENTS` (an existing PR number, or empty to open one from the current branch).
 Every step that writes on GitHub (create, edit, comment, resolve) waits for the user's
-explicit go: show the text first, then run the command.
+explicit go: show the text first, then run the command. The merge is the exception (step 6).
 
 ## 1. Prepare the branch
 
-- Rebase on `origin/main` (`git fetch origin` first); never merge `main` into the branch.
+- Branch off a fresh `origin/main` (`git fetch origin` first); never merge `main` into the
+  branch. Rebase on `main` only when needed (step 6): `gh pr merge --rebase` replays the
+  commits on `main` anyway.
 - Per component, a `test(<scope>): ...` commit with its specs, then the `feat(<scope>): ...`
   commit that makes them green ([`tests.md`](../../rules/tests.md)). The `feat` commit
   carries the docs and the line in any index (`AGENTS.md`, a README), and touches no
@@ -22,7 +24,8 @@ explicit go: show the text first, then run the command.
 - Check `git log --stat origin/main..HEAD`: every test file comes from a `test` commit and
   no `feat` commit touches one. The reviewer checks the same thing.
 - No commit that only indexes or fixes the previous ones: before the PR opens, fold a fix
-  into its commit with `git commit --fixup=<sha>` and `git rebase -i --autosquash origin/main`.
+  into its commit with `git commit --fixup=<sha>` and
+  `git rebase -i --autosquash "$(git merge-base origin/main HEAD)"`.
   Once it is open, fixes stay `fixup!` commits until the review is over (step 5). The exception is
   a regression spec for a bug a review found: its own `test` commit after the fix, subject
   `test(<scope>): add regression specs for <what>`, body naming the review, the component
@@ -98,8 +101,9 @@ describes a dropped file misleads the reviewer and CodeRabbit alike.
 ## 5. The automated review
 
 - CodeRabbit reviews once when the PR opens. For later commits, comment
-  `@coderabbitai review`. After a force-push (a rebase, the autosquash), comment
-  `@coderabbitai full review` instead: the incremental review lost its base.
+  `@coderabbitai review`. After a rebase on `main` (step 6), comment
+  `@coderabbitai full review` instead: the incremental review lost its base. The final
+  autosquash needs no new review: the content does not change.
 - CodeRabbit answers only comments that mention `@coderabbitai` (`chat.auto_reply: false`
   in `.coderabbit.yaml`), a top-level comment or a reply in one of its threads alike.
 - Never rewrite the branch under review (no rebase, amend or force-push): the incremental
@@ -112,8 +116,15 @@ describes a dropped file misleads the reviewer and CodeRabbit alike.
 - Resolve a thread once its fix is pushed. Reply only when resolving without a fix: one
   sentence on why. CONTRIBUTING asks the author to answer reviews: post the reply yourself,
   the outbound hook asks the user before every write on GitHub.
-- When the review is over, autosquash and force-push once. `git diff <head before> HEAD`
-  must be empty: the content did not change, so no new review is needed.
+- When the review is over, autosquash in place and force-push once (`--force-with-lease`).
+  Squash on the merge base, not on a newer `origin/main`, so `git diff <head before> HEAD`
+  stays empty: the content did not change, so no new review is needed.
+
+  ```sh
+  GIT_SEQUENCE_EDITOR=: git rebase -i --autosquash "$(git merge-base origin/main HEAD)"
+  ```
+
+  Catching up with `main` is not part of the autosquash (step 6).
 - Once the review is over, the final e2e `test` commit pushed and the branch autosquashed,
   ask the user to add the `e2e-ready` label (`gh pr edit <n> --add-label e2e-ready`): the
   required `E2E` check fails until it is there. Skip this when the PR changes no path the
@@ -121,3 +132,17 @@ describes a dropped file misleads the reviewer and CodeRabbit alike.
   It is a GitHub write: the user adds it or approves the command. The suite then runs once. If it fails, push `fixup!` commits: `E2E`
   fails at once without running the suite until the next autosquash and force-push, which
   runs it again.
+
+## 6. Merge
+
+Rebase on `main` only when GitHub cannot merge (`mergeStateStatus` is `DIRTY`) or the
+branch needs something `main` brought: `git fetch origin` first, rebase on `origin/main`,
+check the rebase with `git range-diff ORIG_HEAD...HEAD`, push it with
+`--force-with-lease`, comment `@coderabbitai full review`, then wait for the checks again.
+
+Once the review is over and every check is green (`gh pr checks <n> --watch`), merge with
+`gh pr merge <n> --rebase`, alone in its command. Merging is part of driving the PR: it
+needs no separate go, the outbound hook asks the user to confirm it. Confirm the merge with
+`gh pr view <n> --json state,mergedAt`. If that call is refused, ask the user to type
+`! gh pr view <n> --json state,mergedAt` in the Claude Code prompt (the `!` prefix runs it
+in the session): never report a merge you could not confirm.
