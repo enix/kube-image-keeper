@@ -108,12 +108,12 @@ checked against the existing targets:
 
 1. **Mismatch with the work ahead.** Much of the suite is table-driven over pure functions,
    where `Scenario Outline` is more verbose and less maintainable than a Ginkgo table.
-   Milestone 2 of [0002](./0002-development-pipeline.md) — the `imagePrefix` segment trie and
+   Epic 2 of [0002](./0002-development-pipeline.md) — the `imagePrefix` segment trie and
    the `secretRef`/`provider` auth model — is table territory.
 2. **The hidden cost of step definitions.** For an operator, the "given" is "these CRs
    applied, this pod created, these registries reachable, this secret in that namespace".
    The step vocabulary explodes, and both exits are bad: hyper-specific non-reusable steps
-   (the worst of both worlds), or designing a DSL — spending milestones 2-3 building a test
+   (the worst of both worlds), or designing a DSL — spending epics 2-3 building a test
    language instead of the trie and the auth model. A classic BDD failure mode on
    infrastructure code.
 3. **One runner, one vocabulary.** godog is a separate runner with its own binary, its own
@@ -168,7 +168,7 @@ references), never asynchrony.
 - [`AGENTS.md`](../AGENTS.md), the `internal/testsetup/` bullet: states the rule. It also
   records that the package is **not** blank-imported anywhere today. It is left that way
   rather than wired in as a no-op: no test currently asserts on a `*regexp.Regexp`, and an
-  import that changes nothing observable is noise. It becomes load-bearing when milestone 2's
+  import that changes nothing observable is noise. It becomes load-bearing when epic 2's
   trie and filter tests start comparing compiled regexps — blank-import it then, in the suite
   that needs it.
 - `AGENTS.md`, the Git Hooks section, corrected while in the file (unrelated drift found in

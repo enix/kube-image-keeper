@@ -17,7 +17,7 @@ mirroring and monitoring, rebuilt from a clean tree. The branch holds:
 - [`CONTRIBUTING.md`](./CONTRIBUTING.md) — hooks, commit conventions and scopes,
   release process. Follow it; it is not repeated here.
 
-Code, chart and tooling are re-added milestone by milestone
+Code, chart and tooling are re-added epic by epic
 ([0002](./notes/0002-development-pipeline.md)), implementing the spec as written: a doubt
 about the spec is recorded and deferred, never a reason to edit `docs/v3/` or to stall
 ([0010](./notes/0010-spec-as-is-until-the-alpha-runs.md)). v2 lives on the `2.3.x` maintenance
