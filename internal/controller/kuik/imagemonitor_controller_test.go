@@ -184,6 +184,21 @@ var _ = Describe("ImageMonitor", func() {
 		return ns
 	}
 
+	// invalidSelector gives the monitor a podSelector that does not parse.
+	invalidSelector := func(im *kuikv1alpha1.ImageMonitor) {
+		im.Spec.PodSelector = &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{
+			{Key: appContainer, Operator: unknownOperator, Values: []string{appContainer}},
+		}}
+	}
+
+	// updateMonitor applies mutate to the monitor under test.
+	updateMonitor := func(mutate func(*kuikv1alpha1.ImageMonitor)) {
+		var im kuikv1alpha1.ImageMonitor
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, &im)).To(Succeed())
+		mutate(&im)
+		Expect(k8sClient.Update(ctx, &im)).To(Succeed())
+	}
+
 	Context("tracking", func() {
 		It("tracks the image of every container of the pods its podSelector and namespaceSelector select", func() {
 			newMonitor(name)
@@ -336,6 +351,19 @@ var _ = Describe("ImageMonitor", func() {
 			Expect(originOf(name).Running).To(Equal(int32(1)))
 		})
 
+		It("tracks the pods of every namespace when its selectors are absent", func() {
+			newMonitor(name, func(im *kuikv1alpha1.ImageMonitor) { im.Spec.NamespaceSelector = nil })
+			reconcileIt()
+			before := originOf(name).Tracked
+			// The pods of other specs count too: an image no other spec runs, in a namespace
+			// carrying no label.
+			ns := unique("ns")
+			createNamespace(ns, nil)
+			runningPod(ns, []container{running(appContainer, "docker.io/library/nginx:"+unique("only"))})
+			reconcileIt()
+			Expect(originOf(name).Tracked).To(Equal(before + 1))
+		})
+
 		It("requeues instead of dropping its images when the pod cache returns no pod while images are tracked", func() {
 			newMonitor(name)
 			pod := runningPod(selectedNamespace(), []container{running(appContainer, thanosImage)})
@@ -399,6 +427,17 @@ var _ = Describe("ImageMonitor", func() {
 			Expect(originOf(name).Tracked).To(Equal(int32(1)))
 		})
 
+		It("keeps an unused image for 168h when unusedImageRetention is not set", func() {
+			newMonitor(name)
+			retain(selectedNamespace())
+			clock.Step(167 * time.Hour)
+			reconcileIt()
+			Expect(monitorStatusOf(name).RetainedImages).To(HaveLen(1))
+			clock.Step(2 * time.Hour)
+			reconcileIt()
+			Expect(monitorStatusOf(name).RetainedImages).To(BeEmpty())
+		})
+
 		It("takes an image out of retainedImages when a pod declares it again", func() {
 			newMonitor(name)
 			ns := selectedNamespace()
@@ -435,6 +474,29 @@ var _ = Describe("ImageMonitor", func() {
 			Expect(readiness().Status).To(Equal(metav1.ConditionFalse))
 			Expect(readiness().Reason).To(Equal(kuikv1alpha1.ReasonInvalidConfig))
 		})
+
+		It("leaves its image counts and retainedImages as last reported while a selector does not parse", func() {
+			newMonitor(name)
+			pod := runningPod(selectedNamespace(), []container{running(appContainer, thanosImage)})
+			reconcileIt()
+			Expect(originOf(name).Running).To(Equal(int32(1)))
+			updateMonitor(invalidSelector)
+			deletePod(pod)
+			reconcileIt()
+			Expect(originOf(name).Running).To(Equal(int32(1)))
+			Expect(monitorStatusOf(name).RetainedImages).To(BeEmpty())
+		})
+
+		It("emits ResourceNotReady when Ready goes False, then ResourceReady when it returns", func() {
+			newMonitor(name, invalidSelector)
+			reconcileIt()
+			notReady := recorder.withReason("ResourceNotReady")
+			Expect(notReady).To(HaveLen(1))
+			Expect(notReady[0].regarding.(*kuikv1alpha1.ImageMonitor).Name).To(Equal(name))
+			updateMonitor(func(im *kuikv1alpha1.ImageMonitor) { im.Spec.PodSelector = nil })
+			reconcileIt()
+			Expect(recorder.withReason("ResourceReady")).To(HaveLen(1))
+		})
 	})
 
 	Context("metrics", func() {
@@ -452,6 +514,16 @@ var _ = Describe("ImageMonitor", func() {
 				Expect(v).To(Equal(want), state)
 			}
 		})
+
+		It("exports kuik_resource_not_ready while Ready is False", func() {
+			newMonitor(name, invalidSelector)
+			reconcileIt()
+			v, ok := gauge(registry, "kuik_resource_not_ready", map[string]string{
+				labelKind: kindImageMonitorLabel, labelName: name, seriesReason: kuikv1alpha1.ReasonInvalidConfig,
+			})
+			Expect(ok).To(BeTrue())
+			Expect(v).To(Equal(1.0))
+		})
 	})
 
 	Context("when deleted", func() {
@@ -465,6 +537,18 @@ var _ = Describe("ImageMonitor", func() {
 			Expect(k8sClient.Delete(ctx, im)).To(Succeed())
 			reconcileIt()
 			_, ok = gauge(registry, "kuik_images_tracked", series)
+			Expect(ok).To(BeFalse())
+		})
+
+		It("deletes its kuik_resource_not_ready series", func() {
+			im := newMonitor(name, invalidSelector)
+			reconcileIt()
+			series := map[string]string{labelKind: kindImageMonitorLabel, labelName: name}
+			_, ok := gauge(registry, "kuik_resource_not_ready", series)
+			Expect(ok).To(BeTrue())
+			Expect(k8sClient.Delete(ctx, im)).To(Succeed())
+			reconcileIt()
+			_, ok = gauge(registry, "kuik_resource_not_ready", series)
 			Expect(ok).To(BeFalse())
 		})
 	})
