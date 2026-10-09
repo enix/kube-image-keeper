@@ -11,14 +11,9 @@ Target: `$ARGUMENTS` (an existing PR number, or empty to open one from the curre
 Every step that writes on GitHub (create, edit, comment, resolve) waits for the user's
 explicit go: show the text first, then run the command.
 
-## 0. Size the pull request
-
-An epic (a feature too large for one review) never ships as one pull request. It is cut
-into issue-sized pull requests of about 30 specs, each mergeable on its own: `main` stays
-coherent, nothing is half-wired, and each carries its docs and, last, its e2e specs.
-Propose the cut once the outline exists; the maintainer validates it before any body is
-written. The issues are grouped under the GitHub milestones of the release: its beta, then
-its GA.
+A pull request stays issue-sized, about 30 specs at most, whether it answers an issue, a
+request or one piece of an epic cut into several, and is followed with a task list: see
+the [`test-outline`](../test-outline/SKILL.md) skill.
 
 ## 1. Prepare the branch
 
