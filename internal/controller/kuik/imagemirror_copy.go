@@ -45,6 +45,10 @@ type mirrorState struct {
 	fresh []kuikv1alpha1.FailedImageCopy
 	// queues are the hosts this mirror holds a copy queue on.
 	queues map[string]bool
+	// stopping is set once the mirror is deleted: no copy starts any more. inFlight counts the
+	// copies running.
+	stopping bool
+	inFlight int
 
 	// present are the references the last whole destination pass found, keyed by their String
 	// form; lastPass is when that pass ran, zero before the first.
@@ -122,6 +126,9 @@ type copySource struct {
 	// pod declares the reference: its pull secrets are part of each candidate's credentials.
 	pod  *corev1.Pod
 	next int
+	// unanswered is the last failure of the candidates tried since the first one that was not
+	// a missing manifest, nil while every one answered that.
+	unanswered *copyFailure
 }
 
 // host is the registry the next copy window of s reads.
@@ -182,7 +189,7 @@ func (r *ImageMirrorReconciler) owe(im *kuikv1alpha1.ImageMirror, st *mirrorStat
 		source := sources[key]
 		// A reference keeps the candidate it reached as long as its candidates do not change.
 		if previous, ok := st.sources[key]; ok && sameCandidates(previous.candidates, source.candidates) {
-			source.next = previous.next
+			source.next, source.unanswered = previous.next, previous.unanswered
 		}
 		st.sources[key] = source
 		queues[source.host()] = append(queues[source.host()], key)
@@ -334,16 +341,23 @@ func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
 	source, ok := st.sources[ref]
 	// A window of a host reads that host only: a reference handed to a candidate elsewhere
 	// waits for a window there, once the next reconcile moved it to that queue.
-	if !ok || source.host() != c.host || (st.copied[ref] && !st.resync[ref]) {
+	if !ok || source.host() != c.host || (st.copied[ref] && !st.resync[ref]) || st.stopping {
 		st.mu.Unlock()
 		return nil
 	}
 	candidate := source.candidates[source.next]
+	// The finalizer of a deleted mirror waits for the copies running.
+	st.inFlight++
 	st.mu.Unlock()
+	defer st.ended()
 
 	var im kuikv1alpha1.ImageMirror
 	if err := r.Get(ctx, types.NamespacedName{Name: c.name}, &im); err != nil {
 		return client.IgnoreNotFound(err)
+	}
+	// A deleted mirror copies nothing more: its finalizer deletes what it already wrote.
+	if !im.DeletionTimestamp.IsZero() {
+		return nil
 	}
 	defer r.wake(c.name)
 
@@ -352,13 +366,28 @@ func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
 		_, err = r.registry.Check(ctx, sourceEndpoint)
 	}
 	if err != nil {
-		log.V(1).Info("Skipped copy source", "candidate", candidate.Reference, "error", err.Error())
+		reason := sourceFailureReason(err)
+		log.V(1).Info("Skipped copy source", "candidate", candidate.Reference, "reason", reason, "error", err.Error())
 		st.mu.Lock()
 		defer st.mu.Unlock()
+		// A lap over the candidates starts again from the first one, after a success too.
+		if source.next == 0 {
+			source.unanswered = nil
+		}
+		if reason != kuikv1alpha1.CopySourceNotFound {
+			source.unanswered = &copyFailure{reason: reason, registry: c.host}
+		}
 		source.next++
 		if source.next == len(source.candidates) {
-			source.next = 0
-			st.fail(ref, copyFailure{reason: kuikv1alpha1.CopySourceNotFound, registry: source.origin.Host, at: r.clock.Now()})
+			// SourceNotFound only when every candidate answered that it lacks the manifest: a
+			// source that failed to answer may still hold it.
+			failure := copyFailure{reason: kuikv1alpha1.CopySourceNotFound, registry: source.origin.Host}
+			if source.unanswered != nil {
+				failure = *source.unanswered
+			}
+			failure.at = r.clock.Now()
+			source.next, source.unanswered = 0, nil
+			st.fail(ref, failure)
 		}
 		return nil
 	}
@@ -418,6 +447,35 @@ func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
 	delete(st.resync, ref)
 	delete(st.drifted, ref)
 	return nil
+}
+
+// sourceFailureReason maps the failure to read a copy source to a copy reason: SourceNotFound
+// for a missing manifest, the check's own reason for credentials or quota, SourceUnreachable
+// for anything else.
+func sourceFailureReason(err error) kuikv1alpha1.CopyFailureReason {
+	checkErr, ok := errors.AsType[*registry.CheckError](err)
+	if !ok {
+		return kuikv1alpha1.CopySourceUnreachable
+	}
+	switch checkErr.Reason {
+	case kuikv1alpha1.CheckManifestNotFound:
+		return kuikv1alpha1.CopySourceNotFound
+	case kuikv1alpha1.CheckUnauthorized:
+		return kuikv1alpha1.CopyUnauthorized
+	case kuikv1alpha1.CheckQuotaExceeded:
+		return kuikv1alpha1.CopyQuotaExceeded
+	case kuikv1alpha1.CheckUnreachable:
+		return kuikv1alpha1.CopySourceUnreachable
+	default:
+		return kuikv1alpha1.CopySourceUnreachable
+	}
+}
+
+// ended counts a copy out of the running ones.
+func (st *mirrorState) ended() {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.inFlight--
 }
 
 // fail records failure for ref, reported at the next status write. st.mu is held.

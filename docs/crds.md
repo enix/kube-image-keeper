@@ -243,7 +243,7 @@ The destination must conform to the OCI Distribution spec, accept arbitrarily ne
 
 ### Deleting an ImageMirror
 
-A deleted `ImageMirror` stops routing new pods at once, then stays `Terminating` until kuik has released it:
+A deleted `ImageMirror` stops routing new pods and copying images at once, then stays `Terminating` until kuik has released it:
 
 1. While a live pod runs an image under `destination.path`, it waits: a node rescheduling that pod would find the copy gone. Roll those workloads onto their origin to release it.
 2. With `cleanup.enabled`, it then deletes every tag of this cluster in `status.repositories`, whatever their retention. It keeps waiting while the `manage` credential cannot be read, or while the destination refuses tag deletion: released, it would take with it the only inventory of the tags left behind.

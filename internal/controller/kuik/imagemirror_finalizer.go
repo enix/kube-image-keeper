@@ -33,6 +33,18 @@ const (
 	finalizerMaxWait = 30 * time.Minute
 )
 
+// inFlightWait is how long a deleted mirror waits for the copies still running: one ends
+// within a copy timeout, and wakes the mirror.
+const inFlightWait = time.Second
+
+// halt lets no copy of the mirror start any more, and returns how many still run.
+func (st *mirrorState) halt() int {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.stopping = true
+	return st.inFlight
+}
+
 // holdAgain returns how long a held mirror waits before its next try, and counts the try.
 func (st *mirrorState) holdAgain() time.Duration {
 	st.mu.Lock()
@@ -54,6 +66,13 @@ func (st *mirrorState) holdAgain() time.Duration {
 func (r *ImageMirrorReconciler) finalize(ctx context.Context, im *kuikv1alpha1.ImageMirror, resource routing.Resource) (ctrl.Result, error) {
 	if !controllerutil.ContainsFinalizer(im, mirrorFinalizer) {
 		return ctrl.Result{}, nil
+	}
+	// A copy writing after deleteTags read status.repositories would leave its tags behind: no
+	// copy starts any more, and those running are waited for.
+	st := r.state(im.Name)
+	r.stop(im.Name, st)
+	if st.halt() > 0 {
+		return ctrl.Result{RequeueAfter: inFlightWait}, nil
 	}
 	running, err := r.runsCopies(ctx, im)
 	if err != nil {
@@ -152,12 +171,17 @@ func (r *ImageMirrorReconciler) drop(name string) {
 	st, ok := r.states[name]
 	delete(r.states, name)
 	r.statesMu.Unlock()
-	if !ok {
-		return
+	if ok {
+		r.stop(name, st)
 	}
+}
+
+// stop removes the copy queues and the drift rings of the mirror name, and keeps its memory.
+func (r *ImageMirrorReconciler) stop(name string, st *mirrorState) {
 	owner := pacing.Owner{Kind: routing.KindImageMirror, Name: name}
 	st.mu.Lock()
 	queues, rings := st.queues, st.rings
+	st.queues, st.rings = map[string]bool{}, map[string]bool{}
 	st.mu.Unlock()
 	for host := range queues {
 		r.scheduler.SetCopyQueue(owner, host, nil, mirrorCopier{r: r, name: name, host: host})
