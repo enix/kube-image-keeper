@@ -17,7 +17,7 @@ The default home of a decision's "why" is the **commit body** of the change that
 implements it. A note is warranted only when at least one of these holds:
 
 - the decision constrains work beyond the change that implements it (several future
-  changes or milestones);
+  changes or epics);
 - it rejects an alternative that someone will plausibly propose again;
 - it has no single commit to live in (process, architecture, spec interpretation,
   tooling that spans the repository).
@@ -56,8 +56,8 @@ Rationale in [0005](./0005-decision-log-filter.md).
   rewrites the domain in the existing repository; `internal/registry`, the webhook's
   probing caches and singleflight, and the config-merge pattern are lifted, the rest is
   replaced (amended: `SecretOwnerReconciler` and `parallel.FirstSuccessful` are not lifted).
-- [0002 — development pipeline and milestones](./0002-development-pipeline.md): spec
-  review, then architecture, then the build milestone by milestone; milestones ordered by
+- [0002 — development pipeline and epics](./0002-development-pipeline.md): spec
+  review, then architecture, then the build epic by epic; epics ordered by
   dependency, API types first, e2e last.
 - [0003 — how the work is driven](./0003-agent-orchestration.md): Paul drives every task
   with an agent in front of him and tracks progress in the shared artefact; nothing runs

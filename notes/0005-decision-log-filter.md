@@ -13,7 +13,7 @@ the "every decision gets a note" rule of `AGENTS.md` on `main` (`977d0ec`).
 - The old rule turned the `v3` branch creation into a 57-line note whose "rejected
   alternatives" were invented to fill the template; fabricated deliberation is worse than none.
 - Notes are read by agents; at that density the folder costs tens of thousands of tokens
-  before the first milestone lands.
+  before the first epic lands.
 - `git log` is already append-only and searchable; a note only adds what a commit cannot.
 
 **Rejected:**

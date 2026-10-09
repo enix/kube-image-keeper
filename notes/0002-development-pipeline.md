@@ -1,6 +1,6 @@
-# 0002 — development pipeline and milestones
+# 0002 — development pipeline and epics
 
-**Date:** 2026-08-21 · **Amended:** 2026-09-17 · **Status:** active
+**Date:** 2026-08-21 · **Amended:** 2026-09-17, 2026-10-09 (milestones renamed epics) · **Status:** active
 
 How the v3 build is organised. Amendments are marked inline and dated.
 
@@ -16,8 +16,8 @@ How the v3 build is organised. Amendments are marked inline and dated.
   contract everything else builds on), internal packages, and the lift list: taken from
   v2 as-is / adapted / rewritten. Section by section, 0001 already provides that list.
   Structural decisions are filed in this folder.
-- **Phase 2 — milestones** (see below).
-- **Phase 3 — the build.** *(Amended 2026-09-17:)* milestone by milestone, one task at a
+- **Phase 2 — epics** (see below).
+- **Phase 3 — the build.** *(Amended 2026-09-17:)* epic by epic, one task at a
   time, driven by Paul with an agent in front of him: what to do, what to commit, when to
   open and merge a pull request. Progress is tracked in the shared artefact. See
   [0003](./0003-agent-orchestration.md). Tests are written as natural-language cases,
@@ -26,7 +26,7 @@ How the v3 build is organised. Amendments are marked inline and dated.
   the assertion it describes. The tree of cases is written and reviewed first, with
   `task test-outline` (`DIFF=<ref>` shows only what changed), and the bodies come after.
 
-## Milestones
+## Epics
 
 Order follows the dependency graph, not thematic grouping:
 
@@ -46,7 +46,7 @@ Order follows the dependency graph, not thematic grouping:
    controllers, secret syncer.
 5. **Registry layer completion** — the lifted `internal/registry` plus the gaps listed
    in 0001 (tag-scoped delete, verbatim copy, HEAD-by-digest, tag listing, keeper tags,
-   cloud auth). Starts alongside milestone 2; listed here because the mirror reconciler
+   cloud auth). Starts alongside epic 2; listed here because the mirror reconciler
    is its consumer.
 6. **Helm / packaging / docs** — chart with real CRDs, `ValidatingAdmissionPolicy` for
    the secret syncer, configuration reference, migration notes from v2.
