@@ -7,7 +7,8 @@ paths:
 # Test conventions
 
 - **Ginkgo + Gomega only** ([0004](../../notes/0004-test-framework.md)): `DescribeTable` for
-  tables, no `[]struct{}` + `t.Run`.
+  tables, no `[]struct{}` + `t.Run`. One exception: the smoke suite `test/smoke/` runs on
+  `sigs.k8s.io/e2e-framework`, see [0014](../../notes/0014-e2e-framework-for-the-smoke-suite.md).
 - **Cases before bodies, then stop.** The `It` and `Entry` strings are natural-language
   test cases, one per behaviour. Write them as `PIt` / `PEntry` with empty bodies (plus the
   stubs needed to compile), show them with `task test-outline` and stop: the maintainer

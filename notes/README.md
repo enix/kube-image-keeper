@@ -65,7 +65,8 @@ Rationale in [0005](./0005-decision-log-filter.md).
 - [0004 — Ginkgo everywhere as the single test framework](./0004-test-framework.md):
   Ginkgo/Gomega is the only test framework, `DescribeTable` for tables, no
   `[]struct{}` + `t.Run`. Section "Fast feedback" superseded by
-  [0011](./0011-envtest-suites-skip-in-short-mode.md).
+  [0011](./0011-envtest-suites-skip-in-short-mode.md). Section "Decision" superseded by
+  [0014](./0014-e2e-framework-for-the-smoke-suite.md).
 - [0005 — notes only for decisions that outlive their commit](./0005-decision-log-filter.md):
   the commit body is the default; a note needs the filter above and stays short.
 - [0006 — Task replaces the Makefile](./0006-taskfile.md): commands live in
@@ -93,3 +94,7 @@ Rationale in [0005](./0005-decision-log-filter.md).
   pull requests as one required check; it fails without the `e2e-ready` label or while
   `fixup!` commits remain, passes without running when no path the suite depends on
   changed, and runs the suite otherwise.
+- [0014 — e2e-framework for the smoke suite on existing clusters](./0014-e2e-framework-for-the-smoke-suite.md):
+  Ginkgo stays the only framework except `test/smoke/`, which runs on
+  `sigs.k8s.io/e2e-framework` with a client pinned to an explicit `--kubeconfig` and
+  `--context`.
