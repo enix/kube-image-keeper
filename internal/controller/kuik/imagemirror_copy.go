@@ -91,14 +91,20 @@ func (st *mirrorState) refusesDeletion() bool {
 	return st.deleteUnsupported
 }
 
-// release returns the references of the previous reconcile no selected pod runs any more,
-// and remembers live for the next one. The first reconcile of a process releases nothing:
-// the sweep finds what fell out of use while it was not running.
+// remember records live as the references of the last reconcile whose status was written.
+func (st *mirrorState) remember(live []imagepath.Reference) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.live = live
+}
+
+// release returns the references of the last remembered reconcile no selected pod runs any
+// more. The first reconcile of a process releases nothing: the sweep finds what fell out of
+// use while it was not running.
 func (st *mirrorState) release(live []imagepath.Reference) []imagepath.Reference {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	previous := st.live
-	st.live = live
 	running := map[string]bool{}
 	for _, ref := range live {
 		running[ref.String()] = true
@@ -116,6 +122,9 @@ func (st *mirrorState) release(live []imagepath.Reference) []imagepath.Reference
 type driftEntry struct {
 	upstream, copied string
 	at               time.Time
+	// announced is set once CopyOutOfDate was emitted for it: an entry beyond the list
+	// capacity is missing from the previous status.
+	announced bool
 }
 
 // copySource is the candidates an owed reference may be read from, in the order the webhook
@@ -146,6 +155,9 @@ type copyFailure struct {
 	// registry is the side that failed: the source host, or the destination host.
 	registry string
 	at       time.Time
+	// announced is set once ImageUnrecoverable was emitted for a SourceNotFound failure: an
+	// entry beyond the list capacity is missing from the previous status.
+	announced bool
 }
 
 func newMirrorState() *mirrorState {
@@ -480,6 +492,9 @@ func (st *mirrorState) ended() {
 
 // fail records failure for ref, reported at the next status write. st.mu is held.
 func (st *mirrorState) fail(ref string, failure copyFailure) {
+	if previous, ok := st.failed[ref]; ok && previous.reason == failure.reason {
+		failure.announced = previous.announced
+	}
 	st.failed[ref] = failure
 	st.fresh = append(st.fresh, kuikv1alpha1.FailedImageCopy{Ref: ref, Reason: failure.reason})
 }
@@ -647,10 +662,16 @@ func (r *ImageMirrorReconciler) reportFailures(im *kuikv1alpha1.ImageMirror, st 
 		r.recorder.Eventf(im, nil, corev1.EventTypeWarning, "ImageCopyFailed", "Copy", "%s", event.Message)
 	}
 	for _, f := range coalesced {
-		if f.Reason == kuikv1alpha1.CopySourceNotFound && previous[f.Ref].Reason != kuikv1alpha1.CopySourceNotFound {
+		failure, ok := st.failed[f.Ref]
+		if !ok || failure.reason != kuikv1alpha1.CopySourceNotFound || failure.announced {
+			continue
+		}
+		if previous[f.Ref].Reason != kuikv1alpha1.CopySourceNotFound {
 			r.recorder.Eventf(im, nil, corev1.EventTypeWarning, "ImageUnrecoverable", "Copy",
 				"No source can supply %s any more; pods still running it do so from a node cache", f.Ref)
 		}
+		failure.announced = true
+		st.failed[f.Ref] = failure
 	}
 	return entries
 }

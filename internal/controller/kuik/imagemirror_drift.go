@@ -133,10 +133,12 @@ func (r *ImageMirrorReconciler) reportDrift(im *kuikv1alpha1.ImageMirror, st *mi
 		entry := kuikv1alpha1.MirrorDriftedImage{Ref: ref, UpstreamDigest: drift.upstream, CopiedDigest: drift.copied, Since: metav1.NewTime(drift.at)}
 		if p, ok := previous[ref]; ok {
 			entry.Since = p.Since
-		} else if im.Spec.DriftPolicy == kuikv1alpha1.DriftPolicyWarn {
+		} else if im.Spec.DriftPolicy == kuikv1alpha1.DriftPolicyWarn && !drift.announced {
 			r.recorder.Eventf(im, nil, corev1.EventTypeWarning, "CopyOutOfDate", "Check",
 				"The upstream tag %s moved to %s, the mirror keeps serving %s", ref, drift.upstream, drift.copied)
 		}
+		drift.announced = true
+		st.drifted[ref] = drift
 		entries = append(entries, entry)
 	}
 	slices.SortFunc(entries, func(a, b kuikv1alpha1.MirrorDriftedImage) int {
