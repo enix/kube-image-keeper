@@ -7,7 +7,11 @@ paths:
 
 - **Reconcilers**: idempotent; re-fetch the object before updating it; report state with
   `metav1.Condition`; watch secondary resources with `Owns()` / `Watches()` rather than
-  polling with `RequeueAfter`; use finalizers only for external resources.
+  polling with `RequeueAfter`; use finalizers only for external resources. State kept in
+  memory and reported in the status is seeded from the status on the process's first
+  reconcile of the object: otherwise a restart starts from empty memory, rewrites those
+  status lists empty and announces their events again. The count of what a capped status
+  list samples comes from that memory, never from the list.
 - **API types**: follow the
   [Kubernetes API conventions](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md);
   `metav1.Time` for dates, validation and default markers on fields. The CRD schema is the

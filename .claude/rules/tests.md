@@ -22,6 +22,9 @@ paths:
 - **A wrong test is reported, never edited to pass.** A spec that contradicts `docs/v3/` or
   cannot be written as stated goes to the maintainer with the section it relies on. It
   changes only with the maintainer's approval, in its own `test` commit.
+- **The test changes of a review round go to the maintainer at once**, before any of them is
+  committed: the list of the `It` texts added, changed or removed
+  (`task test-outline DIFF=<ref>`), the diff available, not one request per spec.
 - **Regression tests follow a fix.** When a review (human, `spec-reviewer`, CodeRabbit)
   finds a bug the outline missed, the fix may come first and its regression spec in its own
   `test` commit after it. That commit says it is one: subject
@@ -29,6 +32,13 @@ paths:
   that found the bug, the component or commit subject that carries the fix (never a sha:
   the branch is rebased before merge, only hashes on `main` are stable), and that the specs
   pin the fix. The PR description names it in one line.
+- **A late batch of review fixes goes at the end of the branch.** When the fixes of a review
+  round touch code that several later commits rewrite, retargeting each as a `fixup!` turns
+  the autosquash into a cascade of conflicts: commit them instead as regression pairs on top
+  of the branch, a `test(<scope>): add regression specs for <what>` commit then the change it
+  pins. This is an exception to the `fixup!` rule for review fixes of the
+  [`pull-request`](../skills/pull-request/SKILL.md) skill, next to the regression spec of a
+  bug the outline missed.
 - **A test exercises a behaviour, not a value.** Every spec must be able to fail on a
   change worth catching. Do not write a spec that reads a literal back (a field of a
   hard-coded list, a constant), that compares a file to a copy of itself, or that repeats
@@ -41,6 +51,13 @@ paths:
   - **unit**: a mapping or a parser gets one `Entry` per distinct input value (each status
     code of an HTTP-to-reason mapping). A test that checks one row does not prove the
     mapping. A unit spec may also pin something basic.
+- **envtest is not a cluster.** Its client is a cluster admin, so RBAC never refuses it, and
+  the in-memory registries
+  answer on loopback, where go-containerregistry speaks plain HTTP whatever `insecure` says.
+  A behaviour that depends on credentials needs a fixture that requires them
+  (`registrytest.WithBasicAuth`); one that depends on RBAC or on HTTPS needs an e2e spec.
+  Every RBAC rule a change grants gets its entry in the e2e RBAC table of
+  `test/e2e/e2e_test.go`, one verb standing for the verbs granted together.
 - **Suites** are `suite_test.go` files on envtest and load the CRDs from
   `config/crd/bases/`: run `task manifests` before testing a type change.
 - **An envtest suite skips itself in short mode**
