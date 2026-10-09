@@ -4,6 +4,7 @@ run:
   # Every build tag of the repository (also in the vet task), or the files behind it go unlinted.
   build-tags:
     - e2e
+    - smoke
 linters:
   default: none
   enable:

@@ -114,7 +114,7 @@ tasks:
   vet:
     desc: Run go vet
     cmds:
-      - go vet -tags e2e ./...
+      - go vet -tags e2e,smoke ./...
 
   lint:
     desc: Run golangci-lint
