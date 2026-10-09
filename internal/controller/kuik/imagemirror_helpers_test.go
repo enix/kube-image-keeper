@@ -3,9 +3,11 @@ package kuik
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -15,10 +17,13 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	clocktesting "k8s.io/utils/clock/testing"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
@@ -115,6 +120,36 @@ func (h *mirrorHarness) withListCapacity(capacity int) {
 		Config:                   h.config,
 		Clock:                    h.clock,
 		ListCapacity:             capacity,
+	})
+	Expect(err).NotTo(HaveOccurred())
+	h.reconciler.Elected(h.clock.Now().Add(-time.Minute))
+}
+
+// withStatusConflict builds the reconciler again on a client whose next status write of an
+// ImageMirror fails with a conflict whenever conflict is set, which that write clears. Its
+// series go to a new registry.
+func (h *mirrorHarness) withStatusConflict(conflict *atomic.Bool) {
+	GinkgoHelper()
+	h.metrics = prometheus.NewRegistry()
+	watching, err := client.NewWithWatch(cfg, client.Options{Scheme: k8sClient.Scheme()})
+	Expect(err).NotTo(HaveOccurred())
+	c := interceptor.NewClient(watching, interceptor.Funcs{
+		SubResourceUpdate: func(ctx context.Context, c client.Client, subResource string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+			if _, ok := obj.(*kuikv1alpha1.ImageMirror); ok && subResource == "status" && conflict.CompareAndSwap(true, false) {
+				return apierrors.NewConflict(kuikv1alpha1.GroupVersion.WithResource("imagemirrors").GroupResource(), obj.GetName(), errors.New("injected"))
+			}
+			return c.SubResource(subResource).Update(ctx, obj, opts...)
+		},
+	})
+	h.reconciler, err = NewImageMirrorReconciler(c, k8sClient.Scheme(), ImageMirrorOptions{
+		APIReader:                k8sClient,
+		ClusterResourceNamespace: installNamespace,
+		Recorder:                 h.recorder,
+		Registerer:               h.metrics,
+		Scheduler:                h.scheduler,
+		Registry:                 kuikregistry.NewClient(),
+		Config:                   h.config,
+		Clock:                    h.clock,
 	})
 	Expect(err).NotTo(HaveOccurred())
 	h.reconciler.Elected(h.clock.Now().Add(-time.Minute))

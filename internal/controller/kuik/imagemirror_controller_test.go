@@ -2,11 +2,13 @@ package kuik
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -957,6 +959,42 @@ var _ = Describe("ImageMirror Controller", func() {
 			Expect(h.destination.Requests(http.MethodDelete, "")).To(BeEmpty())
 		})
 
+		It("keeps pendingDeletion as it was in a pass where the destination does not answer", func() {
+			h.mirror()
+			h.orphan("old", own)
+			h.reconcile()
+			h.pass()
+			h.reconcile()
+			before := h.status().PendingDeletion
+			Expect(before).To(HaveLen(1))
+
+			h.destination.Intercept(registrytest.Status(http.MethodGet, "/tags/list", http.StatusInternalServerError, nil))
+			h.pass()
+			h.reconcile()
+			Expect(h.status().PendingDeletion).To(Equal(before))
+		})
+
+		It("records the release of a reference with its origin on the next reconcile when the status write of its release lost a race", func() {
+			var conflict atomic.Bool
+			h.withStatusConflict(&conflict)
+			src := h.source()
+			src.Push("acme/job:v1", registrytest.Image())
+			pod := createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/job:v1"})
+			h.mirror()
+			h.copyAll(1)
+
+			setPhase(pod, corev1.PodSucceeded)
+			conflict.Store(true)
+			h.reconcile()
+			Expect(conflict.Load()).To(BeFalse())
+			h.reconcile()
+			Expect(h.status().PendingDeletion).To(ContainElement(HaveField("Origin", src.Host()+"/acme/job:v1")))
+
+			h.pass()
+			h.reconcile()
+			Expect(h.recorder.withReason("OrphanTagFound")).To(BeEmpty())
+		})
+
 		It("re-copies a retained reference missing from the destination", func() {
 			src := h.source()
 			src.Push("acme/job:v1", registrytest.Image())
@@ -1418,6 +1456,54 @@ var _ = Describe("ImageMirror Controller", func() {
 			Expect(pressure.Reason).To(Equal(kuikv1alpha1.ReasonListTruncated))
 		})
 
+		Context("with more drifted and missing images than the list capacity", func() {
+			// beyondCapacity drifts over copied tags, then runs over images no source holds, until
+			// both lists are truncated. It returns the registry missing those images.
+			beyondCapacity := func() *registrytest.Registry {
+				GinkgoHelper()
+				h.mirror(withDrift(kuikv1alpha1.DriftPolicyWarn))
+				_, sources, refs := h.manyImages(over, false)
+				h.windowsUntil(copiedAll)
+				moved := registrytest.Image()
+				for i, ref := range refs {
+					sources[i%len(sources)].Push(ref, moved)
+				}
+				h.windowsUntil(func() bool { return h.status().Truncated["driftedImages"] == 1 })
+				missing := h.source()
+				gone := make([]container, 0, over)
+				for i := range over {
+					gone = append(gone, container{name: fmt.Sprintf("gone%d", i), image: fmt.Sprintf("%s/acme/gone%d:v1", missing.Host(), i)})
+				}
+				createPod(h.namespace(), unique("pod"), gone...)
+				h.windowsUntil(func() bool { return h.status().Truncated["failedImageCopies"] == 1 })
+				return missing
+			}
+
+			It("counts every drifted and missing source image in images.copy, beyond the list capacity", func() {
+				beyondCapacity()
+				counts := h.status().Images.Copy
+				Expect(counts.Drifted).To(Equal(int32(over)))
+				Expect(counts.MissingSource).To(Equal(int32(over)))
+			})
+
+			It("emits CopyOutOfDate and ImageUnrecoverable once for an entry beyond the list capacity", func() {
+				missing := beyondCapacity()
+				// Every missing image is tried again, each copy reported by a reconcile.
+				missing.Reset()
+				h.windowsUntil(func() bool {
+					for i := range over {
+						if len(missing.Requests(http.MethodHead, fmt.Sprintf("/acme/gone%d/manifests/", i))) == 0 {
+							return false
+						}
+					}
+					return true
+				})
+				h.reconcile()
+				Expect(h.recorder.withReason("CopyOutOfDate")).To(HaveLen(over))
+				Expect(h.recorder.withReason("ImageUnrecoverable")).To(HaveLen(over))
+			})
+		})
+
 		It("never caps repositories, pendingDeletion or checks.registries", func() {
 			h.mirror(withDrift(kuikv1alpha1.DriftPolicyWarn))
 			pods, _, _ := h.manyImages(over, true)
@@ -1538,3 +1624,19 @@ var _ = Describe("ImageMirror Controller", func() {
 		})
 	})
 })
+
+var _ = DescribeTable("sourceFailureReason maps the failure to read a copy source to a copy reason",
+	func(err error, want kuikv1alpha1.CopyFailureReason) {
+		Expect(sourceFailureReason(err)).To(Equal(want))
+	},
+	Entry("a missing manifest to SourceNotFound",
+		&kuikregistry.CheckError{Reason: kuikv1alpha1.CheckManifestNotFound, Err: errors.New("404")}, kuikv1alpha1.CopySourceNotFound),
+	Entry("a refused credential to Unauthorized",
+		&kuikregistry.CheckError{Reason: kuikv1alpha1.CheckUnauthorized, Err: errors.New("401")}, kuikv1alpha1.CopyUnauthorized),
+	Entry("an exhausted quota to QuotaExceeded",
+		&kuikregistry.CheckError{Reason: kuikv1alpha1.CheckQuotaExceeded, Err: errors.New("429")}, kuikv1alpha1.CopyQuotaExceeded),
+	Entry("an unreachable registry to SourceUnreachable",
+		&kuikregistry.CheckError{Reason: kuikv1alpha1.CheckUnreachable, Err: errors.New("503")}, kuikv1alpha1.CopySourceUnreachable),
+	Entry("an error that is no check to SourceUnreachable",
+		errors.New("credentials cannot be resolved"), kuikv1alpha1.CopySourceUnreachable),
+)
