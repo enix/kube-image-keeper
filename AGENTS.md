@@ -116,6 +116,15 @@ cert-manager). Read the one that matters before editing.
 page under `docs/`, the `# --` comments of `values.yaml` for chart values, this file or the
 rule when the layout or the rules change.
 
+**Do what the kubelet does.** When kuik does something the kubelet already does
+(credentials, Secret formats, anonymous fallback, retries and backoff, references and
+digests, timeouts), do the same or the closest possible, so kuik feels transparent: find
+what the kubelet does, cite it, and recommend it first. Follow it when the reasons are the
+same: the finalizer backoff of an ImageMirror keeps its 30-minute cap, since it waits for
+pods, not for a pull. Where `docs/v3/` decides otherwise, the spec stands
+([0010](./notes/0010-spec-as-is-until-the-alpha-runs.md)): recommend the kubelet behaviour
+to the maintainers, never edit the spec to get it.
+
 ## Docs
 
 User documentation lives under [`docs/`](./docs/) and is published from `main` at
