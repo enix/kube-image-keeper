@@ -37,7 +37,7 @@ its GA.
   `test(<scope>): add regression specs for <what>`, body naming the review, the component
   or commit subject of the fix (never a sha: hashes change on rebase) and that the specs pin
   the fix ([`tests.md`](../../rules/tests.md)). The description
-  names it in one line.
+  names it in one line. A late batch of review fixes is the other exception (step 5).
 - Conventional commit subjects with the scopes of `.conform.yaml`; the PR title is the
   subject of the main commit, or a subject that covers them all.
 
@@ -117,7 +117,9 @@ describes a dropped file misleads the reviewer and CodeRabbit alike.
 - Do not push while a review runs: CodeRabbit drops it ("head changed") and must be asked
   again.
 - Triage each comment: fix it (a `fixup!` commit), or accept it as a limit and say so in
-  the description.
+  the description. An exception is a late batch of fixes touching code that several later
+  commits rewrite: regression pairs at the end of the branch instead
+  ([`tests.md`](../../rules/tests.md)).
 - Resolve a thread once its fix is pushed. Reply only when resolving without a fix: one
   sentence on why. CONTRIBUTING asks the author to answer reviews: post the reply yourself,
   the outbound hook asks the user before every write on GitHub.
