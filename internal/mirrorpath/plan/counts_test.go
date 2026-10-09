@@ -12,8 +12,9 @@ import (
 
 var _ = Describe("Counts", func() {
 	const (
-		app  = "quay.io/acme/app:v1"
-		tool = "quay.io/acme/tool:v2"
+		app   = "quay.io/acme/app:v1"
+		tool  = "quay.io/acme/tool:v2"
+		other = "quay.io/acme/other:v3"
 	)
 
 	parse := func(s string) imagepath.Reference {
@@ -91,21 +92,24 @@ var _ = Describe("Counts", func() {
 		Expect(Counts(o).Available).To(Equal(int32(1)))
 	})
 
-	It("counts as drifted the driftedImages entries", func() {
-		o := observed(app)
+	It("counts as drifted every drifted reference, beyond the capped driftedImages", func() {
+		o := observed(app, tool)
+		o.Drifted = map[string]bool{app: true, tool: true}
 		o.Status.DriftedImages = []kuikv1alpha1.MirrorDriftedImage{{Ref: app, UpstreamDigest: "sha256:b", CopiedDigest: "sha256:a"}}
 
-		Expect(Counts(o).Drifted).To(Equal(int32(1)))
+		Expect(Counts(o).Drifted).To(Equal(int32(2)))
 	})
 
-	It("counts as missingSource the failedImageCopies entries with reason SourceNotFound", func() {
-		o := observed(app, tool)
-		o.Status.FailedImageCopies = []kuikv1alpha1.FailedImageCopy{
-			{Ref: app, Reason: kuikv1alpha1.CopySourceNotFound},
-			{Ref: tool, Reason: kuikv1alpha1.CopyQuotaExceeded},
+	It("counts as missingSource every failing copy with reason SourceNotFound, beyond the capped failedImageCopies", func() {
+		o := observed(app, tool, other)
+		o.Failed = map[string]kuikv1alpha1.CopyFailureReason{
+			app:   kuikv1alpha1.CopySourceNotFound,
+			tool:  kuikv1alpha1.CopySourceNotFound,
+			other: kuikv1alpha1.CopyQuotaExceeded,
 		}
+		o.Status.FailedImageCopies = []kuikv1alpha1.FailedImageCopy{{Ref: app, Reason: kuikv1alpha1.CopySourceNotFound}}
 
-		Expect(Counts(o).MissingSource).To(Equal(int32(1)))
+		Expect(Counts(o).MissingSource).To(Equal(int32(2)))
 	})
 })
 
