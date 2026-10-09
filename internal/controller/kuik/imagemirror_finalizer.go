@@ -176,9 +176,11 @@ func (r *ImageMirrorReconciler) drop(name string) {
 	}
 }
 
-// stop removes the copy queues and the drift rings of the mirror name, and keeps its memory.
+// stop removes the copy queues, the drift rings and the destination scan of the mirror name,
+// and keeps its memory.
 func (r *ImageMirrorReconciler) stop(name string, st *mirrorState) {
 	owner := pacing.Owner{Kind: routing.KindImageMirror, Name: name}
+	r.scheduler.RemoveDestinationScan(owner)
 	st.mu.Lock()
 	queues, rings := st.queues, st.rings
 	st.queues, st.rings = map[string]bool{}, map[string]bool{}
