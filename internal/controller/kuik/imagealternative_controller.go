@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -59,8 +58,6 @@ type ImageAlternativeReconciler struct {
 	tracker   *routingstatus.Tracker
 	limiter   *capped.Limiter
 	readiness *condition.Readiness
-	// elected is set once the lease is held; no status is written before it.
-	elected atomic.Bool
 }
 
 // ImageAlternativeOptions are what an ImageAlternativeReconciler reads and reports with.
@@ -105,11 +102,7 @@ func NewImageAlternativeReconciler(c client.Client, scheme *runtime.Scheme, opts
 // Elected records when the lease was acquired: pod events go only to pods created since.
 func (r *ImageAlternativeReconciler) Elected(at time.Time) {
 	r.tracker.Elected(at)
-	r.elected.Store(true)
 }
-
-// electionWait is how long a reconcile that runs before Elected waits before trying again.
-const electionWait = time.Second
 
 // +kubebuilder:rbac:groups=kuik.enix.io,resources=imagealternatives,verbs=get;list;watch,roleName=reconciler
 // +kubebuilder:rbac:groups=kuik.enix.io,resources=imagealternatives/status,verbs=update;patch,roleName=reconciler
@@ -121,10 +114,8 @@ const electionWait = time.Second
 
 // Reconcile writes the status of one ImageAlternative.
 func (r *ImageAlternativeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	// A report before the lease time is known would persist a staleRewrites entry without its
-	// RewriteStale, which the next leader would then never announce.
-	if !r.elected.Load() {
-		return ctrl.Result{RequeueAfter: electionWait}, nil
+	if wait := r.tracker.ElectionWait(); wait > 0 {
+		return ctrl.Result{RequeueAfter: wait}, nil
 	}
 	resource := routing.Resource{Kind: routing.KindImageAlternative, Name: req.Name}
 

@@ -174,9 +174,20 @@ func (t *Tracker) Elected(at time.Time) {
 	t.announced = map[routing.Resource]map[announcement]bool{}
 }
 
+// electionWait is how long a reconcile that runs before Elected waits before trying again.
+const electionWait = time.Second
+
 // ElectionWait returns how long a reconcile must wait before writing a status, zero once the
-// lease is acquired.
+// lease is acquired. The controller only runs once the lease is held, but it and the runnable
+// that calls Elected start concurrently, in no guaranteed order: the first reconciles may run
+// before the lease time is known. A report then would persist a staleRewrites entry without
+// its RewriteStale, which the next leader would never announce.
 func (t *Tracker) ElectionWait() time.Duration {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.elected.IsZero() {
+		return electionWait
+	}
 	return 0
 }
 
