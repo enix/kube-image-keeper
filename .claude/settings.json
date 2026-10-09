@@ -30,7 +30,8 @@
       "Bash(git diff *)",
       "Bash(git status *)",
       "Bash(helm lint *)",
-      "Bash(helm template *)"
+      "Bash(helm template *)",
+      "Bash(task smoke-check *)"
     ],
     "ask": [
       "Bash(task *deploy*)",
@@ -38,7 +39,9 @@
       "Bash(task *docker-*)",
       "Bash(task *test-e2e*)",
       "Bash(task run*)",
-      "Bash(task * run*)"
+      "Bash(task * run*)",
+      "Bash(task smoke-run*)",
+      "Bash(task smoke-cleanup*)"
     ],
     "deny": [
       "Read(**/.env)",

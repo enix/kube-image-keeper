@@ -114,7 +114,7 @@ tasks:
   vet:
     desc: Run go vet
     cmds:
-      - go vet -tags e2e ./...
+      - go vet -tags e2e,smoke ./...
 
   lint:
     desc: Run golangci-lint
@@ -218,6 +218,35 @@ tasks:
     desc: Delete the Kind cluster used by the e2e tests
     cmds:
       - '{{.KIND}} delete cluster --name {{.KIND_CLUSTER}}'
+
+  # The smoke suite runs against a cluster where kuik is installed, possibly a shared one.
+  # CLI_ARGS go to the test binary after -args, where a -test.* flag would override the -run
+  # of the task and --cleanup-only would delete: smoke-check refuses both, so it stays
+  # read-only whatever is passed (it runs without asking). See .claude/skills/preprod-smoke.
+  smoke-check:
+    desc: Read-only smoke checks of the installed kuik (-- --kubeconfig PATH --context NAME [--kuik-version V])
+    # Through the environment, never templated into the script: a $(...) argument would run.
+    env:
+      SMOKE_CLI_ARGS: '{{.CLI_ARGS}}'
+    preconditions:
+      # task quotes an argument that starts with a dash and holds a dot: '-test.run=...'.
+      - sh: |
+          case " $SMOKE_CLI_ARGS" in
+            *" -test."* | *" '-test."* | *" --test."* | *" '--test."* | *cleanup-only*) exit 1 ;;
+          esac
+        msg: 'smoke-check takes the suite flags only: no -test.* flag and no --cleanup-only (use smoke-run or smoke-cleanup)'
+    cmds:
+      - go test -tags=smoke ./test/smoke/ -count=1 -v -run '^TestInstall$' -args {{.CLI_ARGS}}
+
+  smoke-run:
+    desc: Smoke tests that create and delete their test resources on the cluster (-- --kubeconfig PATH --context NAME ...)
+    cmds:
+      - go test -tags=smoke ./test/smoke/ -count=1 -v -timeout=20m -run '^TestRouting$' -args {{.CLI_ARGS}}
+
+  smoke-cleanup:
+    desc: Delete the resources a failed smoke run left (-- --kubeconfig PATH --context NAME)
+    cmds:
+      - go test -tags=smoke ./test/smoke/ -count=1 -v -args --cleanup-only {{.CLI_ARGS}}
 
   conform:
     desc: Lint commit messages (COMMIT_MSG_FILE if set, commits since BASE_BRANCH otherwise, which must hold no merge commit)
