@@ -562,7 +562,10 @@ func (s *Scheduler) RegistryChecks(owner Owner) []kuikv1alpha1.RegistryCheck {
 				Cursor:   r.cursor,
 			}
 			if r.cycleStarted != nil {
-				check.CycleStarted = &metav1.Time{Time: *r.cycleStarted}
+				// To the second, as the API server stores it: a finer time would differ from
+				// its own read-back and rewrite the status on every reconcile.
+				started := metav1.NewTime(*r.cycleStarted).Rfc3339Copy()
+				check.CycleStarted = &started
 			}
 			if r.cycleDuration != nil {
 				check.CycleDuration = &metav1.Duration{Duration: *r.cycleDuration}
