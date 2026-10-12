@@ -1,0 +1,23 @@
+# since: 3.0.0-alpha.3
+# Test 11, first half: an Always ImageAlternative to the user's private repository, with the
+# user's Secret. Applied only with --private-repo and --pull-auth; setup then waits for its
+# pull Secret before 11-private-pod.yaml.
+apiVersion: kuik.enix.io/v1alpha1
+kind: ImageAlternative
+metadata:
+  name: kuik-test-private
+spec:
+  namespaceSelector:
+    matchLabels:
+      kuik.enix.io/test: "true"
+      kubernetes.io/metadata.name: kuik-test
+  podSelector:
+    matchLabels:
+      kuik-test/routing: private
+  rewritePolicy: Always
+  alternatives:
+    - repository: kuik-test-private.invalid/nginx/nginx-unprivileged
+    - repository: ${PRIVATE_REPO}
+      auth:
+        secretRef:
+          name: ${PULL_AUTH}
