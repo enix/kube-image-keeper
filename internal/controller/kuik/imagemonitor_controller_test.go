@@ -29,6 +29,7 @@ import (
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/auth"
+	"github.com/enix/kube-image-keeper/internal/config"
 	kuikregistry "github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/enix/kube-image-keeper/internal/registry/pacing"
 	"github.com/enix/kube-image-keeper/internal/registry/registrytest"
@@ -581,9 +582,13 @@ var _ = Describe("ImageMonitor", func() {
 			series := map[string]string{labelKind: kindImageMonitorLabel, labelName: name}
 			_, ok := gauge(registry, "kuik_images_tracked", series)
 			Expect(ok).To(BeTrue())
+			_, ok = gauge(registry, "kuik_status_list_entries", series)
+			Expect(ok).To(BeTrue())
 			Expect(k8sClient.Delete(ctx, im)).To(Succeed())
 			reconcileIt()
 			_, ok = gauge(registry, "kuik_images_tracked", series)
+			Expect(ok).To(BeFalse())
+			_, ok = gauge(registry, "kuik_status_list_entries", series)
 			Expect(ok).To(BeFalse())
 		})
 
@@ -1538,6 +1543,259 @@ var _ = Describe("ImageMonitor", func() {
 			reconcileIt()
 			window()
 			Expect(availability().Available).To(Equal(int32(1)))
+		})
+	})
+
+	Context("bounded lists", func() {
+		// The cap holds whatever its value: a small one is exceeded by a handful of images.
+		const capacity, over = 5, 6
+		// unavailableList is the status field the capped list of failing origins goes to.
+		const unavailableList = "unavailableImages"
+
+		var (
+			// stopScheduler stops the scheduler, as a process ending would.
+			stopScheduler context.CancelFunc
+			// checkPacing is the config the scheduler paces the checks with.
+			checkPacing *config.Config
+		)
+
+		// start builds a reconciler capping its lists at capacity, checking on a scheduler of
+		// its own, as a new process would. Its series go to a new registry.
+		start := func() {
+			GinkgoHelper()
+			scheduler := pacing.New(clock, checkPacing)
+			schedulerCtx, stop := context.WithCancel(ctx)
+			go func() { _ = scheduler.Start(schedulerCtx) }()
+			DeferCleanup(stop)
+			stopScheduler = stop
+			registry = prometheus.NewRegistry()
+			var err error
+			reconciler, err = NewImageMonitorReconciler(k8sClient, k8sClient.Scheme(), ImageMonitorOptions{
+				Recorder:     recorder,
+				Registerer:   registry,
+				Clock:        clock,
+				Scheduler:    scheduler,
+				Registry:     kuikregistry.NewClient(),
+				ListCapacity: capacity,
+			})
+			Expect(err).NotTo(HaveOccurred())
+		}
+		BeforeEach(func() {
+			checkPacing = mirrorConfig()
+			start()
+		})
+
+		restart := func() {
+			GinkgoHelper()
+			stopScheduler()
+			start()
+		}
+
+		// failing runs n images a registry lacks, acme/gone0:v1 onwards, and opens one window
+		// per image, so that each one fails a minute after the previous one. It returns them.
+		failing := func(n int) (*registrytest.Registry, []string) {
+			GinkgoHelper()
+			src := registrytest.New()
+			DeferCleanup(src.Close)
+			refs := make([]string, 0, n)
+			containers := make([]container, 0, n)
+			for i := range n {
+				ref := fmt.Sprintf("%s/acme/gone%d:v1", src.Host(), i)
+				refs = append(refs, ref)
+				containers = append(containers, running(fmt.Sprintf("c%d", i), ref))
+			}
+			newMonitor(name)
+			runningPod(selectedNamespace(), containers)
+			reconcileIt()
+			for i := range n {
+				Eventually(clock.HasWaiters).Should(BeTrue())
+				clock.Step(time.Minute)
+				Eventually(func() int32 {
+					reconcileIt()
+					return originOf(name).Unavailable
+				}).Should(Equal(int32(i + 1)))
+			}
+			return src, refs
+		}
+
+		pressure := func() *metav1.Condition {
+			return meta.FindStatusCondition(monitorStatusOf(name).Conditions, kuikv1alpha1.ConditionListCapacityPressure)
+		}
+
+		It("sets ListCapacityPressure once an anomaly list nears the cap", func() {
+			failing(capacity - 1)
+			Expect(monitorStatusOf(name).UnavailableImages).To(HaveLen(capacity - 1))
+			Expect(pressure()).NotTo(BeNil())
+			Expect(pressure().Status).To(Equal(metav1.ConditionTrue))
+			Expect(pressure().Reason).To(Equal(kuikv1alpha1.ReasonListNearCapacity))
+			Expect(monitorStatusOf(name).Truncated).To(BeEmpty())
+		})
+
+		It("caps its anomaly lists, keeping the oldest entries and recording the rest in truncated", func() {
+			// The images fail in the reverse order of their references: acme/gone5 first.
+			src := registrytest.New()
+			DeferCleanup(src.Close)
+			im := newMonitor(name)
+			refs := make([]string, 0, over)
+			containers := make([]container, 0, over)
+			for i := range over {
+				ref := fmt.Sprintf("%s/acme/gone%d:v1", src.Host(), i)
+				refs = append(refs, ref)
+				containers = append(containers, running(fmt.Sprintf("c%d", i), ref))
+				im.Status.UnavailableImages = append(im.Status.UnavailableImages, kuikv1alpha1.UnavailableImage{
+					Ref: ref, Reason: kuikv1alpha1.CheckManifestNotFound, Pods: 1,
+					Since: metav1.NewTime(clock.Now().Add(-time.Duration(i) * time.Minute)),
+				})
+			}
+			Expect(k8sClient.Status().Update(ctx, im)).To(Succeed())
+			runningPod(selectedNamespace(), containers)
+			reconcileIt()
+
+			status := monitorStatusOf(name)
+			kept := make([]string, 0, len(status.UnavailableImages))
+			for _, e := range status.UnavailableImages {
+				kept = append(kept, e.Ref)
+			}
+			Expect(kept).To(Equal([]string{refs[5], refs[4], refs[3], refs[2], refs[1]}))
+			Expect(status.Truncated).To(Equal(map[string]int32{unavailableList: 1}))
+			Expect(status.Images.Origin.Unavailable).To(Equal(int32(over)))
+			Expect(pressure()).NotTo(BeNil())
+			Expect(pressure().Reason).To(Equal(kuikv1alpha1.ReasonListTruncated))
+		})
+
+		It("holds truncated, ListTruncated and the unavailable count a restart read back until its rings checked every image again", func() {
+			src, _ := failing(over)
+			restart()
+			reconcileIt()
+			status := monitorStatusOf(name)
+			Expect(status.Truncated).To(Equal(map[string]int32{unavailableList: 1}))
+			Expect(status.Images.Origin.Unavailable).To(Equal(int32(over)))
+			Expect(pressure()).NotTo(BeNil())
+			Expect(pressure().Reason).To(Equal(kuikv1alpha1.ReasonListTruncated))
+
+			// The image the list left out answers again: the ring finds it on its lap.
+			src.Push("acme/gone5:v1", registrytest.Image())
+			Eventually(func() int32 {
+				if clock.HasWaiters() {
+					clock.Step(time.Minute)
+				}
+				reconcileIt()
+				return originOf(name).Available
+			}).Should(Equal(int32(1)))
+			Expect(monitorStatusOf(name).Truncated).To(BeEmpty())
+			Expect(originOf(name).Unavailable).To(Equal(int32(capacity)))
+		})
+
+		It("releases the counts a restart read back once every image it can check got a verdict, an unparseable reference aside", func() {
+			src, _ := failing(over)
+			// A reference no ring can check: an uppercase repository does not parse.
+			runningPod(selectedNamespace(), []container{running(appContainer, "acme/BadName:v1")})
+			reconcileIt()
+
+			restart()
+			reconcileIt()
+			Expect(monitorStatusOf(name).Truncated).To(Equal(map[string]int32{unavailableList: 1}))
+
+			// The image the list left out answers again: once the ring has read it, every image
+			// it can check has a verdict.
+			src.Push("acme/gone5:v1", registrytest.Image())
+			Eventually(func() int32 {
+				if clock.HasWaiters() {
+					clock.Step(time.Minute)
+				}
+				reconcileIt()
+				return originOf(name).Available
+			}).Should(Equal(int32(1)))
+			Expect(monitorStatusOf(name).Truncated).To(BeEmpty())
+			Expect(originOf(name).Unavailable).To(Equal(int32(capacity)))
+		})
+
+		It("never counts more images with a verdict than it tracks after a restart", func() {
+			// Six images fail on a registry checked every minute, then one on a registry checked
+			// every hour: the newest failures, acme/gone5 and the slow one, are left out.
+			src := registrytest.New()
+			DeferCleanup(src.Close)
+			slow := registrytest.New()
+			DeferCleanup(slow.Close)
+			checkPacing.Registries.Hosts = map[string]config.RegistryPacing{slow.Host(): {Check: &config.Window{
+				Interval: &config.Duration{Duration: time.Hour}, Timeout: &config.Duration{},
+			}}}
+			restart()
+			newMonitor(name)
+			containers := make([]container, 0, over+1)
+			containers = append(containers, running("slow", slow.Host()+"/acme/gone:v1"))
+			for i := range over {
+				containers = append(containers, running(fmt.Sprintf("c%d", i), fmt.Sprintf("%s/acme/gone%d:v1", src.Host(), i)))
+			}
+			runningPod(selectedNamespace(), containers)
+			reconcileIt()
+			step := func(d time.Duration, unavailable int32) {
+				GinkgoHelper()
+				Eventually(clock.HasWaiters).Should(BeTrue())
+				clock.Step(d)
+				Eventually(func() int32 {
+					reconcileIt()
+					return originOf(name).Unavailable
+				}).Should(Equal(unavailable))
+			}
+			for i := range over {
+				step(time.Minute, int32(i+1))
+			}
+			step(time.Hour, over+1)
+			Expect(monitorStatusOf(name).Truncated).To(Equal(map[string]int32{unavailableList: 2}))
+
+			// A new process: acme/gone5 answers again before the slow registry is read.
+			restart()
+			reconcileIt()
+			src.Push("acme/gone5:v1", registrytest.Image())
+			Eventually(func() int32 {
+				if clock.HasWaiters() {
+					clock.Step(time.Minute)
+				}
+				reconcileIt()
+				return originOf(name).Available
+			}).Should(Equal(int32(1)))
+			origin := originOf(name)
+			Expect(origin.Available + origin.Unavailable).To(BeNumerically("<=", origin.Tracked))
+		})
+
+		It("never caps retainedImages", func() {
+			newMonitor(name)
+			ns := selectedNamespace()
+			runningPod(ns, []container{running(appContainer, thanosImage)})
+			containers := make([]container, 0, over)
+			for i := range over {
+				containers = append(containers, running(fmt.Sprintf("c%d", i), fmt.Sprintf("quay.io/acme/retained%d:v1", i)))
+			}
+			pod := runningPod(ns, containers)
+			reconcileIt()
+			deletePod(pod)
+			reconcileIt()
+			Expect(monitorStatusOf(name).RetainedImages).To(HaveLen(over))
+			Expect(monitorStatusOf(name).Truncated).To(BeEmpty())
+		})
+
+		It("keeps a series for every anomaly beyond the status cap", func() {
+			src, refs := failing(over)
+			Expect(monitorStatusOf(name).UnavailableImages).To(HaveLen(capacity))
+			for _, ref := range refs {
+				_, ok := gauge(registry, "kuik_image_origin_unavailable", map[string]string{
+					labelKind: kindImageMonitorLabel, labelName: name, labelImage: ref, labelRegistry: src.Host(),
+				})
+				Expect(ok).To(BeTrue(), ref)
+			}
+		})
+
+		It("exports the kuik_status_list_* series of its capped lists", func() {
+			failing(over)
+			labels := map[string]string{labelKind: kindImageMonitorLabel, labelName: name, "list": unavailableList}
+			entries, ok := gauge(registry, "kuik_status_list_entries", labels)
+			Expect(ok).To(BeTrue())
+			Expect(entries).To(Equal(float64(capacity)))
+			limit, ok := gauge(registry, "kuik_status_list_capacity", labels)
+			Expect(ok).To(BeTrue())
+			Expect(limit).To(Equal(float64(capacity)))
+			Expect(counter(registry, "kuik_status_list_dropped_total", labels)).To(Equal(1.0))
 		})
 	})
 })
