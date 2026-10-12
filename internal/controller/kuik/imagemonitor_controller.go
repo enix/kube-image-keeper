@@ -37,6 +37,7 @@ import (
 	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/enix/kube-image-keeper/internal/registry/pacing"
 	"github.com/enix/kube-image-keeper/internal/status/attribution"
+	"github.com/enix/kube-image-keeper/internal/status/capped"
 	"github.com/enix/kube-image-keeper/internal/status/condition"
 	"github.com/enix/kube-image-keeper/internal/status/imagemetrics"
 )
@@ -62,6 +63,7 @@ type ImageMonitorReconciler struct {
 
 	clock     clock.Clock
 	readiness *condition.Readiness
+	limiter   *capped.Limiter
 	metrics   *monitorMetrics
 	scheduler *pacing.Scheduler
 	registry  *registry.Client
@@ -92,8 +94,13 @@ type monitorMemory struct {
 	declared map[string]string
 	// emptySeen is set when the previous report found no pod while images were tracked.
 	emptySeen bool
+	// uid is the UID of the monitor this memory belongs to.
+	uid types.UID
 	// seeded is set once the verdicts were read back from the status.
 	seeded bool
+	// persisted is what the status held beyond its capped list when it was read back, kept
+	// until every tracked image has a verdict again; nil then.
+	persisted *persistedCounts
 	// rings are the registry hosts the monitor holds a check ring on.
 	rings map[string]bool
 
@@ -141,11 +148,20 @@ func NewImageMonitorReconciler(c client.Client, scheme *runtime.Scheme, opts Ima
 	if err != nil {
 		return nil, err
 	}
+	var capacity []capped.Option
+	if opts.ListCapacity > 0 {
+		capacity = append(capacity, capped.WithCapacity(opts.ListCapacity))
+	}
+	limiter, err := capped.NewLimiter(opts.Registerer, capacity...)
+	if err != nil {
+		return nil, err
+	}
 	r := &ImageMonitorReconciler{
 		Client:    c,
 		Scheme:    scheme,
 		clock:     opts.Clock,
 		readiness: readiness,
+		limiter:   limiter,
 		metrics:   metrics,
 		scheduler: opts.Scheduler,
 		registry:  opts.Registry,
@@ -212,7 +228,12 @@ func (r *ImageMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// remember records what this report saw, once the status it wrote holds it: a failed
 	// write leaves the memory as it was, so the next attempt retains the same images.
 	remember := func() {}
-	memory := r.memory(im.Name)
+	if previous := r.monitor(im.Name); previous != nil && previous.uid != im.UID {
+		// Deleted and created again under the same name while no reconcile saw it gone: the
+		// new monitor starts from its own status, never from the memory of the old one.
+		r.forget(ctx, im.Name)
+	}
+	memory := r.memory(im.Name, im.UID)
 	memory.seed(&im.Status)
 	s, notReady := monitorScope(&im)
 	// selected is set when the selectors parse, so that the rings follow what they select.
@@ -339,9 +360,22 @@ func (r *ImageMonitorReconciler) track(ctx context.Context, im *kuikv1alpha1.Ima
 			Ref: ref, Reason: v.reason, Since: metav1.NewTime(v.since), Pods: int32(len(declared[ref].pods)),
 		})
 	}
-	slices.SortFunc(unavailable, func(a, b kuikv1alpha1.UnavailableImage) int {
-		return cmp.Or(a.Since.Compare(b.Since.Time), cmp.Compare(a.Ref, b.Ref))
-	})
+	// unavailableImages is a sample, the oldest entries first; retainedImages is an inventory,
+	// never capped. See docs/v3/status.md, "Bounded lists".
+	pass := r.limiter.Begin(kindImageMonitor, im.Name)
+	unavailable = capped.Cap(pass, listUnavailableImages, unavailable,
+		func(e kuikv1alpha1.UnavailableImage) metav1.Time { return e.Since },
+		func(e kuikv1alpha1.UnavailableImage) string { return e.Ref })
+	// A restart reads back only the capped list: until every image a ring can check has a
+	// verdict again, the images it left out may still fail, so the report never goes below what
+	// the status persisted, within what the images with no verdict yet can account for. A
+	// reference that does not parse is on no ring and never gets a verdict: it holds nothing.
+	checked := checkable(tracked)
+	if held, ok := memory.held(checked); ok {
+		unknown := int32(max(len(checked)-len(verdicts), 0))
+		counts.Unavailable = max(counts.Unavailable, min(held.unavailable, counts.Unavailable+unknown))
+		pass.Hold(listUnavailableImages, min(held.truncated, max(counts.Unavailable-int32(len(unavailable)), 0)))
+	}
 
 	next.RetainedImages = retained
 	next.UnavailableImages = unavailable
@@ -358,6 +392,7 @@ func (r *ImageMonitorReconciler) track(ctx context.Context, im *kuikv1alpha1.Ima
 	}}}
 	condition.SetAnomaly(&next.Conditions, kuikv1alpha1.ConditionImagesUnavailable, counts.Unavailable > 0,
 		kuikv1alpha1.ReasonChecksFailed, fmt.Sprintf("%d images failing their check", counts.Unavailable), im.Generation)
+	next.Truncated = pass.End(&next.Conditions, im.Generation)
 	r.metrics.report(im.Name, counts, failing)
 	return requeue, digests, r.fallbackSecrets(ctx, memory)
 }
@@ -434,12 +469,12 @@ func declaresImages(status kuikv1alpha1.ImageMonitorStatus) bool {
 }
 
 // memory returns what the monitor name remembers, creating it on first use.
-func (r *ImageMonitorReconciler) memory(name string) *monitorMemory {
+func (r *ImageMonitorReconciler) memory(name string, uid types.UID) *monitorMemory {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	m, ok := r.monitors[name]
 	if !ok {
-		m = &monitorMemory{rings: map[string]bool{}, verdicts: map[string]verdict{}, secretErrs: map[string]error{}, anonymous: map[string]bool{}}
+		m = &monitorMemory{uid: uid, rings: map[string]bool{}, verdicts: map[string]verdict{}, secretErrs: map[string]error{}, anonymous: map[string]bool{}}
 		r.monitors[name] = m
 	}
 	return m
@@ -447,14 +482,16 @@ func (r *ImageMonitorReconciler) memory(name string) *monitorMemory {
 
 // forget drops what the deleted monitor name held: its rings, its memory and its series.
 func (r *ImageMonitorReconciler) forget(ctx context.Context, name string) {
-	r.mu.Lock()
-	memory := r.monitors[name]
-	delete(r.monitors, name)
-	r.mu.Unlock()
-	if memory != nil {
+	// The rings go first: a window opening meanwhile still finds the memory, and one opening
+	// after it finds no ring.
+	if memory := r.monitor(name); memory != nil {
 		r.dropRings(ctx, name, memory, slices.Collect(maps.Keys(memory.rings)))
 	}
+	r.mu.Lock()
+	delete(r.monitors, name)
+	r.mu.Unlock()
 	r.metrics.forget(name)
+	r.limiter.Forget(kindImageMonitor, name)
 	r.readiness.Forget(kindImageMonitor, name)
 }
 
