@@ -267,6 +267,11 @@ func (s *Scheduler) hostFor(name string) *host {
 		s.hosts[name] = h
 		if !s.start.IsZero() {
 			s.phase(h)
+			// A host first used after the start keeps the phase of the process: its first
+			// windows are the next ones of the series, never one already past.
+			now := s.clk.Now()
+			h.due = h.check.next(now)
+			h.copyDue = h.copy.next(now)
 		}
 	}
 	return h
@@ -555,6 +560,13 @@ func (s *Scheduler) RemoveRing(owner Owner, host string) {
 	s.notify()
 }
 
+// unused reports whether no ring and no copy queue use h. Its windows go on opening empty and
+// it keeps its phase and the image it may still be reading, so that using it again can neither
+// burst the host nor read it twice at once: only its series are hidden.
+func (h *host) unused() bool {
+	return len(h.rings) == 0 && len(h.queues) == 0
+}
+
 // RegistryChecks returns the health of every ring of owner, for its status.
 func (s *Scheduler) RegistryChecks(owner Owner) []kuikv1alpha1.RegistryCheck {
 	s.mu.Lock()
@@ -679,6 +691,9 @@ func (c collector) Collect(ch chan<- prometheus.Metric) {
 	defer c.s.mu.Unlock()
 
 	for _, h := range c.s.hosts {
+		if h.unused() {
+			continue
+		}
 		p := c.s.cfg.Registries.For(h.name)
 		ch <- prometheus.MustNewConstMetric(intervalDesc, prometheus.GaugeValue, p.Check.Interval.Seconds(), h.name, "Check")
 		ch <- prometheus.MustNewConstMetric(intervalDesc, prometheus.GaugeValue, p.Copy.Interval.Seconds(), h.name, "Copy")
