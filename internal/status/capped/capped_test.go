@@ -164,6 +164,39 @@ var _ = Describe("Bounded lists", func() {
 		})
 	})
 
+	Describe("entries held as left out", func() {
+		// writeHolding caps entries while held entries of the list are known left out without
+		// being at hand, as after a restart that read back only the capped list.
+		writeHolding := func(entries []entry, held int32) (map[string]int32, []metav1.Condition) {
+			var conditions []metav1.Condition
+			p := limiter.Begin(kind, name)
+			Cap(p, list, entries, since, key)
+			p.Hold(list, held)
+			return p.End(&conditions, 1), conditions
+		}
+
+		It("records at least the held entries in the truncated map", func() {
+			truncated, _ := writeHolding(entries(Capacity), 12)
+			Expect(truncated).To(Equal(map[string]int32{list: 12}))
+			truncated, _ = writeHolding(entries(Capacity+20), 12)
+			Expect(truncated).To(Equal(map[string]int32{list: 20}))
+		})
+
+		It("keeps ListCapacityPressure at ListTruncated while entries are held", func() {
+			_, conditions := writeHolding(entries(Capacity), 12)
+			c := meta.FindStatusCondition(conditions, kuikv1alpha1.ConditionListCapacityPressure)
+			Expect(c).NotTo(BeNil())
+			Expect(c.Reason).To(Equal(kuikv1alpha1.ReasonListTruncated))
+		})
+
+		It("counts no held entry in kuik_status_list_dropped_total", func() {
+			writeHolding(entries(Capacity), 12)
+			v, ok := value(registry, "kuik_status_list_dropped_total", series)
+			Expect(ok).To(BeTrue())
+			Expect(v).To(BeZero())
+		})
+	})
+
 	Describe("ListCapacityPressure", func() {
 		It("is absent while every list stays under 80% of the cap", func() {
 			_, _, conditions := write(limiter, kind, entries(NearCapacity-1))
