@@ -97,3 +97,8 @@ Rationale in [0005](./0005-decision-log-filter.md).
   one resumed `implementer` writes the pull request, a fresh `reviewer` checks each `feat`
   commit and then the whole branch; review findings and spec readings need no approval, only
   a gap with `docs/v3/` or a shared-package fix stops the work.
+- [0015 — Release acceptance: the tooling acts, the agent judges](./0015-acceptance-tooling-acts-the-agent-judges.md):
+  `test/acceptance/` applies YAML fixtures, changes and prints test objects through one guard,
+  and never asserts; the agent of the `release-acceptance` skill runs the user stories of
+  `scenarios.md`, explores and judges, and cleanup waits for the user; the
+  `acceptance-scenarios` skill drafts new stories per release, the user validates them.

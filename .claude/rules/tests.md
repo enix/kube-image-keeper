@@ -7,7 +7,9 @@ paths:
 # Test conventions
 
 - **Ginkgo + Gomega only** ([0004](../../notes/0004-test-framework.md)): `DescribeTable` for
-  tables, no `[]struct{}` + `t.Run`.
+  tables, no `[]struct{}` + `t.Run`. `test/acceptance/` is not a suite: it is the program the
+  release acceptance runs with, which acts and collects and never asserts
+  ([0015](../../notes/0015-acceptance-tooling-acts-the-agent-judges.md)).
 - **Cases before bodies, then stop.** The `It` and `Entry` strings are natural-language
   test cases, one per behaviour. Write them as `PIt` / `PEntry` with empty bodies (plus the
   stubs needed to compile), show them with `task test-outline` and stop: the maintainer
