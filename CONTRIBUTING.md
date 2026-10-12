@@ -104,6 +104,8 @@ kube-image-keeper is licensed under the [MIT License](./LICENSE). By contributin
 
 Releases are cut manually by dispatching the [Release workflow](./.github/workflows/release.yaml) on the branch to publish. semantic-release computes the version from the conventional commits since the last release, and reads its configuration from the dispatched branch's [`.releaserc.mjs`](./.releaserc.mjs): each release line therefore carries its own branches configuration (`main` and `release` for the main line; `X.Y.x-stable` and `X.Y.x-rc` for a maintenance line).
 
+Each release this configuration publishes, alphas and rcs included, is announced on Slack with its notes, through the incoming webhook stored in the `SLACK_WEBHOOK` repository secret. The workflow fails, dry-run included, when that secret is missing.
+
 ### Channels
 
 - **alpha** (from `main`): development pre-releases of the next major or minor version. The scope is still moving; breaking changes may occur between alphas.
