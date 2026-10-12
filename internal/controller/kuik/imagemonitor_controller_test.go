@@ -2,9 +2,13 @@ package kuik
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -24,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
+	"github.com/enix/kube-image-keeper/internal/auth"
 	kuikregistry "github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/enix/kube-image-keeper/internal/registry/pacing"
 	"github.com/enix/kube-image-keeper/internal/registry/registrytest"
@@ -1068,4 +1073,502 @@ var _ = Describe("ImageMonitor", func() {
 			Expect(checkFailure(errors.New("dial tcp: connection refused"))).To(Equal(kuikv1alpha1.CheckUnreachable))
 		})
 	})
+
+	Context("credentials", func() {
+		const (
+			user     = registryUser
+			password = "s3cr3t"
+		)
+		var (
+			fallbackAuth []auth.FallbackAuthEntry
+			// stopScheduler stops the scheduler, as a process ending would.
+			stopScheduler context.CancelFunc
+		)
+
+		// start builds a reconciler checking with fallbackAuth on a scheduler of its own,
+		// paced every minute on the fake clock, as a new process would. Its series go to a new
+		// registry.
+		start := func() {
+			GinkgoHelper()
+			pacingConfig := mirrorConfig()
+			pacingConfig.FallbackAuth = fallbackAuth
+			scheduler := pacing.New(clock, pacingConfig)
+			schedulerCtx, stop := context.WithCancel(ctx)
+			go func() { _ = scheduler.Start(schedulerCtx) }()
+			DeferCleanup(stop)
+			stopScheduler = stop
+			registry = prometheus.NewRegistry()
+			var err error
+			reconciler, err = NewImageMonitorReconciler(k8sClient, k8sClient.Scheme(), ImageMonitorOptions{
+				APIReader:                k8sClient,
+				ClusterResourceNamespace: installNamespace,
+				Recorder:                 recorder,
+				Registerer:               registry,
+				Clock:                    clock,
+				Scheduler:                scheduler,
+				Registry:                 kuikregistry.NewClient(),
+				Config:                   pacingConfig,
+			})
+			Expect(err).NotTo(HaveOccurred())
+		}
+		BeforeEach(func() {
+			fallbackAuth = nil
+			createNamespace(installNamespace, nil)
+		})
+
+		// protected starts a registry refusing every request without the basic credentials of
+		// user, holding acme/app:v1, closed when the spec ends, with no request recorded yet.
+		protected := func() *registrytest.Registry {
+			GinkgoHelper()
+			src := registrytest.New(registrytest.WithBasicAuth(user, password))
+			DeferCleanup(src.Close)
+			src.Push("acme/app:v1", registrytest.Image())
+			src.Reset()
+			return src
+		}
+
+		// open starts a registry answering anyone, holding acme/app:v1.
+		open := func() *registrytest.Registry {
+			GinkgoHelper()
+			src := registrytest.New()
+			DeferCleanup(src.Close)
+			src.Push("acme/app:v1", registrytest.Image())
+			src.Reset()
+			return src
+		}
+
+		app := func(src *registrytest.Registry) string {
+			return src.Host() + "/acme/app:v1"
+		}
+
+		// fallback declares a fallbackAuth entry for repository, read from the Secret secret of
+		// the install namespace.
+		fallback := func(repository, repositoryGroup, secret string) {
+			fallbackAuth = append(fallbackAuth, auth.FallbackAuthEntry{
+				Repository: repository, RepositoryGroup: repositoryGroup,
+				SecretRef: &kuikv1alpha1.SecretReference{Name: secret},
+			})
+		}
+
+		// window opens the next check window of every host, once the scheduler waits for it.
+		window := func() {
+			GinkgoHelper()
+			Eventually(clock.HasWaiters).Should(BeTrue())
+			clock.Step(time.Minute)
+		}
+
+		// availability reconciles until the image has a verdict, and returns the origin counts.
+		availability := func() kuikv1alpha1.OriginImageCounts {
+			GinkgoHelper()
+			Eventually(func() int32 {
+				reconcileIt()
+				return originOf(name).Available + originOf(name).Unavailable
+			}).Should(Equal(int32(1)))
+			return originOf(name)
+		}
+
+		readiness := func() *metav1.Condition {
+			return meta.FindStatusCondition(monitorStatusOf(name).Conditions, kuikv1alpha1.ConditionReady)
+		}
+
+		It("checks an image with the imagePullSecrets of each pod declaring it, until one answers", func() {
+			src := protected()
+			start()
+			newMonitor(name)
+			ns := selectedNamespace()
+			wrong := pullSecret(ns, src.Host(), "wrong")
+			right := pullSecret(ns, src.Host(), password)
+			// The pod read first carries the wrong credential, the other one the right one.
+			runningPod(ns, []container{running(appContainer, app(src))}, withPodName("a-"+unique("pod")), withPullSecrets(wrong))
+			runningPod(ns, []container{running(appContainer, app(src))}, withPodName("b-"+unique("pod")), withPullSecrets(right))
+			reconcileIt()
+			window()
+			Expect(availability().Available).To(Equal(int32(1)))
+		})
+
+		It("checks an image with the most specific matching fallbackAuth entry", func() {
+			src := protected()
+			fallback("", src.Host(), createCredentials(src.Host(), user, "wrong"))
+			fallback(src.Host()+"/acme/app", "", createCredentials(src.Host(), user, password))
+			start()
+			newMonitor(name)
+			runningPod(selectedNamespace(), []container{running(appContainer, app(src))})
+			reconcileIt()
+			window()
+			Expect(availability().Available).To(Equal(int32(1)))
+		})
+
+		It("checks an image anonymously when no credential applies", func() {
+			src := open()
+			// Credentials for other registries and other repositories only.
+			fallback("registry.example.com/acme/app", "", createCredentials("registry.example.com", user, password))
+			start()
+			newMonitor(name)
+			ns := selectedNamespace()
+			runningPod(ns, []container{running(appContainer, app(src))},
+				withPullSecrets(pullSecret(ns, "registry.example.com", password)))
+			reconcileIt()
+			window()
+			Expect(availability().Available).To(Equal(int32(1)))
+			heads := src.Requests(http.MethodHead, "/manifests/")
+			Expect(heads).NotTo(BeEmpty())
+			Expect(heads).To(HaveEach(HaveField("Authorized", BeFalse())))
+		})
+
+		It("keeps checking an image with the next credential when its fallbackAuth Secret is missing or malformed", func() {
+			missing, malformed := open(), open()
+			fallback("", missing.Host(), unique("missing"))
+			notDockerConfig := unique("opaque")
+			createSecret(installNamespace, notDockerConfig, corev1.SecretTypeOpaque)
+			fallback("", malformed.Host(), notDockerConfig)
+			start()
+			newMonitor(name)
+			runningPod(selectedNamespace(), []container{running("a", app(missing)), running("b", app(malformed))})
+			reconcileIt()
+			window()
+			Eventually(func() int32 {
+				reconcileIt()
+				return originOf(name).Available
+			}).Should(Equal(int32(2)))
+		})
+
+		It("sets Ready to False with reason SecretNotFound when the fallbackAuth Secret of a tracked image is missing", func() {
+			src := open()
+			fallback("", src.Host(), unique("missing"))
+			start()
+			newMonitor(name)
+			runningPod(selectedNamespace(), []container{running(appContainer, app(src))})
+			reconcileIt()
+			window()
+			Eventually(func() string {
+				reconcileIt()
+				if c := readiness(); c != nil && c.Status == metav1.ConditionFalse {
+					return c.Reason
+				}
+				return ""
+			}).Should(Equal(kuikv1alpha1.ReasonSecretNotFound))
+		})
+
+		It("sets Ready to False with reason SecretMalformed when the fallbackAuth Secret of a tracked image is not a docker config", func() {
+			src := open()
+			notDockerConfig := unique("opaque")
+			createSecret(installNamespace, notDockerConfig, corev1.SecretTypeOpaque)
+			fallback("", src.Host(), notDockerConfig)
+			start()
+			newMonitor(name)
+			runningPod(selectedNamespace(), []container{running(appContainer, app(src))})
+			reconcileIt()
+			window()
+			Eventually(func() string {
+				reconcileIt()
+				if c := readiness(); c != nil && c.Status == metav1.ConditionFalse {
+					return c.Reason
+				}
+				return ""
+			}).Should(Equal(kuikv1alpha1.ReasonSecretMalformed))
+		})
+
+		// deniedAnonymously runs an image a protected registry refuses to an anonymous check
+		// until it enters unavailableImages with Unauthorized, and returns the registry.
+		deniedAnonymously := func() *registrytest.Registry {
+			GinkgoHelper()
+			src := protected()
+			start()
+			newMonitor(name)
+			runningPod(selectedNamespace(), []container{running(appContainer, app(src))})
+			reconcileIt()
+			window()
+			Eventually(func() []kuikv1alpha1.UnavailableImage {
+				reconcileIt()
+				return monitorStatusOf(name).UnavailableImages
+			}).Should(ConsistOf(And(HaveField("Ref", app(src)), HaveField("Reason", kuikv1alpha1.CheckUnauthorized))))
+			return src
+		}
+
+		It("emits AnonymousAccessDenied once when an origin starts failing an anonymous check with Unauthorized", func() {
+			src := deniedAnonymously()
+			denied := recorder.withReason("AnonymousAccessDenied")
+			Expect(denied).To(HaveLen(1))
+			Expect(denied[0].eventType).To(Equal(corev1.EventTypeWarning))
+			Expect(denied[0].regarding.(*kuikv1alpha1.ImageMonitor).Name).To(Equal(name))
+			Expect(denied[0].note).To(ContainSubstring(app(src)))
+
+			// The next check fails the same way: the entry stays, and says it already.
+			before := checked(src, "acme/app")()
+			window()
+			Eventually(checked(src, "acme/app")).Should(BeNumerically(">", before))
+			Consistently(func() []recordedEvent {
+				reconcileIt()
+				return recorder.withReason("AnonymousAccessDenied")
+			}).WithTimeout(500 * time.Millisecond).Should(HaveLen(1))
+		})
+
+		It("emits nothing again after a restart for an anomaly its status already holds", func() {
+			src := deniedAnonymously()
+			Expect(recorder.withReason("AnonymousAccessDenied")).To(HaveLen(1))
+
+			stopScheduler()
+			start()
+			reconcileIt()
+			before := checked(src, "acme/app")()
+			window()
+			Eventually(checked(src, "acme/app")).Should(BeNumerically(">", before))
+			Consistently(func() []recordedEvent {
+				reconcileIt()
+				return recorder.withReason("AnonymousAccessDenied")
+			}).WithTimeout(500 * time.Millisecond).Should(HaveLen(1))
+		})
+
+		// reasonOf reconciles and returns the reason of the unavailableImages entry of ref,
+		// empty when there is none.
+		reasonOf := func(ref string) kuikv1alpha1.CheckFailureReason {
+			reconcileIt()
+			for _, e := range monitorStatusOf(name).UnavailableImages {
+				if e.Ref == ref {
+					return e.Reason
+				}
+			}
+			return ""
+		}
+
+		It("emits AnonymousAccessDenied once while an image keeps failing, alternating between Unauthorized and another reason", func() {
+			// The registry answers each anonymous check with what the spec sets.
+			src := open()
+			src.Intercept(registrytest.Status(http.MethodHead, "/manifests/", http.StatusUnauthorized, nil))
+			start()
+			newMonitor(name)
+			runningPod(selectedNamespace(), []container{running(appContainer, app(src))})
+			reconcileIt()
+			window()
+			Eventually(func() kuikv1alpha1.CheckFailureReason { return reasonOf(app(src)) }).Should(Equal(kuikv1alpha1.CheckUnauthorized))
+			Expect(recorder.withReason("AnonymousAccessDenied")).To(HaveLen(1))
+
+			src.Intercept(registrytest.Status(http.MethodHead, "/manifests/", http.StatusTooManyRequests, nil))
+			window()
+			Eventually(func() kuikv1alpha1.CheckFailureReason { return reasonOf(app(src)) }).Should(Equal(kuikv1alpha1.CheckQuotaExceeded))
+
+			src.Intercept(registrytest.Status(http.MethodHead, "/manifests/", http.StatusUnauthorized, nil))
+			window()
+			Eventually(func() kuikv1alpha1.CheckFailureReason { return reasonOf(app(src)) }).Should(Equal(kuikv1alpha1.CheckUnauthorized))
+			reconcileIt()
+			Expect(recorder.withReason("AnonymousAccessDenied")).To(HaveLen(1))
+		})
+
+		It("emits no AnonymousAccessDenied when a check that sent a credential fails with Unauthorized", func() {
+			src := protected()
+			start()
+			newMonitor(name)
+			ns := selectedNamespace()
+			runningPod(ns, []container{running(appContainer, app(src))},
+				withPullSecrets(pullSecret(ns, src.Host(), "wrong")))
+			reconcileIt()
+			window()
+			Eventually(func() kuikv1alpha1.CheckFailureReason { return reasonOf(app(src)) }).Should(Equal(kuikv1alpha1.CheckUnauthorized))
+			Consistently(func() []recordedEvent {
+				reconcileIt()
+				return recorder.withReason("AnonymousAccessDenied")
+			}).WithTimeout(500 * time.Millisecond).Should(BeEmpty())
+		})
+
+		It("emits no AnonymousAccessDenied for an image a fallbackAuth entry covers, even when its Secret is missing", func() {
+			// The registry refuses every check, which goes out anonymously: the Secret is missing.
+			src := open()
+			src.Intercept(registrytest.Status(http.MethodHead, "/manifests/", http.StatusUnauthorized, nil))
+			fallback("", src.Host(), unique("missing"))
+			start()
+			newMonitor(name)
+			runningPod(selectedNamespace(), []container{running(appContainer, app(src))})
+			reconcileIt()
+			window()
+			Eventually(func() kuikv1alpha1.CheckFailureReason { return reasonOf(app(src)) }).Should(Equal(kuikv1alpha1.CheckUnauthorized))
+			Expect(readiness()).NotTo(BeNil())
+			Expect(readiness().Reason).To(Equal(kuikv1alpha1.ReasonSecretNotFound))
+			Consistently(func() []recordedEvent {
+				reconcileIt()
+				return recorder.withReason("AnonymousAccessDenied")
+			}).WithTimeout(500 * time.Millisecond).Should(BeEmpty())
+		})
+
+		It("sets Ready back to True with reason IsReady once the fallbackAuth Secret is created, without waiting for a check", func() {
+			src := open()
+			secret := unique("later")
+			fallback("", src.Host(), secret)
+			start()
+			newMonitor(name)
+			runningPod(selectedNamespace(), []container{running(appContainer, app(src))})
+			reconcileIt()
+			window()
+			Eventually(func() string {
+				reconcileIt()
+				if c := readiness(); c != nil && c.Status == metav1.ConditionFalse {
+					return c.Reason
+				}
+				return ""
+			}).Should(Equal(kuikv1alpha1.ReasonSecretNotFound))
+
+			createSecret(installNamespace, secret, corev1.SecretTypeDockerConfigJson)
+			reconcileIt()
+			Expect(readiness()).NotTo(BeNil())
+			Expect(readiness().Status).To(Equal(metav1.ConditionTrue))
+			Expect(readiness().Reason).To(Equal(kuikv1alpha1.ReasonIsReady))
+		})
+
+		It("checks an image with a fallbackAuth entry a config reload added", func() {
+			src := protected()
+			start()
+			newMonitor(name)
+			runningPod(selectedNamespace(), []container{running(appContainer, app(src))})
+			reconcileIt()
+
+			reloaded := mirrorConfig()
+			reloaded.FallbackAuth = []auth.FallbackAuthEntry{{
+				RepositoryGroup: src.Host(),
+				SecretRef:       &kuikv1alpha1.SecretReference{Name: createCredentials(src.Host(), user, password)},
+			}}
+			reconciler.SetConfig(reloaded)
+			window()
+			Expect(availability().Available).To(Equal(int32(1)))
+		})
+
+		It("leaves AnonymousAccessDenied and Ready to the monitor whose ring sent the check, when another monitor reuses its verdict", func() {
+			// denied refuses every anonymous check; covered is covered by a fallbackAuth entry
+			// whose Secret is missing.
+			deniedSrc := open()
+			deniedSrc.Intercept(registrytest.Status(http.MethodHead, "/manifests/", http.StatusUnauthorized, nil))
+			coveredSrc := open()
+			fallback("", coveredSrc.Host(), unique("missing"))
+			start()
+			images := []container{running("a", app(deniedSrc)), running("b", app(coveredSrc))}
+
+			// The other monitor holds the first ring of each host: it sends the checks of the
+			// first window, which the monitor under test reuses at the second.
+			other := unique("imon")
+			newMonitor(other)
+			otherNs := unique("ns")
+			createNamespace(otherNs, map[string]string{testLabel: other})
+			runningPod(otherNs, images)
+			reconcileOther := func() {
+				_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: other}})
+				Expect(err).NotTo(HaveOccurred())
+			}
+			reconcileOther()
+			newMonitor(name)
+			runningPod(selectedNamespace(), images)
+			reconcileIt()
+
+			window()
+			Eventually(func() int32 {
+				reconcileOther()
+				return originOf(other).Unavailable
+			}).Should(Equal(int32(1)))
+			window()
+			Eventually(func() int32 {
+				reconcileIt()
+				return originOf(name).Unavailable
+			}).Should(Equal(int32(1)))
+			reconcileOther()
+
+			regarding := func(monitor string) int {
+				n := 0
+				for _, e := range recorder.withReason("AnonymousAccessDenied") {
+					if e.regarding.(*kuikv1alpha1.ImageMonitor).Name == monitor {
+						n++
+					}
+				}
+				return n
+			}
+			Expect(regarding(other)).To(Equal(1))
+			Expect(regarding(name)).To(BeZero())
+			Expect(meta.FindStatusCondition(monitorStatusOf(other).Conditions, kuikv1alpha1.ConditionReady).Reason).To(Equal(kuikv1alpha1.ReasonSecretNotFound))
+			Expect(readiness().Reason).To(Equal(kuikv1alpha1.ReasonIsReady))
+		})
+
+		It("tries a pull secret copied in several namespaces once", func() {
+			src := protected()
+			start()
+			newMonitor(name)
+			for range 3 {
+				ns := selectedNamespace()
+				runningPod(ns, []container{running(appContainer, app(src))},
+					withPullSecrets(pullSecret(ns, src.Host(), "wrong")))
+			}
+			reconcileIt()
+			window()
+			Expect(availability().Unavailable).To(Equal(int32(1)))
+			Expect(checked(src, "acme/app")()).To(Equal(1))
+		})
+
+		It("tries the pull secrets of the pods before the fallbackAuth entry", func() {
+			// The registry answers any credential, and records the password of each manifest HEAD.
+			src := open()
+			var (
+				mu        sync.Mutex
+				passwords []string
+			)
+			src.Intercept(func(_ http.ResponseWriter, r *http.Request) bool {
+				if _, pass, ok := r.BasicAuth(); ok && r.Method == http.MethodHead && strings.Contains(r.URL.Path, "/manifests/") {
+					mu.Lock()
+					passwords = append(passwords, pass)
+					mu.Unlock()
+				}
+				return false
+			})
+			fallback("", src.Host(), createCredentials(src.Host(), user, "from-fallback"))
+			start()
+			newMonitor(name)
+			ns := selectedNamespace()
+			runningPod(ns, []container{running(appContainer, app(src))},
+				withPullSecrets(pullSecret(ns, src.Host(), "from-pod")))
+			reconcileIt()
+			window()
+			Expect(availability().Available).To(Equal(int32(1)))
+			mu.Lock()
+			defer mu.Unlock()
+			Expect(passwords).To(Equal([]string{"from-pod"}))
+		})
+
+		It("falls through to the fallbackAuth entry when the registry refuses the pull secrets of the pods", func() {
+			src := protected()
+			fallback("", src.Host(), createCredentials(src.Host(), user, password))
+			start()
+			newMonitor(name)
+			ns := selectedNamespace()
+			runningPod(ns, []container{running(appContainer, app(src))},
+				withPullSecrets(pullSecret(ns, src.Host(), "wrong")))
+			reconcileIt()
+			window()
+			Expect(availability().Available).To(Equal(int32(1)))
+		})
+	})
 })
+
+// withPodName names the pod.
+func withPodName(name string) podOption {
+	return func(p *corev1.Pod) { p.Name = name }
+}
+
+// withPullSecrets gives the pod the imagePullSecrets names.
+func withPullSecrets(names ...string) podOption {
+	return func(p *corev1.Pod) {
+		for _, n := range names {
+			p.Spec.ImagePullSecrets = append(p.Spec.ImagePullSecrets, corev1.LocalObjectReference{Name: n})
+		}
+	}
+}
+
+// registryUser is the user the protected registries of the credential specs expect.
+const registryUser = "kuik"
+
+// pullSecret creates a docker-registry Secret of namespace holding registryUser and password
+// for host, and returns its name.
+func pullSecret(namespace, host, password string) string {
+	name := unique("pull")
+	encoded := base64.StdEncoding.EncodeToString([]byte(registryUser + ":" + password))
+	dockerConfig := fmt.Sprintf(`{"auths":{%q:{"username":%q,"password":%q,"auth":%q}}}`, host, registryUser, password, encoded)
+	Expect(k8sClient.Create(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
+		Type:       corev1.SecretTypeDockerConfigJson,
+		Data:       map[string][]byte{corev1.DockerConfigJsonKey: []byte(dockerConfig)},
+	})).To(Succeed())
+	return name
+}
