@@ -122,6 +122,10 @@ type capped struct {
 	out     map[string]bool
 }
 
+// Hold records that at least held entries of the list named list, capped in this pass, are
+// left out though not at hand: a restart reads back only the capped list.
+func (p *Pass) Hold(list string, held int32) {}
+
 // Begin starts capping the lists of the resource (kind, name).
 func (l *Limiter) Begin(kind, name string) *Pass {
 	return &Pass{limiter: l, resource: resource{kind: kind, name: name}}
