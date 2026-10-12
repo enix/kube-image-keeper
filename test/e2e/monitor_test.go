@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -65,6 +66,22 @@ var _ = Describe("Image monitoring", Ordered, func() {
 			monitorName)
 		// Only the leader reconciles: the series exists on one replica, so the sum over the
 		// replicas is its value.
+		Eventually(reconcilerSeries).WithArguments(series).Should(Equal(1.0))
+	})
+
+	It("reports an image whose registry does not answer in unavailableImages and kuik_image_origin_unavailable", func() {
+		// A host that fails at DNS: the check is Unreachable at once.
+		const unreachable = "e2e-monitor.invalid/pause:" + pauseTag
+		Expect(kubectlStdin(monitorPodManifest("unreachable", unreachable), "create", "-f", "-")).
+			Error().NotTo(HaveOccurred())
+
+		// The reconciler checks it on its own windows, one minute apart by default: no reconcile
+		// is asked for.
+		Eventually(kubectl).WithTimeout(4*time.Minute).WithArguments("get", "imagemonitor", monitorName,
+			"-o", fmt.Sprintf(`jsonpath={.status.unavailableImages[?(@.ref==%q)].reason}`, unreachable)).
+			Should(Equal("Unreachable"))
+		series := fmt.Sprintf(`kuik_image_origin_unavailable{image=%q,kind="ImageMonitor",name=%q,`+
+			`reason="Unreachable",registry="e2e-monitor.invalid"}`, unreachable, monitorName)
 		Eventually(reconcilerSeries).WithArguments(series).Should(Equal(1.0))
 	})
 })
