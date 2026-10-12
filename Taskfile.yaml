@@ -219,6 +219,46 @@ tasks:
     cmds:
       - '{{.KIND}} delete cluster --name {{.KIND_CLUSTER}}'
 
+  # The acceptance of a release, on a cluster where kuik is installed, possibly a shared one: see
+  # test/acceptance/README.md. Each task runs one subcommand, whose flags parser refuses any other
+  # subcommand or unknown flag: check and inspect stay read-only whatever CLI_ARGS holds, setup,
+  # apply and delete write test objects only, validate reaches no cluster. All run without asking,
+  # but cleanup.
+  acceptance-check:
+    desc: Print the state of the installed kuik, reads only (-- --kubeconfig PATH --context NAME [--kuik-version V])
+    cmds:
+      - go run ./test/acceptance check {{.CLI_ARGS}}
+
+  acceptance-inspect:
+    desc: Print the test objects, their events, metrics and log lines, reads only (-- --kubeconfig PATH --context NAME [--since D] [--grep RE] [--metrics RE])
+    cmds:
+      - go run ./test/acceptance inspect {{.CLI_ARGS}}
+
+  acceptance-setup:
+    desc: Apply the fixtures, the base test objects, on the cluster, skipping those newer than --kuik-version (-- --kubeconfig PATH --context NAME [--kuik-version V] [--private-repo R --pull-auth S])
+    cmds:
+      - go run ./test/acceptance setup {{.CLI_ARGS}}
+
+  acceptance-apply:
+    desc: Create or update test objects from a YAML file on the cluster, its ${VARIABLES} filled from the flags (-- --kubeconfig PATH --context NAME --file F [--private-repo R --pull-auth S])
+    cmds:
+      - go run ./test/acceptance apply {{.CLI_ARGS}}
+
+  acceptance-validate:
+    desc: Check every fixture, its since line, its strict decoding and the guard, without a cluster (-- [--kuik-namespace NS])
+    cmds:
+      - go run ./test/acceptance validate {{.CLI_ARGS}}
+
+  acceptance-delete:
+    desc: Delete one test object on the cluster (-- --kubeconfig PATH --context NAME [--namespace NS] KIND/NAME)
+    cmds:
+      - go run ./test/acceptance delete {{.CLI_ARGS}}
+
+  acceptance-cleanup:
+    desc: Delete every test object on the cluster (-- --kubeconfig PATH --context NAME)
+    cmds:
+      - go run ./test/acceptance cleanup {{.CLI_ARGS}}
+
   conform:
     desc: Lint commit messages (COMMIT_MSG_FILE if set, commits since BASE_BRANCH otherwise, which must hold no merge commit)
     deps: [tools:conform]

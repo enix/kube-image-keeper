@@ -1,0 +1,18 @@
+# since: 3.0.0-alpha.2
+# The 2 test namespaces. Every test CR selects kuik-test only, by its label and by its name;
+# kuik-test-unlabeled is selected by none, so a pod there stands for "out of scope". Both enforce
+# the restricted Pod Security profile, so no test pod reaches its node; the guard requires it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kuik-test
+  labels:
+    kuik.enix.io/test: "true"
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kuik-test-unlabeled
+  labels:
+    pod-security.kubernetes.io/enforce: restricted

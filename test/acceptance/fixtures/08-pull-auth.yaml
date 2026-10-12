@@ -1,0 +1,32 @@
+# since: 3.0.0-alpha.3
+# Tests 8 and 10: an Always ImageAlternative whose second candidate declares credentials, so
+# kuik provisions its pull Secret in every selected namespace before any pod. The source is a
+# placeholder, not a credential: no pod uses it, so it never reaches a pull.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kuik-test-quay-creds
+  namespace: ${KUIK_NAMESPACE}
+type: kubernetes.io/dockerconfigjson
+stringData:
+  .dockerconfigjson: '{"auths":{"quay.io":{"username":"kuik-test","password":"placeholder"}}}'
+---
+apiVersion: kuik.enix.io/v1alpha1
+kind: ImageAlternative
+metadata:
+  name: kuik-test-pull-secret
+spec:
+  namespaceSelector:
+    matchLabels:
+      kuik.enix.io/test: "true"
+      kubernetes.io/metadata.name: kuik-test
+  podSelector:
+    matchLabels:
+      kuik-test/routing: pull-secret
+  rewritePolicy: Always
+  alternatives:
+    - repository: kuik-test-secret.invalid/nginx/nginx-unprivileged
+    - repository: quay.io/nginx/nginx-unprivileged
+      auth:
+        secretRef:
+          name: kuik-test-quay-creds

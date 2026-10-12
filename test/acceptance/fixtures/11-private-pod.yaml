@@ -1,13 +1,18 @@
-# Test 2: no CR exists yet. Expected: image unchanged, no kuik.enix.io/* annotation, Running.
+# since: 3.0.0-alpha.3
+# Test 11, second half: a pod kuik reroutes to the private repository. It pulls Always: a
+# cached image would skip the pull this test is about.
 apiVersion: v1
 kind: Pod
 metadata:
-  name: no-cr
+  name: private
   namespace: kuik-test
+  labels:
+    kuik-test/routing: private
 spec:
   containers:
     - name: nginx
-      image: quay.io/nginx/nginx-unprivileged:1.31.6-alpine
+      image: kuik-test-private.invalid/nginx/nginx-unprivileged:1.31.6-alpine
+      imagePullPolicy: Always
       resources:
         requests: {cpu: 10m, memory: 16Mi}
         limits: {memory: 64Mi}

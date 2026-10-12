@@ -1,0 +1,20 @@
+# since: 3.0.0-alpha.2
+# Test 2: a pod no kuik CR selects. Every test pod runs under the restricted Pod Security
+# profile, so the admission policies of a shared cluster let it in.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: no-cr
+  namespace: kuik-test
+spec:
+  containers:
+    - name: nginx
+      image: quay.io/nginx/nginx-unprivileged:1.31.6-alpine
+      resources:
+        requests: {cpu: 10m, memory: 16Mi}
+        limits: {memory: 64Mi}
+      securityContext:
+        runAsNonRoot: true
+        allowPrivilegeEscalation: false
+        capabilities: {drop: [ALL]}
+        seccompProfile: {type: RuntimeDefault}
