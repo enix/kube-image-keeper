@@ -410,6 +410,16 @@ var _ = Describe("Scheduler", func() {
 			Expect(ring().CycleStarted).To(PointTo(HaveField("Time", BeTemporally("==", at(time.Minute)))))
 		})
 
+		It("reports cycleStarted to the second, as a status reads it back", func() {
+			h.s.SetRing(monitor, dockerHub, images, kuikv1alpha1.RegistryCheck{}, c)
+			// The window opens half a second past its due time.
+			h.settle()
+			h.clk.Step(time.Minute + 500*time.Millisecond)
+			h.settle()
+			Expect(ring().CycleStarted).NotTo(BeNil())
+			Expect(ring().CycleStarted.Time).To(BeTemporally("==", at(time.Minute)))
+		})
+
 		It("reports no cycleDuration until a first lap completes", func() {
 			h.s.SetRing(monitor, dockerHub, images, kuikv1alpha1.RegistryCheck{}, c)
 			windows(2)
