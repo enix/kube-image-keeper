@@ -37,7 +37,8 @@ type Response struct {
 
 // Checker reads the references of one ring on behalf of the resource that owns it.
 type Checker interface {
-	// Check reads ref from its registry. ctx carries the check timeout of the host.
+	// Check reads ref from its registry. ctx carries the check timeout of the host. An empty
+	// Response, neither a result nor an error, is no verdict: the cache never keeps it.
 	Check(ctx context.Context, ref string) Response
 	// Checked receives the response of ref, obtained by Check or reused from the verdict
 	// cache.
@@ -377,7 +378,11 @@ func (s *Scheduler) check(h *host, c Checker, ref string, at time.Time, timeout 
 	cancel()
 
 	s.mu.Lock()
-	h.cache[ref] = cached{response: r, at: at}
+	// A response with neither a result nor an error is no verdict: another ring must not
+	// reuse it.
+	if r.Result != nil || r.Err != nil {
+		h.cache[ref] = cached{response: r, at: at}
+	}
 	h.check.busy = false
 	s.mu.Unlock()
 	c.Checked(ref, r)
