@@ -127,6 +127,8 @@ type ImageMonitorOptions struct {
 	ClusterResourceNamespace string
 	// Config is the global config as loaded at start-up; SetConfig hands over a reload.
 	Config *config.Config
+	// ListCapacity caps the anomaly lists of the status. Zero means capped.Capacity.
+	ListCapacity int
 }
 
 // NewImageMonitorReconciler returns a reconciler writing with c.
