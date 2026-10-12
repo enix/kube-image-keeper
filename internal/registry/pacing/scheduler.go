@@ -518,6 +518,11 @@ func (s *Scheduler) SetRing(owner Owner, host string, refs []string, resume kuik
 		started := resume.CycleStarted.Time
 		r.cycleStarted = &started
 	}
+	// The last lap measured holds until the next one completes.
+	if resume.CycleDuration != nil {
+		d := resume.CycleDuration.Duration
+		r.cycleDuration = &d
+	}
 	h.rings = append(h.rings, r)
 }
 
