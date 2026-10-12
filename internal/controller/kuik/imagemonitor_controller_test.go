@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"sync/atomic"
 	"time"
 
@@ -23,6 +24,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
+	kuikregistry "github.com/enix/kube-image-keeper/internal/registry"
+	"github.com/enix/kube-image-keeper/internal/registry/pacing"
+	"github.com/enix/kube-image-keeper/internal/registry/registrytest"
 	"github.com/enix/kube-image-keeper/internal/routing"
 	"github.com/enix/kube-image-keeper/internal/routing/podrecord"
 )
@@ -588,6 +592,480 @@ var _ = Describe("ImageMonitor", func() {
 			reconcileIt()
 			_, ok = gauge(registry, "kuik_resource_not_ready", series)
 			Expect(ok).To(BeFalse())
+		})
+	})
+
+	Context("checks", func() {
+		var (
+			scheduler *pacing.Scheduler
+			// stopScheduler stops the scheduler, as a process ending would.
+			stopScheduler context.CancelFunc
+		)
+
+		// start builds a reconciler checking on a scheduler of its own, paced every minute on
+		// the fake clock, as a new process would: nothing of a previous memory survives. Its
+		// series go to a new registry.
+		start := func() {
+			GinkgoHelper()
+			scheduler = pacing.New(clock, mirrorConfig())
+			schedulerCtx, stop := context.WithCancel(ctx)
+			go func() { _ = scheduler.Start(schedulerCtx) }()
+			DeferCleanup(stop)
+			stopScheduler = stop
+			registry = prometheus.NewRegistry()
+			var err error
+			reconciler, err = NewImageMonitorReconciler(k8sClient, k8sClient.Scheme(), ImageMonitorOptions{
+				Recorder:   recorder,
+				Registerer: registry,
+				Clock:      clock,
+				Scheduler:  scheduler,
+				Registry:   kuikregistry.NewClient(),
+			})
+			Expect(err).NotTo(HaveOccurred())
+		}
+		BeforeEach(start)
+
+		restart := func() {
+			GinkgoHelper()
+			stopScheduler()
+			start()
+		}
+
+		// source starts a registry holding the tags v1 of repositories, closed when the spec
+		// ends, with no request recorded yet.
+		source := func(repositories ...string) *registrytest.Registry {
+			GinkgoHelper()
+			src := registrytest.New()
+			DeferCleanup(src.Close)
+			for _, repository := range repositories {
+				src.Push(repository+":v1", registrytest.Image())
+			}
+			src.Reset()
+			return src
+		}
+
+		// image is the reference of repository:v1 on src.
+		image := func(src *registrytest.Registry, repository string) string {
+			return src.Host() + "/" + repository + ":v1"
+		}
+
+		// window opens the next check window of every host, once the scheduler waits for it.
+		window := func() {
+			GinkgoHelper()
+			Eventually(clock.HasWaiters).Should(BeTrue())
+			clock.Step(time.Minute)
+		}
+
+		// turn opens a window when the scheduler waits for one, for the specs that poll: a
+		// window opening while the previous check runs is lost, and the next poll opens another.
+		turn := func() {
+			if clock.HasWaiters() {
+				clock.Step(time.Minute)
+			}
+		}
+
+		// verdicts reconciles until the monitor counts n images with a verdict.
+		verdicts := func(n int32) {
+			GinkgoHelper()
+			Eventually(func() int32 {
+				reconcileIt()
+				return originOf(name).Available + originOf(name).Unavailable
+			}).Should(Equal(n))
+		}
+
+		// entryOf returns the unavailableImages entry of ref, nil when there is none.
+		entryOf := func(ref string) *kuikv1alpha1.UnavailableImage {
+			for _, e := range monitorStatusOf(name).UnavailableImages {
+				if e.Ref == ref {
+					return &e
+				}
+			}
+			return nil
+		}
+
+		// unavailable reconciles until unavailableImages holds an entry for ref, and returns it.
+		unavailable := func(ref string) kuikv1alpha1.UnavailableImage {
+			GinkgoHelper()
+			var entry *kuikv1alpha1.UnavailableImage
+			Eventually(func() *kuikv1alpha1.UnavailableImage {
+				reconcileIt()
+				entry = entryOf(ref)
+				return entry
+			}).ShouldNot(BeNil())
+			return *entry
+		}
+
+		// ringSize returns the size of the ring of the monitor on host, and whether it exists.
+		ringSize := func(host string) (float64, bool) {
+			scheduling := prometheus.NewRegistry()
+			scheduling.MustRegister(scheduler.Collector())
+			return gauge(scheduling, "kuik_check_ring_images", map[string]string{
+				labelKind: kindImageMonitorLabel, labelName: name, labelRegistry: host,
+			})
+		}
+
+		// originUnavailable returns the kuik_image_origin_unavailable series of ref, and
+		// whether it exists.
+		originUnavailable := func(src *registrytest.Registry, ref string, reason kuikv1alpha1.CheckFailureReason) (float64, bool) {
+			return gauge(registry, "kuik_image_origin_unavailable", map[string]string{
+				labelKind: kindImageMonitorLabel, labelName: name, labelImage: ref,
+				labelRegistry: src.Host(), labelReason: string(reason),
+			})
+		}
+
+		It("gives the scheduler one ring per registry host, holding the references tracked on that host", func() {
+			first := source("acme/app", "acme/tool")
+			second := source("acme/app")
+			newMonitor(name)
+			runningPod(selectedNamespace(), []container{
+				running("a", image(first, "acme/app")),
+				running("b", image(first, "acme/tool")),
+				running("c", image(second, "acme/app")),
+			})
+			reconcileIt()
+			size, ok := ringSize(first.Host())
+			Expect(ok).To(BeTrue())
+			Expect(size).To(Equal(2.0))
+			size, ok = ringSize(second.Host())
+			Expect(ok).To(BeTrue())
+			Expect(size).To(Equal(1.0))
+
+			// Two windows of each host: the first one reads both of its references.
+			window()
+			verdicts(2)
+			window()
+			verdicts(3)
+			Expect(checked(first, "acme/app")()).To(Equal(1))
+			Expect(checked(first, "acme/tool")()).To(Equal(1))
+			Expect(checked(second, "acme/app")()).To(BeNumerically(">=", 1))
+		})
+
+		It("removes the ring of a host it no longer tracks anything on", func() {
+			kept := source("acme/app")
+			left := source("acme/app")
+			newMonitor(name, func(im *kuikv1alpha1.ImageMonitor) {
+				im.Spec.UnusedImageRetention = &metav1.Duration{}
+			})
+			ns := selectedNamespace()
+			runningPod(ns, []container{running(appContainer, image(kept, "acme/app"))})
+			leaving := runningPod(ns, []container{running(appContainer, image(left, "acme/app"))})
+			reconcileIt()
+			_, ok := ringSize(left.Host())
+			Expect(ok).To(BeTrue())
+
+			deletePod(leaving)
+			reconcileIt()
+			_, ok = ringSize(left.Host())
+			Expect(ok).To(BeFalse())
+			_, ok = ringSize(kept.Host())
+			Expect(ok).To(BeTrue())
+			Expect(monitorStatusOf(name).Checks).NotTo(BeNil())
+			Expect(monitorStatusOf(name).Checks.Registries).To(ConsistOf(HaveField("Registry", kept.Host())))
+		})
+
+		It("resumes a ring from the cursor its status persisted", func() {
+			src := source("acme/app", "acme/tool")
+			newMonitor(name)
+			runningPod(selectedNamespace(), []container{
+				running("a", image(src, "acme/app")),
+				running("b", image(src, "acme/tool")),
+			})
+			reconcileIt()
+			window()
+			verdicts(1)
+			Expect(checked(src, "acme/tool")()).To(BeZero())
+			Expect(monitorStatusOf(name).Checks.Registries).To(ConsistOf(HaveField("Cursor", image(src, "acme/app"))))
+
+			// A new process: its own scheduler, its first window a full interval away.
+			restart()
+			reconcileIt()
+			src.Reset()
+			window()
+			Eventually(checked(src, "acme/tool")).Should(Equal(1))
+			Expect(checked(src, "acme/app")()).To(BeZero())
+		})
+
+		It("keeps its persisted cursors while a selector does not parse", func() {
+			src := source("acme/app", "acme/tool")
+			newMonitor(name)
+			runningPod(selectedNamespace(), []container{
+				running("a", image(src, "acme/app")),
+				running("b", image(src, "acme/tool")),
+			})
+			reconcileIt()
+			window()
+			verdicts(1)
+
+			// A new process starts while the selector does not parse: it tracks nothing.
+			restart()
+			updateMonitor(invalidSelector)
+			reconcileIt()
+			Expect(monitorStatusOf(name).Checks).NotTo(BeNil())
+			Expect(monitorStatusOf(name).Checks.Registries).To(ConsistOf(HaveField("Cursor", image(src, "acme/app"))))
+
+			updateMonitor(func(im *kuikv1alpha1.ImageMonitor) { im.Spec.PodSelector = nil })
+			reconcileIt()
+			src.Reset()
+			window()
+			Eventually(checked(src, "acme/tool")).Should(Equal(1))
+			Expect(checked(src, "acme/app")()).To(BeZero())
+		})
+
+		It("reports the health of its rings in checks.registries", func() {
+			src := source("acme/app")
+			newMonitor(name)
+			runningPod(selectedNamespace(), []container{running(appContainer, image(src, "acme/app"))})
+			Eventually(func() *metav1.Duration {
+				turn()
+				reconcileIt()
+				checks := monitorStatusOf(name).Checks
+				if checks == nil || len(checks.Registries) == 0 {
+					return nil
+				}
+				return checks.Registries[0].CycleDuration
+			}).ShouldNot(BeNil())
+
+			ring := monitorStatusOf(name).Checks.Registries[0]
+			Expect(ring.Registry).To(Equal(src.Host()))
+			Expect(ring.Images).To(Equal(int32(1)))
+			Expect(ring.Cursor).To(Equal(image(src, "acme/app")))
+			Expect(ring.CycleStarted).NotTo(BeNil())
+		})
+
+		It("keeps checking a retained image", func() {
+			retained := source("acme/app")
+			other := source("acme/other")
+			newMonitor(name)
+			ns := selectedNamespace()
+			runningPod(ns, []container{running(appContainer, image(other, "acme/other"))})
+			pod := runningPod(ns, []container{running(appContainer, image(retained, "acme/app"))})
+			reconcileIt()
+			deletePod(pod)
+			reconcileIt()
+			Expect(monitorStatusOf(name).RetainedImages).To(ConsistOf(HaveField("Ref", image(retained, "acme/app"))))
+
+			window()
+			Eventually(checked(retained, "acme/app")).Should(Equal(1))
+			verdicts(2)
+			Expect(originOf(name).Available).To(Equal(int32(2)))
+		})
+
+		It("counts an image by the verdict of its last check, available or unavailable, and leaves out one not checked yet", func() {
+			// The ring reads acme/app, then acme/gone, which the registry lacks, then acme/zzz.
+			src := source("acme/app", "acme/zzz")
+			newMonitor(name)
+			runningPod(selectedNamespace(), []container{
+				running("a", image(src, "acme/app")),
+				running("b", image(src, "acme/gone")),
+				running("c", image(src, "acme/zzz")),
+			})
+			reconcileIt()
+			window()
+			verdicts(1)
+			window()
+			verdicts(2)
+			origin := originOf(name)
+			Expect(origin.Tracked).To(Equal(int32(3)))
+			Expect(origin.Available).To(Equal(int32(1)))
+			Expect(origin.Unavailable).To(Equal(int32(1)))
+		})
+
+		It("lists an origin whose check failed in unavailableImages, with the reason and the number of pods declaring it", func() {
+			src := source()
+			newMonitor(name)
+			ns := selectedNamespace()
+			gone := image(src, "acme/gone")
+			runningPod(ns, []container{running(appContainer, gone)})
+			runningPod(ns, []container{running(appContainer, gone)})
+			reconcileIt()
+			window()
+			entry := unavailable(gone)
+			Expect(entry.Reason).To(Equal(kuikv1alpha1.CheckManifestNotFound))
+			Expect(entry.Pods).To(Equal(int32(2)))
+			Expect(entry.Since.Time).To(BeTemporally("==", clock.Now()))
+		})
+
+		It("keeps the since of an unavailableImages entry while the failure lasts", func() {
+			src := source()
+			newMonitor(name)
+			gone := image(src, "acme/gone")
+			runningPod(selectedNamespace(), []container{running(appContainer, gone)})
+			reconcileIt()
+			window()
+			since := unavailable(gone).Since
+
+			// A new process reads the failure back from the status, and its own check fails
+			// for another reason: the failure goes on.
+			restart()
+			reconcileIt()
+			Expect(entryOf(gone)).NotTo(BeNil())
+			Expect(entryOf(gone).Since.Time).To(BeTemporally("==", since.Time))
+			src.Intercept(registrytest.Status(http.MethodHead, "/manifests/", http.StatusTooManyRequests, nil))
+			window()
+			Eventually(func() kuikv1alpha1.CheckFailureReason {
+				reconcileIt()
+				if e := entryOf(gone); e != nil {
+					return e.Reason
+				}
+				return ""
+			}).Should(Equal(kuikv1alpha1.CheckQuotaExceeded))
+			Expect(entryOf(gone).Since.Time).To(BeTemporally("==", since.Time))
+		})
+
+		It("removes an unavailableImages entry once the image answers again", func() {
+			src := source()
+			newMonitor(name)
+			gone := image(src, "acme/gone")
+			runningPod(selectedNamespace(), []container{running(appContainer, gone)})
+			reconcileIt()
+			window()
+			unavailable(gone)
+
+			src.Push("acme/gone:v1", registrytest.Image())
+			Eventually(func() []kuikv1alpha1.UnavailableImage {
+				turn()
+				reconcileIt()
+				return monitorStatusOf(name).UnavailableImages
+			}).Should(BeEmpty())
+			Expect(originOf(name).Available).To(Equal(int32(1)))
+			Expect(originOf(name).Unavailable).To(BeZero())
+		})
+
+		It("sets ImagesUnavailable with reason ChecksFailed while an origin fails its check, and removes it once none does", func() {
+			src := source()
+			newMonitor(name)
+			gone := image(src, "acme/gone")
+			runningPod(selectedNamespace(), []container{running(appContainer, gone)})
+			reconcileIt()
+			window()
+			unavailable(gone)
+			unavailableCondition := func() *metav1.Condition {
+				return meta.FindStatusCondition(monitorStatusOf(name).Conditions, kuikv1alpha1.ConditionImagesUnavailable)
+			}
+			Expect(unavailableCondition()).NotTo(BeNil())
+			Expect(unavailableCondition().Status).To(Equal(metav1.ConditionTrue))
+			Expect(unavailableCondition().Reason).To(Equal(kuikv1alpha1.ReasonChecksFailed))
+
+			src.Push("acme/gone:v1", registrytest.Image())
+			Eventually(func() *metav1.Condition {
+				turn()
+				reconcileIt()
+				return unavailableCondition()
+			}).Should(BeNil())
+		})
+
+		It("emits no event when a tracked origin becomes unavailable", func() {
+			src := source()
+			newMonitor(name)
+			gone := image(src, "acme/gone")
+			runningPod(selectedNamespace(), []container{running(appContainer, gone)})
+			reconcileIt()
+			window()
+			unavailable(gone)
+			reconcileIt()
+			recorder.mu.Lock()
+			defer recorder.mu.Unlock()
+			Expect(recorder.events).To(BeEmpty())
+		})
+
+		It("exports kuik_images_checked from the verdicts of its checks", func() {
+			src := source("acme/app")
+			newMonitor(name)
+			runningPod(selectedNamespace(), []container{
+				running("a", image(src, "acme/app")),
+				running("b", image(src, "acme/gone")),
+			})
+			reconcileIt()
+			window()
+			verdicts(1)
+			window()
+			verdicts(2)
+			for state, want := range map[string]float64{"available": 1, "unavailable": 1} {
+				v, ok := gauge(registry, "kuik_images_checked", map[string]string{
+					labelKind: kindImageMonitorLabel, labelName: name, labelReference: "origin", labelState: state,
+				})
+				Expect(ok).To(BeTrue(), state)
+				Expect(v).To(Equal(want), state)
+			}
+		})
+
+		It("exports one kuik_image_origin_unavailable series per failing origin, deleted once it answers", func() {
+			src := source()
+			newMonitor(name)
+			first, second := image(src, "acme/first"), image(src, "acme/second")
+			runningPod(selectedNamespace(), []container{running("a", first), running("b", second)})
+			reconcileIt()
+			window()
+			unavailable(first)
+			window()
+			unavailable(second)
+			for _, ref := range []string{first, second} {
+				v, ok := originUnavailable(src, ref, kuikv1alpha1.CheckManifestNotFound)
+				Expect(ok).To(BeTrue(), ref)
+				Expect(v).To(Equal(1.0), ref)
+			}
+
+			src.Push("acme/first:v1", registrytest.Image())
+			Eventually(func() bool {
+				turn()
+				reconcileIt()
+				_, ok := originUnavailable(src, first, kuikv1alpha1.CheckManifestNotFound)
+				return ok
+			}).Should(BeFalse())
+			_, ok := originUnavailable(src, second, kuikv1alpha1.CheckManifestNotFound)
+			Expect(ok).To(BeTrue())
+		})
+
+		It("starts from an empty memory when deleted and created again under the same name before a reconcile sees it gone", func() {
+			// The registry refuses every anonymous check.
+			src := source()
+			src.Intercept(registrytest.Status(http.MethodHead, "/manifests/", http.StatusUnauthorized, nil))
+			denied := image(src, "acme/denied")
+			im := newMonitor(name)
+			runningPod(selectedNamespace(), []container{running(appContainer, denied)})
+			reconcileIt()
+			window()
+			unavailable(denied)
+			Expect(recorder.withReason("AnonymousAccessDenied")).To(HaveLen(1))
+
+			Expect(k8sClient.Delete(ctx, im)).To(Succeed())
+			Eventually(func() bool {
+				return apierrors.IsNotFound(k8sClient.Get(ctx, types.NamespacedName{Name: name}, &kuikv1alpha1.ImageMonitor{}))
+			}).Should(BeTrue())
+			newMonitor(name)
+			reconcileIt()
+			Expect(monitorStatusOf(name).UnavailableImages).To(BeEmpty())
+
+			window()
+			unavailable(denied)
+			Expect(recorder.withReason("AnonymousAccessDenied")).To(HaveLen(2))
+		})
+
+		It("removes its rings from the scheduler when deleted", func() {
+			src := source("acme/app")
+			im := newMonitor(name)
+			gone := image(src, "acme/gone")
+			runningPod(selectedNamespace(), []container{running(appContainer, image(src, "acme/app")), running("b", gone)})
+			reconcileIt()
+			_, ok := ringSize(src.Host())
+			Expect(ok).To(BeTrue())
+			window()
+			verdicts(1)
+			window()
+			unavailable(gone)
+			_, ok = originUnavailable(src, gone, kuikv1alpha1.CheckManifestNotFound)
+			Expect(ok).To(BeTrue())
+
+			Expect(k8sClient.Delete(ctx, im)).To(Succeed())
+			reconcileIt()
+			_, ok = ringSize(src.Host())
+			Expect(ok).To(BeFalse())
+			_, ok = originUnavailable(src, gone, kuikv1alpha1.CheckManifestNotFound)
+			Expect(ok).To(BeFalse())
+		})
+
+		It("reports Unreachable for a check that failed without an answer from the registry", func() {
+			Expect(checkFailure(errors.New("dial tcp: connection refused"))).To(Equal(kuikv1alpha1.CheckUnreachable))
 		})
 	})
 })

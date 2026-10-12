@@ -25,6 +25,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
+	"github.com/enix/kube-image-keeper/internal/registry"
+	"github.com/enix/kube-image-keeper/internal/registry/pacing"
 	"github.com/enix/kube-image-keeper/internal/status/attribution"
 	"github.com/enix/kube-image-keeper/internal/status/condition"
 	"github.com/enix/kube-image-keeper/internal/status/imagemetrics"
@@ -76,6 +78,10 @@ type ImageMonitorOptions struct {
 	Registerer prometheus.Registerer
 	// Clock dates the retained images.
 	Clock clock.Clock
+	// Scheduler paces the checks against the registries.
+	Scheduler *pacing.Scheduler
+	// Registry reads the tracked images.
+	Registry *registry.Client
 }
 
 // NewImageMonitorReconciler returns a reconciler writing with c.
@@ -364,4 +370,9 @@ func (r *ImageMonitorReconciler) all(ctx context.Context, _ client.Object) []rec
 		requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{Name: im.Name}})
 	}
 	return requests
+}
+
+// checkFailure is the reason a failed check reports. Stub: the checks are not implemented yet.
+func checkFailure(error) kuikv1alpha1.CheckFailureReason {
+	return ""
 }
