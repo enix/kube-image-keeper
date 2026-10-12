@@ -44,6 +44,59 @@ var _ = Describe("Scheduler", func() {
 			Expect(c.visits()).To(Equal([]visit{{Ref: imageA, At: at(time.Minute)}}))
 		})
 
+		It("opens the first window of a host used again after its last ring was removed at the next window of the series, never at once", func() {
+			h := run(pacing(time.Minute, time.Hour, nil))
+			c := newChecker(h)
+			h.s.SetRing(monitor, dockerHub, []string{imageA}, kuikv1alpha1.RegistryCheck{}, c)
+			h.advance(time.Minute)
+			h.s.RemoveRing(monitor, dockerHub)
+			h.advance(30 * time.Second)
+
+			h.s.SetRing(monitor, dockerHub, []string{imageA}, kuikv1alpha1.RegistryCheck{}, c)
+			h.settle()
+			Expect(c.visits()).To(HaveLen(1))
+			h.advance(30 * time.Second)
+			Expect(c.visits()).To(Equal([]visit{
+				{Ref: imageA, At: at(time.Minute)},
+				{Ref: imageA, At: at(2 * time.Minute)},
+			}))
+		})
+
+		It("opens the first window of a host first used after the start at the next window of its series, never at once", func() {
+			h := run(pacing(time.Minute, time.Hour, nil))
+			c := newChecker(h)
+			h.settle()
+			h.clk.Step(90 * time.Second)
+			h.settle()
+
+			h.s.SetRing(monitor, dockerHub, []string{imageA}, kuikv1alpha1.RegistryCheck{}, c)
+			h.settle()
+			Expect(c.visits()).To(BeEmpty())
+			h.advance(30 * time.Second)
+			Expect(c.visits()).To(Equal([]visit{{Ref: imageA, At: at(2 * time.Minute)}}))
+		})
+
+		It("opens no second copy on a host while the copy of a queue removed meanwhile still runs", func() {
+			h := run(pacing(time.Hour, 3*time.Minute, nil))
+			c := newCopier(h)
+			c.hold(imageB)
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageB}, c)
+			h.step(3 * time.Minute)
+			Eventually(c.visits).Should(HaveLen(1))
+
+			h.s.SetCopyQueue(mirror, dockerHub, nil, c)
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageC}, c)
+			h.step(3 * time.Minute)
+			Consistently(c.visits).WithTimeout(200 * time.Millisecond).Should(HaveLen(1))
+			c.release(imageB)
+			h.advance(3 * time.Minute)
+
+			Expect(c.visits()).To(Equal([]visit{
+				{Ref: imageB, At: at(3 * time.Minute)},
+				{Ref: imageC, At: at(9 * time.Minute)},
+			}))
+		})
+
 		It("opens the following windows at start plus a multiple of the interval, whatever each image took", func() {
 			h := run(pacing(time.Minute, time.Hour, nil))
 			c := newChecker(h)
@@ -779,6 +832,15 @@ var _ = Describe("Scheduler", func() {
 				"operation=Check,registry=quay.io":   300,
 				"operation=Copy,registry=quay.io":    180,
 			}))
+		})
+
+		It("drops the Check and Copy series of a host once no ring and no copy queue use it", func() {
+			h.s.SetRing(monitor, dockerHub, []string{imageA}, kuikv1alpha1.RegistryCheck{}, c)
+			h.s.SetCopyQueue(mirror, quayIO, []string{quayImage}, newCopier(h))
+			h.s.RemoveRing(monitor, dockerHub)
+			h.s.SetCopyQueue(mirror, quayIO, nil, newCopier(h))
+
+			Expect(gauges(h.s.Collector(), "kuik_registry_interval_seconds")).To(BeEmpty())
 		})
 
 		It("exposes the destination scan interval of a mirror destination host with operation Scan", func() {
