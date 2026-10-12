@@ -14,7 +14,7 @@
 <!-- A branch root has no relative form, so no-unpinned-repo-urls cannot be satisfied here. -->
 <!-- markdownlint-disable search-replace -->
 > [!WARNING]
-> **kuik v3 is in a very early stage of development on `main` and is not usable yet**. If you are looking for the latest stable version, it is maintained on the [`2.3.x`](https://github.com/enix/kube-image-keeper/tree/2.3.x) branch: see its [releases](https://github.com/enix/kube-image-keeper/releases) and its documentation on [kuik.enix.io](https://kuik.enix.io/2.3/).
+> **kuik v3 is in a very early stage of development: it is not stable nor feature complete yet**. See [Status](#status) for what works today. If you are looking for the latest stable version, it is maintained on the [`2.3.x`](https://github.com/enix/kube-image-keeper/tree/2.3.x) branch: see its [releases](https://github.com/enix/kube-image-keeper/releases) and its documentation on [kuik.enix.io](https://kuik.enix.io/2.3/).
 <!-- markdownlint-enable search-replace -->
 
 [release]: https://github.com/enix/kube-image-keeper/releases
@@ -51,7 +51,21 @@ It relies on three core mechanisms:
 
 ## Status
 
-This branch holds **kuik v3**, a rewrite currently in development.
+This branch holds **kuik v3**, a rewrite currently in development and released as alphas. Two milestones lie ahead:
+
+- [**v3.0 beta**](https://github.com/enix/kube-image-keeper/milestone/7), due 2026-11-01: every feature is implemented, not yet stable.
+- [**v3.0 GA**](https://github.com/enix/kube-image-keeper/milestone/5): stable, ready for production.
+
+| Feature | Status |
+| ------- | ------ |
+| [Image routing](./docs/crds.md#imagealternative) (`ImageAlternative`, mutating webhook) | Available since 3.0.0-alpha.2 |
+| [Pull secret injection](./docs/concepts/pull-secrets.md) (secret syncer) | Available since 3.0.0-alpha.3 |
+| [Image copy](./docs/crds.md#imagemirror) (`ImageMirror`) | Merged on `main` ([#710](https://github.com/enix/kube-image-keeper/pull/710)), ships with 3.0.0-alpha.4 |
+| [Image monitoring](https://github.com/enix/kube-image-keeper/issues/718) (`ImageMonitor`) | In progress, for the beta |
+| [Admission validation](https://github.com/enix/kube-image-keeper/issues/719) | Planned for the beta |
+| Credentials from a cloud provider (`auth.provider`) | Not planned yet |
+| Plain-HTTP registries and private CAs | Not planned yet |
+| Migration from v2 | None: a migration plan will be proposed once GA is out |
 
 - **Stable version**: [v2.3](https://github.com/enix/kube-image-keeper/releases), documented on [kuik.enix.io](https://kuik.enix.io/2.3/). It is in maintenance: bug fixes only.
 - **v3 specification**: [`docs/v3/`](./docs/v3/), starting with [`spec.md`](./docs/v3/spec.md). It is the source of truth for v3 behaviour, frozen for now, it may evolves after we reach beta.
