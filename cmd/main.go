@@ -269,11 +269,14 @@ func main() {
 		onConfigChange = append(onConfigChange, imageMirrors.SetConfig)
 		imageMonitors, err := kuikcontroller.NewImageMonitorReconciler(mgr.GetClient(), mgr.GetScheme(),
 			kuikcontroller.ImageMonitorOptions{
-				Recorder:   mgr.GetEventRecorder("kuik-reconciler"),
-				Registerer: metrics.Registry,
-				Clock:      clock.RealClock{},
-				Scheduler:  scheduler,
-				Registry:   registry.NewClient(),
+				APIReader:                mgr.GetAPIReader(),
+				ClusterResourceNamespace: clusterResourceNamespace,
+				Recorder:                 mgr.GetEventRecorder("kuik-reconciler"),
+				Registerer:               metrics.Registry,
+				Scheduler:                scheduler,
+				Registry:                 registry.NewClient(),
+				Config:                   globalConfig,
+				Clock:                    clock.RealClock{},
 			})
 		if err != nil {
 			setupLog.Error(err, "Failed to create controller", "controller", "kuik-imagemonitor")
@@ -283,6 +286,7 @@ func main() {
 			setupLog.Error(err, "Failed to create controller", "controller", "kuik-imagemonitor")
 			os.Exit(1)
 		}
+		onConfigChange = append(onConfigChange, imageMonitors.SetConfig)
 	case secretSyncerProcess:
 		syncer, err := secretsyncer.New(mgr.GetClient(), secretsyncer.Options{
 			Namespace:  clusterResourceNamespace,

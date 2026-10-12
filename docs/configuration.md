@@ -80,6 +80,12 @@ kuik tries the credentials it holds for an image in this order:
 The webhook skips step 3. Its check predicts what the node can pull, and the node never holds a
 `fallbackAuth` credential: kuik never injects one.
 
+An `ImageMonitor` check has no step 1, an origin declaring no `auth`. Step 2 tries the pull
+secrets of every pod declaring the image, each once, until one answers. A `fallbackAuth` Secret
+that is missing or not a `dockerconfigjson` does not stop the check: like the kubelet with a
+missing pull secret, kuik goes on without it, and the monitor's `Ready` goes `False` with reason
+`SecretNotFound` or `SecretMalformed`.
+
 ### `fallbackAuth`
 
 Each entry names the images it covers the way an `ImageAlternative` entry does, fully qualified,
