@@ -150,6 +150,8 @@ type fakeChecker struct {
 	checked map[string][]Response
 	held    map[string]chan struct{}
 	ended   map[string]time.Time
+	// silent are the refs Check answers with no verdict, neither a result nor an error.
+	silent map[string]bool
 }
 
 func newChecker(h *harness) *fakeChecker {
@@ -158,7 +160,15 @@ func newChecker(h *harness) *fakeChecker {
 		checked: map[string][]Response{},
 		held:    map[string]chan struct{}{},
 		ended:   map[string]time.Time{},
+		silent:  map[string]bool{},
 	}
+}
+
+// giveNoVerdict makes the checks of ref answer with neither a result nor an error.
+func (f *fakeChecker) giveNoVerdict(ref string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.silent[ref] = true
 }
 
 // hold makes the next checks of ref wait until release.
@@ -180,8 +190,12 @@ func (f *fakeChecker) Check(ctx context.Context, ref string) Response {
 	f.mu.Lock()
 	f.checks = append(f.checks, visit{Ref: ref, At: f.clk.Now()})
 	held := f.held[ref]
+	silent := f.silent[ref]
 	f.mu.Unlock()
 
+	if silent {
+		return Response{}
+	}
 	if held == nil {
 		return answer(ref)
 	}

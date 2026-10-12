@@ -348,6 +348,15 @@ var _ = Describe("Scheduler", func() {
 			Expect(drift.visits()).To(Equal([]visit{{Ref: imageA, At: at(3 * time.Minute)}}))
 		})
 
+		It("spends a window on an image whose last check gave no verdict, rather than reuse it", func() {
+			monitors.giveNoVerdict(imageA)
+			h.s.SetRing(monitor, dockerHub, []string{imageA}, kuikv1alpha1.RegistryCheck{}, monitors)
+			h.s.SetRing(mirror, dockerHub, []string{imageA, imageB}, kuikv1alpha1.RegistryCheck{}, drift)
+			windows(2)
+
+			Expect(drift.refs()).To(Equal([]string{imageA}))
+		})
+
 		It("laps two rings created together over the same images in the windows of one", func() {
 			h.s.SetRing(monitor, dockerHub, images, kuikv1alpha1.RegistryCheck{}, monitors)
 			h.s.SetRing(mirror, dockerHub, images, kuikv1alpha1.RegistryCheck{}, drift)
