@@ -114,6 +114,8 @@ type Pass struct {
 	limiter  *Limiter
 	resource resource
 	lists    []capped
+	// held are the entries of each list known left out without being at hand, see Hold.
+	held map[string]int
 }
 
 type capped struct {
@@ -124,7 +126,12 @@ type capped struct {
 
 // Hold records that at least held entries of the list named list, capped in this pass, are
 // left out though not at hand: a restart reads back only the capped list.
-func (p *Pass) Hold(list string, held int32) {}
+func (p *Pass) Hold(list string, held int32) {
+	if p.held == nil {
+		p.held = map[string]int{}
+	}
+	p.held[list] = int(held)
+}
 
 // Begin starts capping the lists of the resource (kind, name).
 func (l *Limiter) Begin(kind, name string) *Pass {
@@ -193,12 +200,14 @@ func (p *Pass) End(conditions *[]metav1.Condition, generation int64) map[string]
 		}
 		previous[c.name] = c.out
 
+		// Held entries are reported, never counted as dropped: this pass did not see them.
+		out := max(len(c.out), p.held[c.name])
 		switch {
-		case len(c.out) > 0:
+		case out > 0:
 			if truncated == nil {
 				truncated = map[string]int32{}
 			}
-			truncated[c.name] = int32(len(c.out))
+			truncated[c.name] = int32(out)
 			over = append(over, c.name)
 		case c.written >= l.near():
 			near = append(near, c.name)
