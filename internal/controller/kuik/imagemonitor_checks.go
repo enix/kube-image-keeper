@@ -51,6 +51,9 @@ func (m *monitorMemory) seed(status *kuikv1alpha1.ImageMonitorStatus) {
 		return
 	}
 	m.seeded = true
+	if out := status.Truncated[listUnavailableImages]; out > 0 && status.Images != nil && status.Images.Origin != nil {
+		m.persisted = &persistedCounts{unavailable: status.Images.Origin.Unavailable, truncated: out}
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, e := range status.UnavailableImages {
@@ -59,6 +62,35 @@ func (m *monitorMemory) seed(status *kuikv1alpha1.ImageMonitorStatus) {
 			m.verdicts[e.Ref] = verdict{reason: e.Reason, since: e.Since.Time, denied: e.Reason == kuikv1alpha1.CheckUnauthorized}
 		}
 	}
+}
+
+// listUnavailableImages is the status field of the failing origins, a capped list.
+const listUnavailableImages = "unavailableImages"
+
+// persistedCounts are the failing images a status counted beyond the entries of its capped
+// list.
+type persistedCounts struct {
+	unavailable int32
+	truncated   int32
+}
+
+// held returns what the status persisted beyond its capped list while some tracked image has
+// no verdict yet, and forgets it once every one has.
+func (m *monitorMemory) held(tracked []string) (persistedCounts, bool) {
+	if m.persisted == nil {
+		return persistedCounts{}, false
+	}
+	m.mu.Lock()
+	complete := !slices.ContainsFunc(tracked, func(ref string) bool {
+		_, ok := m.verdicts[ref]
+		return !ok
+	})
+	m.mu.Unlock()
+	if complete {
+		m.persisted = nil
+		return persistedCounts{}, false
+	}
+	return *m.persisted, true
 }
 
 // verdictsOf returns the verdicts of the tracked images, and forgets those of the images no
@@ -98,6 +130,17 @@ func (m *monitorMemory) setDeclaring(declaring map[string][]*corev1.Pod) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.declaring = declaring
+}
+
+// checkable returns the references of tracked a ring can check: the ones that parse.
+func checkable(tracked []string) []string {
+	out := make([]string, 0, len(tracked))
+	for _, ref := range tracked {
+		if _, err := imagepath.Parse(ref); err == nil {
+			out = append(out, ref)
+		}
+	}
+	return out
 }
 
 // turnRings hands the scheduler one ring per registry host of the images im tracks,
