@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
+	"github.com/enix/kube-image-keeper/internal/config"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/enix/kube-image-keeper/internal/registry/pacing"
 	"github.com/enix/kube-image-keeper/internal/status/attribution"
@@ -101,6 +102,12 @@ type ImageMonitorOptions struct {
 	Scheduler *pacing.Scheduler
 	// Registry reads the tracked images.
 	Registry *registry.Client
+	// APIReader reads the Secrets the checks use, uncached.
+	APIReader client.Reader
+	// ClusterResourceNamespace is where a fallbackAuth secretRef resolves.
+	ClusterResourceNamespace string
+	// Config is the global config as loaded at start-up; SetConfig hands over a reload.
+	Config *config.Config
 }
 
 // NewImageMonitorReconciler returns a reconciler writing with c.
@@ -471,3 +478,6 @@ func (r *ImageMonitorReconciler) all(ctx context.Context, _ client.Object) []rec
 	}
 	return requests
 }
+
+// SetConfig applies a reloaded global config. Stub: the credentials are not implemented yet.
+func (r *ImageMonitorReconciler) SetConfig(*config.Config) {}
