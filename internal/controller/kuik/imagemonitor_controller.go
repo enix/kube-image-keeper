@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -31,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
+	"github.com/enix/kube-image-keeper/internal/auth"
 	"github.com/enix/kube-image-keeper/internal/config"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/enix/kube-image-keeper/internal/registry/pacing"
@@ -63,6 +65,17 @@ type ImageMonitorReconciler struct {
 	metrics   *monitorMetrics
 	scheduler *pacing.Scheduler
 	registry  *registry.Client
+	recorder  events.EventRecorder
+	// resolver reads fallbackAuth, podSecrets the pull secrets of the pods declaring an
+	// image: the two steps of docs/v3/spec.md, "No auth at all", a check reads with.
+	resolver   *auth.Resolver
+	podSecrets *auth.Resolver
+
+	// secretReader, namespace and fallbackAuth are what fallbackSecrets reads the Secrets of
+	// fallbackAuth again with, once per Secret and per report.
+	secretReader client.Reader
+	namespace    string
+	fallbackAuth atomic.Pointer[[]auth.FallbackAuthEntry]
 
 	mu sync.Mutex
 	// monitors holds, per monitor, what its status does not persist.
@@ -88,6 +101,12 @@ type monitorMemory struct {
 	mu sync.Mutex
 	// verdicts are the outcome of the last check of each tracked image.
 	verdicts map[string]verdict
+	// declaring are the pods declaring each image, whose pull secrets a check tries.
+	declaring map[string][]*corev1.Pod
+	// secretErrs are the fallbackAuth Secrets the last check of an image could not read.
+	secretErrs map[string]error
+	// anonymous records, per image, whether its last check sent no credential.
+	anonymous map[string]bool
 }
 
 // ImageMonitorOptions are what an ImageMonitorReconciler reports with.
@@ -120,7 +139,7 @@ func NewImageMonitorReconciler(c client.Client, scheme *runtime.Scheme, opts Ima
 	if err != nil {
 		return nil, err
 	}
-	return &ImageMonitorReconciler{
+	r := &ImageMonitorReconciler{
 		Client:    c,
 		Scheme:    scheme,
 		clock:     opts.Clock,
@@ -128,8 +147,31 @@ func NewImageMonitorReconciler(c client.Client, scheme *runtime.Scheme, opts Ima
 		metrics:   metrics,
 		scheduler: opts.Scheduler,
 		registry:  opts.Registry,
-		monitors:  map[string]*monitorMemory{},
-	}, nil
+		recorder:  opts.Recorder,
+		resolver:  auth.NewResolver(opts.APIReader, opts.ClusterResourceNamespace, auth.ModeReconciler),
+		// Webhook mode skips fallbackAuth: it reads the pull secrets of a pod and nothing else,
+		// since an origin has no entry auth.
+		podSecrets: auth.NewResolver(opts.APIReader, opts.ClusterResourceNamespace, auth.ModeWebhook),
+		monitors:   map[string]*monitorMemory{},
+	}
+	r.secretReader, r.namespace = opts.APIReader, opts.ClusterResourceNamespace
+	r.fallbackAuth.Store(&[]auth.FallbackAuthEntry{})
+	if opts.Config != nil {
+		if err := r.resolver.SetFallbackAuth(opts.Config.FallbackAuth); err != nil {
+			return nil, err
+		}
+		r.fallbackAuth.Store(&opts.Config.FallbackAuth)
+	}
+	return r, nil
+}
+
+// SetConfig applies a reloaded global config.
+func (r *ImageMonitorReconciler) SetConfig(cfg *config.Config) {
+	if err := r.resolver.SetFallbackAuth(cfg.FallbackAuth); err != nil {
+		logf.Log.Info("Kept the previous fallbackAuth of the ImageMonitor reconciler", "error", err.Error())
+		return
+	}
+	r.fallbackAuth.Store(&cfg.FallbackAuth)
 }
 
 // wake asks for a report of the monitor name.
@@ -144,6 +186,12 @@ func (r *ImageMonitorReconciler) wake(name string) {
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch,roleName=reconciler
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch,roleName=reconciler
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch,roleName=reconciler
+
+// A check reads the fallbackAuth Secrets in the install namespace (a Role: the chart puts it in
+// the release namespace, kuik-system is a placeholder), and the imagePullSecrets of the pods
+// declaring the image cluster-wide, bound according to secretAccess.
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch,namespace=kuik-system,roleName=reconciler
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch,roleName=secret-reader
 
 // Reconcile writes the status of one ImageMonitor.
 func (r *ImageMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -182,7 +230,7 @@ func (r *ImageMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 		memory.emptySeen = false
 		var declared map[string]string
-		requeue, declared = r.track(ctx, &im, &next, memory, pods)
+		requeue, declared, notReady = r.track(ctx, &im, &next, memory, pods)
 		remember = func() { memory.declared = declared }
 	}
 
@@ -209,7 +257,7 @@ func (r *ImageMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request
 // track writes into next the origins pods declare and the images kept for retention. It
 // returns when the next retained image expires, zero when none is retained, and the declared
 // origins with their digests, for the memory once next is written.
-func (r *ImageMonitorReconciler) track(ctx context.Context, im *kuikv1alpha1.ImageMonitor, next *kuikv1alpha1.ImageMonitorStatus, memory *monitorMemory, pods []*corev1.Pod) (time.Duration, map[string]string) {
+func (r *ImageMonitorReconciler) track(ctx context.Context, im *kuikv1alpha1.ImageMonitor, next *kuikv1alpha1.ImageMonitorStatus, memory *monitorMemory, pods []*corev1.Pod) (time.Duration, map[string]string, *condition.NotReady) {
 	log := logf.FromContext(ctx)
 	now := r.clock.Now()
 	retention := defaultUnusedImageRetention
@@ -267,9 +315,15 @@ func (r *ImageMonitorReconciler) track(ctx context.Context, im *kuikv1alpha1.Ima
 		tracked = append(tracked, e.Ref)
 	}
 
+	declaring := make(map[string][]*corev1.Pod, len(declared))
+	for ref, d := range declared {
+		declaring[ref] = d.pods
+	}
+	memory.setDeclaring(declaring)
 	r.turnRings(ctx, im, memory, tracked)
 	// The counts come from the verdicts in memory, never from the list that samples them.
 	verdicts := memory.verdictsOf(tracked)
+	r.announceDenied(im, memory, verdicts)
 	unavailable := make([]kuikv1alpha1.UnavailableImage, 0, len(verdicts))
 	failing := map[string]kuikv1alpha1.CheckFailureReason{}
 	for ref, v := range verdicts {
@@ -280,7 +334,7 @@ func (r *ImageMonitorReconciler) track(ctx context.Context, im *kuikv1alpha1.Ima
 		counts.Unavailable++
 		failing[ref] = v.reason
 		unavailable = append(unavailable, kuikv1alpha1.UnavailableImage{
-			Ref: ref, Reason: v.reason, Since: metav1.NewTime(v.since), Pods: declared[ref].pods,
+			Ref: ref, Reason: v.reason, Since: metav1.NewTime(v.since), Pods: int32(len(declared[ref].pods)),
 		})
 	}
 	slices.SortFunc(unavailable, func(a, b kuikv1alpha1.UnavailableImage) int {
@@ -303,15 +357,15 @@ func (r *ImageMonitorReconciler) track(ctx context.Context, im *kuikv1alpha1.Ima
 	condition.SetAnomaly(&next.Conditions, kuikv1alpha1.ConditionImagesUnavailable, counts.Unavailable > 0,
 		kuikv1alpha1.ReasonChecksFailed, fmt.Sprintf("%d images failing their check", counts.Unavailable), im.Generation)
 	r.metrics.report(im.Name, counts, failing)
-	return requeue, digests
+	return requeue, digests, r.fallbackSecrets(ctx, memory)
 }
 
 // declaredImage is an origin some selected pod declares.
 type declaredImage struct {
 	// running is true when a container carries the origin itself.
 	running bool
-	// pods counts the pods declaring it.
-	pods int32
+	// pods are the pods declaring it, by namespace and name.
+	pods []*corev1.Pod
 	// digest is what the most recently started of those containers ran, started when.
 	digest    string
 	startedAt time.Time
@@ -323,7 +377,7 @@ type declaredImage struct {
 func declaredOrigins(pods []*corev1.Pod) map[string]declaredImage {
 	declared := map[string]declaredImage{}
 	live := map[string]declaredImage{}
-	counted := map[string]int32{}
+	declaring := map[string][]*corev1.Pod{}
 	for _, pod := range pods {
 		statuses := map[string]corev1.ContainerStatus{}
 		for _, st := range slices.Concat(pod.Status.InitContainerStatuses, pod.Status.ContainerStatuses) {
@@ -334,7 +388,7 @@ func declaredOrigins(pods []*corev1.Pod) map[string]declaredImage {
 			declared[c.Origin] = declaredImage{}
 			if !origins[c.Origin] {
 				origins[c.Origin] = true
-				counted[c.Origin]++
+				declaring[c.Origin] = append(declaring[c.Origin], pod)
 			}
 			l := live[c.Image]
 			l.running = true
@@ -346,7 +400,10 @@ func declaredOrigins(pods []*corev1.Pod) map[string]declaredImage {
 	}
 	for origin := range declared {
 		d := live[origin]
-		d.pods = counted[origin]
+		d.pods = declaring[origin]
+		slices.SortFunc(d.pods, func(a, b *corev1.Pod) int {
+			return cmp.Or(cmp.Compare(a.Namespace, b.Namespace), cmp.Compare(a.Name, b.Name))
+		})
 		declared[origin] = d
 	}
 	return declared
@@ -380,7 +437,7 @@ func (r *ImageMonitorReconciler) memory(name string) *monitorMemory {
 	defer r.mu.Unlock()
 	m, ok := r.monitors[name]
 	if !ok {
-		m = &monitorMemory{rings: map[string]bool{}, verdicts: map[string]verdict{}}
+		m = &monitorMemory{rings: map[string]bool{}, verdicts: map[string]verdict{}, secretErrs: map[string]error{}, anonymous: map[string]bool{}}
 		r.monitors[name] = m
 	}
 	return m
@@ -478,6 +535,3 @@ func (r *ImageMonitorReconciler) all(ctx context.Context, _ client.Object) []rec
 	}
 	return requests
 }
-
-// SetConfig applies a reloaded global config. Stub: the credentials are not implemented yet.
-func (r *ImageMonitorReconciler) SetConfig(*config.Config) {}

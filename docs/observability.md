@@ -44,6 +44,15 @@ created.
 | `ResourceReady` | Normal | `Ready` goes back to `True` |
 | `PullSecretInjectionFailed` | Warning | The secret syncer could not resolve a credential of the resource for one namespace, and wrote the [injected Secret](./concepts/pull-secrets.md) without it. The message carries the reason (`SecretNotFound`, `SecretMalformed`), the entry's path and the namespace. Emitted by the secret syncer, once while the failure lasts |
 
+### On an ImageMonitor
+
+| Reason | Type | Emitted when |
+| ------ | ---- | ------------ |
+| `AnonymousAccessDenied` | Warning | A registry refused an anonymous check with `Unauthorized`: the image is likely private, and neither a pod's pull secret nor `fallbackAuth` covers it. Declare a [`fallbackAuth`](./configuration.md#fallbackauth) entry. Never for an image a `fallbackAuth` entry matches, even one whose Secret is missing or malformed: `Ready` reports that. Once while the image stays in `status.unavailableImages`, whatever reason it fails with meanwhile; a restart does not announce it again. Only the monitor whose ring sent the request emits it, not the ones that reuse its verdict |
+
+An image going unavailable for any other reason emits nothing: read `status.unavailableImages`,
+or alert on `kuik_image_origin_unavailable`.
+
 ### On an ImageMirror
 
 | Reason | Type | Emitted when |
