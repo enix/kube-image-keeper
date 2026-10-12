@@ -38,6 +38,17 @@ export default {
         failCommentCondition: false,
       },
     ],
+    [
+      "semantic-release-slack-bot",
+      {
+        // The name the Slack message gives the project. The plugin falls back on
+        // npm_package_name, which is empty here: no package.json at the root.
+        packageName: "kube-image-keeper",
+        notifyOnSuccess: true,
+        notifyOnFail: false,
+        markdownReleaseNotes: true,
+      },
+    ],
   ],
   branches: [
     {
