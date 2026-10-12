@@ -299,7 +299,9 @@ The pods that count are the live ones (`Pending` or `Running`) the selectors sel
 
 When no pod declares an image any more, it moves to `status.retainedImages` for `unusedImageRetention`, with the digest its most recently started container ran, and leaves it as soon as a pod declares it again. The monitor learns that an image went unused by watching its pods: an image whose last pod goes away while no reconciler runs is not retained.
 
-Checks are paced per registry host by the operator's [`registries` configuration](./configuration.md#keys): one image per window, so every tracked image comes back once per lap, the `cycleDuration` reported in status. See [Registry pacing](./concepts/pacing.md).
+Checks are paced per registry host by the operator's [`registries` configuration](./configuration.md#keys): one image per window, so every tracked image comes back once per lap, the `cycleDuration` reported in status. See [Registry pacing](./concepts/pacing.md). Retained images are checked like the others. A restart resumes each ring after the `cursor` its status holds.
+
+A check sends one manifest `HEAD` to the image's registry. `available` and `unavailable` count the images by the verdict of their last check, so they fall short of `tracked` by the images the ring has not reached yet. An image whose check fails enters `status.unavailableImages`, its `since` stamped once and kept while the failure lasts, across restarts too, and leaves it as soon as a check answers. `ImagesUnavailable` is `True` with reason `ChecksFailed` while any origin fails. No event announces it: read it from the status, or alert on [`kuik_image_origin_unavailable`](./observability.md#anomalies).
 
 ### Status
 

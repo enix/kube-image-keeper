@@ -106,6 +106,9 @@ An `ImageMonitor` exports the origin references of the pods it selects, `status.
 | `kuik_images_checked{kind, name, reference, state}` | gauge | The same references by verdict of their last check: `available`, `unavailable` |
 
 `sum without(state) (kuik_images_tracked{reference="origin"})` is `status.images.origin.tracked`.
+`sum without(state) (kuik_images_checked{reference="origin"})` falls short of it by the images
+the rings have not reached yet. A restart forgets the `available` verdicts: they come back as
+the rings turn, within one `cycleDuration`.
 
 ### Anomalies
 
@@ -120,6 +123,7 @@ hold every affected image, whatever the cap on the status lists.
 | `kuik_rewrite_conceded_pods{kind, name, image, registry}` | `status.concededRewrites` |
 | `kuik_rewrite_stale_pods{kind, name, image, registry}` | `status.staleRewrites` |
 | `kuik_image_copy_failed{kind, name, image, registry, reason}` | `ImageMirror.status.failedImageCopies`. `1` per image whose copy fails; `registry` is the side that failed: the source on `SourceNotFound`, `SourceUnreachable`, the destination on `PushRejected`, `DestinationUnreachable`, whichever side answered on `Unauthorized`, `QuotaExceeded` |
+| `kuik_image_origin_unavailable{kind, name, image, registry, reason}` | `ImageMonitor.status.unavailableImages`. `1` per tracked origin whose last check failed, with its `reason`: `ManifestNotFound`, `Unauthorized`, `QuotaExceeded`, `Unreachable`. No event announces it: alert on this series |
 | `kuik_image_drifted{kind, name, image, registry}` | `status.driftedImages`. `1` per tag whose upstream digest moved away from the copy, under `driftPolicy: Warn`, and briefly under `Sync` until the resync |
 
 `kuik_resource_not_ready{kind, name, reason}` is `1` while the `Ready` condition of a
