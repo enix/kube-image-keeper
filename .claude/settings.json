@@ -30,7 +30,14 @@
       "Bash(git diff *)",
       "Bash(git status *)",
       "Bash(helm lint *)",
-      "Bash(helm template *)"
+      "Bash(helm template *)",
+      "Bash(task acceptance-check *)",
+      "Bash(task acceptance-inspect *)",
+      "Bash(task acceptance-validate)",
+      "Bash(task acceptance-validate *)",
+      "Bash(task acceptance-setup *)",
+      "Bash(task acceptance-apply *)",
+      "Bash(task acceptance-delete *)"
     ],
     "ask": [
       "Bash(task *deploy*)",
@@ -38,7 +45,8 @@
       "Bash(task *docker-*)",
       "Bash(task *test-e2e*)",
       "Bash(task run*)",
-      "Bash(task * run*)"
+      "Bash(task * run*)",
+      "Bash(task acceptance-cleanup*)"
     ],
     "deny": [
       "Read(**/.env)",

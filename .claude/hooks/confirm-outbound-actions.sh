@@ -83,19 +83,63 @@ gh_outbound="gh[[:space:]]+${opts}(pr[[:space:]]+(create|merge|close|reopen|read
 # gh api writes with an explicit method, or implicitly (POST) as soon as it sends fields.
 gh_api="gh[[:space:]]+${opts}api[[:space:]][^;&|]*(-X|--method)[[:space:]=]*(POST|PATCH|PUT|DELETE)|gh[[:space:]]+${opts}api[[:space:]][^;&|]*(-f|-F|--field|--raw-field|--input)"
 # The Makefile forwards to task. run and its run:* subtasks use the current kubeconfig;
-# the e2e tasks create and delete a Kind cluster.
-task_outbound="(task|make)[[:space:]]+${opts}(deploy|kind-deploy|undeploy|install|uninstall|docker-push|docker-buildx|run(:[a-z-]+)?|setup-test-e2e|test-e2e|cleanup-test-e2e)"
+# the e2e tasks create and delete a Kind cluster; acceptance-cleanup ends a release acceptance
+# (the other acceptance tasks only read, or write test objects through the program's guard).
+task_outbound="(task|make)[[:space:]]+${opts}(deploy|kind-deploy|undeploy|install|uninstall|docker-push|docker-buildx|run(:[a-z-]+)?|setup-test-e2e|test-e2e|cleanup-test-e2e|acceptance-cleanup)"
+# The acceptance program run or built directly, around the tasks and the code they pin.
+go_acceptance="go[[:space:]]+(run|build)[[:space:]][^;&|]*test/acceptance"
 docker_push="docker[[:space:]]+${opts}((image|manifest)[[:space:]]+)?push|docker[[:space:]][^;&|]*--push(=[^[:space:]]*)?"
 helm_outbound="helm[[:space:]]+${opts}(install|upgrade|uninstall|delete|rollback)"
 kubectl_outbound="kubectl[[:space:]]+${opts}(apply|create|delete|replace|patch|edit|scale|rollout|drain|cordon|uncordon|taint|label|annotate|set|expose|autoscale|exec|cp|run|debug|attach)"
-pattern="(^|[;&|(\`[:space:]])($git_push|$gh_outbound|$gh_api|$task_outbound|$docker_push|$helm_outbound|$kubectl_outbound)([[:space:]]|\)|$)"
+pattern="(^|[;&|(\`[:space:]])($git_push|$gh_outbound|$gh_api|$task_outbound|$go_acceptance|$docker_push|$helm_outbound|$kubectl_outbound)([[:space:]]|\)|$)"
 
-if printf '%s' "$cmd" | grep -Eq "$pattern"; then
-  jq -n '{
+ask() {
+  jq -n --arg reason "$1" '{
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
       permissionDecision: "ask",
-      permissionDecisionReason: "This command leaves the working copy (push, pull request, image, release, deployment or cluster change): the user confirms it explicitly, see notes/0003."
+      permissionDecisionReason: $reason
     }
   }'
+  exit 0
+}
+
+if printf '%s' "$cmd" | grep -Eq "$pattern"; then
+  ask "This command leaves the working copy (push, pull request, image, release, deployment or cluster change): the user confirms it explicitly, see notes/0003."
+fi
+
+# The acceptance check below trusts the local origin/main: moving it by hand (update-ref, or a
+# fetch into refs/remotes) would let changed code run as if it were reviewed.
+if printf '%s' "$cmd" | grep -Eq "(^|[;&|(\`[:space:]])git[[:space:]]+${git_opts}(update-ref|fetch[[:space:]][^;&|]*refs/remotes)"; then
+  ask "This command moves a local ref the acceptance tasks trust: the user confirms it explicitly."
+fi
+
+# A task run from another Taskfile or directory is not the task the allow rules name. Only what
+# precedes `--` is task's own: the rest goes to the command the task runs. An option there may be
+# a cluster (-tx.yml) or hidden by a quote or a backslash, so those ask too.
+pre=${cmd%% -- *}
+if printf '%s' "$pre" | grep -Eq "(^|[;&|(\`[:space:]])task([[:space:]]|\$)" &&
+  printf '%s' "$pre" | grep -Eq "[[:space:]]-[A-Za-z]*[tdg]|--taskfile|--dir|--global|[\"'\\\\]"; then
+  ask "This task command may pick another Taskfile or directory: the user confirms it explicitly."
+fi
+
+# The acceptance tasks reach a cluster without asking: check, inspect and validate because they
+# only read, setup, apply and delete because the guard of test/acceptance keeps them on test
+# objects. Both hold for the reviewed code only. Anything in
+# the repository can change what runs (the program, the API types it decodes into, go.mod, a
+# go.work, another Taskfile), so they pass only as one plain `task acceptance-X -- <args>` in a
+# working copy equal to origin/main: no change, no untracked file, no ignored file Go or Task
+# would pick up. Anything else, or a git error, asks. origin/main is the local ref: moving it
+# takes a git command that asks on its own.
+if printf '%s' "$cmd" | grep -Eq "(task|make)[[:space:]]+${opts}acceptance-(check|inspect|validate|setup|apply|delete)([[:space:]]|\$)"; then
+  reason="This acceptance task reaches a cluster from code that differs from origin/main, or in a form the hook cannot check: the user confirms it explicitly."
+  case "$cmd" in *'
+'* | *"$(printf '\r')"*) ask "$reason" ;; esac
+  printf '%s' "$cmd" | grep -Eq "^task[[:space:]]+acceptance-(check|inspect|validate|setup|apply|delete)([[:space:]]+--([[:space:]]+[A-Za-z0-9=,./:_@+-]+)*)?[[:space:]]*\$" || ask "$reason"
+  top=$(git -C "${cwd:-.}" rev-parse --show-toplevel 2>/dev/null) || ask "$reason"
+  git -C "$top" diff --quiet origin/main 2>/dev/null || ask "$reason"
+  changed=$(git -C "$top" status --porcelain 2>/dev/null) || ask "$reason"
+  [ -z "$changed" ] || ask "$reason"
+  ignored=$(git -C "$top" ls-files --others --ignored --exclude-standard -- '*.go' test/acceptance go.work go.work.sum vendor 'Taskfile*' 'taskfile*' 2>/dev/null) || ask "$reason"
+  [ -z "$ignored" ] || ask "$reason"
 fi

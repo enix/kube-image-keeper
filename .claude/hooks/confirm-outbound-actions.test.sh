@@ -80,6 +80,78 @@ check ask "gh api graphql --input q.json"
 check ask "gh api repos/enix/kube-image-keeper/issues/1/comments -f body=x"
 check ask "task deploy"
 check ask "kubectl apply -f x.yaml"
+# The acceptance tasks go through the program's guard; only cleanup, which ends a run, asks. The
+# writing ones pass only with test/acceptance and the Taskfile as on origin/main.
+check ask "task acceptance-setup -- --kubeconfig k --context c"
+echo /bin/ >>"$repo/.git/info/exclude"
+mkdir -p "$repo/test/acceptance"
+echo guard >"$repo/test/acceptance/guard.go"
+echo tasks >"$repo/Taskfile.yaml"
+git -C "$repo" add test Taskfile.yaml
+git -C "$repo" -c user.name=check -c user.email=check@example.com commit -q -m main
+git -C "$repo" update-ref refs/remotes/origin/main HEAD
+check pass "task acceptance-setup -- --kubeconfig k --context c"
+check pass "task acceptance-apply -- --kubeconfig k --context c --file f.yaml"
+check pass "task acceptance-delete -- --kubeconfig k --context c pod/p"
+check ask "cd /elsewhere && task acceptance-apply -- --kubeconfig k --context c --file f.yaml"
+check ask "task acceptance-apply -- --kubeconfig k --context c --file \$(echo f.yaml)"
+echo changed >"$repo/test/acceptance/guard.go"
+check ask "task acceptance-apply -- --kubeconfig k --context c --file f.yaml"
+git -C "$repo" checkout -q -- test/acceptance/guard.go
+echo new >"$repo/test/acceptance/new.go"
+check ask "task acceptance-delete -- --kubeconfig k --context c pod/p"
+rm "$repo/test/acceptance/new.go"
+echo changed >"$repo/Taskfile.yaml"
+check ask "task acceptance-setup -- --kubeconfig k --context c"
+git -C "$repo" checkout -q -- Taskfile.yaml
+check pass "task acceptance-setup -- --kubeconfig k --context c"
+# Anything else in the working copy can change what runs: an untracked go.work, an ignored file Go
+# would compile, another Taskfile name.
+echo 'go 1.26' >"$repo/go.work"
+check ask "task acceptance-setup -- --kubeconfig k --context c"
+rm "$repo/go.work"
+echo /test/acceptance/hidden.go >>"$repo/.git/info/exclude"
+echo hidden >"$repo/test/acceptance/hidden.go"
+check ask "task acceptance-setup -- --kubeconfig k --context c"
+rm "$repo/test/acceptance/hidden.go"
+mkdir -p "$repo/api/kuik"
+echo /api/kuik/hidden.go >>"$repo/.git/info/exclude"
+echo hidden >"$repo/api/kuik/hidden.go"
+check ask "task acceptance-setup -- --kubeconfig k --context c"
+rm "$repo/api/kuik/hidden.go"
+echo tasks >"$repo/Taskfile.yml"
+check ask "task acceptance-setup -- --kubeconfig k --context c"
+rm "$repo/Taskfile.yml"
+# Another Taskfile picked through a cluster, a quote, a backslash or a newline.
+check ask "task acceptance-setup -tevil.yml -- --kubeconfig k --context c"
+check ask "task acceptance-setup -\\t evil.yml"
+check ask "task acceptance-setup -'t' evil.yml"
+check ask "task acceptance-setup \"a -- b\" -t evil.yml"
+check ask "$(printf 'task acceptance-setup -- --kubeconfig k\necho x')"
+check pass "task acceptance-setup -- --kubeconfig k --context c"
+check ask "task acceptance-cleanup -- --kubeconfig k --context c"
+# Moving origin/main by hand would make changed code pass for reviewed code.
+check ask "git update-ref refs/remotes/origin/main HEAD"
+check ask "git -C . update-ref refs/remotes/origin/main HEAD"
+check ask "git fetch . HEAD:refs/remotes/origin/main"
+check pass "git fetch origin"
+# Another Taskfile or directory is not the task the allow rules name.
+check ask "task acceptance-check --taskfile /tmp/x.yml -- --kubeconfig k --context c"
+check ask "task -d /tmp acceptance-check"
+check ask "task -t /tmp/x.yml lint"
+check ask "task -g lint"
+check pass "task test -- -timeout 5m"
+check ask "go run ./test/acceptance check --kubeconfig k --context c"
+check ask "go build -o bin/acceptance ./test/acceptance"
+check pass "task acceptance-check -- --kubeconfig k --context c"
+check pass "task acceptance-inspect -- --kubeconfig k --context c"
+check pass "task acceptance-validate"
+# The read-only tasks too run the working copy's code: changed, it could write.
+echo changed >"$repo/test/acceptance/guard.go"
+check ask "task acceptance-inspect -- --kubeconfig k --context c"
+check ask "task acceptance-validate"
+git -C "$repo" checkout -q -- test/acceptance/guard.go
+check pass "go test -tags=e2e ./test/e2e/"
 # A git config that would send the allowed push elsewhere, or with the tags.
 git -C "$repo" config remote.origin.pushurl git@github.com:enix/kube-image-keeper.git
 check pass "git push origin $branch"
