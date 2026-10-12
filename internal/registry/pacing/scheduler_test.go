@@ -462,6 +462,16 @@ var _ = Describe("Scheduler", func() {
 			Expect(ring().CycleDuration).To(PointTo(HaveField("Duration", 32*time.Minute)))
 		})
 
+		It("keeps the persisted cycleDuration across a restart until its next lap completes", func() {
+			h.s.SetRing(monitor, dockerHub, images, kuikv1alpha1.RegistryCheck{
+				Registry:      dockerHub,
+				Cursor:        imageA,
+				CycleStarted:  &metav1.Time{Time: at(-30 * time.Minute)},
+				CycleDuration: &metav1.Duration{Duration: 45 * time.Minute},
+			}, c)
+			Expect(ring().CycleDuration).To(PointTo(HaveField("Duration", 45*time.Minute)))
+		})
+
 		It("starts a lap at the next wrap when the persisted status has a cursor but no cycleStarted", func() {
 			h.s.SetRing(monitor, dockerHub, images, kuikv1alpha1.RegistryCheck{
 				Registry: dockerHub,
