@@ -272,6 +272,8 @@ func main() {
 				Recorder:   mgr.GetEventRecorder("kuik-reconciler"),
 				Registerer: metrics.Registry,
 				Clock:      clock.RealClock{},
+				Scheduler:  scheduler,
+				Registry:   registry.NewClient(),
 			})
 		if err != nil {
 			setupLog.Error(err, "Failed to create controller", "controller", "kuik-imagemonitor")
