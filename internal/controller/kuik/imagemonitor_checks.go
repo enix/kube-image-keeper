@@ -121,6 +121,11 @@ func (m *monitorMemory) verdictsOf(tracked []string) map[string]verdict {
 			delete(m.anonymous, ref)
 		}
 	}
+	for ref := range m.upstream {
+		if !keep[ref] {
+			delete(m.upstream, ref)
+		}
+	}
 	return out
 }
 
@@ -299,6 +304,9 @@ func (c monitorChecker) Checked(ref string, response pacing.Response) {
 			next.since = previous.since
 			next.denied = previous.denied
 		}
+	} else if response.Result != nil {
+		// Drift detection reads the digest of this same answer: it sends no request of its own.
+		memory.upstream[ref] = response.Result.Descriptor.Digest.String()
 	}
 	memory.verdicts[ref] = next
 	memory.mu.Unlock()

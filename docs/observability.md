@@ -134,7 +134,7 @@ hold every affected image, whatever the cap on the status lists.
 | `kuik_rewrite_stale_pods{kind, name, image, registry}` | `status.staleRewrites` |
 | `kuik_image_copy_failed{kind, name, image, registry, reason}` | `ImageMirror.status.failedImageCopies`. `1` per image whose copy fails; `registry` is the side that failed: the source on `SourceNotFound`, `SourceUnreachable`, the destination on `PushRejected`, `DestinationUnreachable`, whichever side answered on `Unauthorized`, `QuotaExceeded` |
 | `kuik_image_origin_unavailable{kind, name, image, registry, reason}` | `ImageMonitor.status.unavailableImages`. `1` per tracked origin whose last check failed, with its `reason`: `ManifestNotFound`, `Unauthorized`, `QuotaExceeded`, `Unreachable`. No event announces it: alert on this series. After a restart, the series of an image beyond the cap of the list comes back once its ring reaches it |
-| `kuik_image_drifted{kind, name, image, registry}` | `status.driftedImages`. `1` per tag whose upstream digest moved away from the copy, under `driftPolicy: Warn`, and briefly under `Sync` until the resync |
+| `kuik_image_drifted{kind, name, image, registry}` | `status.driftedImages`. `1` per tag: on an `ImageMonitor`, whose pods run a digest other than the upstream one, under `driftDetection`; on an `ImageMirror`, whose upstream digest moved away from the copy, under `driftPolicy: Warn`, and briefly under `Sync` until the resync. `image` is the origin reference on both |
 
 `kuik_resource_not_ready{kind, name, reason}` is `1` while the `Ready` condition of a
 resource is `False`, carrying its reason.
