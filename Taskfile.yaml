@@ -244,6 +244,11 @@ tasks:
     cmds:
       - go run ./test/acceptance apply {{.CLI_ARGS}}
 
+  acceptance-approve:
+    desc: Record that the user approved the acceptance program as it differs from origin/main, so setup, apply and delete run it without asking until it changes (the outbound hook asks first)
+    cmds:
+      - sh .claude/hooks/acceptance-fingerprint.sh > "$(git rev-parse --absolute-git-dir)/kuik-acceptance-approved"
+
   acceptance-validate:
     desc: Check every fixture, its since line, its strict decoding and the guard, without a cluster (-- [--kuik-namespace NS])
     cmds:

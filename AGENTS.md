@@ -145,15 +145,16 @@ build are in [`.claude/rules/docs.md`](./.claude/rules/docs.md).
   ([CONTRIBUTING](./CONTRIBUTING.md#use-of-ai-tools)), an allowlist of the read-only and
   build commands plus `task acceptance-check|inspect|setup|apply|delete` (read-only, or writes guarded by the program), `ask` rules that back the outbound
   hook up, `deny` rules on the
-  project's secret files (`.env`, keys; `Read` only, a Bash `cat` is not covered), and the
-  hooks below.
+  project's secret files (`.env`, keys; `Read` only, a Bash `cat` is not covered) and on
+  edits of the acceptance approval (an `Edit` rule covers every file-editing tool, the hook
+  covers Bash), and the hooks below.
 - `hooks/guard-generated-files.sh` refuses Edit and Write on the generated files of
   [Code](#code) and names the task to run instead. A Bash command that writes a file
   (`sed -i`, `>`) is not covered.
 - `hooks/confirm-outbound-actions.sh` asks the user before any command that leaves the
   working copy (`git push`, `gh pr|issue` writes, `docker push`, releases, `task deploy`
   or `run`, the e2e tasks, `task acceptance-cleanup` and any `go run|build` of `test/acceptance`,
-  `task acceptance-setup|apply|delete` when `test/acceptance` or the Taskfile differs from `origin/main`,
+  any other acceptance task when anything but the acceptance fixtures and Markdown files differs from `origin/main` and the user has not approved that change with `task acceptance-approve`, or when git could not compare against the real `origin/main`, `task acceptance-approve` itself,
   a `task` with `--taskfile`, `--dir` or `--global`,
   `helm install`, `kubectl apply|label`...), in every permission
   mode, even when several tasks share one call (`task build deploy`). Not forbidden: the

@@ -52,7 +52,8 @@
       "Read(**/.env)",
       "Read(**/.env.*)",
       "Read(**/*.pem)",
-      "Read(**/*.key)"
+      "Read(**/*.key)",
+      "Edit(**/kuik-acceptance-approved)"
     ]
   },
   "hooks": {
@@ -73,7 +74,7 @@
           {
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/confirm-outbound-actions.sh",
-            "timeout": 10
+            "timeout": 30
           }
         ]
       }

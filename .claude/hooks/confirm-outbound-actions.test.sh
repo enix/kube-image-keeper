@@ -23,7 +23,7 @@ failed=0
 check() {
   want=$1
   cmd=$2
-  out=$(jq -n --arg c "$cmd" --arg d "$repo" '{tool_input: {command: $c}, cwd: $d}' | sh "$hook")
+  out=$(jq -n --arg c "$cmd" --arg d "${3:-$repo}" '{tool_input: {command: $c}, cwd: $d}' | sh "$hook")
   got=pass
   case "$out" in *'"ask"'*) got=ask ;; esac
   if [ "$got" != "$want" ]; then
@@ -95,6 +95,13 @@ check pass "task acceptance-apply -- --kubeconfig k --context c --file f.yaml"
 check pass "task acceptance-delete -- --kubeconfig k --context c pod/p"
 check ask "cd /elsewhere && task acceptance-apply -- --kubeconfig k --context c --file f.yaml"
 check ask "task acceptance-apply -- --kubeconfig k --context c --file \$(echo f.yaml)"
+# A single-quoted argument is literal: a regex passes, anything that leaves the quotes asks.
+check pass "task acceptance-inspect -- --kubeconfig k --context c --grep 'Denied|Failed' --metrics 'kuik_(a|b)\$'"
+check pass "task acceptance-inspect -- --kubeconfig k --context c --grep='a|b'"
+check ask "task acceptance-inspect -- --kubeconfig k --context c --grep 'a' ; rm x"
+check ask "task acceptance-inspect -- --kubeconfig k --context c --grep 'a'|sh"
+check ask "task acceptance-inspect -- --kubeconfig k --context c --grep 'a' 2>&1 | grep -v x | cut -c1-9"
+check ask "task acceptance-inspect -- --kubeconfig k --context c --grep \"\$(id)\""
 echo changed >"$repo/test/acceptance/guard.go"
 check ask "task acceptance-apply -- --kubeconfig k --context c --file f.yaml"
 git -C "$repo" checkout -q -- test/acceptance/guard.go
@@ -104,6 +111,97 @@ rm "$repo/test/acceptance/new.go"
 echo changed >"$repo/Taskfile.yaml"
 check ask "task acceptance-setup -- --kubeconfig k --context c"
 git -C "$repo" checkout -q -- Taskfile.yaml
+check pass "task acceptance-setup -- --kubeconfig k --context c"
+# A fixture goes through the guard of origin/main, Markdown never runs: a branch of new scenarios
+# passes. Anything beside them still asks.
+mkdir -p "$repo/test/acceptance/fixtures/sub"
+echo fixture >"$repo/test/acceptance/fixtures/12-new.yaml"
+echo scenarios >"$repo/test/acceptance/scenarios.md"
+check pass "task acceptance-setup -- --kubeconfig k --context c"
+echo fixture >"$repo/test/acceptance/fixtures/sub/13-nested.yaml"
+check ask "task acceptance-setup -- --kubeconfig k --context c"
+rm -r "$repo/test/acceptance/fixtures/sub"
+echo new >"$repo/test/acceptance/new.go"
+check ask "task acceptance-apply -- --kubeconfig k --context c --file f.yaml"
+# Changed code passes once approved as it is, and asks again as soon as it moves. Approving always
+# asks, and so does any command naming the approval.
+fingerprint="$(dirname "$hook")/acceptance-fingerprint.sh"
+(cd "$repo" && sh "$fingerprint") >"$repo/.git/kuik-acceptance-approved"
+check pass "task acceptance-apply -- --kubeconfig k --context c --file f.yaml"
+echo moved >"$repo/test/acceptance/new.go"
+check ask "task acceptance-apply -- --kubeconfig k --context c --file f.yaml"
+check ask "task acceptance-approve"
+# Its question lists the changes only for the plain command run from the top of the worktree:
+# from a subdirectory or behind a cd, it says it cannot list them.
+reason() {
+  jq -n --arg c "$2" --arg d "$1" '{tool_input: {command: $c}, cwd: $d}' | sh "$hook" |
+    jq -r '.hookSpecificOutput.permissionDecisionReason // ""'
+}
+case "$(reason "$repo" "task acceptance-approve")" in *'Changed files:'*'new.go'*) ;; *)
+  echo "FAIL: the approval question lists the changes: task acceptance-approve"
+  failed=1
+  ;;
+esac
+for c in "cd test && task acceptance-approve" "task acceptance-approve -- x"; do
+  case "$(reason "$repo" "$c")" in *'cannot list'*) ;; *)
+    echo "FAIL: the approval question says it cannot list the changes: $c"
+    failed=1
+    ;;
+  esac
+done
+case "$(reason "$repo/test" "task acceptance-approve")" in *'cannot list'*) ;; *)
+  echo "FAIL: the approval question says it cannot list the changes from a subdirectory"
+  failed=1
+  ;;
+esac
+check ask "cp x .git/kuik-acceptance-approved"
+check ask "cp x \".git/kuik-acceptance-approve\"d"
+# The approval covers tracked changes too, not the fixtures or Markdown, and only for this
+# origin/main. An empty approval never matches.
+(cd "$repo" && sh "$fingerprint") >"$repo/.git/kuik-acceptance-approved"
+echo fixture2 >"$repo/test/acceptance/fixtures/12-new.yaml"
+check pass "task acceptance-apply -- --kubeconfig k --context c --file f.yaml"
+echo changed >"$repo/test/acceptance/guard.go"
+check ask "task acceptance-apply -- --kubeconfig k --context c --file f.yaml"
+(cd "$repo" && sh "$fingerprint") >"$repo/.git/kuik-acceptance-approved"
+check pass "task acceptance-apply -- --kubeconfig k --context c --file f.yaml"
+git -C "$repo" -c user.name=check -c user.email=check@example.com commit -q --allow-empty -m moved
+git -C "$repo" update-ref refs/remotes/origin/main HEAD
+check ask "task acceptance-apply -- --kubeconfig k --context c --file f.yaml"
+: >"$repo/.git/kuik-acceptance-approved"
+check ask "task acceptance-apply -- --kubeconfig k --context c --file f.yaml"
+rm "$repo/.git/kuik-acceptance-approved"
+git -C "$repo" checkout -q -- test/acceptance/guard.go
+rm "$repo/test/acceptance/new.go" "$repo/test/acceptance/fixtures/12-new.yaml" "$repo/test/acceptance/scenarios.md"
+check pass "task acceptance-setup -- --kubeconfig k --context c"
+# Git must compare against the real origin/main and see the tree as Go compiles it: a local
+# branch named origin/main, a replace object, a file hidden from the index, a local attributes
+# file, a deletion folded into a rename to Markdown, all ask. So does a task run from a
+# subdirectory, which picks its own Taskfile.
+mkdir -p "$repo/sub"
+check ask "task acceptance-setup -- --kubeconfig k --context c" "$repo/sub"
+rmdir "$repo/sub"
+check ask "git fetch . HEAD:remotes/origin/main"
+check ask "git symbolic-ref refs/remotes/origin/main refs/heads/x"
+check ask "git remote set-url origin git@example.com:fork.git"
+echo changed >"$repo/test/acceptance/guard.go"
+git -C "$repo" branch origin/main HEAD
+check ask "task acceptance-setup -- --kubeconfig k --context c"
+git -C "$repo" branch -q -D origin/main
+git -C "$repo" checkout -q -- test/acceptance/guard.go
+git -C "$repo" replace "$(git -C "$repo" rev-parse HEAD)" "$(git -C "$repo" rev-parse HEAD~1)"
+check ask "task acceptance-setup -- --kubeconfig k --context c"
+git -C "$repo" replace -d "$(git -C "$repo" rev-parse HEAD)" >/dev/null
+git -C "$repo" update-index --assume-unchanged test/acceptance/guard.go
+check ask "task acceptance-setup -- --kubeconfig k --context c"
+git -C "$repo" update-index --no-assume-unchanged test/acceptance/guard.go
+echo '*.go filter=x' >"$repo/.git/info/attributes"
+check ask "task acceptance-setup -- --kubeconfig k --context c"
+rm "$repo/.git/info/attributes"
+git -C "$repo" mv test/acceptance/guard.go test/acceptance/guard.md
+git -C "$repo" -c user.name=check -c user.email=check@example.com commit -q -m rename
+check ask "task acceptance-setup -- --kubeconfig k --context c"
+git -C "$repo" reset -q --hard HEAD~1
 check pass "task acceptance-setup -- --kubeconfig k --context c"
 # Anything else in the working copy can change what runs: an untracked go.work, an ignored file Go
 # would compile, another Taskfile name.
@@ -122,6 +220,16 @@ rm "$repo/api/kuik/hidden.go"
 echo tasks >"$repo/Taskfile.yml"
 check ask "task acceptance-setup -- --kubeconfig k --context c"
 rm "$repo/Taskfile.yml"
+# A worktree nested under .claude/worktrees/ is not read by go or task from the top: it passes.
+# A plain ignored directory there with Go files in it still asks.
+echo /.claude/worktrees/ >>"$repo/.git/info/exclude"
+git -C "$repo" worktree add -q --detach "$repo/.claude/worktrees/topic"
+check pass "task acceptance-setup -- --kubeconfig k --context c"
+git -C "$repo" worktree remove --force "$repo/.claude/worktrees/topic"
+mkdir -p "$repo/.claude/worktrees/plain"
+echo hidden >"$repo/.claude/worktrees/plain/hidden.go"
+check ask "task acceptance-setup -- --kubeconfig k --context c"
+rm -r "$repo/.claude/worktrees/plain"
 # Another Taskfile picked through a cluster, a quote, a backslash or a newline.
 check ask "task acceptance-setup -tevil.yml -- --kubeconfig k --context c"
 check ask "task acceptance-setup -\\t evil.yml"

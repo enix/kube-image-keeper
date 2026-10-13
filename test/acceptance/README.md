@@ -17,6 +17,7 @@ Each command is a task; every one but `validate` takes `-- --kubeconfig <path> -
 | `acceptance-apply --file F [--private-repo R] [--pull-auth S] [--mirror-prefix P] [--public-repo R]` | Creates the objects of a YAML file, or updates those the test created; fills its variables like `setup` |
 | `acceptance-delete [--namespace NS] KIND/NAME` | Deletes one test object |
 | `acceptance-cleanup` | Deletes every test object and checks none is left |
+| `acceptance-approve` | Needs no cluster and takes no flag. Records the user's approval of the program as it differs from `origin/main` (see [the guard](#the-guard)) |
 
 ## The guard
 
@@ -33,7 +34,7 @@ Every object created is labelled `kuik.enix.io/acceptance-test: "true"`. An exis
 
 The client is built from `--kubeconfig` and `--context` only, never from the current context or `~/.kube/config`.
 
-Because of the guard, the Claude Code settings let an agent run every task without asking, except `cleanup`, which ends a run once the user has accepted it. That holds for the reviewed guard only: the outbound hook asks before `setup`, `apply` or `delete` when this directory or the Taskfile differs from `origin/main`.
+Because of the guard, the Claude Code settings let an agent run every task without asking, except `cleanup`, which ends a run once the user has accepted it, and `approve`. That holds for the reviewed guard only: the outbound hook asks before any acceptance task when anything but the fixtures and the Markdown files differs from `origin/main`, or when git could not compare against it (a local ref of that name, a file hidden from the index, a task run from a subdirectory). A fixture goes through the guard of `origin/main` object by object, so a branch of new scenarios runs before its pull request. A change to the program runs once the user approves it as it is, with `task acceptance-approve`: the hook asks there, listing the changed files, and the tasks run without asking until the code moves again. The approval is a fingerprint of the change in the git directory of the worktree, written only by that task.
 
 `inspect` prints no Secret data and no Secret annotation value: `last-applied-configuration` would hold the data.
 
