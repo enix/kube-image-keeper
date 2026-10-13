@@ -47,7 +47,38 @@
       "Bash(task *test-e2e*)",
       "Bash(task run*)",
       "Bash(task * run*)",
-      "Bash(task acceptance-cleanup*)"
+      "Bash(task acceptance-cleanup*)",
+      "Bash(git rebase)",
+      "Bash(git rebase -i*)",
+      "Bash(git rebase --interactive*)",
+      "Bash(git rebase --autosquash*)",
+      "Bash(git rebase --onto*)",
+      "Bash(git rebase --root*)",
+      "Bash(git rebase --exec*)",
+      "Bash(git rebase -x*)",
+      "Bash(git rebase origin/*)",
+      "Bash(git rebase main*)",
+      "Bash(git rebase HEAD*)",
+      "Bash(GIT_SEQUENCE_EDITOR=* git rebase*)",
+      "Bash(git commit --amend*)",
+      "Bash(git commit * --amend*)",
+      "Bash(git reset --soft*)",
+      "Bash(git reset --mixed*)",
+      "Bash(git reset --hard*)",
+      "Bash(git reset --keep*)",
+      "Bash(git reset --merge*)",
+      "Bash(git reset HEAD~*)",
+      "Bash(git reset HEAD^*)",
+      "Bash(git pull --rebase*)",
+      "Bash(git pull -r*)",
+      "Bash(git branch -f *)",
+      "Bash(git branch --force *)",
+      "Bash(git branch -M *)",
+      "Bash(git checkout -B *)",
+      "Bash(git switch -C *)",
+      "Bash(git update-ref *)",
+      "Bash(git filter-branch *)",
+      "Bash(git filter-repo *)"
     ],
     "deny": [
       "Read(**/.env)",
@@ -74,6 +105,11 @@
           {
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/confirm-outbound-actions.sh",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/confirm-history-rewrites.sh",
             "timeout": 10
           }
         ]

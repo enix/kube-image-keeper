@@ -170,6 +170,14 @@ build are in [`.claude/rules/docs.md`](./.claude/rules/docs.md).
   whole command, so no quoting can hide a second command. `gh pr merge` still asks.
   `confirm-outbound-actions.test.sh` checks it on a table of commands in a throwaway
   repository: `task lint-hooks`, run by the Lint workflow.
+- `hooks/confirm-history-rewrites.sh` asks the user before any command that rewrites
+  existing commits: starting a rebase (the autosquash included), `git commit --amend`,
+  `git reset` with a mode or a commit-ish and no path, `git pull --rebase`, a branch move
+  (`branch -f`, `checkout -B`, `update-ref`, `filter-branch`). `git commit --fixup`, plain
+  commits, `git reset [--] <path>` and the steps of a rebase already started (`--continue`,
+  `--skip`, `--abort`, `--quit`) pass. The `ask` rules of `settings.json` back it up where a
+  hook's ask may not prompt (`bypassPermissions`). `confirm-history-rewrites.test.sh` is its
+  table of commands, also run by `task lint-hooks`.
 - `rules/`: the path-scoped conventions above.
 - `skills/`: [`test-outline`](./.claude/skills/test-outline/SKILL.md) (the spec-first Ginkgo
   workflow, picked up whenever specs are written),
