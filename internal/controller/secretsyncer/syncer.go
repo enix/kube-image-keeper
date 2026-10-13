@@ -74,8 +74,11 @@ type Options struct {
 	Grace time.Duration
 }
 
-// SetConfig applies a reloaded global config: its secretSyncer.onFailureGrace.
-func (s *Syncer) SetConfig(c *config.Config) {}
+// SetConfig applies a reloaded global config: its secretSyncer.onFailureGrace, to the entries
+// already in their grace too.
+func (s *Syncer) SetConfig(c *config.Config) {
+	s.grace.SetDuration(c.SecretSyncer.OnFailureGrace.Duration)
+}
 
 // Syncer applies the pull Secret of every pair. Everything it holds in memory is rebuilt
 // from the informers, or degrades safely when lost: see the cross-cutting invariants of the
@@ -129,12 +132,16 @@ func New(c client.Client, opts Options) (*Syncer, error) {
 	if now == nil {
 		now = time.Now
 	}
+	grace := pullsecret.NewGrace(now)
+	if opts.Grace != 0 {
+		grace.SetDuration(opts.Grace)
+	}
 	return &Syncer{
 		Client:    c,
 		namespace: opts.Namespace,
 		recorder:  opts.Recorder,
 		debounce:  debounce,
-		grace:     pullsecret.NewGrace(now),
+		grace:     grace,
 		applies:   applies,
 		known:     map[pullsecret.Pair]*applied{},
 		forced:    map[pullsecret.Pair]bool{},

@@ -292,6 +292,7 @@ func main() {
 			Namespace:  clusterResourceNamespace,
 			Recorder:   mgr.GetEventRecorder("kuik-secret-syncer"),
 			Registerer: metrics.Registry,
+			Grace:      globalConfig.SecretSyncer.OnFailureGrace.Duration,
 		})
 		if err != nil {
 			setupLog.Error(err, "Failed to create controller", "controller", "kuik-secret-syncer")
@@ -301,6 +302,7 @@ func main() {
 			setupLog.Error(err, "Failed to create controller", "controller", "kuik-secret-syncer")
 			os.Exit(1)
 		}
+		onConfigChange = append(onConfigChange, syncer.SetConfig)
 	case webhookProcess:
 		podWebhook, err := webhookcorev1.SetupPodWebhookWithManager(mgr, globalConfig, clusterResourceNamespace)
 		if err != nil {
