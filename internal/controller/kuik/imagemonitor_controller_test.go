@@ -35,6 +35,7 @@ import (
 	"github.com/enix/kube-image-keeper/internal/registry/registrytest"
 	"github.com/enix/kube-image-keeper/internal/routing"
 	"github.com/enix/kube-image-keeper/internal/routing/podrecord"
+	"github.com/enix/kube-image-keeper/internal/status/imagemetrics"
 )
 
 const (
@@ -3088,18 +3089,529 @@ var _ = Describe("ImageMonitor", func() {
 				reconcile.Request{NamespacedName: types.NamespacedName{Name: name}}))
 		})
 
-		PIt("checks an alternative on a host no origin uses on a ring of its own", func() {})
-		PIt("counts an alternative by the verdict of its last check, available or unavailable", func() {})
-		PIt("exports the alternatives population in kuik_images_tracked and kuik_images_checked", func() {})
-		PIt("checks an alternative with the auth of the entry that offered it", func() {})
-		PIt("checks an alternative whose entry declares no auth with the pull secrets of its origin's pods, then fallbackAuth, then anonymously", func() {})
-		PIt("never compares an alternative to what runs", func() {})
-		PIt("lists an alternative whose check failed in unavailableAlternatives, with its origin and the ImageAlternative that offered it", func() {})
-		PIt("lists an alternative two ImageAlternatives offer once, via the first one in candidate order", func() {})
-		PIt("sets AlternativesUnavailable with reason ChecksFailed while an alternative fails its check, and removes it once none does", func() {})
-		PIt("emits AlternativeUnusable once when a monitored alternative starts failing with Unauthorized", func() {})
-		PIt("emits no AlternativeUnusable for an alternative that fails for another reason", func() {})
-		PIt("exports one kuik_image_alternative_unavailable series per failing alternative, deleted once it answers", func() {})
+		// The password of the protected registries of the credential specs.
+		const password = "s3cr3t"
+
+		// served starts src holding repository:v1 of each of repositories, closed when the spec
+		// ends, with no request recorded yet.
+		served := func(src *registrytest.Registry, repositories ...string) *registrytest.Registry {
+			GinkgoHelper()
+			DeferCleanup(src.Close)
+			for _, r := range repositories {
+				src.Push(r+":v1", registrytest.Image())
+			}
+			src.Reset()
+			return src
+		}
+
+		// fresh returns a repository name no other spec uses.
+		fresh := func() string {
+			return "acme/" + unique("app")
+		}
+
+		// on is the repository path of repository on src.
+		on := func(src *registrytest.Registry, repository string) string {
+			return src.Host() + "/" + repository
+		}
+
+		// settle reconciles, opening the windows the scheduler waits for, until done holds.
+		settle := func(done func() bool) {
+			GinkgoHelper()
+			Eventually(func() bool {
+				if clock.HasWaiters() {
+					clock.Step(time.Minute)
+				}
+				reconcileIt()
+				return done()
+			}).Should(BeTrue())
+		}
+
+		// reported reconciles, opening no window, until done holds: the checks of the windows
+		// opened already land, and no other check runs.
+		reported := func(done func() bool) {
+			GinkgoHelper()
+			Eventually(func() bool {
+				reconcileIt()
+				return done()
+			}).Should(BeTrue())
+		}
+
+		// alternativeVerdicts reconciles until the monitor counts n alternatives with a verdict.
+		alternativeVerdicts := func(n int32) {
+			GinkgoHelper()
+			settle(func() bool {
+				a := alternativesOf()
+				return a.Available+a.Unavailable == n
+			})
+		}
+
+		// failingAlternatives reconciles, without opening a window, until unavailableAlternatives
+		// holds n entries, and returns them.
+		failingAlternatives := func(n int) []kuikv1alpha1.UnavailableAlternative {
+			GinkgoHelper()
+			Eventually(func() []kuikv1alpha1.UnavailableAlternative {
+				reconcileIt()
+				return monitorStatusOf(name).UnavailableAlternatives
+			}).Should(HaveLen(n))
+			return monitorStatusOf(name).UnavailableAlternatives
+		}
+
+		// alternativeUnavailable returns the kuik_image_alternative_unavailable series of image
+		// on src, derived from origin via the ImageAlternative via, and whether it exists.
+		alternativeUnavailable := func(src *registrytest.Registry, image, origin, via string, reason kuikv1alpha1.CheckFailureReason) (float64, bool) {
+			return gauge(registry, "kuik_image_alternative_unavailable", map[string]string{
+				labelKind: kindImageMonitorLabel, labelName: name, labelImage: image, labelRegistry: src.Host(),
+				"derived_from": origin, "via": routing.KindImageAlternative + "/" + via, labelReason: string(reason),
+			})
+		}
+
+		// alternativeTo runs an origin held by a registry of its own in a pod the monitor under
+		// test selects, offers alternatives for it, and returns the origin reference and the name
+		// of the ImageAlternative.
+		alternativeTo := func(alternatives []kuikv1alpha1.Alternative) (string, string) {
+			GinkgoHelper()
+			repository := fresh()
+			origin := on(served(registrytest.New(), repository), repository)
+			ia := offer(append(entries(origin), alternatives...))
+			runningPod(selectedNamespace(), []container{running(appContainer, tagged(origin))})
+			reconcileIt()
+			return tagged(origin), ia
+		}
+
+		It("checks an alternative on a host no origin uses on a ring of its own", func() {
+			alternative := fresh()
+			src := served(registrytest.New(), alternative)
+			newMonitor(name, monitoring)
+			alternativeTo(entries(on(src, alternative)))
+			Expect(ringSize(src.Host())).To(Equal(1.0))
+
+			window()
+			reported(func() bool { return alternativesOf().Available == 1 })
+			Expect(checked(src, alternative)()).To(Equal(1))
+		})
+
+		It("counts an alternative by the verdict of its last check, available or unavailable", func() {
+			present, missing := fresh(), fresh()
+			src := served(registrytest.New(), present)
+			newMonitor(name, monitoring)
+			alternativeTo(entries(on(src, present), on(src, missing)))
+			alternativeVerdicts(2)
+			counts := alternativesOf()
+			Expect(counts.Tracked).To(Equal(int32(2)))
+			Expect(counts.Available).To(Equal(int32(1)))
+			Expect(counts.Unavailable).To(Equal(int32(1)))
+		})
+
+		It("exports the alternatives population in kuik_images_tracked and kuik_images_checked", func() {
+			present, missing := fresh(), fresh()
+			src := served(registrytest.New(), present)
+			newMonitor(name, monitoring)
+			alternativeTo(entries(on(src, present), on(src, missing)))
+			alternativeVerdicts(2)
+			series := func(metric, state string) float64 {
+				GinkgoHelper()
+				v, ok := gauge(registry, metric, map[string]string{
+					labelKind: kindImageMonitorLabel, labelName: name, labelReference: "alternatives", labelState: state,
+				})
+				Expect(ok).To(BeTrue(), metric+" "+state)
+				return v
+			}
+			Expect(series("kuik_images_tracked", "standby")).To(Equal(2.0))
+			Expect(series("kuik_images_tracked", "running")).To(BeZero())
+			Expect(series("kuik_images_tracked", "retained")).To(BeZero())
+			Expect(series("kuik_images_checked", "available")).To(Equal(1.0))
+			Expect(series("kuik_images_checked", "unavailable")).To(Equal(1.0))
+		})
+
+		It("checks an alternative with the auth of the entry that offered it", func() {
+			alternative := fresh()
+			src := served(registrytest.New(registrytest.WithBasicAuth(registryUser, password)), alternative)
+			list := entries(on(src, alternative))
+			list[0].Auth = &kuikv1alpha1.Auth{SecretRef: &kuikv1alpha1.SecretReference{
+				Name: createCredentials(src.Host(), registryUser, password),
+			}}
+			newMonitor(name, monitoring)
+			alternativeTo(list)
+			alternativeVerdicts(1)
+			Expect(alternativesOf().Available).To(Equal(int32(1)))
+		})
+
+		It("checks an alternative whose entry declares no auth with the pull secrets of its origin's pods, then fallbackAuth, then anonymously", func() {
+			// recorded answers any credential and records the password of each manifest HEAD;
+			// covered requires the credential of its fallbackAuth entry; open answers anyone.
+			first, second, third := fresh(), fresh(), fresh()
+			recorded := served(registrytest.New(), first)
+			var (
+				mu        sync.Mutex
+				passwords []string
+			)
+			recorded.Intercept(func(_ http.ResponseWriter, r *http.Request) bool {
+				if _, pass, ok := r.BasicAuth(); ok && r.Method == http.MethodHead && strings.Contains(r.URL.Path, "/manifests/") {
+					mu.Lock()
+					passwords = append(passwords, pass)
+					mu.Unlock()
+				}
+				return false
+			})
+			covered := served(registrytest.New(registrytest.WithBasicAuth(registryUser, password)), second)
+			open := served(registrytest.New(), third)
+			for _, src := range []*registrytest.Registry{recorded, covered} {
+				fallbackAuth = append(fallbackAuth, auth.FallbackAuthEntry{
+					RepositoryGroup: src.Host(),
+					SecretRef:       &kuikv1alpha1.SecretReference{Name: createCredentials(src.Host(), registryUser, password)},
+				})
+			}
+			restart()
+			newMonitor(name, monitoring)
+			// The pod of the origin carries a pull secret for the recorded registry only.
+			repository := fresh()
+			origin := on(served(registrytest.New(), repository), repository)
+			offer(entries(origin, on(recorded, first), on(covered, second), on(open, third)))
+			ns := selectedNamespace()
+			runningPod(ns, []container{running(appContainer, tagged(origin))},
+				withPullSecrets(pullSecret(ns, recorded.Host(), "from-pod")))
+			reconcileIt()
+			// One window reads each registry once: every alternative sits alone on its host.
+			window()
+			reported(func() bool { return alternativesOf().Available == 3 })
+
+			mu.Lock()
+			defer mu.Unlock()
+			Expect(passwords).To(Equal([]string{"from-pod"}))
+			heads := open.Requests(http.MethodHead, "/manifests/")
+			Expect(heads).NotTo(BeEmpty())
+			Expect(heads).To(HaveEach(HaveField("Authorized", BeFalse())))
+		})
+
+		It("never compares an alternative to what runs", func() {
+			alternative := fresh()
+			src := served(registrytest.New(), alternative)
+			repository := fresh()
+			origin := on(served(registrytest.New(), repository), repository)
+			newMonitor(name, monitoring)
+			offer(entries(origin, on(src, alternative)))
+			// A container runs the alternative in place of its origin, at a digest the tag no
+			// longer points at.
+			pod := runningPod(selectedNamespace(), []container{standingIn(tagged(origin), tagged(on(src, alternative)))})
+			ran(pod, appContainer, on(src, alternative), digestA, clock.Now())
+			reconcileIt()
+			alternativeVerdicts(1)
+			settle(func() bool { return originOf(name).Available == 1 })
+			Expect(alternativesOf().Running).To(Equal(int32(1)))
+			Expect(monitorStatusOf(name).DriftedImages).To(BeEmpty())
+			Expect(originOf(name).Drifted).To(BeZero())
+			Expect(recorder.withReason("ImageTagDrifted")).To(BeEmpty())
+		})
+
+		It("lists an alternative whose check failed in unavailableAlternatives, with its origin and the ImageAlternative that offered it", func() {
+			missing := fresh()
+			src := served(registrytest.New())
+			newMonitor(name, monitoring)
+			origin, ia := alternativeTo(entries(on(src, missing)))
+			window()
+			entry := failingAlternatives(1)[0]
+			Expect(entry.Ref).To(Equal(tagged(on(src, missing))))
+			Expect(entry.DerivedFrom).To(Equal(origin))
+			Expect(entry.Via).To(Equal(routing.KindImageAlternative + "/" + ia))
+			Expect(entry.Reason).To(Equal(kuikv1alpha1.CheckManifestNotFound))
+			Expect(entry.Since.Time).To(BeTemporally("==", clock.Now()))
+		})
+
+		It("lists an alternative two ImageAlternatives offer once, via the first one in candidate order", func() {
+			missing := fresh()
+			src := served(registrytest.New())
+			repository := fresh()
+			origin := on(served(registrytest.New(), repository), repository)
+			newMonitor(name, monitoring)
+			// The Always band comes first, whatever the names. The second entry reads the
+			// alternative with an auth of its own: it stays a candidate of its own.
+			always := offer(entries(origin, on(src, missing)), func(ia *kuikv1alpha1.ImageAlternative) {
+				ia.Name = "z-" + ia.Name
+				ia.Spec.RewritePolicy = kuikv1alpha1.RewritePolicyAlways
+			})
+			withAuth := entries(origin, on(src, missing))
+			withAuth[1].Auth = &kuikv1alpha1.Auth{SecretRef: &kuikv1alpha1.SecretReference{
+				Name: createCredentials(src.Host(), registryUser, password),
+			}}
+			offer(withAuth, func(ia *kuikv1alpha1.ImageAlternative) { ia.Name = "a-" + ia.Name })
+			runningPod(selectedNamespace(), []container{running(appContainer, tagged(origin))})
+			reconcileIt()
+			window()
+			entry := failingAlternatives(1)[0]
+			Expect(entry.Via).To(Equal(routing.KindImageAlternative + "/" + always))
+			Expect(alternativesOf().Unavailable).To(Equal(int32(1)))
+		})
+
+		It("sets AlternativesUnavailable with reason ChecksFailed while an alternative fails its check, and removes it once none does", func() {
+			missing := fresh()
+			src := served(registrytest.New())
+			newMonitor(name, monitoring)
+			alternativeTo(entries(on(src, missing)))
+			window()
+			failingAlternatives(1)
+			unavailableCondition := func() *metav1.Condition {
+				return meta.FindStatusCondition(monitorStatusOf(name).Conditions, kuikv1alpha1.ConditionAlternativesUnavailable)
+			}
+			Expect(unavailableCondition()).NotTo(BeNil())
+			Expect(unavailableCondition().Status).To(Equal(metav1.ConditionTrue))
+			Expect(unavailableCondition().Reason).To(Equal(kuikv1alpha1.ReasonChecksFailed))
+
+			src.Push(missing+":v1", registrytest.Image())
+			settle(func() bool { return unavailableCondition() == nil })
+			Expect(monitorStatusOf(name).UnavailableAlternatives).To(BeEmpty())
+		})
+
+		It("emits AlternativeUnusable once when a monitored alternative starts failing with Unauthorized", func() {
+			alternative := fresh()
+			src := served(registrytest.New(registrytest.WithBasicAuth(registryUser, password)), alternative)
+			newMonitor(name, monitoring)
+			alternativeTo(entries(on(src, alternative)))
+			window()
+			Expect(failingAlternatives(1)[0].Reason).To(Equal(kuikv1alpha1.CheckUnauthorized))
+			unusable := recorder.withReason("AlternativeUnusable")
+			Expect(unusable).To(HaveLen(1))
+			Expect(unusable[0].eventType).To(Equal(corev1.EventTypeWarning))
+			Expect(unusable[0].regarding.(*kuikv1alpha1.ImageMonitor).Name).To(Equal(name))
+			Expect(unusable[0].note).To(ContainSubstring(tagged(on(src, alternative))))
+
+			// The next check fails the same way: nothing new to announce.
+			before := checked(src, alternative)()
+			window()
+			Eventually(checked(src, alternative)).Should(BeNumerically(">", before))
+			Consistently(func() []recordedEvent {
+				reconcileIt()
+				return recorder.withReason("AlternativeUnusable")
+			}).WithTimeout(500 * time.Millisecond).Should(HaveLen(1))
+		})
+
+		It("emits no AlternativeUnusable for an alternative that fails for another reason", func() {
+			missing := fresh()
+			src := served(registrytest.New())
+			newMonitor(name, monitoring)
+			alternativeTo(entries(on(src, missing)))
+			window()
+			Expect(failingAlternatives(1)[0].Reason).To(Equal(kuikv1alpha1.CheckManifestNotFound))
+			Consistently(func() []recordedEvent {
+				reconcileIt()
+				return recorder.withReason("AlternativeUnusable")
+			}).WithTimeout(500 * time.Millisecond).Should(BeEmpty())
+		})
+
+		It("never counts an alternative's failed check among the origins, nor announces AnonymousAccessDenied for it", func() {
+			alternative := fresh()
+			src := served(registrytest.New(registrytest.WithBasicAuth(registryUser, password)), alternative)
+			newMonitor(name, monitoring)
+			alternativeTo(entries(on(src, alternative)))
+			alternativeVerdicts(1)
+			settle(func() bool { return originOf(name).Available == 1 })
+			Expect(alternativesOf().Unavailable).To(Equal(int32(1)))
+			Expect(originOf(name).Unavailable).To(BeZero())
+			Expect(monitorStatusOf(name).UnavailableImages).To(BeEmpty())
+			Expect(meta.FindStatusCondition(monitorStatusOf(name).Conditions, kuikv1alpha1.ConditionImagesUnavailable)).To(BeNil())
+			Expect(recorder.withReason("AnonymousAccessDenied")).To(BeEmpty())
+		})
+
+		It("checks an alternative two ImageAlternatives offer for one origin with the auth of each of them", func() {
+			alternative := fresh()
+			src := served(registrytest.New(registrytest.WithBasicAuth(registryUser, password)), alternative)
+			repository := fresh()
+			origin := on(served(registrytest.New(), repository), repository)
+			newMonitor(name, monitoring)
+			// The first in candidate order declares no auth, the second the one the registry expects.
+			offer(entries(origin, on(src, alternative)), func(ia *kuikv1alpha1.ImageAlternative) { ia.Name = "a-" + ia.Name })
+			withAuth := entries(origin, on(src, alternative))
+			withAuth[1].Auth = &kuikv1alpha1.Auth{SecretRef: &kuikv1alpha1.SecretReference{
+				Name: createCredentials(src.Host(), registryUser, password),
+			}}
+			offer(withAuth, func(ia *kuikv1alpha1.ImageAlternative) { ia.Name = "z-" + ia.Name })
+			runningPod(selectedNamespace(), []container{running(appContainer, tagged(origin))})
+			reconcileIt()
+			window()
+			reported(func() bool { return alternativesOf().Available == 1 })
+			Expect(recorder.withReason("AlternativeUnusable")).To(BeEmpty())
+		})
+
+		It("tries the auth of the entries of several origins in the order of the origins", func() {
+			// The registry answers any credential and records the password of each manifest HEAD.
+			alternative := fresh()
+			recorded := served(registrytest.New(), alternative)
+			var (
+				mu        sync.Mutex
+				passwords []string
+			)
+			recorded.Intercept(func(_ http.ResponseWriter, r *http.Request) bool {
+				if _, pass, ok := r.BasicAuth(); ok && r.Method == http.MethodHead && strings.Contains(r.URL.Path, "/manifests/") {
+					mu.Lock()
+					passwords = append(passwords, pass)
+					mu.Unlock()
+				}
+				return false
+			})
+			first, second := "acme/a-"+unique("app"), "acme/b-"+unique("app")
+			origins := served(registrytest.New(), first, second)
+			newMonitor(name, monitoring)
+			// Each origin has its own ImageAlternative, the second origin's created first.
+			for _, o := range []struct{ repository, password string }{{second, "from-b"}, {first, "from-a"}} {
+				list := entries(on(origins, o.repository), on(recorded, alternative))
+				list[1].Auth = &kuikv1alpha1.Auth{SecretRef: &kuikv1alpha1.SecretReference{
+					Name: createCredentials(recorded.Host(), registryUser, o.password),
+				}}
+				offer(list)
+			}
+			runningPod(selectedNamespace(), []container{
+				running("a", tagged(on(origins, first))),
+				running("b", tagged(on(origins, second))),
+			})
+			reconcileIt()
+			window()
+			reported(func() bool { return alternativesOf().Available == 1 })
+			mu.Lock()
+			defer mu.Unlock()
+			Expect(passwords).To(Equal([]string{"from-a"}))
+		})
+
+		It("skips an entry auth naming a missing Secret for the next credential, leaving Ready True", func() {
+			alternative := fresh()
+			src := served(registrytest.New(registrytest.WithBasicAuth(registryUser, password)), alternative)
+			fallbackAuth = append(fallbackAuth, auth.FallbackAuthEntry{
+				RepositoryGroup: src.Host(),
+				SecretRef:       &kuikv1alpha1.SecretReference{Name: createCredentials(src.Host(), registryUser, password)},
+			})
+			restart()
+			list := entries(on(src, alternative))
+			list[0].Auth = &kuikv1alpha1.Auth{SecretRef: &kuikv1alpha1.SecretReference{Name: unique("missing")}}
+			newMonitor(name, monitoring)
+			alternativeTo(list)
+			window()
+			reported(func() bool { return alternativesOf().Available == 1 })
+			ready := meta.FindStatusCondition(monitorStatusOf(name).Conditions, kuikv1alpha1.ConditionReady)
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Status).To(Equal(metav1.ConditionTrue))
+			Expect(ready.Reason).To(Equal(kuikv1alpha1.ReasonIsReady))
+		})
+
+		It("emits AlternativeUnusable again when an alternative fails with Unauthorized after answering", func() {
+			alternative := fresh()
+			src := served(registrytest.New(), alternative)
+			unauthorized := registrytest.Status(http.MethodHead, "/manifests/", http.StatusUnauthorized, nil)
+			src.Intercept(unauthorized)
+			newMonitor(name, monitoring)
+			alternativeTo(entries(on(src, alternative)))
+			window()
+			Expect(failingAlternatives(1)[0].Reason).To(Equal(kuikv1alpha1.CheckUnauthorized))
+			Expect(recorder.withReason("AlternativeUnusable")).To(HaveLen(1))
+
+			src.Intercept(nil)
+			window()
+			reported(func() bool { return alternativesOf().Available == 1 })
+
+			src.Intercept(unauthorized)
+			window()
+			reported(func() bool { return alternativesOf().Unavailable == 1 })
+			Expect(recorder.withReason("AlternativeUnusable")).To(HaveLen(2))
+		})
+
+		It("removes unavailableAlternatives, AlternativesUnavailable, their series and the alternatives counts, once monitorAlternatives is false", func() {
+			missing := fresh()
+			src := served(registrytest.New())
+			newMonitor(name, monitoring)
+			origin, ia := alternativeTo(entries(on(src, missing)))
+			window()
+			failingAlternatives(1)
+
+			updateMonitor(func(im *kuikv1alpha1.ImageMonitor) { im.Spec.MonitorAlternatives = nil })
+			reconcileIt()
+			status := monitorStatusOf(name)
+			Expect(status.UnavailableAlternatives).To(BeEmpty())
+			Expect(status.Images.Alternatives).To(BeNil())
+			Expect(meta.FindStatusCondition(status.Conditions, kuikv1alpha1.ConditionAlternativesUnavailable)).To(BeNil())
+			_, ok := alternativeUnavailable(src, tagged(on(src, missing)), origin, ia, kuikv1alpha1.CheckManifestNotFound)
+			Expect(ok).To(BeFalse())
+			for _, metric := range []string{"kuik_images_tracked", "kuik_images_checked"} {
+				_, ok := gauge(registry, metric, map[string]string{
+					labelKind: kindImageMonitorLabel, labelName: name, labelReference: "alternatives",
+				})
+				Expect(ok).To(BeFalse(), metric)
+				// The origin population stays.
+				_, ok = gauge(registry, metric, map[string]string{
+					labelKind: kindImageMonitorLabel, labelName: name, labelReference: imagemetrics.ReferenceOrigin,
+				})
+				Expect(ok).To(BeTrue(), metric)
+			}
+		})
+
+		It("lists an alternative two origins stand for once per origin, each with its own via and kuik_image_alternative_unavailable series", func() {
+			missing := fresh()
+			src := served(registrytest.New())
+			first, second := fresh(), fresh()
+			origins := served(registrytest.New(), first, second)
+			newMonitor(name, monitoring)
+			// Each origin has its own ImageAlternative offering the same missing alternative.
+			vias := map[string]string{}
+			for _, repository := range []string{first, second} {
+				vias[tagged(on(origins, repository))] = offer(entries(on(origins, repository), on(src, missing)))
+			}
+			runningPod(selectedNamespace(), []container{
+				running("a", tagged(on(origins, first))),
+				running("b", tagged(on(origins, second))),
+			})
+			reconcileIt()
+			window()
+			listed := failingAlternatives(2)
+			Expect([]string{listed[0].DerivedFrom, listed[1].DerivedFrom}).To(ConsistOf(
+				tagged(on(origins, first)), tagged(on(origins, second))))
+			for _, e := range listed {
+				Expect(e.Ref).To(Equal(tagged(on(src, missing))))
+				Expect(e.Via).To(Equal(routing.KindImageAlternative + "/" + vias[e.DerivedFrom]))
+			}
+			for origin, via := range vias {
+				_, ok := alternativeUnavailable(src, tagged(on(src, missing)), origin, via, kuikv1alpha1.CheckManifestNotFound)
+				Expect(ok).To(BeTrue(), origin)
+			}
+			Expect(alternativesOf().Unavailable).To(Equal(int32(1)))
+		})
+
+		It("never sends a secure entry's auth or the shared credentials over an insecure endpoint while a secure entry offers the reference", func() {
+			const fromInsecure, fromSecure, fromPod, fromFallback = "insecure-entry", "secure-entry", "pod", "fallback"
+			insecureEntry := entryCredentials[string]{insecure: true, auths: []string{fromInsecure}}
+			secureEntry := entryCredentials[string]{auths: []string{fromSecure}}
+			shared := []string{fromPod, fromFallback}
+			Expect(checkPlan([]entryCredentials[string]{insecureEntry, secureEntry}, shared, false)).To(Equal([]checkAttempt[string]{
+				{auths: []string{fromSecure, fromPod, fromFallback}},
+				{insecure: true, auths: []string{fromInsecure}},
+			}))
+			// The pods declaring an origin pull it over HTTPS: it counts as offered securely.
+			Expect(checkPlan([]entryCredentials[string]{insecureEntry}, shared, true)).To(Equal([]checkAttempt[string]{
+				{auths: []string{fromPod, fromFallback}},
+				{insecure: true, auths: []string{fromInsecure}},
+			}))
+			// Offered over plain HTTP only, as the webhook probes it: the shared credentials go there.
+			Expect(checkPlan([]entryCredentials[string]{insecureEntry}, shared, false)).To(Equal([]checkAttempt[string]{
+				{insecure: true, auths: []string{fromInsecure, fromPod, fromFallback}},
+			}))
+		})
+
+		It("exports one kuik_image_alternative_unavailable series per failing alternative, deleted once it answers", func() {
+			first, second := fresh(), fresh()
+			src := served(registrytest.New())
+			newMonitor(name, monitoring)
+			origin, ia := alternativeTo(entries(on(src, first), on(src, second)))
+			alternativeVerdicts(2)
+			for _, repository := range []string{first, second} {
+				v, ok := alternativeUnavailable(src, tagged(on(src, repository)), origin, ia, kuikv1alpha1.CheckManifestNotFound)
+				Expect(ok).To(BeTrue(), repository)
+				Expect(v).To(Equal(1.0), repository)
+			}
+
+			src.Push(first+":v1", registrytest.Image())
+			settle(func() bool {
+				_, ok := alternativeUnavailable(src, tagged(on(src, first)), origin, ia, kuikv1alpha1.CheckManifestNotFound)
+				return !ok
+			})
+			_, ok := alternativeUnavailable(src, tagged(on(src, second)), origin, ia, kuikv1alpha1.CheckManifestNotFound)
+			Expect(ok).To(BeTrue())
+		})
+
 		PIt("keeps the since of an unavailableAlternatives entry and announces nothing again after a restart", func() {})
 		PIt("caps unavailableAlternatives, keeping the oldest entries and recording the rest in truncated, while its count and series cover every failing alternative", func() {})
 	})
