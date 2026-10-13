@@ -68,6 +68,7 @@ func (c *clock) Advance(d time.Duration) {
 // running is one syncer started by a spec.
 type running struct {
 	registry *prometheus.Registry
+	syncer   *Syncer
 	stop     func()
 }
 
@@ -75,6 +76,8 @@ type startOptions struct {
 	syncPeriod time.Duration
 	debounce   time.Duration
 	clock      *clock
+	// grace is the grace period the syncer starts with; zero keeps its default.
+	grace time.Duration
 	// wrap replaces the client the syncer reads and writes with, to inject failures.
 	wrap func(client.Client) client.Client
 }
@@ -107,6 +110,7 @@ func start(opts startOptions) *running {
 	if opts.clock != nil {
 		syncerOptions.Now = opts.clock.Now
 	}
+	syncerOptions.Grace = opts.grace
 	c := mgr.GetClient()
 	if opts.wrap != nil {
 		c = opts.wrap(c)
@@ -122,7 +126,7 @@ func start(opts startOptions) *running {
 		defer close(done)
 		Expect(mgr.Start(managerCtx)).To(Succeed())
 	}()
-	r := &running{registry: registry, stop: func() { stop(); <-done }}
+	r := &running{registry: registry, syncer: s, stop: func() { stop(); <-done }}
 	DeferCleanup(r.stop)
 	return r
 }

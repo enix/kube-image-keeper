@@ -17,6 +17,7 @@ import (
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/auth"
 	"github.com/enix/kube-image-keeper/internal/auth/pullsecret"
+	kuikconfig "github.com/enix/kube-image-keeper/internal/config"
 )
 
 const (
@@ -269,6 +270,68 @@ var _ = Describe("Secret syncer", func() {
 			now.Advance(pullsecret.GraceDuration)
 			// Any event of the pair reconciles it again.
 			createRewrittenPod(ns, cr, "quay.io/acme/bar:1")
+
+			Eventually(users(ns, cr)).WithTimeout(timeout).Should(Equal(map[string]string{quayGroup: robot}))
+		})
+
+		It("drops an entry once the grace period of the global config has elapsed", func() {
+			createSource(source, robot, "quay.io", "ghcr.io")
+			ns := createNamespace(scope)
+			cr := createAlternative(onFailure, scope, group("docker.io/acme", nil),
+				group(quayGroup, injectedAuth(source)), group(ghcrGroup, injectedAuth(source)))
+			start(startOptions{clock: now, grace: time.Minute})
+			createRewrittenPod(ns, cr, "quay.io/acme/foo:1")
+			leaving := createRewrittenPod(ns, cr, "ghcr.io/acme/foo:1")
+			Eventually(users(ns, cr)).WithTimeout(timeout).Should(HaveLen(2))
+
+			Expect(k8sClient.Delete(ctx, leaving)).To(Succeed())
+			Consistently(users(ns, cr)).WithTimeout(2 * time.Second).Should(HaveLen(2))
+
+			// A minute, far below the 15 minute default.
+			now.Advance(time.Minute)
+			createRewrittenPod(ns, cr, "quay.io/acme/bar:1")
+
+			Eventually(users(ns, cr)).WithTimeout(timeout).Should(Equal(map[string]string{quayGroup: robot}))
+		})
+
+		It("applies a grace period changed by a reload of the global config", func() {
+			createSource(source, robot, "quay.io", "ghcr.io")
+			ns := createNamespace(scope)
+			cr := createAlternative(onFailure, scope, group("docker.io/acme", nil),
+				group(quayGroup, injectedAuth(source)), group(ghcrGroup, injectedAuth(source)))
+			running := start(startOptions{clock: now})
+			createRewrittenPod(ns, cr, "quay.io/acme/foo:1")
+			leaving := createRewrittenPod(ns, cr, "ghcr.io/acme/foo:1")
+			Eventually(users(ns, cr)).WithTimeout(timeout).Should(HaveLen(2))
+
+			Expect(k8sClient.Delete(ctx, leaving)).To(Succeed())
+			Consistently(users(ns, cr)).WithTimeout(2 * time.Second).Should(HaveLen(2))
+
+			running.syncer.SetConfig(&kuikconfig.Config{
+				SecretSyncer: kuikconfig.SecretSyncer{OnFailureGrace: kuikconfig.Duration{Duration: time.Minute}},
+			})
+			now.Advance(time.Minute)
+			createRewrittenPod(ns, cr, "quay.io/acme/bar:1")
+
+			Eventually(users(ns, cr)).WithTimeout(timeout).Should(Equal(map[string]string{quayGroup: robot}))
+		})
+
+		It("drops the entries still in their grace when the syncer restarts", func() {
+			createSource(source, robot, "quay.io", "ghcr.io")
+			ns := createNamespace(scope)
+			cr := createAlternative(onFailure, scope, group("docker.io/acme", nil),
+				group(quayGroup, injectedAuth(source)), group(ghcrGroup, injectedAuth(source)))
+			first := start(startOptions{clock: now})
+			createRewrittenPod(ns, cr, "quay.io/acme/foo:1")
+			leaving := createRewrittenPod(ns, cr, "ghcr.io/acme/foo:1")
+			Eventually(users(ns, cr)).WithTimeout(timeout).Should(HaveLen(2))
+
+			Expect(k8sClient.Delete(ctx, leaving)).To(Succeed())
+			Consistently(users(ns, cr)).WithTimeout(2 * time.Second).Should(HaveLen(2))
+
+			// No time passes: the new process holds no grace to keep the entry with.
+			first.stop()
+			start(startOptions{clock: now})
 
 			Eventually(users(ns, cr)).WithTimeout(timeout).Should(Equal(map[string]string{quayGroup: robot}))
 		})
