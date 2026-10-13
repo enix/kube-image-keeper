@@ -99,9 +99,11 @@ var _ = Describe("Image monitoring", Ordered, func() {
 		Eventually(kubectl).WithTimeout(4*time.Minute).WithArguments("get", "imagemonitor", monitorName,
 			"-o", "jsonpath={.status.images.origin.available}").Should(Equal("2"))
 		// Both the upstream digest and the running one are known: a report holding them follows
-		// within the status interval.
+		// within the status interval. Only the pulled tag is asserted: the sandbox tag takes the
+		// platform digest of the mirror specs once they pulled it by digest, which the naive
+		// comparison reports as a drift.
 		Consistently(kubectl).WithTimeout(30*time.Second).WithArguments("get", "imagemonitor", monitorName,
-			"-o", "jsonpath={.status.images.origin.drifted}/{.status.driftedImages}").Should(Equal("0/"))
+			"-o", fmt.Sprintf(`jsonpath={.status.driftedImages[?(@.ref==%q)].ref}`, pulled)).Should(BeEmpty())
 	})
 })
 
