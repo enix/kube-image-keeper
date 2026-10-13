@@ -1,0 +1,108 @@
+name: Test outline comment
+
+# Posts the outline computed by "Test outline" as one comment on the pull request, updated in
+# place on every push. It runs main's version of this file, never the PR's code, so it may
+# write on the PR. The artifact comes from a run of the PR's code: the PR number in it is
+# checked against the commit that run tested, and the outline is posted as plain text.
+on:
+  workflow_run:
+    workflows:
+      - Test outline
+    types:
+      - completed
+
+# One comment job per PR branch at a time: 2 jobs listing the comments together would each
+# find none and post 2. Queued, not cancelled, so the latest outline still lands.
+concurrency:
+  group: test-outline-comment-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  comment:
+    name: Test outline comment
+    if: github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+      HEAD_REPO: ${{ github.event.workflow_run.head_repository.full_name }}
+    steps:
+      - name: Download the outline
+        uses: actions/download-artifact@v8
+        with:
+          name: test-outline
+          path: outline
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # A PR can rewrite the "Test outline" workflow it runs, so the number is not trusted:
+      # the PR must exist, come from the repository and branch the run tested, and its head
+      # must still be the commit the outline was computed on. workflow_run.pull_requests is
+      # not used: it is empty for a PR from a fork. An outline from an older push is
+      # skipped, so runs finishing out of order never overwrite a newer one.
+      - name: Check the pull request
+        id: pr
+        run: |
+          number=$(cat outline/pr-number.txt)
+          if ! [[ "$number" =~ ^[0-9]+$ ]]; then
+            echo "::error::Invalid pull request number"
+            exit 1
+          fi
+          pr=$(gh api "repos/$REPO/pulls/$number" --jq '[.head.repo.full_name, .head.ref, .head.sha] | join(" ")')
+          if [ "$pr" != "$HEAD_REPO $HEAD_BRANCH $HEAD_SHA" ]; then
+            echo "Pull request #$number is not at $HEAD_REPO $HEAD_BRANCH $HEAD_SHA, skipping"
+            exit 0
+          fi
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+
+      - name: Post or update the comment
+        if: steps.pr.outputs.number != ''
+        env:
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          marker='<!-- test-outline -->'
+          added=$(grep -c '^+ ' outline/outline.txt || true)
+          removed=$(grep -c '^- ' outline/outline.txt || true)
+          # No pipe: a failed listing must fail the job, not post a second comment.
+          ids=$(gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments" \
+            --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$marker\"))) | .id")
+          existing=${ids%%$'\n'*}
+          if [ "$added" = 0 ] && [ "$removed" = 0 ] && [ -z "$existing" ]; then
+            echo "No test case changed and no comment to update"
+            exit 0
+          fi
+          {
+            echo "$marker"
+            echo "**Test outline** at ${HEAD_SHA:0:7}: test cases added: $added, removed: $removed (\`task test-outline DIFF=<base>\`, updated on every push)."
+            echo
+            echo "<details><summary>Cases</summary>"
+            echo
+            echo '~~~~~~text'
+            # A case text holding the fence would close it and render as Markdown. The cut comes
+            # after that rewrite, which grows the text, and keeps the body under the
+            # 65536-character limit of a comment.
+            sed 's/~~~/~~ ~/g' outline/outline.txt > outline/escaped.txt
+            head -c 60000 outline/escaped.txt
+            truncated=$([ "$(wc -c < outline/escaped.txt)" -gt 60000 ] && echo yes || true)
+            # A cut line has no newline: end it before the fence.
+            if [ -n "$truncated" ]; then echo; fi
+            echo '~~~~~~'
+            if [ -n "$truncated" ]; then
+              echo
+              echo "Truncated: run \`task test-outline DIFF=<base>\` for the full list."
+            fi
+            echo
+            echo "</details>"
+          } > body.md
+          if [ -n "$existing" ]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$existing" -F body=@body.md > /dev/null
+          else
+            gh api "repos/$REPO/issues/$PR_NUMBER/comments" -F body=@body.md > /dev/null
+          fi
