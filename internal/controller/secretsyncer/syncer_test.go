@@ -276,6 +276,41 @@ var _ = Describe("Secret syncer", func() {
 			Eventually(users(ns, cr)).WithTimeout(timeout).Should(Equal(map[string]string{quayGroup: robot}))
 		})
 
+		It("drops an entry once its grace ends, without any other event on the pair", func() {
+			createSource(source, robot, "quay.io", "ghcr.io")
+			ns := createNamespace(scope)
+			cr := createAlternative(onFailure, scope, group("docker.io/acme", nil),
+				group(quayGroup, injectedAuth(source)), group(ghcrGroup, injectedAuth(source)))
+			// The real clock: the syncer must come back on its own when the grace ends.
+			start(startOptions{grace: 2 * time.Second})
+			createRewrittenPod(ns, cr, "quay.io/acme/foo:1")
+			leaving := createRewrittenPod(ns, cr, "ghcr.io/acme/foo:1")
+			Eventually(users(ns, cr)).WithTimeout(timeout).Should(HaveLen(2))
+
+			deleteAndReconcile(leaving)
+
+			Eventually(users(ns, cr)).WithTimeout(timeout).Should(Equal(map[string]string{quayGroup: robot}))
+		})
+
+		It("rechecks the pairs in their grace at once when a reload shortens it", func() {
+			createSource(source, robot, "quay.io", "ghcr.io")
+			ns := createNamespace(scope)
+			cr := createAlternative(onFailure, scope, group("docker.io/acme", nil),
+				group(quayGroup, injectedAuth(source)), group(ghcrGroup, injectedAuth(source)))
+			// The real clock, and the 15 minute default: the pair is due back in 15 minutes.
+			running := start(startOptions{})
+			createRewrittenPod(ns, cr, "quay.io/acme/foo:1")
+			leaving := createRewrittenPod(ns, cr, "ghcr.io/acme/foo:1")
+			Eventually(users(ns, cr)).WithTimeout(timeout).Should(HaveLen(2))
+			deleteAndReconcile(leaving)
+
+			running.syncer.SetConfig(&kuikconfig.Config{
+				SecretSyncer: kuikconfig.SecretSyncer{OnFailureGrace: kuikconfig.Duration{Duration: time.Second}},
+			})
+
+			Eventually(users(ns, cr)).WithTimeout(timeout).Should(Equal(map[string]string{quayGroup: robot}))
+		})
+
 		It("drops an entry once the grace period of the global config has elapsed", func() {
 			createSource(source, robot, "quay.io", "ghcr.io")
 			ns := createNamespace(scope)

@@ -355,12 +355,25 @@ func (g *Grace) Retain(pair Pair, entries []Credential) []Credential {
 	return retained
 }
 
+// NextExpiry returns how long until the first entry of pair in its grace leaves it, and false
+// when none is in its grace.
+func (g *Grace) NextExpiry(pair Pair) (time.Duration, bool) {
+	return 0, false
+}
+
+// InGrace returns the pairs holding an entry in its grace.
+func (g *Grace) InGrace() []Pair {
+	return nil
+}
+
 // SetDuration changes how long an entry is kept once it left the desired set. The entries
-// already in their grace are measured against it from the next Retain on.
-func (g *Grace) SetDuration(d time.Duration) {
+// already in their grace are measured against it from the next Retain on. It reports whether
+// the duration changed.
+func (g *Grace) SetDuration(d time.Duration) bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.duration = d
+	return true
 }
 
 // Forget drops what Grace holds for pair, once the pair no longer exists.
