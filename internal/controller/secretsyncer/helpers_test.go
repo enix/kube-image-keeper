@@ -22,6 +22,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/config"
+	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
@@ -129,6 +130,40 @@ func start(opts startOptions) *running {
 	r := &running{registry: registry, syncer: s, stop: func() { stop(); <-done }}
 	DeferCleanup(r.stop)
 	return r
+}
+
+// reconciles is how many reconciles the syncers of the suite have finished.
+func reconciles() float64 {
+	families, err := ctrlmetrics.Registry.Gather()
+	Expect(err).NotTo(HaveOccurred())
+	var total float64
+	for _, family := range families {
+		if family.GetName() != "controller_runtime_reconcile_total" {
+			continue
+		}
+		for _, m := range family.GetMetric() {
+			for _, label := range m.GetLabel() {
+				if label.GetName() == "controller" && label.GetValue() == "kuik-secret-syncer" {
+					total += m.GetCounter().GetValue()
+				}
+			}
+		}
+	}
+	return total
+}
+
+// deleteAndReconcile deletes obj once the syncer is idle, then waits for the reconcile that
+// follows: an entry the grace keeps leaves the Secret unchanged, so nothing else shows that
+// the syncer saw the deletion and started the grace.
+func deleteAndReconcile(obj client.Object) {
+	GinkgoHelper()
+	var idle float64
+	Eventually(func(g Gomega) {
+		idle = reconciles()
+		g.Consistently(reconciles).WithTimeout(time.Second).Should(Equal(idle))
+	}).WithTimeout(timeout).Should(Succeed())
+	Expect(k8sClient.Delete(ctx, obj)).To(Succeed())
+	Eventually(reconciles).WithTimeout(timeout).Should(BeNumerically(">", idle))
 }
 
 // failingGet is a client whose Get returns the error fail gives, when it gives one.
