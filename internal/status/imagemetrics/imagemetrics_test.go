@@ -122,4 +122,30 @@ var _ = Describe("Exporter", func() {
 		Expect(series(registry, "kuik_image_drifted")).To(BeEmpty())
 		Expect(series(registry, "kuik_images_tracked")).To(HaveKey(ContainSubstring("name=staging,")))
 	})
+
+	Context("a forgotten population", func() {
+		BeforeEach(func() {
+			exporter.SetCounts("ImageMonitor", "cluster", ReferenceOrigin, Counts{Running: 3, Available: 3})
+			exporter.SetCounts("ImageMonitor", "cluster", ReferenceAlternatives, Counts{Standby: 2, Unavailable: 1})
+			exporter.SetDrifted("ImageMonitor", "cluster", []string{app})
+			exporter.SetCounts("ImageMonitor", "other", ReferenceAlternatives, Counts{Standby: 1})
+
+			exporter.ForgetReference("ImageMonitor", "cluster", ReferenceAlternatives)
+		})
+
+		It("removes the tracked and checked series of that population of the resource", func() {
+			for _, metric := range []string{"kuik_images_tracked", "kuik_images_checked"} {
+				Expect(series(registry, metric)).NotTo(HaveKey(ContainSubstring("name=cluster,reference=alternatives,")), metric)
+			}
+		})
+
+		It("keeps the other populations and the drift series of the resource, and the population of other resources", func() {
+			Expect(series(registry, "kuik_images_tracked")).To(And(
+				HaveKeyWithValue("kind=ImageMonitor,name=cluster,reference=origin,state=running", 3.0),
+				HaveKeyWithValue("kind=ImageMonitor,name=other,reference=alternatives,state=standby", 1.0),
+			))
+			Expect(series(registry, "kuik_images_checked")).To(HaveKeyWithValue("kind=ImageMonitor,name=cluster,reference=origin,state=available", 3.0))
+			Expect(series(registry, "kuik_image_drifted")).To(HaveLen(1))
+		})
+	})
 })
