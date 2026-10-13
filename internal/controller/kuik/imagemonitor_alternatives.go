@@ -3,11 +3,14 @@ package kuik
 import (
 	"cmp"
 	"context"
+	"maps"
 	"slices"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
@@ -65,8 +68,9 @@ func (r *ImageMonitorReconciler) alternativeOffers(ctx context.Context) (*altern
 
 // monitoredAlternative is one alternative a monitor tracks.
 type monitoredAlternative struct {
-	// origins are the origins it stands for, each with the candidate that offers it first.
-	origins map[string]alternativeSource
+	// origins are the origins it stands for, each with every candidate that offers it, in
+	// candidate order.
+	origins map[string][]alternativeSource
 	// live is set when an origin a pod declares offers it, unset when only retained ones do.
 	live bool
 	// running is set when a container carries it in place of one of its origins.
@@ -92,8 +96,20 @@ func (s alternativeSource) before(other alternativeSource) bool {
 	return cmp.Less(s.via, other.via)
 }
 
-// offered are the alternatives each origin was offered, by origin then by reference.
-type offered map[string]map[string]alternativeSource
+// offered are the alternatives each origin was offered, by origin then by reference, with every
+// candidate offering each, in candidate order.
+type offered map[string]map[string][]alternativeSource
+
+// order compares two sources in candidate order, for a stable sort.
+func order(a, b alternativeSource) int {
+	switch {
+	case a.before(b):
+		return -1
+	case b.before(a):
+		return 1
+	}
+	return 0
+}
 
 // of returns, by reference, the alternatives of the origins the containers of pods declare and
 // of the retained ones, and what each of those origins was offered. A container the webhook
@@ -104,13 +120,18 @@ type offered map[string]map[string]alternativeSource
 // rewrites".
 func (o *alternativeOffers) of(pods []*corev1.Pod, retained []kuikv1alpha1.RetainedImage, previous offered) (map[string]*monitoredAlternative, offered) {
 	seen := offered{}
+	// Two candidates naming one reference with different configs are both probed at admission:
+	// each is kept, so that a check tries the auth of every one of them.
 	offer := func(origin, ref string, source alternativeSource) {
 		if seen[origin] == nil {
-			seen[origin] = map[string]alternativeSource{}
+			seen[origin] = map[string][]alternativeSource{}
 		}
-		if current, ok := seen[origin][ref]; !ok || source.before(current) {
-			seen[origin][ref] = source
+		if slices.Contains(seen[origin][ref], source) {
+			return
 		}
+		sources := append(seen[origin][ref], source)
+		slices.SortStableFunc(sources, order)
+		seen[origin][ref] = sources
 	}
 	candidates := func(origin string, list []routing.Candidate) {
 		for _, c := range list {
@@ -139,7 +160,7 @@ func (o *alternativeOffers) of(pods []*corev1.Pod, retained []kuikv1alpha1.Retai
 		podLabels := labels.Set(pod.Labels).String()
 		for _, c := range attribution.Containers(pod) {
 			if _, ok := seen[c.Origin]; !ok {
-				seen[c.Origin] = map[string]alternativeSource{}
+				seen[c.Origin] = map[string][]alternativeSource{}
 			}
 			origin, err := imagepath.Parse(c.Origin)
 			if err != nil || static || policies[c.Name] == corev1.PullNever {
@@ -166,7 +187,7 @@ func (o *alternativeOffers) of(pods []*corev1.Pod, retained []kuikv1alpha1.Retai
 		live[origin] = true
 	}
 	for _, e := range retained {
-		seen[e.Ref] = map[string]alternativeSource{}
+		seen[e.Ref] = map[string][]alternativeSource{}
 		origin, err := imagepath.Parse(e.Ref)
 		if err != nil {
 			continue
@@ -176,8 +197,9 @@ func (o *alternativeOffers) of(pods []*corev1.Pod, retained []kuikv1alpha1.Retai
 			// Only what its pods were offered, as the ImageAlternatives offer it now: an entry
 			// marked unavailable or removed since, or a deleted ImageAlternative, stops it.
 			list = slices.DeleteFunc(list, func(c routing.Candidate) bool {
-				source, was := sources[c.Reference]
-				return c.Resource == nil || !was || source.via != c.Resource.Name
+				return c.Resource == nil || !slices.ContainsFunc(sources[c.Reference], func(s alternativeSource) bool {
+					return s.via == c.Resource.Name
+				})
 			})
 		}
 		candidates(e.Ref, list)
@@ -188,7 +210,7 @@ func (o *alternativeOffers) of(pods []*corev1.Pod, retained []kuikv1alpha1.Retai
 		for ref, source := range sources {
 			a, ok := alternatives[ref]
 			if !ok {
-				a = &monitoredAlternative{origins: map[string]alternativeSource{}}
+				a = &monitoredAlternative{origins: map[string][]alternativeSource{}}
 				alternatives[ref] = a
 			}
 			a.origins[origin] = source
@@ -244,4 +266,105 @@ func (r *ImageMonitorReconciler) watchingAlternatives(ctx context.Context, _ cli
 		}
 	}
 	return requests
+}
+
+// eventAlternativeUnusable is emitted when a monitored alternative starts failing with
+// Unauthorized: a credential is missing or rejected, which has a remedy. See
+// docs/v3/observability.md, "Catalogue".
+const eventAlternativeUnusable = "AlternativeUnusable"
+
+// alternativeReport is what the checks of the alternatives found.
+type alternativeReport struct {
+	// counts are the gauges of the alternatives population.
+	counts imagemetrics.Counts
+	// entries are the unavailableAlternatives entries, one per failing alternative and origin.
+	entries []kuikv1alpha1.UnavailableAlternative
+	// failing are the same pairs, for their series.
+	failing []alternativeFailure
+}
+
+// alternativeFailure is one alternative failing its check, for one origin it stands for.
+type alternativeFailure struct {
+	image, origin, via string
+	reason             kuikv1alpha1.CheckFailureReason
+}
+
+// checkAlternatives counts the alternatives by the verdict of their last check, and lists the
+// failing ones once per origin they stand for, via the ImageAlternative that offers them first.
+// A reference counts once, whatever the number of its origins.
+func checkAlternatives(alternatives map[string]*monitoredAlternative, verdicts map[string]verdict) alternativeReport {
+	report := alternativeReport{counts: alternativeCounts(alternatives)}
+	for ref, a := range alternatives {
+		v, ok := verdicts[ref]
+		if !ok {
+			continue
+		}
+		if v.reason == "" {
+			report.counts.Available++
+			continue
+		}
+		report.counts.Unavailable++
+		for origin, sources := range a.origins {
+			// via names the first candidate offering it.
+			via := viaOf(sources[0])
+			report.entries = append(report.entries, kuikv1alpha1.UnavailableAlternative{
+				Ref: ref, DerivedFrom: origin, Via: via, Reason: v.reason, Since: metav1.NewTime(v.since),
+			})
+			report.failing = append(report.failing, alternativeFailure{image: ref, origin: origin, via: via, reason: v.reason})
+		}
+	}
+	slices.SortFunc(report.entries, func(a, b kuikv1alpha1.UnavailableAlternative) int {
+		return cmp.Or(a.Since.Compare(b.Since.Time), cmp.Compare(a.Ref, b.Ref), cmp.Compare(a.DerivedFrom, b.DerivedFrom))
+	})
+	return report
+}
+
+// viaOf names the ImageAlternative of source as `ImageAlternative/<name>`.
+func viaOf(source alternativeSource) string {
+	return routing.Resource{Kind: routing.KindImageAlternative, Name: source.via}.String()
+}
+
+// sources returns the candidates offering a, by origin, each origin's in candidate order.
+func (a *monitoredAlternative) sources() []alternativeSource {
+	var out []alternativeSource
+	for _, origin := range slices.Sorted(maps.Keys(a.origins)) {
+		out = append(out, a.origins[origin]...)
+	}
+	return out
+}
+
+// announceUnusable emits AlternativeUnusable each time an alternative's failure becomes
+// Unauthorized, and not again while it stays so. Every other failure goes unannounced: an
+// alternative that is merely gone stays in the status. See docs/v3/observability.md, "Catalogue".
+func (r *ImageMonitorReconciler) announceUnusable(ctx context.Context, im *kuikv1alpha1.ImageMonitor, memory *monitorMemory, alternatives map[string]*monitoredAlternative, verdicts map[string]verdict) {
+	for ref := range memory.unusable {
+		if v, ok := verdicts[ref]; !ok || alternatives[ref] == nil || v.reason != kuikv1alpha1.CheckUnauthorized {
+			delete(memory.unusable, ref)
+		}
+	}
+	for _, ref := range slices.Sorted(maps.Keys(alternatives)) {
+		v, ok := verdicts[ref]
+		if !ok || v.reason != kuikv1alpha1.CheckUnauthorized || memory.unusable[ref] {
+			continue
+		}
+		memory.unusable[ref] = true
+		origin := slices.Min(slices.Collect(maps.Keys(alternatives[ref].origins)))
+		via := viaOf(alternatives[ref].origins[origin][0])
+		logf.FromContext(ctx).Info("Found alternative refused with Unauthorized", "image", ref, "resource", via)
+		r.recorder.Eventf(im, nil, corev1.EventTypeWarning, eventAlternativeUnusable, "Check",
+			"The registry refused %s, offered by %s for %s, with Unauthorized: it cannot be offered as a candidate. "+
+				"Declare its credential in the auth of the entry or in fallbackAuth", ref, via, origin)
+	}
+}
+
+// setAlternatives records the alternatives and the origins tracked, for the checks to read
+// their credentials over the right transport.
+func (m *monitorMemory) setAlternatives(alternatives map[string]*monitoredAlternative, origins []string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.alternatives = alternatives
+	m.origins = make(map[string]bool, len(origins))
+	for _, ref := range origins {
+		m.origins[ref] = true
+	}
 }

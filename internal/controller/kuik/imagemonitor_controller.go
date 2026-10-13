@@ -113,6 +113,11 @@ type monitorMemory struct {
 	verdicts map[string]verdict
 	// declaring are the pods declaring each image, whose pull secrets a check tries.
 	declaring map[string][]*corev1.Pod
+	// alternatives are the alternatives tracked, whose entries and origins a check reads the
+	// credentials of. Each report replaces the map whole.
+	alternatives map[string]*monitoredAlternative
+	// origins are the origins tracked, which a check reads over HTTPS as their pods pull them.
+	origins map[string]bool
 	// secretErrs are the fallbackAuth Secrets the last check of an image could not read.
 	secretErrs map[string]error
 	// anonymous records, per image, whether its last check sent no credential.
@@ -125,6 +130,9 @@ type monitorMemory struct {
 	drifts map[string]driftState
 	// undigested are the tags logged once as running without a registry digest.
 	undigested map[string]bool
+	// unusable are the alternatives AlternativeUnusable announced, while they keep failing with
+	// Unauthorized.
+	unusable map[string]bool
 }
 
 // ImageMonitorOptions are what an ImageMonitorReconciler reports with.
@@ -367,6 +375,7 @@ func (r *ImageMonitorReconciler) track(ctx context.Context, im *kuikv1alpha1.Ima
 	if offers != nil {
 		alternatives, offeredTo = offers.of(pods, retained, memory.offered)
 	}
+	memory.setAlternatives(alternatives, tracked)
 	// A reference both an origin and an alternative sits once in its ring, and is checked once
 	// for both.
 	ringed := slices.Clone(tracked)
@@ -389,6 +398,12 @@ func (r *ImageMonitorReconciler) track(ctx context.Context, im *kuikv1alpha1.Ima
 		}
 	}
 	r.announceDenied(im, memory, verdicts)
+	// An alternative is counted by its own verdict, never among the origins.
+	var checkedAlts alternativeReport
+	if offers != nil {
+		checkedAlts = checkAlternatives(alternatives, all)
+	}
+	r.announceUnusable(ctx, im, memory, alternatives, all)
 	unavailable := make([]kuikv1alpha1.UnavailableImage, 0, len(verdicts))
 	failing := map[string]kuikv1alpha1.CheckFailureReason{}
 	for ref, v := range verdicts {
@@ -453,15 +468,24 @@ func (r *ImageMonitorReconciler) track(ctx context.Context, im *kuikv1alpha1.Ima
 		Available:   counts.Available,
 		Unavailable: counts.Unavailable,
 	}, Drifted: driftedCount}}
+	next.UnavailableAlternatives = nil
+	var altCounts *imagemetrics.Counts
 	if offers != nil {
-		next.Images.Alternatives = alternativesStatus(alternativeCounts(alternatives))
+		altCounts = &checkedAlts.counts
+		next.Images.Alternatives = alternativesStatus(checkedAlts.counts)
+		if len(checkedAlts.entries) > 0 {
+			next.UnavailableAlternatives = checkedAlts.entries
+		}
 	}
 	condition.SetAnomaly(&next.Conditions, kuikv1alpha1.ConditionImagesUnavailable, counts.Unavailable > 0,
 		kuikv1alpha1.ReasonChecksFailed, fmt.Sprintf("%d images failing their check", counts.Unavailable), im.Generation)
+	condition.SetAnomaly(&next.Conditions, kuikv1alpha1.ConditionAlternativesUnavailable, checkedAlts.counts.Unavailable > 0,
+		kuikv1alpha1.ReasonChecksFailed, fmt.Sprintf("%d alternatives failing their check", checkedAlts.counts.Unavailable), im.Generation)
 	condition.SetAnomaly(&next.Conditions, kuikv1alpha1.ConditionImagesDrifted, driftedCount > 0,
 		kuikv1alpha1.ReasonUpstreamDigestMoved, fmt.Sprintf("%d tags whose upstream digest moved", driftedCount), im.Generation)
 	next.Truncated = pass.End(&next.Conditions, im.Generation)
 	r.metrics.report(im.Name, counts, failing, refsOf(drifted), skewOf(drifted))
+	r.metrics.reportAlternatives(im.Name, altCounts, checkedAlts.failing)
 	return requeue, reported{declared: digests, offered: offeredTo}, r.fallbackSecrets(ctx, memory)
 }
 
@@ -583,6 +607,7 @@ func (r *ImageMonitorReconciler) memory(name string, uid types.UID) *monitorMemo
 		m = &monitorMemory{
 			uid: uid, rings: map[string]bool{}, verdicts: map[string]verdict{}, secretErrs: map[string]error{},
 			anonymous: map[string]bool{}, upstream: map[string]string{}, drifts: map[string]driftState{}, undigested: map[string]bool{},
+			unusable: map[string]bool{},
 		}
 		r.monitors[name] = m
 	}

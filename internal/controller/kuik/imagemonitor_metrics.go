@@ -16,6 +16,7 @@ import (
 type monitorMetrics struct {
 	images            *imagemetrics.Exporter
 	originUnavailable *prometheus.GaugeVec
+	altUnavailable    *prometheus.GaugeVec
 	clusterSkew       *prometheus.GaugeVec
 
 	mu sync.Mutex
@@ -24,6 +25,11 @@ type monitorMetrics struct {
 	failing map[string]map[[3]string]bool
 	// skewed are the images each monitor has a kuik_image_cluster_skew_digests series for.
 	skewed map[string]map[string]bool
+	// failingAlternatives are the label values of the kuik_image_alternative_unavailable series
+	// of each monitor.
+	failingAlternatives map[string]map[alternativeFailure]bool
+	// alternatives are the monitors that export the alternatives population.
+	alternatives map[string]bool
 }
 
 func newMonitorMetrics(registerer prometheus.Registerer) (*monitorMetrics, error) {
@@ -37,14 +43,21 @@ func newMonitorMetrics(registerer prometheus.Registerer) (*monitorMetrics, error
 			Name: "kuik_image_origin_unavailable",
 			Help: "1 while a tracked origin reference is failing its availability check",
 		}, []string{seriesKind, seriesName, seriesImage, seriesRegistry, seriesReason}),
+		altUnavailable: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "kuik_image_alternative_unavailable",
+			Help: "1 while a monitored alternative is failing its availability check. `image` is the alternative's own reference, " +
+				"`derived_from` the origin it would have served, `via` the resource that offered it",
+		}, []string{seriesKind, seriesName, seriesImage, seriesRegistry, seriesDerivedFrom, seriesVia, seriesReason}),
 		clusterSkew: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "kuik_image_cluster_skew_digests",
 			Help: "Number of distinct digests running for one image reference. Present only while pods disagree, so its value is always 2 or more",
 		}, []string{seriesKind, seriesName, seriesImage, seriesRegistry}),
-		failing: map[string]map[[3]string]bool{},
-		skewed:  map[string]map[string]bool{},
+		failing:             map[string]map[[3]string]bool{},
+		skewed:              map[string]map[string]bool{},
+		failingAlternatives: map[string]map[alternativeFailure]bool{},
+		alternatives:        map[string]bool{},
 	}
-	for _, c := range []prometheus.Collector{m.originUnavailable, m.clusterSkew} {
+	for _, c := range []prometheus.Collector{m.originUnavailable, m.altUnavailable, m.clusterSkew} {
 		if err := registerer.Register(c); err != nil {
 			return nil, err
 		}
@@ -88,6 +101,41 @@ func (m *monitorMetrics) report(name string, counts imagemetrics.Counts, failing
 	m.failing[name] = current
 }
 
+// The labels only kuik_image_alternative_unavailable carries.
+const (
+	seriesDerivedFrom = "derived_from"
+	seriesVia         = "via"
+)
+
+// reportAlternatives exports the alternatives counts of the monitor name, nil when it monitors
+// none, and one kuik_image_alternative_unavailable series per failing alternative and origin,
+// deleting the series of the failures that ended.
+func (m *monitorMetrics) reportAlternatives(name string, counts *imagemetrics.Counts, failing []alternativeFailure) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	switch {
+	case counts != nil:
+		m.images.SetCounts(kindImageMonitor, name, imagemetrics.ReferenceAlternatives, *counts)
+		m.alternatives[name] = true
+	case m.alternatives[name]:
+		// The population is gone with monitorAlternatives: its series go, as the status block does.
+		m.images.ForgetReference(kindImageMonitor, name, imagemetrics.ReferenceAlternatives)
+		delete(m.alternatives, name)
+	}
+
+	current := map[alternativeFailure]bool{}
+	for _, f := range failing {
+		current[f] = true
+		m.altUnavailable.WithLabelValues(kindImageMonitor, name, f.image, registryOf(f.image), f.origin, f.via, string(f.reason)).Set(1)
+	}
+	for f := range m.failingAlternatives[name] {
+		if !current[f] {
+			m.altUnavailable.DeleteLabelValues(kindImageMonitor, name, f.image, registryOf(f.image), f.origin, f.via, string(f.reason))
+		}
+	}
+	m.failingAlternatives[name] = current
+}
+
 // registryOf is the registry host of image, as its ring names it: docker.io for a short name.
 func registryOf(image string) string {
 	ref, err := imagepath.Parse(image)
@@ -103,8 +151,11 @@ func (m *monitorMetrics) forget(name string) {
 	m.images.Forget(kindImageMonitor, name)
 	m.originUnavailable.DeletePartialMatch(prometheus.Labels{seriesKind: kindImageMonitor, seriesName: name})
 	m.clusterSkew.DeletePartialMatch(prometheus.Labels{seriesKind: kindImageMonitor, seriesName: name})
+	m.altUnavailable.DeletePartialMatch(prometheus.Labels{seriesKind: kindImageMonitor, seriesName: name})
 	m.mu.Lock()
 	delete(m.failing, name)
 	delete(m.skewed, name)
+	delete(m.failingAlternatives, name)
+	delete(m.alternatives, name)
 	m.mu.Unlock()
 }

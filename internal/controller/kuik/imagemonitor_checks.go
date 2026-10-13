@@ -295,9 +295,37 @@ func (c monitorChecker) Check(ctx context.Context, ref string) pacing.Response {
 		return pacing.Response{Err: err}
 	}
 	memory.mu.Lock()
-	pods := memory.declaring[ref]
+	// An alternative is read with the credentials of what offers it: the auth of its entries,
+	// then the pull secrets of the pods of its origins, next to those of the pods declaring it
+	// when it is an origin too.
+	pods := slices.Clone(memory.declaring[ref])
+	isOrigin := memory.origins[ref]
+	var sources []alternativeSource
+	if a, ok := memory.alternatives[ref]; ok {
+		sources = a.sources()
+		for _, origin := range slices.Sorted(maps.Keys(a.origins)) {
+			pods = append(pods, memory.declaring[origin]...)
+		}
+	}
 	memory.mu.Unlock()
 
+	// Each entry's auth goes over its own entry's transport only.
+	entries := make([]entryCredentials[authn.Authenticator], 0, len(sources))
+	for _, source := range sources {
+		entry := entryCredentials[authn.Authenticator]{insecure: source.config.Insecure}
+		if source.config.Auth != nil {
+			// Webhook mode resolves the entry's auth alone. A broken entry Secret is skipped for
+			// the next credential, and never moves Ready: the ImageAlternative reports it.
+			creds, err := c.r.podSecrets.Resolve(ctx, parsed, source.config.Auth, nil)
+			if err == nil {
+				entry.auths = authenticators(ref, creds)
+			} else {
+				logf.FromContext(ctx).V(1).Info("Skipped the auth of an alternative's entry", "image", ref,
+					"resource", viaOf(source), "error", err.Error())
+			}
+		}
+		entries = append(entries, entry)
+	}
 	var auths []authn.Authenticator
 	// The pods declaring an image often share their pull secrets: each is tried once.
 	seen := map[types.NamespacedName]bool{}
@@ -337,9 +365,22 @@ func (c monitorChecker) Check(ctx context.Context, ref string) pacing.Response {
 		logf.FromContext(ctx).V(1).Info("Skipped the fallbackAuth credential of an image", "image", ref, "error", err.Error())
 	}
 
-	result, err := c.r.registry.Check(ctx, registry.Endpoint{Reference: ref, Auth: distinct(auths)})
+	// auths are the shared credentials: the pull secrets of the pods, then fallbackAuth.
+	var (
+		result *registry.CheckResult
+		sent   int
+	)
+	for _, attempt := range checkPlan(entries, auths, isOrigin) {
+		creds := distinct(attempt.auths)
+		sent += len(creds)
+		result, err = c.r.registry.Check(ctx, registry.Endpoint{Reference: ref, Insecure: attempt.insecure, Auth: creds})
+		// The next transport is tried only when this one refused every credential it was sent.
+		if err == nil || checkFailure(err) != kuikv1alpha1.CheckUnauthorized {
+			break
+		}
+	}
 	memory.mu.Lock()
-	memory.anonymous[ref] = len(auths) == 0 && !covered
+	memory.anonymous[ref] = sent == 0 && !covered
 	memory.mu.Unlock()
 	return pacing.Response{Result: result, Err: err}
 }
