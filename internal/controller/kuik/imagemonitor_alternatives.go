@@ -17,6 +17,7 @@ import (
 	"github.com/enix/kube-image-keeper/internal/imagepath"
 	"github.com/enix/kube-image-keeper/internal/routing"
 	"github.com/enix/kube-image-keeper/internal/status/attribution"
+	"github.com/enix/kube-image-keeper/internal/status/capped"
 	"github.com/enix/kube-image-keeper/internal/status/imagemetrics"
 )
 
@@ -367,4 +368,21 @@ func (m *monitorMemory) setAlternatives(alternatives map[string]*monitoredAltern
 	for _, ref := range origins {
 		m.origins[ref] = true
 	}
+}
+
+// capped returns the unavailableAlternatives entries the cap of pass keeps. The list is a sample
+// like unavailableImages: its count and series come from the verdicts in memory, and what a
+// restart read back is held until every alternative has a verdict again.
+func (report *alternativeReport) capped(pass *capped.Pass, memory *monitorMemory, alternatives map[string]*monitoredAlternative) []kuikv1alpha1.UnavailableAlternative {
+	listed := capped.Cap(pass, listUnavailableAlternatives, report.entries,
+		func(e kuikv1alpha1.UnavailableAlternative) metav1.Time { return e.Since },
+		func(e kuikv1alpha1.UnavailableAlternative) string { return e.Ref + "\x00" + e.DerivedFrom })
+	refs := checkable(slices.Collect(maps.Keys(alternatives)))
+	if held, ok := memory.heldAlternatives(refs); ok {
+		unknown := max(int32(len(refs))-report.counts.Available-report.counts.Unavailable, 0)
+		report.counts.Unavailable = max(report.counts.Unavailable, min(held.altUnavailable, report.counts.Unavailable+unknown))
+		// Each alternative with no verdict yet stands for at least one entry the list left out.
+		pass.Hold(listUnavailableAlternatives, min(held.altTruncated, int32(len(report.entries)-len(listed))+unknown))
+	}
+	return listed
 }

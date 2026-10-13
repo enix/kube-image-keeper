@@ -59,8 +59,17 @@ func (m *monitorMemory) seed(status *kuikv1alpha1.ImageMonitorStatus) {
 		if out := status.Truncated[listDriftedImages]; out > 0 {
 			held.drifted, held.driftTruncated = status.Images.Origin.Drifted, out
 		}
+		if out := status.Truncated[listUnavailableAlternatives]; out > 0 && status.Images.Alternatives != nil {
+			held.altUnavailable, held.altTruncated = status.Images.Alternatives.Unavailable, out
+		}
 		if held != (persistedCounts{}) {
 			m.persisted = &held
+		}
+	}
+	// An Unauthorized alternative the status holds was announced already.
+	for _, e := range status.UnavailableAlternatives {
+		if e.Reason == kuikv1alpha1.CheckUnauthorized {
+			m.unusable[e.Ref] = true
 		}
 	}
 	// A drift the status holds was announced already, its skew too when it lists several digests.
@@ -80,6 +89,12 @@ func (m *monitorMemory) seed(status *kuikv1alpha1.ImageMonitorStatus) {
 			m.verdicts[e.Ref] = verdict{reason: e.Reason, since: e.Since.Time, denied: e.Reason == kuikv1alpha1.CheckUnauthorized}
 		}
 	}
+	// An alternative several origins stand for has one entry per origin, all from one verdict.
+	for _, e := range status.UnavailableAlternatives {
+		if _, ok := m.verdicts[e.Ref]; !ok {
+			m.verdicts[e.Ref] = verdict{reason: e.Reason, since: e.Since.Time}
+		}
+	}
 }
 
 // listUnavailableImages is the status field of the failing origins, a capped list.
@@ -96,6 +111,34 @@ type persistedCounts struct {
 	// drifted and driftTruncated are the same for driftedImages.
 	drifted        int32
 	driftTruncated int32
+	// altUnavailable and altTruncated are the same for unavailableAlternatives.
+	altUnavailable int32
+	altTruncated   int32
+}
+
+// listUnavailableAlternatives is the status field of the failing alternatives, a capped list.
+const listUnavailableAlternatives = "unavailableAlternatives"
+
+// heldAlternatives returns what the status persisted beyond unavailableAlternatives while some
+// alternative of alternatives has no verdict yet, and forgets it once every one has.
+func (m *monitorMemory) heldAlternatives(alternatives []string) (persistedCounts, bool) {
+	if m.persisted == nil {
+		return persistedCounts{}, false
+	}
+	m.mu.Lock()
+	complete := !slices.ContainsFunc(alternatives, func(ref string) bool {
+		_, ok := m.verdicts[ref]
+		return !ok
+	})
+	m.mu.Unlock()
+	if complete {
+		m.persisted.altUnavailable, m.persisted.altTruncated = 0, 0
+	}
+	if *m.persisted == (persistedCounts{}) {
+		m.persisted = nil
+		return persistedCounts{}, false
+	}
+	return *m.persisted, true
 }
 
 // held returns what the status persisted beyond its capped lists: the failing images while
