@@ -168,9 +168,25 @@ branch needs something `main` brought: `git fetch origin` first, rebase on `orig
 check the rebase with `git range-diff ORIG_HEAD...HEAD`, push it with
 `--force-with-lease`, comment `@coderabbitai full review`, then wait for the checks again.
 
-Once the review is over and every check is green (`gh pr checks <n> --watch`), tell the
-user the PR is ready and wait for their explicit go: they may want to test it first. Then
-merge with `gh pr merge <n> --rebase`, alone in its command. Confirm the merge with
-`gh pr view <n> --json state,mergedAt`. If that call is refused, ask the user to type
-`! gh pr view <n> --json state,mergedAt` in the Claude Code prompt (the `!` prefix runs it
-in the session): never report a merge you could not confirm.
+Once the review is over, tell the user the PR is ready and wait for their explicit go:
+they may want to test it first. The checks need not be green yet. Then enable auto-merge,
+alone in its command:
+
+```sh
+gh pr merge <n> --auto --rebase
+```
+
+GitHub merges once `Conform`, `Test` and `E2E` pass and no review thread is open. Follow it
+in the background until `gh pr view <n> --json state,mergedAt` shows the merge:
+
+- A required check fails: fix it as in step 5 and push. The go stands: auto-merge stays
+  enabled, and the passing checks are what the merge waits for.
+- Auto-merge stalls: every required check is green and `mergeStateStatus` is `CLEAN`, yet
+  10 minutes later the PR is still open. GitHub re-evaluates auto-merge only on an event of
+  the pull request, and a check run cancelled by a concurrency group can make it miss the
+  last one. The user's go covers this merge: run `gh pr merge <n> --rebase`, and tell the
+  user auto-merge stalled.
+
+Confirm the merge with `gh pr view <n> --json state,mergedAt`. If that call is refused, ask
+the user to type `! gh pr view <n> --json state,mergedAt` in the Claude Code prompt (the
+`!` prefix runs it in the session): never report a merge you could not confirm.
