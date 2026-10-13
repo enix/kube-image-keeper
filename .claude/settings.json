@@ -74,7 +74,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/confirm-outbound-actions.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/confirm-outbound-actions.sh || exit 2",
             "timeout": 30
           }
         ]
