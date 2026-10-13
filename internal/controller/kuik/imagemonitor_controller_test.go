@@ -1800,6 +1800,13 @@ var _ = Describe("ImageMonitor", func() {
 	})
 
 	Context("drift", func() {
+		var (
+			// stopScheduler stops the scheduler, as a process ending would.
+			stopScheduler context.CancelFunc
+			// listCapacity caps the lists of the status, zero for the default cap.
+			listCapacity int
+		)
+
 		// start builds a reconciler checking on a scheduler of its own, paced every minute on
 		// the fake clock, as a new process would. Its series go to a new registry.
 		start := func() {
@@ -1808,18 +1815,31 @@ var _ = Describe("ImageMonitor", func() {
 			schedulerCtx, stop := context.WithCancel(ctx)
 			go func() { _ = scheduler.Start(schedulerCtx) }()
 			DeferCleanup(stop)
+			stopScheduler = stop
 			registry = prometheus.NewRegistry()
 			var err error
 			reconciler, err = NewImageMonitorReconciler(k8sClient, k8sClient.Scheme(), ImageMonitorOptions{
-				Recorder:   recorder,
-				Registerer: registry,
-				Clock:      clock,
-				Scheduler:  scheduler,
-				Registry:   kuikregistry.NewClient(),
+				Recorder:     recorder,
+				Registerer:   registry,
+				Clock:        clock,
+				Scheduler:    scheduler,
+				Registry:     kuikregistry.NewClient(),
+				ListCapacity: listCapacity,
 			})
 			Expect(err).NotTo(HaveOccurred())
 		}
-		BeforeEach(start)
+		BeforeEach(func() {
+			listCapacity = 0
+			start()
+		})
+
+		// restart starts a new process, capping its lists at capacity.
+		restart := func(capacity int) {
+			GinkgoHelper()
+			stopScheduler()
+			listCapacity = capacity
+			start()
+		}
 
 		// source starts a registry, closed when the spec ends.
 		source := func() *registrytest.Registry {
@@ -2339,9 +2359,251 @@ var _ = Describe("ImageMonitor", func() {
 			defer recorder.mu.Unlock()
 			Expect(recorder.events).To(HaveLen(before))
 		})
-		PIt("keeps the since of a driftedImages entry and announces nothing again after a restart", func() {})
-		PIt("caps driftedImages, keeping the oldest entries and recording the rest in truncated", func() {})
-		PIt("counts and exports every drifted tag, the ones the cap leaves out included", func() {})
+		It("keeps the since of a driftedImages entry and announces nothing again after a restart", func() {
+			src := source()
+			app, upstream := tag(src, "acme/app")
+			newMonitor(name)
+			ns := selectedNamespace()
+			runs(ns, app, digestA)
+			runs(ns, app, digestC)
+			reconcileIt()
+			window()
+			since := drifted(app).Since
+			Expect(recorder.withReason("ImageTagDrifted")).To(HaveLen(1))
+			Expect(recorder.withReason("ImageClusterSkew")).To(HaveLen(1))
+
+			// A new process an hour later: its first window is a full interval away, its first
+			// report reads the drift back from the status.
+			clock.Step(time.Hour)
+			restart(0)
+			reconcileIt()
+			entry := driftOf(app)
+			Expect(entry).NotTo(BeNil())
+			Expect(entry.UpstreamDigest).To(Equal(upstream))
+			Expect(entry.Since.Time).To(BeTemporally("==", since.Time))
+			Expect(originOf(name).Drifted).To(Equal(int32(1)))
+			Expect(driftCondition()).NotTo(BeNil())
+			_, ok := driftedSeries(src, app)
+			Expect(ok).To(BeTrue())
+
+			before := checked(src, "acme/app")()
+			window()
+			Eventually(checked(src, "acme/app")).Should(BeNumerically(">", before))
+			Eventually(func() int32 {
+				reconcileIt()
+				return originOf(name).Available
+			}).Should(Equal(int32(1)))
+			Expect(driftOf(app).Since.Time).To(BeTemporally("==", since.Time))
+			Expect(recorder.withReason("ImageTagDrifted")).To(HaveLen(1))
+			Expect(recorder.withReason("ImageClusterSkew")).To(HaveLen(1))
+		})
+
+		// The cap holds whatever its value: a small one is exceeded by a handful of tags.
+		const capacity, over = 5, 6
+		const driftedList = "driftedImages"
+
+		pressure := func() *metav1.Condition {
+			return meta.FindStatusCondition(monitorStatusOf(name).Conditions, kuikv1alpha1.ConditionListCapacityPressure)
+		}
+
+		It("caps driftedImages, keeping the oldest entries and recording the rest in truncated", func() {
+			restart(capacity)
+			// The tags drifted in the reverse order of their references: acme/drift5 first.
+			im := newMonitor(name)
+			refs := make([]string, 0, over)
+			containers := make([]container, 0, over)
+			for i := range over {
+				ref := fmt.Sprintf("quay.io/acme/drift%d:v1", i)
+				refs = append(refs, ref)
+				containers = append(containers, running(fmt.Sprintf("c%d", i), ref))
+				im.Status.DriftedImages = append(im.Status.DriftedImages, kuikv1alpha1.MonitorDriftedImage{
+					Ref: ref, UpstreamDigest: digestC, Since: metav1.NewTime(clock.Now().Add(-time.Duration(i) * time.Minute)),
+					RunningDigests: []kuikv1alpha1.RunningDigest{{Digest: digestA, Pods: 1}},
+				})
+			}
+			Expect(k8sClient.Status().Update(ctx, im)).To(Succeed())
+			pod := runningPod(selectedNamespace(), containers)
+			for i, ref := range refs {
+				ran(pod, fmt.Sprintf("c%d", i), strings.TrimSuffix(ref, ":v1"), digestA, clock.Now())
+			}
+			reconcileIt()
+
+			status := monitorStatusOf(name)
+			kept := make([]string, 0, len(status.DriftedImages))
+			for _, e := range status.DriftedImages {
+				kept = append(kept, e.Ref)
+			}
+			Expect(kept).To(Equal([]string{refs[5], refs[4], refs[3], refs[2], refs[1]}))
+			Expect(status.Truncated).To(Equal(map[string]int32{driftedList: 1}))
+			Expect(pressure()).NotTo(BeNil())
+			Expect(pressure().Reason).To(Equal(kuikv1alpha1.ReasonListTruncated))
+		})
+
+		// readBack writes the status a previous process capped at capacity: over tags drifted,
+		// acme/drift0 the newest and left out, and creates a pod running acme/drift0 when withLeftOut
+		// is set, and the other tags, all behind their upstream digest. It returns the references.
+		readBack := func(withLeftOut bool, mutate ...func(*kuikv1alpha1.ImageMonitor)) []string {
+			GinkgoHelper()
+			im := newMonitor(name, mutate...)
+			refs := make([]string, 0, over)
+			containers := make([]container, 0, over)
+			for i := range over {
+				ref := fmt.Sprintf("quay.io/acme/drift%d:v1", i)
+				refs = append(refs, ref)
+				if i > 0 || withLeftOut {
+					containers = append(containers, running(fmt.Sprintf("c%d", i), ref))
+				}
+				if i > 0 {
+					im.Status.DriftedImages = append(im.Status.DriftedImages, kuikv1alpha1.MonitorDriftedImage{
+						Ref: ref, UpstreamDigest: digestC, Since: metav1.NewTime(clock.Now().Add(-time.Duration(i) * time.Minute)),
+						RunningDigests: []kuikv1alpha1.RunningDigest{{Digest: digestA, Pods: 1}},
+					})
+				}
+			}
+			im.Status.Images = &kuikv1alpha1.MonitorImages{Origin: &kuikv1alpha1.OriginImageCounts{Drifted: over}}
+			im.Status.Truncated = map[string]int32{driftedList: 1}
+			Expect(k8sClient.Status().Update(ctx, im)).To(Succeed())
+			pod := runningPod(selectedNamespace(), containers)
+			for _, c := range containers {
+				ran(pod, c.name, strings.TrimSuffix(c.image, ":v1"), digestA, clock.Now())
+			}
+			return refs
+		}
+
+		It("holds no drift a restart read back for a tag the cap left out and no pod runs any more", func() {
+			restart(capacity)
+			readBack(false)
+			reconcileIt()
+			Expect(originOf(name).Drifted).To(Equal(int32(over - 1)))
+			Expect(monitorStatusOf(name).Truncated).NotTo(HaveKey(driftedList))
+		})
+
+		It("holds no drift a restart read back while driftDetection is off, nor once it is turned back on", func() {
+			restart(capacity)
+			readBack(true, func(im *kuikv1alpha1.ImageMonitor) {
+				detect := false
+				im.Spec.DriftDetection = &detect
+			})
+			reconcileIt()
+			Expect(originOf(name).Drifted).To(BeZero())
+			Expect(monitorStatusOf(name).Truncated).NotTo(HaveKey(driftedList))
+			Expect(pressure()).To(BeNil())
+
+			// Turned back on before any check landed: only what drift finds counts.
+			updateMonitor(func(im *kuikv1alpha1.ImageMonitor) { im.Spec.DriftDetection = nil })
+			reconcileIt()
+			Expect(originOf(name).Drifted).To(Equal(int32(over - 1)))
+			Expect(monitorStatusOf(name).Truncated).NotTo(HaveKey(driftedList))
+		})
+
+		It("holds the drift a restart read back while the check of a tag the cap left out fails, until one answers", func() {
+			restart(capacity)
+			src := source()
+			im := newMonitor(name)
+			// acme/drift0 is the newest drift, left out of the list; its pod runs its upstream
+			// digest, which no check has read yet.
+			refs := make([]string, 0, over)
+			containers := make([]container, 0, over)
+			digests := make([]string, 0, over)
+			for i := range over {
+				ref, upstream := tag(src, fmt.Sprintf("acme/drift%d", i))
+				refs = append(refs, ref)
+				containers = append(containers, running(fmt.Sprintf("c%d", i), ref))
+				if i == 0 {
+					digests = append(digests, upstream)
+					continue
+				}
+				digests = append(digests, digestA)
+				im.Status.DriftedImages = append(im.Status.DriftedImages, kuikv1alpha1.MonitorDriftedImage{
+					Ref: ref, UpstreamDigest: upstream, Since: metav1.NewTime(clock.Now().Add(-time.Duration(i) * time.Minute)),
+					RunningDigests: []kuikv1alpha1.RunningDigest{{Digest: digestA, Pods: 1}},
+				})
+			}
+			im.Status.Images = &kuikv1alpha1.MonitorImages{Origin: &kuikv1alpha1.OriginImageCounts{Drifted: over}}
+			im.Status.Truncated = map[string]int32{driftedList: 1}
+			Expect(k8sClient.Status().Update(ctx, im)).To(Succeed())
+			pod := runningPod(selectedNamespace(), containers)
+			for i, ref := range refs {
+				ran(pod, fmt.Sprintf("c%d", i), strings.TrimSuffix(ref, ":v1"), digests[i], clock.Now())
+			}
+
+			// Every tag gets a verdict, the left-out one a failure.
+			src.Intercept(registrytest.Status(http.MethodHead, "/acme/drift0/manifests/", http.StatusNotFound, nil))
+			Eventually(func() int32 {
+				if clock.HasWaiters() {
+					clock.Step(time.Minute)
+				}
+				reconcileIt()
+				return originOf(name).Available + originOf(name).Unavailable
+			}).Should(Equal(int32(over)))
+			Expect(originOf(name).Unavailable).To(Equal(int32(1)))
+			Expect(originOf(name).Drifted).To(Equal(int32(over)))
+			Expect(monitorStatusOf(name).Truncated).To(HaveKeyWithValue(driftedList, int32(1)))
+
+			// Its check answers: the drift settles on what the checks read.
+			src.Intercept(nil)
+			Eventually(func() int32 {
+				if clock.HasWaiters() {
+					clock.Step(time.Minute)
+				}
+				reconcileIt()
+				return originOf(name).Unavailable
+			}).Should(BeZero())
+			Expect(originOf(name).Drifted).To(Equal(int32(over - 1)))
+			Expect(monitorStatusOf(name).Truncated).NotTo(HaveKey(driftedList))
+		})
+
+		It("counts and exports every drifted tag, the ones the cap leaves out included", func() {
+			restart(capacity)
+			src := source()
+			newMonitor(name)
+			refs := make([]string, 0, over)
+			containers := make([]container, 0, over)
+			for i := range over {
+				ref, _ := tag(src, fmt.Sprintf("acme/drift%d", i))
+				refs = append(refs, ref)
+				containers = append(containers, running(fmt.Sprintf("c%d", i), ref))
+			}
+			pod := runningPod(selectedNamespace(), containers)
+			for i, ref := range refs {
+				ran(pod, fmt.Sprintf("c%d", i), strings.TrimSuffix(ref, ":v1"), digestA, clock.Now())
+			}
+			reconcileIt()
+			for i := range over {
+				window()
+				Eventually(func() int32 {
+					reconcileIt()
+					return originOf(name).Drifted
+				}).Should(Equal(int32(i + 1)))
+			}
+			everySeries := func() {
+				GinkgoHelper()
+				for _, ref := range refs {
+					_, ok := driftedSeries(src, ref)
+					Expect(ok).To(BeTrue(), ref)
+				}
+			}
+			Expect(monitorStatusOf(name).DriftedImages).To(HaveLen(capacity))
+			Expect(monitorStatusOf(name).Truncated).To(Equal(map[string]int32{driftedList: 1}))
+			everySeries()
+
+			// A new process reads back only the capped list: it holds the count and truncated
+			// until its ring checked every tag again.
+			restart(capacity)
+			reconcileIt()
+			Expect(originOf(name).Drifted).To(Equal(int32(over)))
+			Expect(monitorStatusOf(name).Truncated).To(Equal(map[string]int32{driftedList: 1}))
+			Eventually(func() int32 {
+				if clock.HasWaiters() {
+					clock.Step(time.Minute)
+				}
+				reconcileIt()
+				return originOf(name).Available
+			}).Should(Equal(int32(over)))
+			Expect(originOf(name).Drifted).To(Equal(int32(over)))
+			Expect(monitorStatusOf(name).Truncated).To(Equal(map[string]int32{driftedList: 1}))
+			everySeries()
+		})
 		It("exports one kuik_image_drifted series per drifted tag, deleted once it catches up", func() {
 			src := source()
 			app, upstream := tag(src, "acme/app")
