@@ -310,41 +310,47 @@ type Grace struct {
 
 	mu       sync.Mutex
 	duration time.Duration
-	lastSeen map[Pair]map[Credential]time.Time
+	// left holds, per pair, every entry Grace knows of, with the time it left the desired set;
+	// zero while it is still in it.
+	left map[Pair]map[Credential]time.Time
 }
 
 // NewGrace returns an empty grace tracker of GraceDuration, reading the time from now.
 func NewGrace(now func() time.Time) *Grace {
-	return &Grace{now: now, duration: GraceDuration, lastSeen: map[Pair]map[Credential]time.Time{}}
+	return &Grace{now: now, duration: GraceDuration, left: map[Pair]map[Credential]time.Time{}}
 }
 
 // Retain returns entries, plus the entries of pair that left them less than the grace
-// duration ago.
+// duration ago. The grace of an entry starts at the first Retain that no longer holds it: the
+// syncer reconciles a pair on its events only, so the last one that held it may be long past.
 func (g *Grace) Retain(pair Pair, entries []Credential) []Credential {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
 	now := g.now()
-	seen := g.lastSeen[pair]
-	if seen == nil {
-		seen = map[Credential]time.Time{}
-		g.lastSeen[pair] = seen
+	known := g.left[pair]
+	if known == nil {
+		known = map[Credential]time.Time{}
+		g.left[pair] = known
 	}
 	for _, c := range entries {
-		seen[c] = now
+		known[c] = time.Time{}
 	}
 	retained := slices.Clone(entries)
-	for c, at := range seen {
+	for c, at := range known {
 		switch {
 		case slices.Contains(entries, c):
+		case at.IsZero():
+			known[c] = now
+			retained = append(retained, c)
 		case now.Sub(at) < g.duration:
 			retained = append(retained, c)
 		default:
-			delete(seen, c)
+			delete(known, c)
 		}
 	}
-	if len(seen) == 0 {
-		delete(g.lastSeen, pair)
+	if len(known) == 0 {
+		delete(g.left, pair)
 	}
 	return retained
 }
@@ -361,5 +367,5 @@ func (g *Grace) SetDuration(d time.Duration) {
 func (g *Grace) Forget(pair Pair) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	delete(g.lastSeen, pair)
+	delete(g.left, pair)
 }
