@@ -170,6 +170,8 @@ build are in [`.claude/rules/docs.md`](./.claude/rules/docs.md).
   under `notes/` when the filter holds),
   [`pull-request`](./.claude/skills/pull-request/SKILL.md) (prepares the branch, drafts the
   description for the user to confirm, keeps it in step),
+  [`epic`](./.claude/skills/epic/SKILL.md) (drafts the GitHub issue of an epic, opens it
+  on the user's go, keeps its pull request checklist in step),
   [`e2e-spec`](./.claude/skills/e2e-spec/SKILL.md) (e2e specs on Kind, added last in a PR)
   and [`preprod-smoke`](./.claude/skills/preprod-smoke/SKILL.md) (smoke test of a release on
   a shared cluster, scoped test CRs, stops for approval).
