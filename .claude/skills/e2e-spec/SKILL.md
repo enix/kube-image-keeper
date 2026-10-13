@@ -29,7 +29,8 @@ check fails until then, unless the PR changes no path the suite depends on.
 
 1. **Outline first.** **REQUIRED SUB-SKILL:** follow [`test-outline`](../test-outline/SKILL.md):
    the `It` / `Entry` strings are drafted as `PIt` / `PEntry`, shown with
-   `task test-outline -- ./test/e2e/`, and reviewed before any body.
+   `task test-outline -- ./test/e2e/`, checked by `spec-reviewer` and reported before any
+   body.
 2. **One spec per rule**, never one per verb, kind or field
    ([`tests.md`](../../rules/tests.md)). Drop a case a unit or envtest spec already proves.
 3. **Bodies**, with the patterns below, in the final `test` commit.

@@ -1,13 +1,15 @@
 # 0014 — One implementer and fresh reviewers per pull request
 
-**Date:** 2026-10-13 · **Status:** active
+**Date:** 2026-10-13 · **Amended:** 2026-10-13 · **Status:** active
 
 **Decision:** the session that owns a pull request launches one `implementer` agent, the
 only writer in the worktree, and resumes it for every component and findings batch. A fresh
 read-only `reviewer` reviews each `feat` commit as it lands, and another the whole branch
 before the pull request opens. The implementer applies review findings and decides spec
-readings without approval; it stops only for the outline, a test change that opens a gap
-with `docs/v3/`, a fix in a shared package, or anything outside the worktree.
+readings without approval. *(Amended 2026-10-13: the outline, checked by `spec-reviewer`, is
+reported and not waited on; the maintainer stops the session if needed.)* The work stops
+only for a test change that opens a gap with `docs/v3/`, a fix in a shared package, or
+anything outside the worktree.
 
 **Why:**
 

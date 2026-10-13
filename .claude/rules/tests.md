@@ -10,11 +10,12 @@ paths:
   tables, no `[]struct{}` + `t.Run`. `test/acceptance/` is not a suite: it is the program the
   release acceptance runs with, which acts and collects and never asserts
   ([0015](../../notes/0015-acceptance-tooling-acts-the-agent-judges.md)).
-- **Cases before bodies, then stop.** The `It` and `Entry` strings are natural-language
-  test cases, one per behaviour. Write them as `PIt` / `PEntry` with empty bodies (plus the
-  stubs needed to compile), show them with `task test-outline` and stop: the maintainer
-  reviews the cases before any body or implementation exists. An agent ends its turn on the
-  outline. Follow the [`test-outline`](../skills/test-outline/SKILL.md) skill.
+- **Cases before bodies.** The `It` and `Entry` strings are natural-language test cases,
+  one per behaviour. Write them as `PIt` / `PEntry` with empty bodies (plus the stubs needed
+  to compile), have `spec-reviewer` check them, show them with `task test-outline` in the
+  session's report and go on with the bodies at once: the maintainer reads the outline
+  there and stops the session if a case is wrong. Follow the
+  [`test-outline`](../skills/test-outline/SKILL.md) skill.
 - **Tests before implementation, one pair of commits per component.** First a
   `test(<scope>): ...` commit with the full bodies against the stubs: the specs fail there,
   `task lint-fix` passes. Then the `feat(<scope>): ...` commit that turns exactly those specs
