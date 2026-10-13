@@ -468,13 +468,14 @@ func (r *ImageMonitorReconciler) track(ctx context.Context, im *kuikv1alpha1.Ima
 		Available:   counts.Available,
 		Unavailable: counts.Unavailable,
 	}, Drifted: driftedCount}}
+	listedAlts := checkedAlts.capped(pass, memory, alternatives)
 	next.UnavailableAlternatives = nil
 	var altCounts *imagemetrics.Counts
 	if offers != nil {
 		altCounts = &checkedAlts.counts
 		next.Images.Alternatives = alternativesStatus(checkedAlts.counts)
-		if len(checkedAlts.entries) > 0 {
-			next.UnavailableAlternatives = checkedAlts.entries
+		if len(listedAlts) > 0 {
+			next.UnavailableAlternatives = listedAlts
 		}
 	}
 	condition.SetAnomaly(&next.Conditions, kuikv1alpha1.ConditionImagesUnavailable, counts.Unavailable > 0,
