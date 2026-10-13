@@ -1,0 +1,53 @@
+name: Test outline
+
+# Computes the test cases a pull request adds and removes (task test-outline DIFF=<base>) and
+# hands them to "Test outline comment" as an artifact. This job runs the PR's code, so it
+# gets no secret and no write permission; the comment is posted by the workflow_run
+# workflow, which runs main's code only.
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+concurrency:
+  group: test-outline-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  outline:
+    name: Test outline
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v7
+        with:
+          # HEAD is the merge commit and HEAD^1 the base branch: the diff between them is
+          # what the PR changes.
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Compute the outline
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          mkdir outline
+          go run ./hack/testoutline -diff HEAD^1 > outline/outline.txt
+          echo "$PR_NUMBER" > outline/pr-number.txt
+
+      - name: Upload the outline
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-outline
+          path: outline/
+          retention-days: 1

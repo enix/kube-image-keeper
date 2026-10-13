@@ -84,6 +84,8 @@ Prepared with <tool>; <how it was verified, in one line>.
   file is in the diff. Link an issue or a PR by its URL. Link instead of paraphrasing.
 - The verification line may say, in one line, that the tests came first and where to see
   it (`git log --stat`: no `feat` commit touches a test file).
+- Never paste the test outline: the `Test outline comment` workflow posts the cases the PR
+  adds and removes as a comment, and updates it on every push.
 - Keep the AI disclosure CONTRIBUTING requires (`Use of AI tools`) as the last line.
 
 Avoid:
