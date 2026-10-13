@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
@@ -45,10 +46,6 @@ const DefaultDebounce = time.Second
 // EventPullSecretInjectionFailed is emitted on a resource whose credential could not be
 // resolved for a pair.
 const EventPullSecretInjectionFailed = "PullSecretInjectionFailed"
-
-// graceRecheck is how often a pair holding an entry in its grace period is reconciled again,
-// so that the entry is dropped soon after the period ends.
-const graceRecheck = time.Minute
 
 // The results of kuik_secret_applies_total.
 const (
@@ -77,7 +74,24 @@ type Options struct {
 // SetConfig applies a reloaded global config: its secretSyncer.onFailureGrace, to the entries
 // already in their grace too.
 func (s *Syncer) SetConfig(c *config.Config) {
-	s.grace.SetDuration(c.SecretSyncer.OnFailureGrace.Duration)
+	// A reload that leaves the grace as it was changes nothing here.
+	if !s.grace.SetDuration(c.SecretSyncer.OnFailureGrace.Duration) {
+		return
+	}
+	// The pairs in their grace are due back for the former duration: queue them for the new
+	// one. Off the caller's goroutine, which a controller not started yet would block, and given
+	// up once the controller stops, so the goroutine never outlives it.
+	if pairs := s.grace.InGrace(); len(pairs) > 0 {
+		go func() {
+			for _, pair := range pairs {
+				select {
+				case s.recheck <- event.TypedGenericEvent[pullsecret.Pair]{Object: pair}:
+				case <-s.stopped:
+					return
+				}
+			}
+		}()
+	}
 }
 
 // Syncer applies the pull Secret of every pair. Everything it holds in memory is rebuilt
@@ -91,6 +105,11 @@ type Syncer struct {
 	debounce  time.Duration
 	grace     *pullsecret.Grace
 	applies   *prometheus.CounterVec
+	// recheck queues the pairs in their grace when its duration changes: each is due back at the
+	// end of the grace it was planned with, which may be long past the new one.
+	recheck chan event.TypedGenericEvent[pullsecret.Pair]
+	// stopped closes when the manager stops the syncer: nothing reads recheck any more.
+	stopped chan struct{}
 
 	mu sync.Mutex
 	// known are the pairs this process applied a Secret for, so that it can still empty them.
@@ -146,6 +165,8 @@ func New(c client.Client, opts Options) (*Syncer, error) {
 		known:     map[pullsecret.Pair]*applied{},
 		forced:    map[pullsecret.Pair]bool{},
 		reported:  map[pullsecret.Pair][]pullsecret.Failure{},
+		recheck:   make(chan event.TypedGenericEvent[pullsecret.Pair]),
+		stopped:   make(chan struct{}),
 	}, nil
 }
 
@@ -160,6 +181,14 @@ func CacheOptions(namespace string) cache.Options {
 // SetupWithManager registers the syncer and its watches. The informers' initial lists
 // enqueue every pair, which is the startup pass.
 func (s *Syncer) SetupWithManager(mgr ctrl.Manager) error {
+	// Runs with the controller, under the same lease: it closes stopped when the manager stops.
+	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+		<-ctx.Done()
+		close(s.stopped)
+		return nil
+	})); err != nil {
+		return err
+	}
 	return builder.TypedControllerManagedBy[pullsecret.Pair](mgr).
 		Named("kuik-secret-syncer").
 		WatchesRawSource(source.TypedKind(mgr.GetCache(), &kuikv1alpha1.ImageAlternative{},
@@ -169,6 +198,11 @@ func (s *Syncer) SetupWithManager(mgr ctrl.Manager) error {
 		WatchesRawSource(source.TypedKind(mgr.GetCache(), &corev1.Namespace{}, s.namespaceHandler())).
 		WatchesRawSource(source.TypedKind(mgr.GetCache(), &corev1.Pod{}, s.podHandler())).
 		WatchesRawSource(source.TypedKind(mgr.GetCache(), &corev1.Secret{}, s.sourceHandler())).
+		WatchesRawSource(source.TypedChannel(s.recheck, handler.TypedFuncs[pullsecret.Pair, pullsecret.Pair]{
+			GenericFunc: func(_ context.Context, e event.TypedGenericEvent[pullsecret.Pair], q queue) {
+				q.Add(e.Object)
+			},
+		})).
 		Complete(s)
 }
 
@@ -220,8 +254,9 @@ func (s *Syncer) Reconcile(ctx context.Context, pair pullsecret.Pair) (reconcile
 	var result reconcile.Result
 	if r.Policy == kuikv1alpha1.RewritePolicyOnFailure {
 		retained := s.grace.Retain(pair, needed)
-		if len(retained) > len(needed) {
-			result.RequeueAfter = graceRecheck
+		// Back right when the first entry in its grace leaves it, so it goes on time.
+		if left, ok := s.grace.NextExpiry(pair); ok {
+			result.RequeueAfter = max(left, time.Millisecond)
 		}
 		needed = retained
 	} else {
