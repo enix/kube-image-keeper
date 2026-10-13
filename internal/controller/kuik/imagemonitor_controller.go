@@ -638,3 +638,8 @@ func (r *ImageMonitorReconciler) all(ctx context.Context, _ client.Object) []rec
 	}
 	return requests
 }
+
+// watchingAlternatives maps an ImageAlternative to the ImageMonitors that monitor alternatives.
+func (r *ImageMonitorReconciler) watchingAlternatives(_ context.Context, _ client.Object) []reconcile.Request {
+	return nil
+}

@@ -2663,11 +2663,462 @@ var _ = Describe("ImageMonitor", func() {
 			Expect(ok).To(BeFalse())
 		})
 	})
+
+	Context("alternatives", func() {
+		// The registry host of the repositories the tracking specs name: no window opens in
+		// them, so nothing ever reads it.
+		const altHost = "registry.example.com"
+		// labelled is the value of the pod labels the selectors of the specs match.
+		const labelled = "yes"
+
+		var (
+			fallbackAuth []auth.FallbackAuthEntry
+			listCapacity int
+			scheduler    *pacing.Scheduler
+			// stopScheduler stops the scheduler, as a process ending would.
+			stopScheduler context.CancelFunc
+		)
+
+		// start builds a reconciler checking with fallbackAuth on a scheduler of its own, paced
+		// every minute on the fake clock, capping its lists at listCapacity, as a new process
+		// would. Its series go to a new registry.
+		start := func() {
+			GinkgoHelper()
+			pacingConfig := mirrorConfig()
+			pacingConfig.FallbackAuth = fallbackAuth
+			scheduler = pacing.New(clock, pacingConfig)
+			schedulerCtx, stop := context.WithCancel(ctx)
+			go func() { _ = scheduler.Start(schedulerCtx) }()
+			DeferCleanup(stop)
+			stopScheduler = stop
+			registry = prometheus.NewRegistry()
+			var err error
+			reconciler, err = NewImageMonitorReconciler(k8sClient, k8sClient.Scheme(), ImageMonitorOptions{
+				APIReader:                k8sClient,
+				ClusterResourceNamespace: installNamespace,
+				Recorder:                 recorder,
+				Registerer:               registry,
+				Clock:                    clock,
+				Scheduler:                scheduler,
+				Registry:                 kuikregistry.NewClient(),
+				Config:                   pacingConfig,
+				ListCapacity:             listCapacity,
+			})
+			Expect(err).NotTo(HaveOccurred())
+		}
+		BeforeEach(func() {
+			fallbackAuth, listCapacity = nil, 0
+			createNamespace(installNamespace, nil)
+			start()
+		})
+
+		// restart starts a new process, with the fallbackAuth and the cap the spec set.
+		restart := func() {
+			GinkgoHelper()
+			stopScheduler()
+			start()
+		}
+
+		// monitoring turns monitorAlternatives on.
+		monitoring := func(im *kuikv1alpha1.ImageMonitor) {
+			on := true
+			im.Spec.MonitorAlternatives = &on
+		}
+
+		// repository returns a repository of altHost no other spec names: an ImageAlternative is
+		// cluster-wide and outlives the spec that created it.
+		repository := func() string {
+			return altHost + "/acme/" + unique("app")
+		}
+
+		tagged := func(repository string) string {
+			return repository + ":v1"
+		}
+
+		// entries are the entries naming repositories, in order.
+		entries := func(repositories ...string) []kuikv1alpha1.Alternative {
+			list := make([]kuikv1alpha1.Alternative, 0, len(repositories))
+			for _, r := range repositories {
+				list = append(list, kuikv1alpha1.Alternative{Repository: r, Insecure: true})
+			}
+			return list
+		}
+
+		// offer creates an ImageAlternative selecting the namespaces of the monitor under test,
+		// holding list, and returns its name.
+		offer := func(list []kuikv1alpha1.Alternative, mutate ...func(*kuikv1alpha1.ImageAlternative)) string {
+			GinkgoHelper()
+			ia := &kuikv1alpha1.ImageAlternative{
+				ObjectMeta: metav1.ObjectMeta{Name: unique("ia")},
+				Spec: kuikv1alpha1.ImageAlternativeSpec{
+					NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{testLabel: name}},
+					Alternatives:      list,
+				},
+			}
+			for _, m := range mutate {
+				m(ia)
+			}
+			Expect(k8sClient.Create(ctx, ia)).To(Succeed())
+			return ia.Name
+		}
+
+		// alternativesOf returns the alternatives counts of the monitor, zero when it reports none.
+		alternativesOf := func() kuikv1alpha1.ImageCounts {
+			s := monitorStatusOf(name)
+			if s.Images == nil || s.Images.Alternatives == nil {
+				return kuikv1alpha1.ImageCounts{}
+			}
+			return *s.Images.Alternatives
+		}
+
+		// ringSize returns the size of the ring of the monitor on host, zero when it holds none.
+		ringSize := func(host string) float64 {
+			scheduling := prometheus.NewRegistry()
+			scheduling.MustRegister(scheduler.Collector())
+			size, _ := gauge(scheduling, "kuik_check_ring_images", map[string]string{
+				labelKind: kindImageMonitorLabel, labelName: name, labelRegistry: host,
+			})
+			return size
+		}
+
+		// window opens the next check window of every host, once the scheduler waits for it.
+		window := func() {
+			GinkgoHelper()
+			Eventually(clock.HasWaiters).Should(BeTrue())
+			clock.Step(time.Minute)
+		}
+
+		// standingIn is an app container kuik rewrote from origin to alternative, still running it.
+		standingIn := func(origin, alternative string) container {
+			return container{name: appContainer, image: alternative, rewrite: &podrecord.Rewrite{
+				By: routing.KindImageAlternative + "/other", Origin: origin, RewrittenTo: alternative,
+				Policy: string(kuikv1alpha1.RewritePolicyOnFailure),
+			}}
+		}
+
+		It("tracks no alternative when monitorAlternatives is false", func() {
+			newMonitor(name)
+			origin, alternative := repository(), repository()
+			offer(entries(origin, alternative))
+			runningPod(selectedNamespace(), []container{running(appContainer, tagged(origin))})
+			reconcileIt()
+			Expect(monitorStatusOf(name).Images.Alternatives).To(BeNil())
+			Expect(ringSize(altHost)).To(Equal(1.0))
+		})
+
+		It("tracks every candidate an ImageAlternative offers for a tracked image", func() {
+			newMonitor(name, monitoring)
+			origin, first, second, third := repository(), repository(), repository(), repository()
+			offer(entries(origin, first, second))
+			offer(entries(origin, third))
+			runningPod(selectedNamespace(), []container{running(appContainer, tagged(origin))})
+			reconcileIt()
+			Expect(alternativesOf().Tracked).To(Equal(int32(3)))
+			Expect(originOf(name).Tracked).To(Equal(int32(1)))
+			Expect(ringSize(altHost)).To(Equal(4.0))
+		})
+
+		It("tracks only the candidates of the ImageAlternatives whose selectors apply to the pod", func() {
+			newMonitor(name, monitoring)
+			origin, applying, leftOut := repository(), repository(), repository()
+			offer(entries(origin, applying), func(ia *kuikv1alpha1.ImageAlternative) {
+				ia.Spec.PodSelector = &metav1.LabelSelector{MatchLabels: map[string]string{appContainer: labelled}}
+			})
+			offer(entries(origin, leftOut), func(ia *kuikv1alpha1.ImageAlternative) {
+				ia.Spec.PodSelector = &metav1.LabelSelector{MatchLabels: map[string]string{skipLabel: labelled}}
+			})
+			runningPod(selectedNamespace(), []container{running(appContainer, tagged(origin))},
+				withPodLabels(map[string]string{appContainer: labelled}))
+			reconcileIt()
+			Expect(alternativesOf().Tracked).To(Equal(int32(1)))
+			Expect(ringSize(altHost)).To(Equal(2.0))
+		})
+
+		It("never tracks an ImageMirror destination", func() {
+			newMonitor(name, monitoring)
+			origin, alternative := repository(), repository()
+			offer(entries(origin, alternative))
+			mirror := &kuikv1alpha1.ImageMirror{
+				ObjectMeta: metav1.ObjectMeta{Name: unique("mirror")},
+				Spec: kuikv1alpha1.ImageMirrorSpec{
+					NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{testLabel: name}},
+					RewritePolicy:     kuikv1alpha1.RewritePolicyAlways,
+					Destination:       kuikv1alpha1.MirrorDestination{Path: altHost + "/mirror/"},
+				},
+			}
+			Expect(k8sClient.Create(ctx, mirror)).To(Succeed())
+			DeferCleanup(func() { Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, mirror))).To(Succeed()) })
+			runningPod(selectedNamespace(), []container{running(appContainer, tagged(origin))})
+			reconcileIt()
+			Expect(alternativesOf().Tracked).To(Equal(int32(1)))
+			Expect(ringSize(altHost)).To(Equal(2.0))
+		})
+
+		It("never tracks an entry marked unavailable", func() {
+			newMonitor(name, monitoring)
+			origin, gone, alternative := repository(), repository(), repository()
+			list := entries(origin, gone, alternative)
+			list[1].Unavailable = true
+			offer(list)
+			runningPod(selectedNamespace(), []container{running(appContainer, tagged(origin))})
+			reconcileIt()
+			Expect(alternativesOf().Tracked).To(Equal(int32(1)))
+			Expect(ringSize(altHost)).To(Equal(2.0))
+		})
+
+		It("keeps tracking an origin whose own repository an entry marks unavailable", func() {
+			newMonitor(name, monitoring)
+			origin, alternative := repository(), repository()
+			list := entries(origin, alternative)
+			list[0].Unavailable = true
+			offer(list)
+			runningPod(selectedNamespace(), []container{running(appContainer, tagged(origin))})
+			reconcileIt()
+			Expect(originOf(name).Tracked).To(Equal(int32(1)))
+			Expect(originOf(name).Running).To(Equal(int32(1)))
+			Expect(alternativesOf().Tracked).To(Equal(int32(1)))
+			Expect(ringSize(altHost)).To(Equal(2.0))
+		})
+
+		It("counts the alternative standing in for its origin as running, and its origin as standby", func() {
+			newMonitor(name, monitoring)
+			origin, alternative := repository(), repository()
+			offer(entries(origin, alternative))
+			runningPod(selectedNamespace(), []container{standingIn(tagged(origin), tagged(alternative))})
+			reconcileIt()
+			Expect(alternativesOf().Running).To(Equal(int32(1)))
+			Expect(alternativesOf().Standby).To(BeZero())
+			Expect(alternativesOf().Tracked).To(Equal(int32(1)))
+			Expect(originOf(name).Standby).To(Equal(int32(1)))
+			Expect(originOf(name).Running).To(BeZero())
+		})
+
+		It("counts an alternative not currently served as standby", func() {
+			newMonitor(name, monitoring)
+			origin, served, unserved := repository(), repository(), repository()
+			offer(entries(origin, served, unserved))
+			ns := selectedNamespace()
+			runningPod(ns, []container{standingIn(tagged(origin), tagged(served))})
+			runningPod(ns, []container{running(appContainer, tagged(origin))})
+			reconcileIt()
+			Expect(alternativesOf().Running).To(Equal(int32(1)))
+			Expect(alternativesOf().Standby).To(Equal(int32(1)))
+			Expect(alternativesOf().Tracked).To(Equal(int32(2)))
+		})
+
+		It("counts the alternatives of a retained origin as retained, whatever their ImageAlternative selects", func() {
+			newMonitor(name, monitoring)
+			origin, applying, selectingNothing := repository(), repository(), repository()
+			offer(entries(origin, applying))
+			offer(entries(origin, selectingNothing), func(ia *kuikv1alpha1.ImageAlternative) {
+				ia.Spec.PodSelector = &metav1.LabelSelector{MatchLabels: map[string]string{skipLabel: labelled}}
+			})
+			ns := selectedNamespace()
+			runningPod(ns, []container{running(appContainer, tagged(repository()))})
+			pod := runningPod(ns, []container{running(appContainer, tagged(origin))})
+			reconcileIt()
+			Expect(alternativesOf().Standby).To(Equal(int32(1)))
+
+			// The origin keeps the alternatives its pods were offered.
+			deletePod(pod)
+			reconcileIt()
+			Expect(monitorStatusOf(name).RetainedImages).To(ConsistOf(HaveField("Ref", tagged(origin))))
+			Expect(alternativesOf().Retained).To(Equal(int32(1)))
+			Expect(alternativesOf().Standby).To(BeZero())
+			Expect(alternativesOf().Tracked).To(Equal(int32(1)))
+
+			// A new process never saw its pods: it matches every ImageAlternative, whatever it
+			// selects.
+			restart()
+			reconcileIt()
+			Expect(alternativesOf().Retained).To(Equal(int32(2)))
+			Expect(alternativesOf().Tracked).To(Equal(int32(2)))
+		})
+
+		It("stops tracking an alternative of a retained origin once its entry is marked unavailable or its ImageAlternative deleted", func() {
+			newMonitor(name, monitoring)
+			origin, marked, removed := repository(), repository(), repository()
+			edited := offer(entries(origin, marked))
+			gone := offer(entries(origin, removed))
+			ns := selectedNamespace()
+			runningPod(ns, []container{running(appContainer, tagged(repository()))})
+			pod := runningPod(ns, []container{running(appContainer, tagged(origin))})
+			reconcileIt()
+			deletePod(pod)
+			reconcileIt()
+			Expect(alternativesOf().Retained).To(Equal(int32(2)))
+			Expect(ringSize(altHost)).To(Equal(4.0))
+
+			var ia kuikv1alpha1.ImageAlternative
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: edited}, &ia)).To(Succeed())
+			ia.Spec.Alternatives[1].Unavailable = true
+			Expect(k8sClient.Update(ctx, &ia)).To(Succeed())
+			reconcileIt()
+			Expect(alternativesOf().Tracked).To(Equal(int32(1)))
+			Expect(ringSize(altHost)).To(Equal(3.0))
+
+			Expect(k8sClient.Delete(ctx, &kuikv1alpha1.ImageAlternative{ObjectMeta: metav1.ObjectMeta{Name: gone}})).To(Succeed())
+			reconcileIt()
+			Expect(alternativesOf().Tracked).To(BeZero())
+			Expect(ringSize(altHost)).To(Equal(2.0))
+		})
+
+		It("tracks no alternative for a retained origin whose last pod was a static pod or under imagePullPolicy Never", func() {
+			newMonitor(name, monitoring)
+			static, never := repository(), repository()
+			offer(entries(static, repository()))
+			offer(entries(never, repository()))
+			ns := selectedNamespace()
+			runningPod(ns, []container{running(appContainer, tagged(repository()))})
+			staticPod := runningPod(ns, []container{running(appContainer, tagged(static))}, asStaticPod())
+			neverPod := runningPod(ns, []container{running(appContainer, tagged(never))}, withPullPolicy(appContainer, corev1.PullNever))
+			reconcileIt()
+			Expect(alternativesOf().Tracked).To(BeZero())
+
+			deletePod(staticPod)
+			deletePod(neverPod)
+			reconcileIt()
+			Expect(monitorStatusOf(name).RetainedImages).To(HaveLen(2))
+			Expect(alternativesOf().Tracked).To(BeZero())
+		})
+
+		It("counts a reference that is both an origin and an alternative in both populations, checking it once", func() {
+			src := registrytest.New()
+			DeferCleanup(src.Close)
+			first, second := "acme/"+unique("app"), "acme/"+unique("app")
+			src.Push(first+":v1", registrytest.Image())
+			src.Push(second+":v1", registrytest.Image())
+			src.Reset()
+			newMonitor(name, monitoring)
+			offer(entries(src.Host()+"/"+first, src.Host()+"/"+second))
+			runningPod(selectedNamespace(), []container{
+				running("a", src.Host()+"/"+first+":v1"),
+				running("b", src.Host()+"/"+second+":v1"),
+			})
+			reconcileIt()
+			Expect(originOf(name).Tracked).To(Equal(int32(2)))
+			Expect(alternativesOf().Tracked).To(Equal(int32(2)))
+			Expect(alternativesOf().Standby).To(Equal(int32(2)))
+			Expect(ringSize(src.Host())).To(Equal(2.0))
+
+			// One window per reference: the ring reads each of them once.
+			for n := range int32(2) {
+				window()
+				Eventually(func() int32 {
+					reconcileIt()
+					return originOf(name).Available
+				}).Should(Equal(n + 1))
+			}
+			Expect(checked(src, first)()).To(Equal(1))
+			Expect(checked(src, second)()).To(Equal(1))
+		})
+
+		It("never counts an entry naming the origin's own repository as an alternative of it", func() {
+			newMonitor(name, monitoring)
+			origin, alternative := repository(), repository()
+			// The second entry names the origin again: insecure, it is a candidate of its own.
+			offer(entries(origin, origin, alternative))
+			runningPod(selectedNamespace(), []container{running(appContainer, tagged(origin))})
+			reconcileIt()
+			Expect(alternativesOf().Tracked).To(Equal(int32(1)))
+			Expect(ringSize(altHost)).To(Equal(2.0))
+		})
+
+		It("stops tracking the alternatives of a retained origin once its retention elapsed", func() {
+			newMonitor(name, monitoring, func(im *kuikv1alpha1.ImageMonitor) {
+				im.Spec.UnusedImageRetention = &metav1.Duration{Duration: time.Second}
+			})
+			origin, alternative := repository(), repository()
+			offer(entries(origin, alternative))
+			ns := selectedNamespace()
+			runningPod(ns, []container{running(appContainer, tagged(repository()))})
+			pod := runningPod(ns, []container{running(appContainer, tagged(origin))})
+			reconcileIt()
+			deletePod(pod)
+			reconcileIt()
+			Expect(alternativesOf().Retained).To(Equal(int32(1)))
+
+			clock.Step(2 * time.Second)
+			reconcileIt()
+			Expect(monitorStatusOf(name).RetainedImages).To(BeEmpty())
+			Expect(alternativesOf().Tracked).To(BeZero())
+			Expect(alternativesOf().Retained).To(BeZero())
+			Expect(ringSize(altHost)).To(Equal(1.0))
+		})
+
+		It("removes every alternative it reported once monitorAlternatives is false", func() {
+			newMonitor(name, monitoring)
+			origin, alternative := repository(), repository()
+			offer(entries(origin, alternative))
+			runningPod(selectedNamespace(), []container{running(appContainer, tagged(origin))})
+			reconcileIt()
+			Expect(alternativesOf().Tracked).To(Equal(int32(1)))
+
+			updateMonitor(func(im *kuikv1alpha1.ImageMonitor) { im.Spec.MonitorAlternatives = nil })
+			reconcileIt()
+			Expect(monitorStatusOf(name).Images.Alternatives).To(BeNil())
+			Expect(ringSize(altHost)).To(Equal(1.0))
+		})
+
+		It("follows an ImageAlternative edit without waiting for a pod to change", func() {
+			newMonitor(name, monitoring)
+			origin, first, second := repository(), repository(), repository()
+			ia := offer(entries(origin, first))
+			runningPod(selectedNamespace(), []container{running(appContainer, tagged(origin))})
+			reconcileIt()
+			Expect(alternativesOf().Tracked).To(Equal(int32(1)))
+
+			var edited kuikv1alpha1.ImageAlternative
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: ia}, &edited)).To(Succeed())
+			edited.Spec.Alternatives = entries(origin, first, second)
+			Expect(k8sClient.Update(ctx, &edited)).To(Succeed())
+			// The edit asks for a report of the monitor, which follows it.
+			Expect(reconciler.watchingAlternatives(ctx, &edited)).To(ContainElement(
+				reconcile.Request{NamespacedName: types.NamespacedName{Name: name}}))
+			reconcileIt()
+			Expect(alternativesOf().Tracked).To(Equal(int32(2)))
+		})
+
+		It("leaves a monitor whose monitorAlternatives is off out of the reports an ImageAlternative edit asks for", func() {
+			newMonitor(name)
+			ia := offer(entries(repository(), repository()))
+			var edited kuikv1alpha1.ImageAlternative
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: ia}, &edited)).To(Succeed())
+			Expect(reconciler.watchingAlternatives(ctx, &edited)).NotTo(ContainElement(
+				reconcile.Request{NamespacedName: types.NamespacedName{Name: name}}))
+		})
+
+		PIt("checks an alternative on a host no origin uses on a ring of its own", func() {})
+		PIt("counts an alternative by the verdict of its last check, available or unavailable", func() {})
+		PIt("exports the alternatives population in kuik_images_tracked and kuik_images_checked", func() {})
+		PIt("checks an alternative with the auth of the entry that offered it", func() {})
+		PIt("checks an alternative whose entry declares no auth with the pull secrets of its origin's pods, then fallbackAuth, then anonymously", func() {})
+		PIt("never compares an alternative to what runs", func() {})
+		PIt("lists an alternative whose check failed in unavailableAlternatives, with its origin and the ImageAlternative that offered it", func() {})
+		PIt("lists an alternative two ImageAlternatives offer once, via the first one in candidate order", func() {})
+		PIt("sets AlternativesUnavailable with reason ChecksFailed while an alternative fails its check, and removes it once none does", func() {})
+		PIt("emits AlternativeUnusable once when a monitored alternative starts failing with Unauthorized", func() {})
+		PIt("emits no AlternativeUnusable for an alternative that fails for another reason", func() {})
+		PIt("exports one kuik_image_alternative_unavailable series per failing alternative, deleted once it answers", func() {})
+		PIt("keeps the since of an unavailableAlternatives entry and announces nothing again after a restart", func() {})
+		PIt("caps unavailableAlternatives, keeping the oldest entries and recording the rest in truncated, while its count and series cover every failing alternative", func() {})
+	})
 })
 
 // withPodName names the pod.
 func withPodName(name string) podOption {
 	return func(p *corev1.Pod) { p.Name = name }
+}
+
+// withPullPolicy sets the imagePullPolicy of the container name.
+func withPullPolicy(name string, policy corev1.PullPolicy) podOption {
+	return func(p *corev1.Pod) {
+		for i := range p.Spec.Containers {
+			if p.Spec.Containers[i].Name == name {
+				p.Spec.Containers[i].ImagePullPolicy = policy
+			}
+		}
+	}
 }
 
 // withPullSecrets gives the pod the imagePullSecrets names.
