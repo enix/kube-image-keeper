@@ -26,7 +26,7 @@ import (
 // multi-arch image pulled by tag, which is what a HEAD of the tag reads, while other runtimes
 // may report a platform manifest or a config digest, which never matches it. See
 // https://github.com/kubernetes/kubernetes/issues/115199.
-func (r *ImageMonitorReconciler) drift(ctx context.Context, im *kuikv1alpha1.ImageMonitor, memory *monitorMemory, declared map[string]declaredImage, now time.Time) []kuikv1alpha1.MonitorDriftedImage {
+func (r *ImageMonitorReconciler) drift(ctx context.Context, im *kuikv1alpha1.ImageMonitor, memory *monitorMemory, declared map[string]declaredImage, upstream map[string]string, now time.Time) []kuikv1alpha1.MonitorDriftedImage {
 	log := logf.FromContext(ctx)
 	if !im.Spec.DetectsDrift() {
 		if len(memory.drifts) > 0 {
@@ -35,10 +35,6 @@ func (r *ImageMonitorReconciler) drift(ctx context.Context, im *kuikv1alpha1.Ima
 		memory.drifts = map[string]driftState{}
 		return nil
 	}
-	memory.mu.Lock()
-	upstream := maps.Clone(memory.upstream)
-	memory.mu.Unlock()
-
 	stamp := metav1.NewTime(now).Rfc3339Copy().Time
 	drifts := map[string]driftState{}
 	var entries []kuikv1alpha1.MonitorDriftedImage

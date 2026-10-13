@@ -353,7 +353,7 @@ func (r *ImageMonitorReconciler) track(ctx context.Context, im *kuikv1alpha1.Ima
 	memory.setDeclaring(declaring)
 	r.turnRings(ctx, im, memory, tracked)
 	// The counts come from the verdicts in memory, never from the list that samples them.
-	verdicts := memory.verdictsOf(tracked)
+	verdicts, upstream := memory.verdictsOf(tracked)
 	r.announceDenied(im, memory, verdicts)
 	unavailable := make([]kuikv1alpha1.UnavailableImage, 0, len(verdicts))
 	failing := map[string]kuikv1alpha1.CheckFailureReason{}
@@ -374,25 +374,43 @@ func (r *ImageMonitorReconciler) track(ctx context.Context, im *kuikv1alpha1.Ima
 	unavailable = capped.Cap(pass, listUnavailableImages, unavailable,
 		func(e kuikv1alpha1.UnavailableImage) metav1.Time { return e.Since },
 		func(e kuikv1alpha1.UnavailableImage) string { return e.Ref })
-	// A restart reads back only the capped list: until every image a ring can check has a
-	// verdict again, the images it left out may still fail, so the report never goes below what
-	// the status persisted, within what the images with no verdict yet can account for. A
-	// reference that does not parse is on no ring and never gets a verdict: it holds nothing.
+	// The drift count and series come from memory, never from the list that samples them.
+	drifted := r.drift(ctx, im, memory, declared, upstream, now)
+	driftedCount := int32(len(drifted))
+	listed := capped.Cap(pass, listDriftedImages, drifted,
+		func(e kuikv1alpha1.MonitorDriftedImage) metav1.Time { return e.Since },
+		func(e kuikv1alpha1.MonitorDriftedImage) string { return e.Ref })
+	// A restart reads back only the capped lists: until every image a ring can check has a
+	// verdict again, the images they left out may still fail or drift, so the report never goes
+	// below what the status persisted, within what the images with no verdict yet can account
+	// for. A reference that does not parse is on no ring and never gets a verdict: it holds
+	// nothing.
 	checked := checkable(tracked)
-	if held, ok := memory.held(checked); ok {
+	if !im.Spec.DetectsDrift() {
+		// No drift is reported: what the status persisted of it is never held, nor once
+		// detection is turned back on.
+		memory.forgetHeldDrift()
+	}
+	// A tag the status listed as drifted is decided already: only the tags whose drift cannot
+	// be told yet may stand for the ones the list left out.
+	pending := undecided(declared, upstream)
+	if held, ok := memory.held(checked, pending); ok {
 		unknown := int32(max(len(checked)-len(verdicts), 0))
 		counts.Unavailable = max(counts.Unavailable, min(held.unavailable, counts.Unavailable+unknown))
 		pass.Hold(listUnavailableImages, min(held.truncated, max(counts.Unavailable-int32(len(unavailable)), 0)))
+		driftedCount = max(driftedCount, min(held.drifted, driftedCount+pending))
+		pass.Hold(listDriftedImages, min(held.driftTruncated, pending, max(driftedCount-int32(len(listed)), 0)))
 	}
-
-	drifted := r.drift(ctx, im, memory, declared, now)
 
 	next.RetainedImages = retained
 	next.UnavailableImages = unavailable
 	if len(unavailable) == 0 {
 		next.UnavailableImages = nil
 	}
-	next.DriftedImages = drifted
+	next.DriftedImages = listed
+	if len(listed) == 0 {
+		next.DriftedImages = nil
+	}
 	next.Images = &kuikv1alpha1.MonitorImages{Origin: &kuikv1alpha1.OriginImageCounts{ImageCounts: kuikv1alpha1.ImageCounts{
 		Tracked:     counts.Running + counts.Standby + counts.Retained,
 		Running:     counts.Running,
@@ -400,11 +418,11 @@ func (r *ImageMonitorReconciler) track(ctx context.Context, im *kuikv1alpha1.Ima
 		Retained:    counts.Retained,
 		Available:   counts.Available,
 		Unavailable: counts.Unavailable,
-	}, Drifted: int32(len(drifted))}}
+	}, Drifted: driftedCount}}
 	condition.SetAnomaly(&next.Conditions, kuikv1alpha1.ConditionImagesUnavailable, counts.Unavailable > 0,
 		kuikv1alpha1.ReasonChecksFailed, fmt.Sprintf("%d images failing their check", counts.Unavailable), im.Generation)
-	condition.SetAnomaly(&next.Conditions, kuikv1alpha1.ConditionImagesDrifted, len(drifted) > 0,
-		kuikv1alpha1.ReasonUpstreamDigestMoved, fmt.Sprintf("%d tags whose upstream digest moved", len(drifted)), im.Generation)
+	condition.SetAnomaly(&next.Conditions, kuikv1alpha1.ConditionImagesDrifted, driftedCount > 0,
+		kuikv1alpha1.ReasonUpstreamDigestMoved, fmt.Sprintf("%d tags whose upstream digest moved", driftedCount), im.Generation)
 	next.Truncated = pass.End(&next.Conditions, im.Generation)
 	r.metrics.report(im.Name, counts, failing, refsOf(drifted), skewOf(drifted))
 	return requeue, digests, r.fallbackSecrets(ctx, memory)
