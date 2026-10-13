@@ -49,6 +49,15 @@ type Config struct {
 	// FallbackAuth is the credentials the reconciler reads an image with when no CR declares
 	// any.
 	FallbackAuth []auth.FallbackAuthEntry `json:"fallbackAuth"`
+	// SecretSyncer configures the pull Secrets the secret syncer injects.
+	SecretSyncer SecretSyncer `json:"secretSyncer"`
+}
+
+// SecretSyncer configures the pull Secrets the secret syncer injects.
+type SecretSyncer struct {
+	// OnFailureGrace is how long an entry of an OnFailure pull Secret is kept once no live pod
+	// uses it any more.
+	OnFailureGrace Duration `json:"onFailureGrace"`
 }
 
 // Metrics holds the optional metrics.

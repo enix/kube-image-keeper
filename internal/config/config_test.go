@@ -132,7 +132,7 @@ fallbackAuth:
 		Entry("when clusterID is missing", "metrics:\n  copyDuration: true\n"),
 		Entry("when clusterID is outside ^[a-zA-Z0-9][a-zA-Z0-9.-]*$", "clusterID: cluster_a\n"),
 		Entry("when clusterID is longer than 56 characters", "clusterID: "+strings.Repeat("a", 57)+"\n"),
-		Entry("when a key the spec does not define appears, at any level", minimal+`
+		Entry("when a key the schema does not define appears, at any level", minimal+`
 registries:
   docker.io:
     copy:
@@ -194,7 +194,23 @@ registries:
     check:
       timeout: 0
 `),
+		Entry("when secretSyncer.onFailureGrace is not positive", minimal+`
+secretSyncer:
+  onFailureGrace: 0s
+`),
 	)
+
+	It("applies a secretSyncer.onFailureGrace of 15m to a file that leaves it out", func() {
+		Expect(mustLoad(minimal).SecretSyncer.OnFailureGrace.Duration).To(Equal(15 * time.Minute))
+	})
+
+	It("accepts a secretSyncer.onFailureGrace shorter than the default", func() {
+		cfg := mustLoad(minimal + `
+secretSyncer:
+  onFailureGrace: 10s
+`)
+		Expect(cfg.SecretSyncer.OnFailureGrace.Duration).To(Equal(10 * time.Second))
+	})
 })
 
 var _ = Describe("Registries.For", func() {
