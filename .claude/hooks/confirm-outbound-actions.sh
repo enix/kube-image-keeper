@@ -91,7 +91,9 @@ go_acceptance="go[[:space:]]+(run|build)[[:space:]][^;&|]*test/acceptance"
 docker_push="docker[[:space:]]+${opts}((image|manifest)[[:space:]]+)?push|docker[[:space:]][^;&|]*--push(=[^[:space:]]*)?"
 helm_outbound="helm[[:space:]]+${opts}(install|upgrade|uninstall|delete|rollback)"
 kubectl_outbound="kubectl[[:space:]]+${opts}(apply|create|delete|replace|patch|edit|scale|rollout|drain|cordon|uncordon|taint|label|annotate|set|expose|autoscale|exec|cp|run|debug|attach)"
-pattern="(^|[;&|(\`[:space:]])($git_push|$gh_outbound|$gh_api|$task_outbound|$go_acceptance|$docker_push|$helm_outbound|$kubectl_outbound)([[:space:]]|\)|$)"
+# A quote starts a command too: bash -c "git push" runs what the quotes hold. The commit
+# messages are masked before matching, so text quoted there does not count.
+pattern="(^|[;&|(\`[:space:]\"'])($git_push|$gh_outbound|$gh_api|$task_outbound|$go_acceptance|$docker_push|$helm_outbound|$kubectl_outbound)([[:space:]\"'\`]|\)|$)"
 
 # The acceptance approval: its fingerprint script sits beside this hook, the one the settings run.
 # When the session runs from the working copy under check, that is the copy of the branch, which a
@@ -115,7 +117,12 @@ ask() {
   exit 0
 }
 
-if printf '%s' "$cmd" | grep -Eq "$pattern"; then
+# A commit message names commands without running them (fix(helm): let helm upgrade keep it):
+# its quoted value is masked before matching, following the shell's quoting (mask-messages.sh).
+. "$hook_dir/mask-messages.sh"
+outbound_cmd=$(mask_messages "$cmd")
+
+if printf '%s' "$outbound_cmd" | grep -Eq "$pattern"; then
   ask "This command leaves the working copy (push, pull request, image, release, deployment or cluster change): the user confirms it explicitly, see notes/0003."
 fi
 
@@ -133,13 +140,24 @@ unquoted=$(printf '%s' "$cmd" | tr -d "\"'\\\\")
 case "$unquoted" in *"$approval"*)
   ask "This command touches the acceptance approval, which lets changed code reach a cluster: the user confirms it explicitly." ;;
 esac
+# git log, diff and show are allowed without asking, and --output writes their result to any
+# path, a ref such as .git/refs/remotes/origin/main included.
+case "$unquoted" in *refs/remotes* | *packed-refs* | *--output*)
+  ask "This command may write a file, possibly a local ref the acceptance tasks trust: the user confirms it explicitly." ;;
+esac
 
 # A task run from another Taskfile or directory is not the task the allow rules name. Only what
 # precedes `--` is task's own: the rest goes to the command the task runs. An option there may be
 # a cluster (-tx.yml) or hidden by a quote or a backslash, so those ask too.
-pre=${cmd%% -- *}
-if printf '%s' "$pre" | grep -Eq "(^|[;&|(\`[:space:]])task([[:space:]]|\$)" &&
-  printf '%s' "$pre" | grep -Eq "[[:space:]]-[A-Za-z]*[tdg]|--taskfile|--dir|--global|[\"'\\\\]"; then
+# Only the words of a task call count, up to the next ; & | or ): an option or a quote in another
+# command of the line (go vet -tags, grep 'x') is not task's. A task call is found after any
+# space, so a wrapper (timeout 600 task ...) cannot hide it; the commit messages are masked first,
+# so the word task inside one does not count.
+# The ` -- ` cut applies to each task call, not to the whole line, so `git log -- x; task -t ...`
+# still asks.
+if printf '%s' "$outbound_cmd" | grep -oE "(^|[;&|(\`[:space:]\"'])task([[:space:]][^;&|)]*)?" |
+  sed 's/ -- .*//' |
+  grep -Eq "[[:space:]]-[A-Za-z]*[tdg]|--taskfile|--dir|--global|[\"'\\\\]"; then
   ask "This task command may pick another Taskfile or directory: the user confirms it explicitly."
 fi
 
