@@ -414,6 +414,51 @@ var _ = Describe("Grace", func() {
 		Expect(grace.Retain(other, []Credential{a})).To(ConsistOf(a, b), "lengthened past the 15 minute default")
 	})
 
+	It("tells how long until the earliest of the entries of a pair in their grace leaves it", func() {
+		grace.Retain(pair, []Credential{a, b})
+		grace.Retain(pair, []Credential{a})
+		now = now.Add(5 * time.Minute)
+		grace.Retain(pair, nil)
+
+		left, ok := grace.NextExpiry(pair)
+		Expect(ok).To(BeTrue())
+		Expect(left).To(Equal(10*time.Minute), "b left first, 5 minutes before a")
+	})
+
+	It("no longer counts an entry back in use before its grace ends", func() {
+		grace.Retain(pair, []Credential{a, b})
+		grace.Retain(pair, []Credential{a})
+		now = now.Add(time.Minute)
+		grace.Retain(pair, []Credential{a, b})
+
+		_, ok := grace.NextExpiry(pair)
+		Expect(ok).To(BeFalse())
+	})
+
+	It("lists the pairs that hold an entry in its grace, for a recheck when its duration changes", func() {
+		other := Pair{Namespace: "team-c"}
+		grace.Retain(pair, []Credential{a, b})
+		grace.Retain(pair, []Credential{a})
+		grace.Retain(other, []Credential{a})
+
+		Expect(grace.InGrace()).To(ConsistOf(pair))
+	})
+
+	It("tells whether a new duration differs from the one it holds", func() {
+		Expect(grace.SetDuration(GraceDuration)).To(BeFalse(), "the default it starts with")
+		Expect(grace.SetDuration(time.Minute)).To(BeTrue())
+		Expect(grace.SetDuration(time.Minute)).To(BeFalse())
+	})
+
+	It("tells there is nothing to wait for when no entry of the pair is in its grace", func() {
+		grace.Retain(pair, []Credential{a})
+
+		_, ok := grace.NextExpiry(pair)
+		Expect(ok).To(BeFalse())
+		_, ok = grace.NextExpiry(Pair{Namespace: "unknown"})
+		Expect(ok).To(BeFalse())
+	})
+
 	It("restarts the period when the entry comes back and leaves again", func() {
 		grace.Retain(pair, []Credential{a, b})
 		grace.Retain(pair, []Credential{a})
