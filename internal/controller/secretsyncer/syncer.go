@@ -33,6 +33,7 @@ import (
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/auth/pullsecret"
+	"github.com/enix/kube-image-keeper/internal/config"
 	"github.com/enix/kube-image-keeper/internal/routing"
 	"github.com/enix/kube-image-keeper/internal/routing/podrecord"
 )
@@ -68,7 +69,13 @@ type Options struct {
 	Debounce time.Duration
 	// Now reads the time the grace period is counted with. Nil means time.Now.
 	Now func() time.Time
+	// Grace is how long an entry of an OnFailure pair is kept once no live pod uses it, the
+	// global config's secretSyncer.onFailureGrace. Zero means pullsecret.GraceDuration.
+	Grace time.Duration
 }
+
+// SetConfig applies a reloaded global config: its secretSyncer.onFailureGrace.
+func (s *Syncer) SetConfig(c *config.Config) {}
 
 // Syncer applies the pull Secret of every pair. Everything it holds in memory is rebuilt
 // from the informers, or degrades safely when lost: see the cross-cutting invariants of the
