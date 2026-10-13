@@ -1798,6 +1798,442 @@ var _ = Describe("ImageMonitor", func() {
 			Expect(counter(registry, "kuik_status_list_dropped_total", labels)).To(Equal(1.0))
 		})
 	})
+
+	Context("drift", func() {
+		// start builds a reconciler checking on a scheduler of its own, paced every minute on
+		// the fake clock, as a new process would. Its series go to a new registry.
+		start := func() {
+			GinkgoHelper()
+			scheduler := pacing.New(clock, mirrorConfig())
+			schedulerCtx, stop := context.WithCancel(ctx)
+			go func() { _ = scheduler.Start(schedulerCtx) }()
+			DeferCleanup(stop)
+			registry = prometheus.NewRegistry()
+			var err error
+			reconciler, err = NewImageMonitorReconciler(k8sClient, k8sClient.Scheme(), ImageMonitorOptions{
+				Recorder:   recorder,
+				Registerer: registry,
+				Clock:      clock,
+				Scheduler:  scheduler,
+				Registry:   kuikregistry.NewClient(),
+			})
+			Expect(err).NotTo(HaveOccurred())
+		}
+		BeforeEach(start)
+
+		// source starts a registry, closed when the spec ends.
+		source := func() *registrytest.Registry {
+			GinkgoHelper()
+			src := registrytest.New()
+			DeferCleanup(src.Close)
+			return src
+		}
+
+		// tag pushes a new image as repository:v1 on src, with no request recorded yet, and
+		// returns its reference and the digest the tag points at upstream.
+		tag := func(src *registrytest.Registry, repository string) (string, string) {
+			digest := src.Push(repository+":v1", registrytest.Image())
+			src.Reset()
+			return src.Host() + "/" + repository + ":v1", digest.String()
+		}
+
+		// runs creates a pod in namespace whose app container runs ref, pulled as digest.
+		runs := func(namespace, ref, digest string) *corev1.Pod {
+			GinkgoHelper()
+			pod := runningPod(namespace, []container{running(appContainer, ref)})
+			ran(pod, appContainer, strings.TrimSuffix(ref, ":v1"), digest, clock.Now())
+			return pod
+		}
+
+		// window opens the next check window of every host, once the scheduler waits for it.
+		window := func() {
+			GinkgoHelper()
+			Eventually(clock.HasWaiters).Should(BeTrue())
+			clock.Step(time.Minute)
+		}
+
+		// verdicts reconciles until the monitor counts n images with a verdict.
+		verdicts := func(n int32) {
+			GinkgoHelper()
+			Eventually(func() int32 {
+				reconcileIt()
+				return originOf(name).Available + originOf(name).Unavailable
+			}).Should(Equal(n))
+		}
+
+		// driftOf returns the driftedImages entry of ref, nil when there is none.
+		driftOf := func(ref string) *kuikv1alpha1.MonitorDriftedImage {
+			for _, e := range monitorStatusOf(name).DriftedImages {
+				if e.Ref == ref {
+					return &e
+				}
+			}
+			return nil
+		}
+
+		// drifted reconciles until driftedImages holds an entry for ref, and returns it.
+		drifted := func(ref string) kuikv1alpha1.MonitorDriftedImage {
+			GinkgoHelper()
+			var entry *kuikv1alpha1.MonitorDriftedImage
+			Eventually(func() *kuikv1alpha1.MonitorDriftedImage {
+				reconcileIt()
+				entry = driftOf(ref)
+				return entry
+			}).ShouldNot(BeNil())
+			return *entry
+		}
+
+		// driftedSeries returns the kuik_image_drifted series of ref on src, and whether it exists.
+		driftedSeries := func(src *registrytest.Registry, ref string) (float64, bool) {
+			return gauge(registry, "kuik_image_drifted", map[string]string{
+				labelKind: kindImageMonitorLabel, labelName: name, labelImage: ref, labelRegistry: src.Host(),
+			})
+		}
+
+		driftCondition := func() *metav1.Condition {
+			return meta.FindStatusCondition(monitorStatusOf(name).Conditions, kuikv1alpha1.ConditionImagesDrifted)
+		}
+
+		It("lists a tag whose upstream digest differs from the digest its pods run in driftedImages, with the upstream digest, and counts it in images.origin.drifted", func() {
+			src := source()
+			app, upstream := tag(src, "acme/app")
+			newMonitor(name)
+			runs(selectedNamespace(), app, digestA)
+			reconcileIt()
+			window()
+			entry := drifted(app)
+			Expect(entry.UpstreamDigest).To(Equal(upstream))
+			Expect(entry.Since.Time).To(BeTemporally("==", clock.Now()))
+			Expect(entry.RunningDigests).To(ConsistOf(kuikv1alpha1.RunningDigest{Digest: digestA, Pods: 1}))
+			Expect(originOf(name).Drifted).To(Equal(int32(1)))
+		})
+
+		It("lists every digest running for a drifted tag with the number of pods running it", func() {
+			src := source()
+			app, _ := tag(src, "acme/app")
+			repository := strings.TrimSuffix(app, ":v1")
+			newMonitor(name)
+			ns := selectedNamespace()
+			// A pod running the tag in two containers counts once.
+			both := runningPod(ns, []container{running(appContainer, app), running(sidecarContainer, app)})
+			ran(both, appContainer, repository, digestA, clock.Now())
+			ran(both, sidecarContainer, repository, digestA, clock.Now())
+			runs(ns, app, digestA)
+			// An init container runs the tag too.
+			initPod := runningPod(ns, []container{running(appContainer, reloaderImage)}, withInitContainer("init", app))
+			initPod.Status.InitContainerStatuses = []corev1.ContainerStatus{{
+				Name:    "init",
+				ImageID: repository + "@" + digestC,
+				State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{
+					StartedAt: metav1.NewTime(clock.Now()), FinishedAt: metav1.NewTime(clock.Now()),
+				}},
+			}}
+			Expect(k8sClient.Status().Update(ctx, initPod)).To(Succeed())
+			reconcileIt()
+			window()
+			Expect(drifted(app).RunningDigests).To(ConsistOf(
+				kuikv1alpha1.RunningDigest{Digest: digestA, Pods: 2},
+				kuikv1alpha1.RunningDigest{Digest: digestC, Pods: 1},
+			))
+		})
+
+		It("keeps a tag drifted while only some of its pods run the upstream digest, listing that digest too", func() {
+			src := source()
+			app, upstream := tag(src, "acme/app")
+			newMonitor(name)
+			ns := selectedNamespace()
+			runs(ns, app, upstream)
+			runs(ns, app, digestA)
+			reconcileIt()
+			window()
+			Expect(drifted(app).RunningDigests).To(ConsistOf(
+				kuikv1alpha1.RunningDigest{Digest: upstream, Pods: 1},
+				kuikv1alpha1.RunningDigest{Digest: digestA, Pods: 1},
+			))
+			Expect(originOf(name).Drifted).To(Equal(int32(1)))
+		})
+
+		It("never reports drift from a container kuik routed to another reference", func() {
+			src := source()
+			app, _ := tag(src, "acme/app")
+			placed, placedDigest := tag(src, "acme/placed")
+			newMonitor(name)
+			// The container runs the reference kuik placed, at the digest that one points at:
+			// nothing of it says what app would run.
+			pod := runningPod(selectedNamespace(), []container{{name: appContainer, image: placed, rewrite: &podrecord.Rewrite{
+				By: routing.KindImageAlternative + "/other", Origin: app, RewrittenTo: placed, Policy: string(kuikv1alpha1.RewritePolicyOnFailure),
+			}}})
+			ran(pod, appContainer, strings.TrimSuffix(placed, ":v1"), placedDigest, clock.Now())
+			reconcileIt()
+			window()
+			verdicts(1)
+			reconcileIt()
+			Expect(monitorStatusOf(name).DriftedImages).To(BeEmpty())
+			Expect(originOf(name).Drifted).To(BeZero())
+		})
+
+		It("reads the upstream digest from the availability check, with no request of its own", func() {
+			src := source()
+			app, _ := tag(src, "acme/app")
+			newMonitor(name)
+			runs(selectedNamespace(), app, digestA)
+			reconcileIt()
+			window()
+			drifted(app)
+			Expect(src.Requests(http.MethodHead, "/manifests/")).To(HaveLen(1))
+			Expect(src.Requests(http.MethodGet, "/manifests/")).To(BeEmpty())
+		})
+
+		It("ignores a container whose image has not been pulled yet", func() {
+			src := source()
+			app, _ := tag(src, "acme/app")
+			newMonitor(name)
+			ns := selectedNamespace()
+			runs(ns, app, digestA)
+			// The runtime reports no imageID until the image is pulled.
+			pulling := runningPod(ns, []container{running(appContainer, app)})
+			pulling.Status.ContainerStatuses = []corev1.ContainerStatus{{
+				Name:  appContainer,
+				State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "ContainerCreating"}},
+			}}
+			Expect(k8sClient.Status().Update(ctx, pulling)).To(Succeed())
+			reconcileIt()
+			window()
+			Expect(drifted(app).RunningDigests).To(ConsistOf(kuikv1alpha1.RunningDigest{Digest: digestA, Pods: 1}))
+		})
+
+		It("never reports a digest-pinned reference as drifted", func() {
+			src := source()
+			app, upstream := tag(src, "acme/app")
+			pinned := app + "@" + upstream
+			newMonitor(name)
+			pod := runningPod(selectedNamespace(), []container{running(appContainer, pinned)})
+			ran(pod, appContainer, strings.TrimSuffix(app, ":v1"), digestA, clock.Now())
+			reconcileIt()
+			window()
+			verdicts(1)
+			reconcileIt()
+			Expect(originOf(name).Available).To(Equal(int32(1)))
+			Expect(monitorStatusOf(name).DriftedImages).To(BeEmpty())
+			Expect(originOf(name).Drifted).To(BeZero())
+		})
+
+		It("never reports a retained image as drifted", func() {
+			src := source()
+			app, _ := tag(src, "acme/app")
+			other, otherDigest := tag(src, "acme/other")
+			newMonitor(name)
+			ns := selectedNamespace()
+			runs(ns, other, otherDigest)
+			pod := runs(ns, app, digestA)
+			reconcileIt()
+			deletePod(pod)
+			reconcileIt()
+			Expect(monitorStatusOf(name).RetainedImages).To(ConsistOf(HaveField("Digest", digestA)))
+			window()
+			verdicts(1)
+			window()
+			verdicts(2)
+			reconcileIt()
+			Expect(monitorStatusOf(name).DriftedImages).To(BeEmpty())
+			Expect(originOf(name).Drifted).To(BeZero())
+		})
+
+		It("compares a tag that comes back after its retention elapsed to no upstream digest until its next check", func() {
+			src := source()
+			app, first := tag(src, "acme/app")
+			other, otherDigest := tag(src, "acme/other")
+			newMonitor(name, func(im *kuikv1alpha1.ImageMonitor) {
+				im.Spec.UnusedImageRetention = &metav1.Duration{Duration: time.Second}
+			})
+			ns := selectedNamespace()
+			runs(ns, other, otherDigest)
+			pod := runs(ns, app, first)
+			reconcileIt()
+			window()
+			verdicts(1)
+
+			// The tag goes unused, its retention elapses, and the upstream moves meanwhile.
+			deletePod(pod)
+			reconcileIt()
+			Expect(monitorStatusOf(name).RetainedImages).To(ConsistOf(HaveField("Ref", app)))
+			clock.Step(2 * time.Second)
+			reconcileIt()
+			Expect(monitorStatusOf(name).RetainedImages).To(BeEmpty())
+			moved := src.Push("acme/app:v1", registrytest.Image()).String()
+
+			runs(ns, app, moved)
+			reconcileIt()
+			Expect(monitorStatusOf(name).DriftedImages).To(BeEmpty())
+			Expect(recorder.withReason("ImageTagDrifted")).To(BeEmpty())
+		})
+
+		It("removes a driftedImages entry once every pod runs the upstream digest", func() {
+			src := source()
+			app, upstream := tag(src, "acme/app")
+			newMonitor(name)
+			ns := selectedNamespace()
+			behind := runs(ns, app, digestA)
+			reconcileIt()
+			window()
+			drifted(app)
+
+			runs(ns, app, upstream)
+			deletePod(behind)
+			reconcileIt()
+			Expect(monitorStatusOf(name).DriftedImages).To(BeEmpty())
+			Expect(originOf(name).Drifted).To(BeZero())
+		})
+
+		It("keeps the entry of a drifted tag whose next check fails, with its upstream digest and its since", func() {
+			src := source()
+			app, upstream := tag(src, "acme/app")
+			newMonitor(name)
+			runs(selectedNamespace(), app, digestA)
+			reconcileIt()
+			window()
+			since := drifted(app).Since
+
+			src.Intercept(registrytest.Status(http.MethodHead, "/manifests/", http.StatusNotFound, nil))
+			window()
+			Eventually(func() int32 {
+				reconcileIt()
+				return originOf(name).Unavailable
+			}).Should(Equal(int32(1)))
+			entry := driftOf(app)
+			Expect(entry).NotTo(BeNil())
+			Expect(entry.UpstreamDigest).To(Equal(upstream))
+			Expect(entry.Since.Time).To(BeTemporally("==", since.Time))
+		})
+
+		It("takes the new upstream digest of a drifted tag whose upstream moves again, keeping its since", func() {
+			src := source()
+			app, _ := tag(src, "acme/app")
+			newMonitor(name)
+			runs(selectedNamespace(), app, digestA)
+			reconcileIt()
+			window()
+			since := drifted(app).Since
+
+			moved := src.Push("acme/app:v1", registrytest.Image()).String()
+			window()
+			Eventually(func() string {
+				reconcileIt()
+				if e := driftOf(app); e != nil {
+					return e.UpstreamDigest
+				}
+				return ""
+			}).Should(Equal(moved))
+			Expect(driftOf(app).Since.Time).To(BeTemporally("==", since.Time))
+		})
+
+		It("stamps a new since on a drift reported again once driftDetection is turned back on", func() {
+			src := source()
+			app, _ := tag(src, "acme/app")
+			newMonitor(name)
+			runs(selectedNamespace(), app, digestA)
+			reconcileIt()
+			window()
+			drifted(app)
+
+			detect := func(on bool) func(*kuikv1alpha1.ImageMonitor) {
+				return func(im *kuikv1alpha1.ImageMonitor) { im.Spec.DriftDetection = &on }
+			}
+			updateMonitor(detect(false))
+			reconcileIt()
+			Expect(monitorStatusOf(name).DriftedImages).To(BeEmpty())
+			clock.Step(time.Hour)
+			updateMonitor(detect(true))
+			reconcileIt()
+			entry := driftOf(app)
+			Expect(entry).NotTo(BeNil())
+			Expect(entry.Since.Time).To(BeTemporally("==", clock.Now()))
+		})
+
+		It("reports no drift when driftDetection is false, removing what it reported before", func() {
+			src := source()
+			app, _ := tag(src, "acme/app")
+			newMonitor(name)
+			runs(selectedNamespace(), app, digestA)
+			reconcileIt()
+			window()
+			drifted(app)
+
+			updateMonitor(func(im *kuikv1alpha1.ImageMonitor) {
+				detect := false
+				im.Spec.DriftDetection = &detect
+			})
+			reconcileIt()
+			Expect(monitorStatusOf(name).DriftedImages).To(BeEmpty())
+			Expect(originOf(name).Drifted).To(BeZero())
+			Expect(driftCondition()).To(BeNil())
+			_, ok := driftedSeries(src, app)
+			Expect(ok).To(BeFalse())
+
+			// The next check of the tag reports nothing either.
+			before := checked(src, "acme/app")()
+			window()
+			Eventually(checked(src, "acme/app")).Should(BeNumerically(">", before))
+			Consistently(func() []kuikv1alpha1.MonitorDriftedImage {
+				reconcileIt()
+				return monitorStatusOf(name).DriftedImages
+			}).WithTimeout(500 * time.Millisecond).Should(BeEmpty())
+		})
+
+		It("sets ImagesDrifted with reason UpstreamDigestMoved while a tag is drifted, and removes it once none is", func() {
+			src := source()
+			app, upstream := tag(src, "acme/app")
+			newMonitor(name)
+			ns := selectedNamespace()
+			behind := runs(ns, app, digestA)
+			reconcileIt()
+			window()
+			drifted(app)
+			Expect(driftCondition()).NotTo(BeNil())
+			Expect(driftCondition().Status).To(Equal(metav1.ConditionTrue))
+			Expect(driftCondition().Reason).To(Equal(kuikv1alpha1.ReasonUpstreamDigestMoved))
+
+			runs(ns, app, upstream)
+			deletePod(behind)
+			reconcileIt()
+			Expect(driftCondition()).To(BeNil())
+		})
+
+		PIt("emits ImageTagDrifted once when a tag starts to drift", func() {})
+		PIt("emits ImageClusterSkew once when a drifted tag starts running more than one digest", func() {})
+		PIt("emits no event when a drift ends", func() {})
+		PIt("keeps the since of a driftedImages entry and announces nothing again after a restart", func() {})
+		PIt("caps driftedImages, keeping the oldest entries and recording the rest in truncated", func() {})
+		PIt("counts and exports every drifted tag, the ones the cap leaves out included", func() {})
+		It("exports one kuik_image_drifted series per drifted tag, deleted once it catches up", func() {
+			src := source()
+			app, upstream := tag(src, "acme/app")
+			tool, _ := tag(src, "acme/tool")
+			newMonitor(name)
+			ns := selectedNamespace()
+			behind := runs(ns, app, digestA)
+			runs(ns, tool, digestC)
+			reconcileIt()
+			window()
+			drifted(app)
+			window()
+			drifted(tool)
+			for _, ref := range []string{app, tool} {
+				v, ok := driftedSeries(src, ref)
+				Expect(ok).To(BeTrue(), ref)
+				Expect(v).To(Equal(1.0), ref)
+			}
+
+			runs(ns, app, upstream)
+			deletePod(behind)
+			reconcileIt()
+			_, ok := driftedSeries(src, app)
+			Expect(ok).To(BeFalse())
+			_, ok = driftedSeries(src, tool)
+			Expect(ok).To(BeTrue())
+		})
+		PIt("exports kuik_image_cluster_skew_digests only while pods run several digests of one tag", func() {})
+	})
 })
 
 // withPodName names the pod.
