@@ -360,18 +360,42 @@ var _ = Describe("Grace", func() {
 		grace = NewGrace(func() time.Time { return now })
 	})
 
-	It("keeps an entry that left the desired set for 15 minutes", func() {
+	It("keeps an entry that left the desired set for the default 15 minutes", func() {
 		grace.Retain(pair, []Credential{a, b})
 		now = now.Add(15*time.Minute - time.Second)
 
 		Expect(grace.Retain(pair, []Credential{a})).To(ConsistOf(a, b))
 	})
 
-	It("drops it once 15 minutes have elapsed", func() {
+	It("drops it once the default 15 minutes have elapsed", func() {
 		grace.Retain(pair, []Credential{a, b})
 		now = now.Add(15 * time.Minute)
 
 		Expect(grace.Retain(pair, []Credential{a})).To(ConsistOf(a))
+	})
+
+	It("drops an entry once the duration it was given has elapsed, not 15 minutes", func() {
+		grace.SetDuration(time.Minute)
+		grace.Retain(pair, []Credential{a, b})
+
+		now = now.Add(time.Minute - time.Second)
+		Expect(grace.Retain(pair, []Credential{a})).To(ConsistOf(a, b))
+		now = now.Add(time.Second)
+		Expect(grace.Retain(pair, []Credential{a})).To(ConsistOf(a))
+	})
+
+	It("measures the entries already in their grace against a changed duration, shortened or lengthened", func() {
+		other := Pair{Namespace: "team-b"}
+		grace.Retain(pair, []Credential{a, b})
+		grace.Retain(other, []Credential{a, b})
+
+		now = now.Add(5 * time.Minute)
+		grace.SetDuration(2 * time.Minute)
+		Expect(grace.Retain(pair, []Credential{a})).To(ConsistOf(a), "shortened below the time b has been gone")
+
+		grace.SetDuration(30 * time.Minute)
+		now = now.Add(20 * time.Minute)
+		Expect(grace.Retain(other, []Credential{a})).To(ConsistOf(a, b), "lengthened past the 15 minute default")
 	})
 
 	It("restarts the period when the entry comes back and leaves again", func() {

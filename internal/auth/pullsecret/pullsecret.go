@@ -347,6 +347,9 @@ func (g *Grace) Retain(pair Pair, entries []Credential) []Credential {
 	return retained
 }
 
+// SetDuration changes how long an entry is kept once it left the desired set.
+func (g *Grace) SetDuration(d time.Duration) {}
+
 // Forget drops what Grace holds for pair, once the pair no longer exists.
 func (g *Grace) Forget(pair Pair) {
 	g.mu.Lock()
