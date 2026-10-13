@@ -1,13 +1,13 @@
 ---
 name: test-outline
-description: Use before writing, adding or reworking Ginkgo specs in kuik; drafts the It/Entry strings as pending specs and shows them with task test-outline for review before any body.
+description: Use before writing, adding or reworking Ginkgo specs in kuik; drafts the It/Entry strings as pending specs, has spec-reviewer check them and shows them with task test-outline before any body is written.
 argument-hint: "[path...]"
 allowed-tools: Bash(task test-outline *) Bash(go test *) Read Grep Glob Edit Write
 ---
 
 # Test outline first
 
-The test cases are agreed as a plain-English tree before any body is written. Follow the
+The test cases are written as a plain-English tree before any body. Follow the
 steps in order, every time a task adds or changes specs. Target: `$ARGUMENTS` (the packages
 to outline; empty means the whole repository).
 
@@ -16,7 +16,9 @@ to outline; empty means the whole repository).
 - Read what defines the behaviour: the section of `docs/v3/spec.md` or `docs/v3/status.md`,
   or the walkthrough under `docs/v3/`.
 - Read the package's `*_test.go` to reuse its `Describe` structure and helpers.
-- Never invent behaviour. When the spec is silent, stop and ask.
+- Never invent behaviour. When the spec is silent or ambiguous, decide: what the kubelet
+  does first, then the most literal reading of `docs/v3/`. Send each such decision to the
+  coordinator and list it in the pull request description, one line each.
 
 Suites live next to the code: one `suite_test.go` per package (envtest bootstrap, loads the
 CRDs from `config/crd/bases/`) and `*_test.go` files beside the sources. Ginkgo and Gomega
@@ -49,7 +51,7 @@ var _ = Describe("ImageMirror", func() {
 })
 ```
 
-## 3. Show the outline and stop
+## 3. Show the outline and go on
 
 ```sh
 task test-outline -- <path>                   # the whole tree of the package
@@ -76,10 +78,10 @@ and with `DIFF=origin/main`, one line per case prefixed by `+` (added) or `-` (r
 ```
 
 Before showing it, hand the outline and the spec section it covers to the `spec-reviewer`
-sub-agent. Fix the cases it reports as missing or not in the spec, or list them for the
-user when the spec is unclear.
+sub-agent. Fix the cases it reports as missing or not in the spec; where the spec is
+unclear, decide as in step 1.
 
-Paste the output in the reply, each top-level `Describe` group preceded by one line naming
+Paste the output in the session's report, each top-level `Describe` group preceded by one line naming
 the spec section it covers, with its GitHub link:
 
 ```text
@@ -87,30 +89,30 @@ Covers docs/v3/status.md, "Conditions and their reasons": https://github.com/eni
 ```
 
 A pull request stays issue-sized, about 30 specs at most. When the outline holds more, as an
-epic (a feature too large for one review) does, propose its cut into such pull requests,
+epic (a feature too large for one review) does, cut it into such pull requests,
 each mergeable on its own (`main` stays coherent, nothing is half-wired), each with its
 docs and, last, its e2e specs. The issues of an epic are grouped under the GitHub
 milestones of the release: its beta, then its GA.
 
-Then stop. The user reviews the cases, and the cut, before any body or
-implementation exists. An agent ends its turn here; a human pauses.
+Then go on to step 5 at once: the outline and the cut are reported, not waited on. The
+user reads them in the report and stops the session if a case or the cut must change.
 
 The outline may be committed as a WIP `test(<scope>): outline ...` commit. It is squashed
 into the first test commit of step 5.
 
 ## 4. Iterate on the strings
 
-Apply the requested changes to the strings only, then show the outline again. Repeat until
-the user agrees.
+When the user asks for changes, apply them to the strings, and to the bodies already
+written, then show the outline again and go on.
 
 ## 5. Fill the bodies, before any implementation
 
-Once the user agrees, keep a todo list with Claude Code's task tools for the pull request,
+Keep a todo list with Claude Code's task tools for the pull request,
 one task per step of the plan (each outline group, each `test`/`feat` pair, the docs, the
 e2e specs, each step of the [`pull-request`](../pull-request/SKILL.md) skill), updated as
 it goes. A list that grows too long is the sign the pull request must be cut further.
 
-The session that owns the pull request hands the validated outline to one `implementer`
+The session that owns the pull request hands the checked outline to one `implementer`
 agent, which writes the bodies and the code; a `reviewer` agent reviews each `feat` commit
 as it lands ([0014](../../../notes/0014-implementer-and-reviewer-agents.md)).
 

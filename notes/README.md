@@ -95,8 +95,9 @@ Rationale in [0005](./0005-decision-log-filter.md).
   changed, and runs the suite otherwise.
 - [0014 — One implementer and fresh reviewers per pull request](./0014-implementer-and-reviewer-agents.md):
   one resumed `implementer` writes the pull request, a fresh `reviewer` checks each `feat`
-  commit and then the whole branch; review findings and spec readings need no approval, only
-  a gap with `docs/v3/` or a shared-package fix stops the work.
+  commit and then the whole branch; the outline, review findings and spec readings need no
+  approval, only a gap with `docs/v3/`, a shared-package fix or anything outside the worktree
+  stops the work.
 - [0015 — Release acceptance: the tooling acts, the agent judges](./0015-acceptance-tooling-acts-the-agent-judges.md):
   `test/acceptance/` applies YAML fixtures, changes and prints test objects through one guard,
   and never asserts; the agent of the `release-acceptance` skill runs the user stories of

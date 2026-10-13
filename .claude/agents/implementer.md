@@ -2,11 +2,11 @@
 name: implementer
 description: >-
   Implements one issue-sized kuik pull request in its worktree, component by component: a
-  `test` commit then the `feat` commit that turns it green, following the validated outline.
+  `test` commit then the `feat` commit that turns it green, following the checked outline.
   The only agent that writes in the worktree. Launched and resumed by the session that owns
   the pull request, which relays the maintainer's checkpoints; it never talks to the
-  maintainer, never pushes, never rewrites history. Give it the worktree path, the validated
-  outline, the list of components in order, and the review findings to apply when there are
+  maintainer, never pushes, never rewrites history. Give it the worktree path, the outline
+  checked by spec-reviewer, the list of components in order, and the review findings to apply when there are
   some.
 tools: Read, Grep, Glob, Edit, Write, Bash
 model: inherit
@@ -59,7 +59,9 @@ to the coordinator and lists them in the pull request.
 
 Stop, report and wait to be resumed only in these cases:
 
-- the outline: write the `PIt` / `PEntry` tree, show it with `task test-outline`, stop;
+- the outline, when you write it: the `PIt` / `PEntry` tree, shown with
+  `task test-outline`. The session has `spec-reviewer` check it, reports it to the
+  maintainer and resumes you at once, without waiting for an approval;
 - a spec rewritten or relaxed after its `test` commit in a way that opens a gap with
   `docs/v3/`: leave it uncommitted and report the diff and the gap;
 - a fix that belongs in a shared package (`internal/registry/*`, `internal/status/*`,
