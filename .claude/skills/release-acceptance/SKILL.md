@@ -17,8 +17,8 @@ The cluster is not a test cluster: every rule below protects the workloads alrea
 ## Hard rules
 
 - **Existing workloads**: never touch, restart or roll out an existing workload, kuik's own pods included. If a test ever needs one, name that specific workload ahead and wait for the user's explicit approval.
-- **The tasks only**: the cluster is reached through the tasks of the [Reference](#reference), one per Bash call. `acceptance-check` and `acceptance-inspect` only read; `acceptance-setup`, `-apply` and `-delete` write test objects only, through the program's guard. The shared settings allow all five: run them without asking. A command outside the tasks is a read-only diagnosis, one per call, always with `--context`, and never reads a Secret's data. The one exception, without GitOps only: the `helm upgrade` that switches the verbosity for the test (step 2) and the one that restores it (step 7), which the outbound hook asks for.
-- **The guard is reviewed code**: never edit `test/acceptance/` during a run, scenarios and fixtures included. A change to it waits for the user's review before it runs on a cluster, since the tasks run without asking; a scenario worth keeping goes to the report (step 6).
+- **The tasks only**: the cluster is reached through the tasks of the [Reference](#reference), one per Bash call, alone: no pipe, redirection or `grep`/`cut` after it, or the hook asks every time. Filter with `--grep` and `--metrics`, a regex in single quotes, and read a long output as it is. `acceptance-check` and `acceptance-inspect` only read; `acceptance-setup`, `-apply` and `-delete` write test objects only, through the program's guard. The shared settings allow all five: run them without asking. A command outside the tasks is a read-only diagnosis, one per call, always with `--context`, and never reads a Secret's data. The one exception, without GitOps only: the `helm upgrade` that switches the verbosity for the test (step 2) and the one that restores it (step 7), which the outbound hook asks for.
+- **The guard is reviewed code**: never edit `test/acceptance/` during a run, scenarios and fixtures included. A change to the program (Go code, Taskfile) runs on a cluster only once the user has approved it, with `task acceptance-approve` after your explanation (step 4). A branch of new scenarios and fixtures, written beforehand by the `acceptance-scenarios` skill, needs no approval: each fixture goes through the guard of `origin/main`. A scenario worth keeping goes to the report (step 6).
 - **Cleanup waits for the user**: the test objects stay until the user says the results are accepted, so they can look at the cluster too. Never clean up on your own initiative; `acceptance-cleanup` asks for permission again.
 - **kuik config**: when kuik is managed by GitOps (Flux, Argo CD), never `kubectl edit`, `patch` or `helm upgrade` it; a config change is a GitOps change the user makes.
 - **Kubeconfig**: passed as `--kubeconfig <path> --context <name>`, or as `KUBECONFIG=<path> kubectl --context <name> ...` for a diagnosis. Never open, cat or print the file, never copy it.
@@ -28,7 +28,7 @@ The cluster is not a test cluster: every rule below protects the workloads alrea
 
 | Item | Value |
 | ---- | ----- |
-| Tasks | [Commands](../../../test/acceptance/README.md#commands): `acceptance-check`, `-setup`, `-inspect`, `-apply`, `-delete` (allowed), `-cleanup` (asks); each followed by `-- --kubeconfig <path> --context <name>` |
+| Tasks | [Commands](../../../test/acceptance/README.md#commands): `acceptance-check`, `-setup`, `-inspect`, `-apply`, `-delete` (allowed), `-approve` and `-cleanup` (ask); each followed by `-- --kubeconfig <path> --context <name>` |
 | Test objects | what [the guard](../../../test/acceptance/README.md#the-guard) lets through; anything else is refused before a write |
 | Exploration files | write the YAML of `acceptance-apply` in your scratchpad, never in the repository; the report says what you tried |
 
@@ -50,7 +50,13 @@ The previous tag is the latest `v3.*` tag before the version (`git tag --list 'v
 
 ### 2. The installation
 
-`git fetch --tags`, then `task acceptance-check -- --kubeconfig <path> --context <name> --kuik-version <version>`. Judge it against test 1 of [`scenarios.md`](../../../test/acceptance/scenarios.md) and tell the user what you see. A broken installation stops the run there. Note the Helm `verbosity` values as they are, empty included: an empty process value inherits the root `verbosity`, and step 7 restores it empty.
+First, the approval: every acceptance task asks while the program differs from `origin/main` unapproved. `git fetch origin --tags`, then list what the working copy changes beyond `origin/main`, the fixtures and the Markdown files left out: `git diff --stat origin/main -- . ':(exclude,glob)test/acceptance/fixtures/*.yaml' ':(exclude,glob)**/*.md'` and the untracked files. When it lists nothing, go on: the tasks run without asking. Otherwise the user approves the program once for the whole run:
+
+1. Read the diff, and each untracked source file in full (an untracked `.go` file in `test/acceptance` is compiled into the program, while the diff and the approval list show only its name). Never open an untracked file that may hold a secret (a kubeconfig, `.env`, a key, a token): name it to the user, who checks it and removes it from the tree. Then explain the changes to the user, one line per change: what it does, and whether it touches the guard, a skip rule, what the program writes to the cluster or the credentials it reads. Name any reference outside the working copy (a `replace` or `use` to a local path in `go.mod` or `go.work`, a script the Taskfile calls outside the tree): the approval does not cover what it points to. Detailed, clear and concise: the user approves on that explanation, so leave nothing out and add nothing.
+2. Run `task acceptance-approve`, alone, from the top of the working copy. The hook asks the user, listing the changed and new files; on a refusal, stop the run.
+3. Any code change afterwards voids the approval: the hook asks again at the next task. Explain the new change and approve again.
+
+Then `task acceptance-check -- --kubeconfig <path> --context <name> --kuik-version <version>`. Judge it against test 1 of [`scenarios.md`](../../../test/acceptance/scenarios.md) and tell the user what you see. A broken installation stops the run there. Note the Helm `verbosity` values as they are, empty included: an empty process value inherits the root `verbosity`, and step 7 restores it empty.
 
 If any process does not log at `debug`, switch them all for the test: the webhook logs there why a candidate was dropped (`Candidate failed its check`), the secret syncer each pull Secret it applies, the reconciler each status it writes. Without them, what you observe cannot be explained. Without GitOps, set the root `verbosity` and any process value that is not empty (the user accepts or refuses it at the permission prompt; on a refusal, go on at the current level): `KUBECONFIG=<path> helm --kube-context <name> upgrade <release> oci://quay.io/enix/charts/kube-image-keeper --version <version> -n <ns> --reuse-values --set verbosity=debug` (add `--set <process>.verbosity=debug` for each non-empty one). It restarts the kuik pods only. With GitOps, the user makes the change: stop until they say it is done.
 
@@ -64,7 +70,7 @@ If any process does not log at `debug`, switch them all for the test: the webhoo
 
 ### 4. Setup
 
-`task acceptance-setup -- --kubeconfig <path> --context <name> --kuik-version <version>` (with `--private-repo` and `--pull-auth` for test 11). It skips, with a line, every fixture whose `since` is newer than the version. It prints the time it started, the rewrite counters of the test CRs before any test pod existed (keep them: test 3 compares with them), and every object it created, fixture by fixture. It waits for nothing kuik does, except the pull Secret of test 11 before its pod.
+`task acceptance-setup -- --kubeconfig <path> --context <name> --kuik-version <version>`, with `--private-repo` and `--pull-auth` for tests 11 and 13, and `--mirror-prefix` for test 14. It skips, with a line, every fixture whose `since` is newer than the version. It prints the time it started, the rewrite counters of the test CRs before any test pod existed (keep them: test 3 compares with them), and every object it created, fixture by fixture. It waits for nothing kuik does, except the pull Secret of test 11 before its pod.
 
 ### 5. Evaluate and explore
 

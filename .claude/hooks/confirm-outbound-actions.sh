@@ -93,6 +93,17 @@ helm_outbound="helm[[:space:]]+${opts}(install|upgrade|uninstall|delete|rollback
 kubectl_outbound="kubectl[[:space:]]+${opts}(apply|create|delete|replace|patch|edit|scale|rollout|drain|cordon|uncordon|taint|label|annotate|set|expose|autoscale|exec|cp|run|debug|attach)"
 pattern="(^|[;&|(\`[:space:]])($git_push|$gh_outbound|$gh_api|$task_outbound|$go_acceptance|$docker_push|$helm_outbound|$kubectl_outbound)([[:space:]]|\)|$)"
 
+# The acceptance approval: its fingerprint script sits beside this hook, the one the settings run.
+# When the session runs from the working copy under check, that is the copy of the branch, which a
+# change to the hook or the script can rewrite: the approval only holds against a hook outside the
+# change. The fixtures and the Markdown files are left out of what the user approves, as in the
+# script. origin/main is always the remote-tracking ref, never a branch or tag of that name.
+hook_dir=$(cd "$(dirname "$0")" && pwd)
+approval=kuik-acceptance-approved
+base=refs/remotes/origin/main
+fixtures_spec=':(exclude,glob)test/acceptance/fixtures/*.yaml'
+markdown_spec=':(exclude,glob)**/*.md'
+
 ask() {
   jq -n --arg reason "$1" '{
     hookSpecificOutput: {
@@ -108,11 +119,20 @@ if printf '%s' "$cmd" | grep -Eq "$pattern"; then
   ask "This command leaves the working copy (push, pull request, image, release, deployment or cluster change): the user confirms it explicitly, see notes/0003."
 fi
 
-# The acceptance check below trusts the local origin/main: moving it by hand (update-ref, or a
-# fetch into refs/remotes) would let changed code run as if it were reviewed.
-if printf '%s' "$cmd" | grep -Eq "(^|[;&|(\`[:space:]])git[[:space:]]+${git_opts}(update-ref|fetch[[:space:]][^;&|]*refs/remotes)"; then
+# The acceptance check below trusts the local origin/main: moving it by hand (update-ref,
+# symbolic-ref, a replace object, a fetch into remotes/, another URL or refspec for origin) would
+# let changed code run as if it were reviewed.
+if printf '%s' "$cmd" | grep -Eq "(^|[;&|(\`[:space:]])git[[:space:]]+${git_opts}(update-ref|symbolic-ref|replace|fetch[[:space:]][^;&|]*remotes/|remote[[:space:]]+(set-url|add|rename|remove|rm|set-branches)|config[[:space:]][^;&|]*remote\.origin)"; then
   ask "This command moves a local ref the acceptance tasks trust: the user confirms it explicitly."
 fi
+
+# Only `task acceptance-approve`, which asks below, may write the approval: a command naming it
+# could approve changed code without the user. Quotes and backslashes are dropped first, so a name
+# split by them still matches.
+unquoted=$(printf '%s' "$cmd" | tr -d "\"'\\\\")
+case "$unquoted" in *"$approval"*)
+  ask "This command touches the acceptance approval, which lets changed code reach a cluster: the user confirms it explicitly." ;;
+esac
 
 # A task run from another Taskfile or directory is not the task the allow rules name. Only what
 # precedes `--` is task's own: the rest goes to the command the task runs. An option there may be
@@ -123,23 +143,79 @@ if printf '%s' "$pre" | grep -Eq "(^|[;&|(\`[:space:]])task([[:space:]]|\$)" &&
   ask "This task command may pick another Taskfile or directory: the user confirms it explicitly."
 fi
 
+# Approving lets the acceptance tasks run the program as it differs from origin/main, so it always
+# asks, and the question lists what differs, from git rather than from the agent: the files
+# changed with their line counts, and the new ones.
+# The list is right only for `task acceptance-approve` alone, run from the top of the worktree
+# whose approval it writes: any other form (a cd before it, a subdirectory) gets a question that
+# lists nothing.
+if printf '%s' "$cmd" | grep -Eq "(task|make)[[:space:]]+${opts}acceptance-approve([[:space:]]|\$)"; then
+  top=$(git -C "${cwd:-.}" rev-parse --show-toplevel 2>/dev/null) || top=${cwd:-.}
+  here=$(cd "${cwd:-.}" 2>/dev/null && pwd -P) || here=
+  there=$(cd "$top" 2>/dev/null && pwd -P) || there=
+  if ! printf '%s' "$cmd" | grep -Eq '^task[[:space:]]+acceptance-approve[[:space:]]*$' || [ -z "$here" ] || [ "$here" != "$there" ]; then
+    ask "This command approves an acceptance program whose changes the hook cannot list: run \`task acceptance-approve\` alone, from the top of the worktree to approve, to see them. The user confirms this command explicitly."
+  fi
+  changed=$(git -C "$top" diff --no-ext-diff --no-renames --stat "$base" -- . "$fixtures_spec" "$markdown_spec" 2>/dev/null) || changed="(git diff failed)"
+  untracked=$(git -C "$top" ls-files --others --exclude-standard -- . "$fixtures_spec" "$markdown_spec" 2>/dev/null) || untracked="(git ls-files failed)"
+  ask "Approve the acceptance program as it differs from origin/main: the acceptance tasks then run it without asking, until it changes again. Read the agent's explanation of each change first.
+Changed files:
+${changed:-none}
+New files:
+${untracked:-none}"
+fi
+
 # The acceptance tasks reach a cluster without asking: check, inspect and validate because they
 # only read, setup, apply and delete because the guard of test/acceptance keeps them on test
-# objects. Both hold for the reviewed code only. Anything in
+# objects. Both hold for the reviewed code only. Almost anything in
 # the repository can change what runs (the program, the API types it decodes into, go.mod, a
 # go.work, another Taskfile), so they pass only as one plain `task acceptance-X -- <args>` in a
-# working copy equal to origin/main: no change, no untracked file, no ignored file Go or Task
-# would pick up. Anything else, or a git error, asks. origin/main is the local ref: moving it
-# takes a git command that asks on its own.
+# working copy equal to origin/main but for the fixtures and Markdown files: no other change, no
+# other untracked file, no ignored file Go or Task would pick up. A fixture goes through the
+# guard of origin/main object by object, and Markdown never runs, so a branch of new scenarios
+# runs before its pull request. Any other change passes only while its fingerprint equals the one
+# `task acceptance-approve` recorded in this worktree's git directory: one question for a whole
+# run, asked again as soon as the code moves. Anything else, or a git error, asks. origin/main is
+# the local ref: moving it takes a git command that asks on its own.
 if printf '%s' "$cmd" | grep -Eq "(task|make)[[:space:]]+${opts}acceptance-(check|inspect|validate|setup|apply|delete)([[:space:]]|\$)"; then
   reason="This acceptance task reaches a cluster from code that differs from origin/main, or in a form the hook cannot check: the user confirms it explicitly."
   case "$cmd" in *'
 '* | *"$(printf '\r')"*) ask "$reason" ;; esac
-  printf '%s' "$cmd" | grep -Eq "^task[[:space:]]+acceptance-(check|inspect|validate|setup|apply|delete)([[:space:]]+--([[:space:]]+[A-Za-z0-9=,./:_@+-]+)*)?[[:space:]]*\$" || ask "$reason"
+  # An argument is plain characters, or single-quoted pieces the shell reads literally (a regex
+  # for --grep): only a single quote ends one, and none may appear inside.
+  printf '%s' "$cmd" | grep -Eq "^task[[:space:]]+acceptance-(check|inspect|validate|setup|apply|delete)([[:space:]]+--([[:space:]]+([A-Za-z0-9=,./:_@+-]|'[^']*')+)*)?[[:space:]]*\$" || ask "$reason"
   top=$(git -C "${cwd:-.}" rev-parse --show-toplevel 2>/dev/null) || ask "$reason"
-  git -C "$top" diff --quiet origin/main 2>/dev/null || ask "$reason"
-  changed=$(git -C "$top" status --porcelain 2>/dev/null) || ask "$reason"
-  [ -z "$changed" ] || ask "$reason"
-  ignored=$(git -C "$top" ls-files --others --ignored --exclude-standard -- '*.go' test/acceptance go.work go.work.sum vendor 'Taskfile*' 'taskfile*' 2>/dev/null) || ask "$reason"
+  # Task picks its Taskfile from the current directory: only the top level is the one checked.
+  [ "$(cd "${cwd:-.}" 2>/dev/null && pwd -P)" = "$(cd "$top" && pwd -P)" ] || ask "$reason"
+  # Git must see the tree as Go compiles it, against the reviewed origin/main: a plain
+  # remote-tracking ref fetched from this repository, no replace object, no file hidden from the
+  # index, no local attributes file a filter could hang on.
+  git -C "$top" rev-parse -q --verify "$base^{commit}" >/dev/null 2>&1 || ask "$reason"
+  if git -C "$top" symbolic-ref -q "$base" >/dev/null 2>&1; then ask "$reason"; fi
+  [ -z "$(git -C "$top" for-each-ref refs/replace 2>/dev/null)" ] || ask "$reason"
+  case "$(git -C "$top" config --get-all remote.origin.url 2>/dev/null)" in
+    git@github.com:enix/kube-image-keeper.git | https://github.com/enix/kube-image-keeper.git | https://github.com/enix/kube-image-keeper) ;;
+    *) ask "$reason" ;;
+  esac
+  [ "$(git -C "$top" config --get-all remote.origin.fetch 2>/dev/null)" = '+refs/heads/*:refs/remotes/origin/*' ] || ask "$reason"
+  [ -z "$(git -C "$top" config --get-regexp '^(url\..*\.insteadof|core\.attributesfile)$' 2>/dev/null)" ] || ask "$reason"
+  attributes=$(git -C "$top" rev-parse --path-format=absolute --git-path info/attributes 2>/dev/null) || ask "$reason"
+  [ ! -s "$attributes" ] || ask "$reason"
+  if git -C "$top" ls-files -v 2>/dev/null | grep -q '^[a-zS]'; then ask "$reason"; fi
+  changed=$(git -C "$top" diff --no-ext-diff --no-renames --name-only "$base" 2>/dev/null) || ask "$reason"
+  untracked=$(git -C "$top" ls-files --others --exclude-standard 2>/dev/null) || ask "$reason"
+  if printf '%s\n%s\n' "$changed" "$untracked" |
+    grep -Ev '^(test/acceptance/fixtures/[A-Za-z0-9._-]+\.yaml|[A-Za-z0-9._/-]+\.md)?$' | grep -q .; then
+    unapproved="This acceptance task runs code that differs from origin/main and that the user has not approved as it is: run \`task acceptance-approve\` after explaining the changes, or the user confirms this command explicitly."
+    git_dir=$(git -C "$top" rev-parse --absolute-git-dir 2>/dev/null) || ask "$unapproved"
+    approved=$(cat "$git_dir/$approval" 2>/dev/null) || ask "$unapproved"
+    current=$(cd "$top" && sh "$hook_dir/acceptance-fingerprint.sh" 2>/dev/null) || ask "$unapproved"
+    [ -n "$current" ] && [ "$current" = "$approved" ] || ask "$unapproved"
+  fi
+  ignored=$(git -C "$top" ls-files --others --ignored --exclude-standard -- '*.go' test/acceptance go.work go.work.sum vendor ':(glob)**/[Tt]askfile*' 2>/dev/null) || ask "$reason"
+  # git lists each worktree nested under .claude/worktrees/ as one ignored directory. Go skips
+  # dot directories, and neither go nor task reads below the current one: drop them. Any file
+  # listed under them, outside a nested repository, still asks.
+  ignored=$(printf '%s\n' "$ignored" | grep -v '^\.claude/worktrees/[^/]*/$' || true)
   [ -z "$ignored" ] || ask "$reason"
 fi

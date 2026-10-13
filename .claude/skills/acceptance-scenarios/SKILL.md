@@ -60,7 +60,7 @@ Iterate until the user agrees with the whole list. **STOP** at each round and wa
 ### 5. Write
 
 1. In `scenarios.md`, one section per scenario, numbered after the last one, with its fields in order: **Since** (the new version), **The user**, **They expect**, **Prepare**, **Do**, **Check**, **Explore**. Copy the shape of an existing section; amend the scenarios step 4 changed.
-2. Each new fixture is `test/acceptance/fixtures/<NN>-<slug>.yaml`, `<NN>` the scenario number. Its first line is `# since: <version>`. It uses `${KUIK_NAMESPACE}` instead of the kuik namespace, and names its test objects `kuik-test-*`. A scenario that reuses a fixture names it in **Prepare** and adds none. `${PRIVATE_REPO}` and `${PULL_AUTH}` are set only on a run with a private repository, and `setup` skips only the `11-` files without them: any other fixture that uses them fails every run without one, and `acceptance-validate` cannot see it. A scenario that needs the private repository gets its own numbered fixture, so it keeps its own `since`, and extends the skip rule of `setup.go` (and the Scenarios paragraph of the README) to it: a change named to the user first. Never add it to the `11-` files, whose `since` is older.
+2. Each new fixture is `test/acceptance/fixtures/<NN>-<slug>.yaml`, `<NN>` the scenario number. Its first line is `# since: <version>`. It uses `${KUIK_NAMESPACE}` instead of the kuik namespace, and names its test objects `kuik-test-*`. A scenario that reuses a fixture names it in **Prepare** and adds none. `${PRIVATE_REPO}` and `${PULL_AUTH}` are set only on a run with a private repository, `${MIRROR_PREFIX}` only on a run with `--mirror-prefix`, and `setup` skips without them only the files its skip rules name (`11-` and `13-`, `14-`): any other fixture that uses them fails every run without one, and `acceptance-validate` cannot see it. A scenario that needs the private repository gets its own numbered fixture, so it keeps its own `since`, and extends the skip rule of `setup.go` (and the Scenarios paragraph of the README) to it: a change named to the user first. Never add it to the `11-` files, whose `since` is older.
 3. A new kind of test object: extend `guard.go`, and the guard section of the [README](../../../test/acceptance/README.md#the-guard).
 4. An ImageMirror fixture writes to a `.invalid` host. One that must copy for real needs `--mirror-prefix`, a registry path the user dedicates to the test on every run: name it to the user first. Credentials are `kuik-test-*` Secrets or `${PULL_AUTH}`, never another Secret.
 
@@ -74,7 +74,7 @@ One task per Bash call, and fix what they report in your files:
 
 ### 7. Hand over
 
-Commit as `test(e2e): add the acceptance scenarios of <version>` (a guard change in its own commit before it), then hand over to the [`pull-request`](../pull-request/SKILL.md) skill. The scenarios run on a cluster only once that pull request is merged.
+Commit a change to the program (`guard.go`, a skip rule of `setup.go`, a new fixture variable, any Go file or the Taskfile) in its own commit, then the scenarios as `test(e2e): add the acceptance scenarios of <version>`. The branch can run on a cluster with the [`release-acceptance`](../release-acceptance/SKILL.md) skill before its pull request opens: fixtures and Markdown need no approval, a program change one `task acceptance-approve` for the whole run, after the agent explains it. Then hand over to the [`pull-request`](../pull-request/SKILL.md) skill.
 
 ## Common mistakes
 
