@@ -29,12 +29,22 @@ the [`test-outline`](../test-outline/SKILL.md) skill.
   no `feat` commit touches one. The reviewer checks the same thing.
 - No commit that only indexes or fixes the previous ones: before the PR opens, fold a fix
   into its commit with `git commit --fixup=<sha>`, then autosquash in place as in step 5.
-  Once it is open, fixes stay `fixup!` commits until the review is over (step 5). The exception is
-  a regression spec for a bug a review found: its own `test` commit after the fix, subject
+  Once it is open, fixes stay `fixup!` commits until the review is over (step 5), and so does
+  the regression spec of a bug in the branch's own code: a `fixup!` of the `test` commit of
+  its component. The exception is a bug in code no commit of the branch owns: the fix is
+  its own commit, and its regression spec its own `test` commit after it, subject
   `test(<scope>): add regression specs for <what>`, body naming the review, the component
   or commit subject of the fix (never a sha: hashes change on rebase) and that the specs pin
-  the fix ([`tests.md`](../../rules/tests.md)). The description
-  names it in one line. A late batch of review fixes is the other exception (step 5).
+  the fix ([`tests.md`](../../rules/tests.md)). The description names it in one line. A
+  late batch of review fixes is the other exception (step 5). Review fixes need no
+  approval; a fix in a shared package (`internal/registry/*`, `internal/status/*`,
+  `internal/auth/*`, `internal/routing/*`, `internal/imagepath`, `internal/config`) lands
+  first in its own pull request.
+- Before the pull request opens, a fresh `reviewer` agent reviews the whole branch
+  (`origin/main...HEAD`): spec conformance and the interactions between components. The
+  `spec-reviewer` agent reviews the outline only; a `reviewer` reviews each `feat` commit as
+  it lands; CodeRabbit reviews the pull request last. The Claude code-review plugin is not
+  used ([0014](../../../notes/0014-implementer-and-reviewer-agents.md)).
 - Conventional commit subjects with the scopes of `.conform.yaml`; the PR title is the
   subject of the main commit, or a subject that covers them all.
 
@@ -63,6 +73,9 @@ Prepared with <tool>; <how it was verified, in one line>.
 - When the PR changes what users see on upgrade (a chart value renamed or removed, a CRD
   field, a default, a behaviour), add `Upgrade notes:` after the list, 1 to 3 lines. It is
   what the release notes are written from.
+- When the PR decided a spec reading (where `docs/v3/` is silent or ambiguous) or a
+  behaviour choice, add `Decisions:` after the list, one line each with the link to the spec
+  heading: the reviewer weighs in there.
 - Short sentences, one idea each. A block of dense prose is a failure: split it or cut it.
 - Every "What to look at" bullet that rests on a spec section or a note links it by its
   absolute URL (`https://github.com/enix/kube-image-keeper/blob/main/<path>#<heading-slug>`):
