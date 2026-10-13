@@ -173,10 +173,17 @@ build are in [`.claude/rules/docs.md`](./.claude/rules/docs.md).
   [`e2e-spec`](./.claude/skills/e2e-spec/SKILL.md) (e2e specs on Kind, added last in a PR)
   and [`preprod-smoke`](./.claude/skills/preprod-smoke/SKILL.md) (smoke test of a release on
   a shared cluster, scoped test CRs, stops for approval).
-- `agents/`: [`spec-reviewer`](./.claude/agents/spec-reviewer.md) (read-only conformance
-  review of a change against `docs/v3/`, keeps the spec out of the main context) and
-  [`v2-archaeologist`](./.claude/agents/v2-archaeologist.md) (reads v2 on `2.3.x` with
-  `git show` and recommends what to lift).
+- `agents/`: [`implementer`](./.claude/agents/implementer.md) (writes one pull request in
+  its worktree, `test` then `feat` per component; a hook refuses push, history rewrites,
+  GitHub and clusters), [`reviewer`](./.claude/agents/reviewer.md) (read-only, traces the
+  code: each `feat` commit as it lands, then the whole branch with spec conformance before
+  the pull request opens), [`spec-reviewer`](./.claude/agents/spec-reviewer.md) (read-only
+  conformance review of the test outline against `docs/v3/`, keeps the spec out of the main
+  context) and [`v2-archaeologist`](./.claude/agents/v2-archaeologist.md) (reads v2 on
+  `2.3.x` with `git show` and recommends what to lift). The session that owns the pull
+  request launches one `implementer` and resumes it for the whole pull request, a fresh
+  `reviewer` per review, and does the pushes and GitHub writes itself; CodeRabbit reviews
+  last ([0014](./notes/0014-implementer-and-reviewer-agents.md)).
 - [`.mcp.json`](./.mcp.json) (at the repository root): the `astro-docs` MCP server, the
   Astro and Starlight documentation for the site under `website/`. Public endpoint, no
   credentials; Claude Code asks once per user before enabling it. The outbound hook

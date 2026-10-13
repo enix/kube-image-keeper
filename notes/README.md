@@ -93,3 +93,7 @@ Rationale in [0005](./0005-decision-log-filter.md).
   pull requests as one required check; it fails without the `e2e-ready` label or while
   `fixup!` commits remain, passes without running when no path the suite depends on
   changed, and runs the suite otherwise.
+- [0014 — One implementer and fresh reviewers per pull request](./0014-implementer-and-reviewer-agents.md):
+  one resumed `implementer` writes the pull request, a fresh `reviewer` checks each `feat`
+  commit and then the whole branch; review findings and spec readings need no approval, only
+  a gap with `docs/v3/` or a shared-package fix stops the work.

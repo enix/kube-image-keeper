@@ -1,13 +1,13 @@
 ---
 name: spec-reviewer
 description: >-
-  Read-only reviewer that checks a change against the kuik v3 specification under docs/v3/ and
-  reports every divergence, so the spec is loaded in its context instead of yours. Delegate to it
-  after writing or changing behaviour (reconciler, Pod webhook, API type, status, conditions,
-  metrics, events, RBAC, a chart value with a behavioural effect) and before handing the work
-  back, or when the user asks whether something matches the spec. Give it a git range
-  (e.g. origin/main...HEAD), file paths, or a pasted Ginkgo test outline. It checks conformance
-  only, not style, performance or Go idioms.
+  Read-only reviewer that checks a Ginkgo test outline against the kuik v3 specification under
+  docs/v3/ and reports every divergence, so the spec is loaded in its context instead of yours.
+  Delegate to it once the outline is drafted, before showing it to the user, or when the user
+  asks whether something matches the spec. Give it the pasted outline (or a git range or file
+  paths for a one-off question). The code itself is reviewed by the `reviewer` agent, on each
+  feat commit and on the whole branch before the pull request. It checks conformance only, not
+  style, performance or Go idioms.
 tools: Read, Grep, Glob, Bash
 model: inherit
 hooks:

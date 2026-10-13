@@ -110,6 +110,10 @@ one task per step of the plan (each outline group, each `test`/`feat` pair, the 
 e2e specs, each step of the [`pull-request`](../pull-request/SKILL.md) skill), updated as
 it goes. A list that grows too long is the sign the pull request must be cut further.
 
+The session that owns the pull request hands the validated outline to one `implementer`
+agent, which writes the bodies and the code; a `reviewer` agent reviews each `feat` commit
+as it lands ([0014](../../../notes/0014-implementer-and-reviewer-agents.md)).
+
 Work one component at a time, in 2 commits:
 
 1. `test(<scope>): ...`: turn `PIt` into `It` (`PEntry` into `Entry`) and write the full
@@ -125,13 +129,18 @@ commit and left alone by the `feat` commits: the reviewer checks it.
 - Never edit a test to make it pass. A test that contradicts `docs/v3/` or cannot be
   written as stated is reported to the user with the section it relies on. It changes only
   with the user's approval, in its own `test` commit.
-- Exception: when a review (human, `spec-reviewer`, CodeRabbit) finds a bug the outline
-  missed, the fix may come first and its regression spec in its own `test` commit after it.
-  Subject `test(<scope>): add regression specs for <what>`; a 2 or 3 line body names the
-  review that found the bug, the component or commit subject that carries the fix (never a
-  sha: the branch is rebased before merge, only hashes on `main` are stable), and says the
-  specs pin the fix.
-  Whoever reads `git log` then knows why this test commit follows its implementation.
+- When a review (`reviewer`, human, CodeRabbit) finds a bug the outline missed in code a
+  commit of this branch adds, its regression spec is a `fixup!` of the `test` commit of
+  that component, and the fix a `fixup!` of its `feat` commit: the history keeps `test`
+  (red) then `feat` (green). Neither waits for approval
+  ([`tests.md`](../../rules/tests.md)).
+- Exception: a bug in code no commit of the branch owns. The fix comes first and its
+  regression spec in its own `test` commit after it. Subject
+  `test(<scope>): add regression specs for <what>`; a 2 or 3 line body names the review that
+  found the bug, the component or commit subject that carries the fix (never a sha: the
+  branch is rebased before merge, only hashes on `main` are stable), and says the specs pin
+  the fix. Whoever reads `git log` then knows why this test commit follows its
+  implementation.
 - Run the case alone, then the package:
 
   ```sh

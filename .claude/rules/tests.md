@@ -22,23 +22,30 @@ paths:
 - **A wrong test is reported, never edited to pass.** A spec that contradicts `docs/v3/` or
   cannot be written as stated goes to the maintainer with the section it relies on. It
   changes only with the maintainer's approval, in its own `test` commit.
-- **The test changes of a review round go to the maintainer at once**, before any of them is
-  committed: the list of the `It` texts added, changed or removed
-  (`task test-outline DIFF=<ref>`), the diff available, not one request per spec.
-- **Regression tests follow a fix.** When a review (human, `spec-reviewer`, CodeRabbit)
-  finds a bug the outline missed, the fix may come first and its regression spec in its own
-  `test` commit after it. That commit says it is one: subject
-  `test(<scope>): add regression specs for <what>`, and a 2 or 3 line body naming the review
-  that found the bug, the component or commit subject that carries the fix (never a sha:
-  the branch is rebased before merge, only hashes on `main` are stable), and that the specs
-  pin the fix. The PR description names it in one line.
+- **Review fixes need no approval.** Fixes from a review and their new regression specs are
+  decided by the session; a spec reading or a behaviour choice is sent to the coordinator
+  and listed in the pull request description. A rewritten or relaxed test goes to the
+  maintainer only when the change opens a gap with `docs/v3/`.
+- **A regression spec goes where the bug lives.** When a review (`reviewer`, human,
+  CodeRabbit) finds a bug the outline missed:
+  - in code a commit of the branch adds, the fix is a `fixup!` of that `feat` commit and its
+    regression spec a `fixup!` of the `test` commit of the same component. After the
+    autosquash the history still reads `test` (red) then `feat` (green). The `test` commit
+    must still build alone: when the spec needs a symbol only the `feat` defines, the `test`
+    fixup adds a stub and the `feat` fixup replaces it;
+  - in code no commit of the branch owns (already on `main`), the fix comes first and its
+    regression spec in its own `test` commit after it, which says it is one: subject
+    `test(<scope>): add regression specs for <what>`, and a 2 or 3 line body naming the
+    review that found the bug, the component or commit subject that carries the fix (never
+    a sha: the branch is rebased before merge, only hashes on `main` are stable), and that
+    the specs pin the fix. The PR description names it in one line.
 - **A late batch of review fixes goes at the end of the branch.** When the fixes of a review
   round touch code that several later commits rewrite, retargeting each as a `fixup!` turns
   the autosquash into a cascade of conflicts: commit them instead as regression pairs on top
   of the branch, a `test(<scope>): add regression specs for <what>` commit then the change it
   pins. This is an exception to the `fixup!` rule for review fixes of the
   [`pull-request`](../skills/pull-request/SKILL.md) skill, next to the regression spec of a
-  bug the outline missed.
+  bug in code no commit of the branch owns.
 - **A test exercises a behaviour, not a value.** Every spec must be able to fail on a
   change worth catching. Do not write a spec that reads a literal back (a field of a
   hard-coded list, a constant), that compares a file to a copy of itself, or that repeats
