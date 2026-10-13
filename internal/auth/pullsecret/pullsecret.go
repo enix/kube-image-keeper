@@ -302,22 +302,24 @@ type Pair struct {
 	Namespace string
 }
 
-// Grace keeps the entries that left the desired set of a pair for GraceDuration. It lives in
-// memory only: losing it drops the entries in their grace at the next reconcile.
+// Grace keeps the entries that left the desired set of a pair for its duration, GraceDuration
+// unless set otherwise. It lives in memory only: losing it drops the entries in their grace at
+// the next reconcile.
 type Grace struct {
 	now func() time.Time
 
 	mu       sync.Mutex
+	duration time.Duration
 	lastSeen map[Pair]map[Credential]time.Time
 }
 
-// NewGrace returns an empty grace tracker reading the time from now.
+// NewGrace returns an empty grace tracker of GraceDuration, reading the time from now.
 func NewGrace(now func() time.Time) *Grace {
-	return &Grace{now: now, lastSeen: map[Pair]map[Credential]time.Time{}}
+	return &Grace{now: now, duration: GraceDuration, lastSeen: map[Pair]map[Credential]time.Time{}}
 }
 
-// Retain returns entries, plus the entries of pair that left them less than GraceDuration
-// ago.
+// Retain returns entries, plus the entries of pair that left them less than the grace
+// duration ago.
 func (g *Grace) Retain(pair Pair, entries []Credential) []Credential {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -335,7 +337,7 @@ func (g *Grace) Retain(pair Pair, entries []Credential) []Credential {
 	for c, at := range seen {
 		switch {
 		case slices.Contains(entries, c):
-		case now.Sub(at) < GraceDuration:
+		case now.Sub(at) < g.duration:
 			retained = append(retained, c)
 		default:
 			delete(seen, c)
@@ -347,8 +349,13 @@ func (g *Grace) Retain(pair Pair, entries []Credential) []Credential {
 	return retained
 }
 
-// SetDuration changes how long an entry is kept once it left the desired set.
-func (g *Grace) SetDuration(d time.Duration) {}
+// SetDuration changes how long an entry is kept once it left the desired set. The entries
+// already in their grace are measured against it from the next Retain on.
+func (g *Grace) SetDuration(d time.Duration) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.duration = d
+}
 
 // Forget drops what Grace holds for pair, once the pair no longer exists.
 func (g *Grace) Forget(pair Pair) {
