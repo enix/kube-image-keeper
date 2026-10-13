@@ -344,8 +344,11 @@ var _ = Describe("Secret syncer", func() {
 			pod := createRewrittenPod(ns, cr, "ghcr.io/acme/foo:1")
 			Eventually(users(ns, cr)).WithTimeout(timeout).Should(HaveLen(1))
 
-			now.Advance(pullsecret.GraceDuration)
 			Expect(k8sClient.Delete(ctx, pod)).To(Succeed())
+			Consistently(users(ns, cr)).WithTimeout(2 * time.Second).Should(HaveLen(1))
+			now.Advance(pullsecret.GraceDuration)
+			// A pod of the entry without credentials reconciles the pair again.
+			createRewrittenPod(ns, cr, "quay.io/acme/bar:1")
 
 			Eventually(func() string {
 				secret := injected(ns, cr)
