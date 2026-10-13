@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -3612,8 +3613,110 @@ var _ = Describe("ImageMonitor", func() {
 			Expect(ok).To(BeTrue())
 		})
 
-		PIt("keeps the since of an unavailableAlternatives entry and announces nothing again after a restart", func() {})
-		PIt("caps unavailableAlternatives, keeping the oldest entries and recording the rest in truncated, while its count and series cover every failing alternative", func() {})
+		It("keeps the since of an unavailableAlternatives entry and announces nothing again after a restart", func() {
+			alternative := fresh()
+			src := served(registrytest.New(registrytest.WithBasicAuth(registryUser, password)), alternative)
+			newMonitor(name, monitoring)
+			origin, ia := alternativeTo(entries(on(src, alternative)))
+			window()
+			since := failingAlternatives(1)[0].Since
+			Expect(recorder.withReason("AlternativeUnusable")).To(HaveLen(1))
+
+			// A new process an hour later: its first window is a full interval away, its first
+			// report reads the failure back from the status. The old one stops first, so that it
+			// sends no check meanwhile.
+			stopScheduler()
+			clock.Step(time.Hour)
+			restart()
+			reconcileIt()
+			listed := monitorStatusOf(name).UnavailableAlternatives
+			Expect(listed).To(HaveLen(1))
+			Expect(listed[0].Reason).To(Equal(kuikv1alpha1.CheckUnauthorized))
+			Expect(listed[0].Since.Time).To(BeTemporally("==", since.Time))
+			Expect(alternativesOf().Unavailable).To(Equal(int32(1)))
+			Expect(meta.FindStatusCondition(monitorStatusOf(name).Conditions, kuikv1alpha1.ConditionAlternativesUnavailable)).NotTo(BeNil())
+			_, ok := alternativeUnavailable(src, tagged(on(src, alternative)), origin, ia, kuikv1alpha1.CheckUnauthorized)
+			Expect(ok).To(BeTrue())
+
+			// Its own check fails the same way: the failure goes on, announced already.
+			before := checked(src, alternative)()
+			window()
+			Eventually(checked(src, alternative)).Should(BeNumerically(">", before))
+			Consistently(func() []recordedEvent {
+				reconcileIt()
+				return recorder.withReason("AlternativeUnusable")
+			}).WithTimeout(500 * time.Millisecond).Should(HaveLen(1))
+			Expect(monitorStatusOf(name).UnavailableAlternatives[0].Since.Time).To(BeTemporally("==", since.Time))
+		})
+
+		It("caps unavailableAlternatives, keeping the oldest entries and recording the rest in truncated, while its count and series cover every failing alternative", func() {
+			// The cap holds whatever its value: a small one is exceeded by a handful of alternatives.
+			const capacity, over = 5, 6
+			const alternativesList = "unavailableAlternatives"
+			listCapacity = capacity
+			restart()
+			src := served(registrytest.New())
+			repositories := make([]string, 0, over)
+			list := make([]kuikv1alpha1.Alternative, 0, over)
+			for range over {
+				repositories = append(repositories, fresh())
+				list = append(list, entries(on(src, repositories[len(repositories)-1]))...)
+			}
+			newMonitor(name, monitoring)
+			origin, ia := alternativeTo(list)
+
+			// One alternative fails per window: failed lists them in the order they failed.
+			var failed []string
+			for i := range over {
+				window()
+				Eventually(func() int32 {
+					reconcileIt()
+					return alternativesOf().Unavailable
+				}).Should(Equal(int32(i + 1)))
+				for _, e := range monitorStatusOf(name).UnavailableAlternatives {
+					if !slices.Contains(failed, e.Ref) {
+						failed = append(failed, e.Ref)
+					}
+				}
+			}
+			listedRefs := func() []string {
+				listed := monitorStatusOf(name).UnavailableAlternatives
+				refs := make([]string, 0, len(listed))
+				for _, e := range listed {
+					refs = append(refs, e.Ref)
+				}
+				return refs
+			}
+			everySeries := func() bool {
+				for _, repository := range repositories {
+					if _, ok := alternativeUnavailable(src, tagged(on(src, repository)), origin, ia, kuikv1alpha1.CheckManifestNotFound); !ok {
+						return false
+					}
+				}
+				return true
+			}
+			pressure := func() *metav1.Condition {
+				return meta.FindStatusCondition(monitorStatusOf(name).Conditions, kuikv1alpha1.ConditionListCapacityPressure)
+			}
+			Expect(failed).To(HaveLen(capacity))
+			Expect(listedRefs()).To(Equal(failed))
+			Expect(monitorStatusOf(name).Truncated).To(Equal(map[string]int32{alternativesList: 1}))
+			Expect(pressure()).NotTo(BeNil())
+			Expect(pressure().Reason).To(Equal(kuikv1alpha1.ReasonListTruncated))
+			Expect(everySeries()).To(BeTrue())
+
+			// A new process reads back only the capped list: it holds the count and truncated
+			// until its ring checked every alternative again.
+			restart()
+			reconcileIt()
+			Expect(listedRefs()).To(Equal(failed))
+			Expect(alternativesOf().Unavailable).To(Equal(int32(over)))
+			Expect(monitorStatusOf(name).Truncated).To(Equal(map[string]int32{alternativesList: 1}))
+			settle(everySeries)
+			Expect(alternativesOf().Unavailable).To(Equal(int32(over)))
+			Expect(monitorStatusOf(name).Truncated).To(Equal(map[string]int32{alternativesList: 1}))
+			Expect(listedRefs()).To(Equal(failed))
+		})
 	})
 })
 
