@@ -92,6 +92,9 @@ type monitorMemory struct {
 	// declared are the origins a pod declared at the previous report, each with the digest
 	// its most recently started container ran.
 	declared map[string]string
+	// offered are the alternatives each origin was offered at the previous report, kept for an
+	// origin while it is retained.
+	offered offered
 	// emptySeen is set when the previous report found no pod while images were tracked.
 	emptySeen bool
 	// uid is the UID of the monitor this memory belongs to.
@@ -212,6 +215,7 @@ func (r *ImageMonitorReconciler) wake(name string) {
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch,roleName=reconciler
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch,roleName=reconciler
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch,roleName=reconciler
+// +kubebuilder:rbac:groups=kuik.enix.io,resources=imagealternatives,verbs=get;list;watch,roleName=reconciler
 
 // A check reads the fallbackAuth Secrets in the install namespace (a Role: the chart puts it in
 // the release namespace, kuik-system is a placeholder), and the imagePullSecrets of the pods
@@ -260,9 +264,15 @@ func (r *ImageMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			return ctrl.Result{RequeueAfter: emptyCacheWait}, nil
 		}
 		memory.emptySeen = false
-		var declared map[string]string
-		requeue, declared, notReady = r.track(ctx, &im, &next, memory, pods)
-		remember = func() { memory.declared = declared }
+		var offers *alternativeOffers
+		if im.Spec.MonitorsAlternatives() {
+			if offers, err = r.alternativeOffers(ctx); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+		var seen reported
+		requeue, seen, notReady = r.track(ctx, &im, &next, memory, pods, offers)
+		remember = func() { memory.declared, memory.offered = seen.declared, seen.offered }
 	}
 
 	// A process that selects nothing yet holds no ring: the persisted cursors stay, for the
@@ -285,10 +295,11 @@ func (r *ImageMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	return ctrl.Result{RequeueAfter: requeue}, nil
 }
 
-// track writes into next the origins pods declare and the images kept for retention. It
-// returns when the next retained image expires, zero when none is retained, and the declared
-// origins with their digests, for the memory once next is written.
-func (r *ImageMonitorReconciler) track(ctx context.Context, im *kuikv1alpha1.ImageMonitor, next *kuikv1alpha1.ImageMonitorStatus, memory *monitorMemory, pods []*corev1.Pod) (time.Duration, map[string]string, *condition.NotReady) {
+// track writes into next the origins pods declare, the images kept for retention and, when
+// offers is set, the alternatives offered for them. It returns when the next retained image
+// expires, zero when none is retained, and what the report saw, for the memory once next is
+// written.
+func (r *ImageMonitorReconciler) track(ctx context.Context, im *kuikv1alpha1.ImageMonitor, next *kuikv1alpha1.ImageMonitorStatus, memory *monitorMemory, pods []*corev1.Pod, offers *alternativeOffers) (time.Duration, reported, *condition.NotReady) {
 	log := logf.FromContext(ctx)
 	now := r.clock.Now()
 	retention := defaultUnusedImageRetention
@@ -351,9 +362,32 @@ func (r *ImageMonitorReconciler) track(ctx context.Context, im *kuikv1alpha1.Ima
 		declaring[ref] = d.pods
 	}
 	memory.setDeclaring(declaring)
-	r.turnRings(ctx, im, memory, tracked)
+	var alternatives map[string]*monitoredAlternative
+	var offeredTo offered
+	if offers != nil {
+		alternatives, offeredTo = offers.of(pods, retained, memory.offered)
+	}
+	// A reference both an origin and an alternative sits once in its ring, and is checked once
+	// for both.
+	ringed := slices.Clone(tracked)
+	origins := make(map[string]bool, len(tracked))
+	for _, ref := range tracked {
+		origins[ref] = true
+	}
+	for _, ref := range slices.Sorted(maps.Keys(alternatives)) {
+		if !origins[ref] {
+			ringed = append(ringed, ref)
+		}
+	}
+	r.turnRings(ctx, im, memory, ringed)
 	// The counts come from the verdicts in memory, never from the list that samples them.
-	verdicts, upstream := memory.verdictsOf(tracked)
+	all, upstream := memory.verdictsOf(ringed)
+	verdicts := make(map[string]verdict, len(tracked))
+	for _, ref := range tracked {
+		if v, ok := all[ref]; ok {
+			verdicts[ref] = v
+		}
+	}
 	r.announceDenied(im, memory, verdicts)
 	unavailable := make([]kuikv1alpha1.UnavailableImage, 0, len(verdicts))
 	failing := map[string]kuikv1alpha1.CheckFailureReason{}
@@ -419,13 +453,24 @@ func (r *ImageMonitorReconciler) track(ctx context.Context, im *kuikv1alpha1.Ima
 		Available:   counts.Available,
 		Unavailable: counts.Unavailable,
 	}, Drifted: driftedCount}}
+	if offers != nil {
+		next.Images.Alternatives = alternativesStatus(alternativeCounts(alternatives))
+	}
 	condition.SetAnomaly(&next.Conditions, kuikv1alpha1.ConditionImagesUnavailable, counts.Unavailable > 0,
 		kuikv1alpha1.ReasonChecksFailed, fmt.Sprintf("%d images failing their check", counts.Unavailable), im.Generation)
 	condition.SetAnomaly(&next.Conditions, kuikv1alpha1.ConditionImagesDrifted, driftedCount > 0,
 		kuikv1alpha1.ReasonUpstreamDigestMoved, fmt.Sprintf("%d tags whose upstream digest moved", driftedCount), im.Generation)
 	next.Truncated = pass.End(&next.Conditions, im.Generation)
 	r.metrics.report(im.Name, counts, failing, refsOf(drifted), skewOf(drifted))
-	return requeue, digests, r.fallbackSecrets(ctx, memory)
+	return requeue, reported{declared: digests, offered: offeredTo}, r.fallbackSecrets(ctx, memory)
+}
+
+// reported is what one report saw, for the memory once its status is written.
+type reported struct {
+	// declared are the origins a pod declares, with their digests.
+	declared map[string]string
+	// offered are the alternatives each tracked origin was offered.
+	offered offered
 }
 
 // declaredImage is an origin some selected pod declares.
@@ -573,7 +618,7 @@ func monitorScope(im *kuikv1alpha1.ImageMonitor) (scope, *condition.NotReady) {
 }
 
 // SetupWithManager sets up the controller with the Manager: a spec change reports at once, a
-// pod or namespace change and an ended check after StatusInterval.
+// pod, namespace or ImageAlternative change and an ended check after StatusInterval.
 func (r *ImageMonitorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if r.StatusInterval == 0 {
 		r.StatusInterval = DefaultStatusInterval
@@ -597,6 +642,9 @@ func (r *ImageMonitorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&kuikv1alpha1.ImageMonitor{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Watches(&corev1.Pod{}, delayed(r.StatusInterval, r.selecting)).
 		Watches(&corev1.Namespace{}, delayed(r.StatusInterval, r.all)).
+		// Its status writes leave what an ImageAlternative offers as it was.
+		Watches(&kuikv1alpha1.ImageAlternative{}, delayed(r.StatusInterval, r.watchingAlternatives),
+			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		WatchesRawSource(source.Channel(wakes, checked)).
 		Named("kuik-imagemonitor").
 		Complete(r)
@@ -637,9 +685,4 @@ func (r *ImageMonitorReconciler) all(ctx context.Context, _ client.Object) []rec
 		requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{Name: im.Name}})
 	}
 	return requests
-}
-
-// watchingAlternatives maps an ImageAlternative to the ImageMonitors that monitor alternatives.
-func (r *ImageMonitorReconciler) watchingAlternatives(_ context.Context, _ client.Object) []reconcile.Request {
-	return nil
 }

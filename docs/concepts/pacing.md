@@ -37,8 +37,10 @@ budget; it never raises it.
 
 ## Rings and laps
 
-Each resource holds a **ring** per host: the images it reads there, in lexicographic order. Each
-turn it gets takes the next image of its ring, so every image comes back once per **lap**.
+Each resource holds a **ring** per host: the images it reads there, in lexicographic order. An
+`ImageMonitor` under `monitorAlternatives` reads its alternatives there too, a reference that is
+both an origin and an alternative once. Each turn it gets takes the next image of its ring, so
+every image comes back once per **lap**.
 
 The status reports each ring under `checks.registries`: its size (`images`), the image last checked
 (`cursor`), when the lap in progress started (`cycleStarted`), and how long the last one took
