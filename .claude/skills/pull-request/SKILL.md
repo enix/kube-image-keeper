@@ -2,7 +2,7 @@
 name: pull-request
 description: Use when opening a pull request on kuik, rewriting its description, or answering its automated review; prepares the branch, drafts a short readable description for the user to confirm, and keeps it in step with the branch.
 argument-hint: "[PR number]"
-allowed-tools: Bash(git log *) Bash(git diff *) Bash(git status *) Bash(git fetch *) Bash(gh pr view *) Bash(gh pr diff *) Bash(gh pr checks *) Bash(hack/wait-coderabbit.sh *) Read Grep Glob Write
+allowed-tools: Bash(git log *) Bash(git diff *) Bash(git status *) Bash(git fetch origin) Bash(gh pr view *) Bash(gh pr diff *) Bash(gh pr checks *) Bash(hack/wait-coderabbit.sh *) Bash(hack/coderabbit-reviewed.sh *) Read Grep Glob Write
 ---
 
 # Pull request
@@ -125,9 +125,11 @@ describes a dropped file misleads the reviewer and CodeRabbit alike.
   hour: tell the user.
 - CodeRabbit reviews once when the PR opens. For later commits, comment
   `@coderabbitai review`. After a force-push, comment `@coderabbitai full review` instead
-  whenever the branch holds content CodeRabbit has not reviewed (a rebase on `main`, fixups
-  pushed while it was rate limited, an autosquash that changed the content): the
-  incremental review lost its base. An autosquash of reviewed fixups needs none.
+  only when the PR's own patch changed (the patch check of the `e2e-ready` bullet below
+  differs: fixups pushed while it was rate limited, a conflict resolved in the PR's lines):
+  the incremental review lost its base. A rebase that only brings `main`'s changes, or an
+  autosquash of reviewed fixups, needs none, and CodeRabbit answers it "No files to
+  review".
 - CodeRabbit answers only comments that mention `@coderabbitai` (`chat.auto_reply: false`
   in `.coderabbit.yaml`), a top-level comment or a reply in one of its threads alike.
 - When CodeRabbit answers that it is rate limited or out of review quota, never ask again
@@ -174,24 +176,70 @@ describes a dropped file misleads the reviewer and CodeRabbit alike.
   worktree, every commit builds and vets, and every `feat` commit passes `task test`. Go on
   meanwhile, and read its result before the force-push. Catching up with `main` is not part
   of the autosquash (step 6).
-- Once the review is over, the final e2e `test` commit pushed and the branch autosquashed,
-  ask the user to add the `e2e-ready` label (`gh pr edit <n> --add-label e2e-ready`): the
-  required `E2E` check fails until it is there. Skip this when the PR changes no path the
-  suite depends on (the list in `.github/workflows/e2e.yaml`): `E2E` passes without it.
-  It is a GitHub write: the user adds it or approves the command. The suite then runs once. If it fails, push `fixup!` commits: `E2E`
-  fails at once without running the suite until the next autosquash and force-push, which
-  runs it again.
+- Add the `e2e-ready` label (`gh pr edit <n> --add-label e2e-ready`, no question asked)
+  only once the review is over, the final e2e `test` commit pushed and the branch
+  autosquashed, and enable auto-merge right after it (step 6). The review is over when
+  both hold, checked, never assumed:
+  - CodeRabbit has reviewed the PR's own changes as they stand:
+    `hack/coderabbit-reviewed.sh <n>`, run from the PR's worktree, exits 0. It compares the
+    diff against `main` of CodeRabbit's last reviewed commit with `HEAD`'s (`git patch-id
+    --verbatim`: line offsets do not count, whitespace does), so an autosquash of reviewed
+    fixups, or a rebase that only brings `main`'s changes, needs no new review. Exit 1: ask
+    for a review. Exit 2: it cannot tell, report it. A "Review rate limited", "Review in
+    progress" or "Review skipped" status is not a review. Only the user's explicit waiver,
+    possibly relayed by the coordinating session, lifts this point.
+
+  - The open threads query above prints nothing.
+
+  Add the label only once the `E2E` run of the last push has finished (it fails within
+  seconds without the label: `gh pr checks <n>` shows it). Both runs share one concurrency
+  group: a label added while the push's run starts can get its own run cancelled.
+
+  The required `E2E` check fails until the label is there. Skip it when the PR changes no
+  path the suite depends on (the list in `.github/workflows/e2e.yaml`): `E2E` passes
+  without it. The suite then runs once. If it fails, push `fixup!` commits: `E2E` fails at
+  once without running the suite until the next autosquash and force-push, which runs it
+  again.
 
 ## 6. Merge
 
 Rebase on `main` only when GitHub cannot merge (`mergeStateStatus` is `DIRTY`) or the
 branch needs something `main` brought: `git fetch origin` first, rebase on `origin/main`,
 check the rebase with `git range-diff ORIG_HEAD...HEAD`, push it with
-`--force-with-lease`, comment `@coderabbitai full review`, then wait for the checks again.
+`--force-with-lease`, then wait for the checks again. Ask `@coderabbitai full review` only
+when the PR's own patch changed (the patch check of step 5): a rebase that only brings
+`main`'s changes needs none.
 
-Once the review is over and every check is green (`gh pr checks <n> --watch`), tell the
-user the PR is ready and wait for their explicit go: they may want to test it first. Then
-merge with `gh pr merge <n> --rebase`, alone in its command. Confirm the merge with
-`gh pr view <n> --json state,mergedAt`. If that call is refused, ask the user to type
-`! gh pr view <n> --json state,mergedAt` in the Claude Code prompt (the `!` prefix runs it
-in the session): never report a merge you could not confirm.
+Enable auto-merge at the moment the `e2e-ready` label goes on (step 5), under the same
+conditions: the review is over, checked as step 5 says. A PR that needs no label gets it
+once those conditions hold. The checks need not be green yet. Run it alone in its command:
+the outbound hook asks the user first, and their confirmation is the go to merge (they may
+want to test the PR before giving it). Pin the head the user saw, so a later push cannot be
+merged on the same go. When CodeRabbit's review was waived, say so in the message that
+precedes the command: the prompt itself does not.
+
+```sh
+gh pr merge <n> --auto --rebase --match-head-commit <HEAD sha>
+```
+
+GitHub merges once `Conform`, `Test` and `E2E` pass and no review thread is open. Follow it
+in the background until `gh pr view <n> --json state,mergedAt` shows the merge. Wait for
+checks with `gh pr checks <n> --watch` run in the background, here and in every step, never
+with a sleep loop:
+
+- Before any push to a PR whose auto-merge is enabled (a fix for a failed check, an
+  autosquash, a rebase), disable it first, alone in its command:
+  `gh pr merge <n> --disable-auto`. Otherwise GitHub merges as soon as the checks pass,
+  before CodeRabbit sees the change. Then push, wait until CodeRabbit has reviewed the PR's
+  own changes as they stand (the patch check of step 5), and enable auto-merge again: the
+  outbound hook asks the user, as the first time.
+- Auto-merge stalls: every required check is green and `mergeStateStatus` is `CLEAN`, yet
+  10 minutes later the PR is still open. GitHub re-evaluates auto-merge only on an event of
+  the pull request, and a check run cancelled by a concurrency group can make it miss the
+  last one. The user's go covers this merge, for the head they saw only: run
+  `gh pr merge <n> --rebase --match-head-commit <the sha auto-merge was enabled on>`, and
+  tell the user auto-merge stalled.
+
+Confirm the merge with `gh pr view <n> --json state,mergedAt`. If that call is refused, ask
+the user to type `! gh pr view <n> --json state,mergedAt` in the Claude Code prompt (the
+`!` prefix runs it in the session): never report a merge you could not confirm.

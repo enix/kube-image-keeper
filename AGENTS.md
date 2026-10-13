@@ -163,12 +163,14 @@ build are in [`.claude/rules/docs.md`](./.claude/rules/docs.md).
   mode, even when several tasks share one call (`task build deploy`). Not forbidden: the
   user decides, the agent never does it on its own
   ([0003](./notes/0003-agent-orchestration.md)). To let a session drive its own pull
-  request, 4 single commands go through: `git push origin <current feature branch>`
+  request, 5 single commands go through: `git push origin <current feature branch>`
   (`-u` and `--force-with-lease` included; a bare `git push` still asks, it may follow an
   upstream on `main`; never a plain `--force`, `main`, a maintenance or release branch or a
   tag; the branch name starts with a letter or a digit, and `origin` is this repository with
-  no push refmap, URL rewrite or `push.followTags`),
-  `gh pr edit <n> --add-label e2e-ready` and
+  no push refmap, URL rewrite or `push.followTags`; it is refused while auto-merge is
+  enabled on the branch's pull request, which would merge the push unreviewed: disable it
+  first),
+  `gh pr edit <n> --add-label e2e-ready`, `gh pr merge <n> --disable-auto` and
   `gh pr comment <n> --body "@coderabbitai review"` (or `full review`) on the pull request
   of the current branch, and a read written
   `gh api graphql -f query='...' [--jq '...']`, with no single quote, backslash, `$` or

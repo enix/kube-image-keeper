@@ -13,9 +13,17 @@ export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 branch=feature/check
 git -C "$repo" init -q -b "$branch"
 git -C "$repo" remote add origin git@github.com:enix/kube-image-keeper.git
-# A stub gh answers that the current branch has pull request 4242, with no network.
+# A stub gh answers that the current branch has pull request 4242, with no network, and
+# whether auto-merge is off on it: "true" unless AUTOMERGE_OFF says otherwise.
 mkdir "$repo/bin"
-printf '#!/bin/sh\n[ "$1 $2" = "pr view" ] && echo 4242\n' >"$repo/bin/gh"
+cat >"$repo/bin/gh" <<'EOF'
+#!/bin/sh
+[ "$1 $2" = "pr view" ] || exit 1
+case "$*" in
+  *autoMergeRequest*) echo "${AUTOMERGE_OFF:-true}" ;;
+  *) echo 4242 ;;
+esac
+EOF
 chmod +x "$repo/bin/gh"
 PATH="$repo/bin:$PATH"
 failed=0
@@ -25,7 +33,7 @@ check() {
   cmd=$2
   out=$(jq -n --arg c "$cmd" --arg d "${3:-$repo}" '{tool_input: {command: $c}, cwd: $d}' | sh "$hook")
   got=pass
-  case "$out" in *'"ask"'*) got=ask ;; esac
+  case "$out" in *'"ask"'*) got=ask ;; *'"deny"'*) got=deny ;; esac
   if [ "$got" != "$want" ]; then
     echo "FAIL: want $want, got $got: $cmd"
     failed=1
@@ -36,6 +44,12 @@ check() {
 # request of the current branch.
 check pass "gh pr edit 4242 --add-label e2e-ready"
 check ask "gh pr edit 4243 --add-label e2e-ready"
+# Disabling auto-merge on it lowers the risk; enabling it or merging still asks.
+check pass "gh pr merge 4242 --disable-auto"
+check ask "gh pr merge 4243 --disable-auto"
+check ask "gh pr merge 4242 --auto --rebase"
+check ask "gh pr merge 4242 --disable-auto --rebase"
+check ask "gh pr merge 4242 --disable-auto && git push"
 # A CodeRabbit review request too, with exactly that body.
 check pass "gh pr comment 4242 --body \"@coderabbitai review\""
 check pass "gh pr comment 4242 --body '@coderabbitai full review'"
@@ -49,6 +63,17 @@ check ask "gh pr comment 4242 --body \"@coderabbitai review\" --repo other/repo"
 check pass "git push origin $branch"
 check pass "git push -u origin $branch"
 check pass "git push --force-with-lease=$branch:0123abc origin $branch"
+# With auto-merge enabled on its pull request, the push is refused (disable it first); when gh
+# cannot tell, the push asks.
+export AUTOMERGE_OFF
+AUTOMERGE_OFF=false
+check deny "git push origin $branch"
+check deny "git push --force-with-lease origin $branch"
+AUTOMERGE_OFF="error: could not connect"
+check ask "git push origin $branch"
+AUTOMERGE_OFF="no pull requests found for branch \"$branch\""
+check pass "git push -u origin $branch"
+AUTOMERGE_OFF=true
 check pass "gh api graphql -f query='query { viewer { login } }' --jq '.data | .viewer'"
 check pass "gh api graphql -f query='query { viewer { login } }'"
 # Double quotes are literal inside the single-quoted query: the open threads query of the
