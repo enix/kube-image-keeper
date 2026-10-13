@@ -229,6 +229,8 @@ var _ = Describe("Secret syncer", func() {
 			}
 
 			Eventually(users(ns, cr)).WithTimeout(timeout).Should(HaveLen(len(paths)))
+			// The Secret is visible before the syncer counts its apply.
+			Eventually(syncer.allApplies).WithTimeout(timeout).Should(Equal(1.0))
 			Consistently(syncer.allApplies).WithTimeout(2 * time.Second).Should(Equal(1.0))
 		})
 
@@ -391,7 +393,8 @@ var _ = Describe("Secret syncer", func() {
 			cr := createAlternative(always, scope, group(quayGroup, injectedAuth(source)), group(ghcrGroup, nil))
 			syncer := start(startOptions{})
 			Eventually(users(ns, cr)).WithTimeout(timeout).Should(HaveLen(1))
-			applied := syncer.allApplies()
+			// The Secret is visible before the syncer counts its apply.
+			Eventually(syncer.allApplies).WithTimeout(timeout).Should(Equal(1.0))
 
 			// envtest runs no namespace controller: the namespace stays terminating.
 			Expect(k8sClient.Delete(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})).To(Succeed())
@@ -399,7 +402,7 @@ var _ = Describe("Secret syncer", func() {
 				cr.Spec.Alternatives[1].Auth = injectedAuth(source)
 			})
 
-			Consistently(syncer.allApplies).WithTimeout(3 * time.Second).Should(Equal(applied))
+			Consistently(syncer.allApplies).WithTimeout(3 * time.Second).Should(Equal(1.0))
 		})
 	})
 
