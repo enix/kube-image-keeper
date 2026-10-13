@@ -129,8 +129,13 @@ func (e *Exporter) Forget(kind, name string) {
 }
 
 // ForgetReference deletes the kuik_images_tracked and kuik_images_checked series of the
-// population reference of the resource (kind, name). Stub.
-func (e *Exporter) ForgetReference(kind, name, reference string) {}
+// population reference of the resource (kind, name), once the resource no longer has that
+// population: deleting rather than zeroing tells an empty population from a missing one.
+func (e *Exporter) ForgetReference(kind, name, reference string) {
+	labels := prometheus.Labels{labelKind: kind, labelName: name, labelReference: reference}
+	e.tracked.DeletePartialMatch(labels)
+	e.checked.DeletePartialMatch(labels)
+}
 
 // host is the registry host of a normalised image reference.
 func host(image string) string {
