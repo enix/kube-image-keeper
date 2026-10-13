@@ -104,7 +104,7 @@ type monitorMemory struct {
 	// rings are the registry hosts the monitor holds a check ring on.
 	rings map[string]bool
 
-	// mu guards verdicts, which the checks write.
+	// mu guards what the checks write, from verdicts to upstream.
 	mu sync.Mutex
 	// verdicts are the outcome of the last check of each tracked image.
 	verdicts map[string]verdict
@@ -114,6 +114,12 @@ type monitorMemory struct {
 	secretErrs map[string]error
 	// anonymous records, per image, whether its last check sent no credential.
 	anonymous map[string]bool
+	// upstream is, per image, the digest its last successful check read: a failed check keeps
+	// the one before.
+	upstream map[string]string
+
+	// drifts are the tags reported drifted, with when each drift was first observed.
+	drifts map[string]time.Time
 }
 
 // ImageMonitorOptions are what an ImageMonitorReconciler reports with.
@@ -377,11 +383,14 @@ func (r *ImageMonitorReconciler) track(ctx context.Context, im *kuikv1alpha1.Ima
 		pass.Hold(listUnavailableImages, min(held.truncated, max(counts.Unavailable-int32(len(unavailable)), 0)))
 	}
 
+	drifted := r.drift(ctx, im, memory, declared, now)
+
 	next.RetainedImages = retained
 	next.UnavailableImages = unavailable
 	if len(unavailable) == 0 {
 		next.UnavailableImages = nil
 	}
+	next.DriftedImages = drifted
 	next.Images = &kuikv1alpha1.MonitorImages{Origin: &kuikv1alpha1.OriginImageCounts{ImageCounts: kuikv1alpha1.ImageCounts{
 		Tracked:     counts.Running + counts.Standby + counts.Retained,
 		Running:     counts.Running,
@@ -389,11 +398,13 @@ func (r *ImageMonitorReconciler) track(ctx context.Context, im *kuikv1alpha1.Ima
 		Retained:    counts.Retained,
 		Available:   counts.Available,
 		Unavailable: counts.Unavailable,
-	}}}
+	}, Drifted: int32(len(drifted))}}
 	condition.SetAnomaly(&next.Conditions, kuikv1alpha1.ConditionImagesUnavailable, counts.Unavailable > 0,
 		kuikv1alpha1.ReasonChecksFailed, fmt.Sprintf("%d images failing their check", counts.Unavailable), im.Generation)
+	condition.SetAnomaly(&next.Conditions, kuikv1alpha1.ConditionImagesDrifted, len(drifted) > 0,
+		kuikv1alpha1.ReasonUpstreamDigestMoved, fmt.Sprintf("%d tags whose upstream digest moved", len(drifted)), im.Generation)
 	next.Truncated = pass.End(&next.Conditions, im.Generation)
-	r.metrics.report(im.Name, counts, failing)
+	r.metrics.report(im.Name, counts, failing, refsOf(drifted))
 	return requeue, digests, r.fallbackSecrets(ctx, memory)
 }
 
@@ -406,6 +417,9 @@ type declaredImage struct {
 	// digest is what the most recently started of those containers ran, started when.
 	digest    string
 	startedAt time.Time
+	// runningDigests counts, per digest, the pods with a container carrying the reference
+	// itself that runs it. A container whose image is not pulled yet runs none.
+	runningDigests map[string]int32
 }
 
 // declaredOrigins returns the origins the containers of pods declare: the origin of a
@@ -421,6 +435,9 @@ func declaredOrigins(pods []*corev1.Pod) map[string]declaredImage {
 			statuses[st.Name] = st
 		}
 		origins := map[string]bool{}
+		// runs are the digests this pod runs each live image at, so that a pod counts once per
+		// digest however many of its containers run it.
+		runs := map[string]map[string]bool{}
 		for _, c := range attribution.Containers(pod) {
 			declared[c.Origin] = declaredImage{}
 			if !origins[c.Origin] {
@@ -429,10 +446,27 @@ func declaredOrigins(pods []*corev1.Pod) map[string]declaredImage {
 			}
 			l := live[c.Image]
 			l.running = true
-			if digest, startedAt, ok := ranDigest(statuses[c.Name]); ok && (l.digest == "" || startedAt.After(l.startedAt)) {
+			digest, startedAt, ok := ranDigest(statuses[c.Name])
+			if ok && (l.digest == "" || startedAt.After(l.startedAt)) {
 				l.digest, l.startedAt = digest, startedAt
 			}
+			if ok {
+				if runs[c.Image] == nil {
+					runs[c.Image] = map[string]bool{}
+				}
+				runs[c.Image][digest] = true
+			}
 			live[c.Image] = l
+		}
+		for image, digests := range runs {
+			l := live[image]
+			if l.runningDigests == nil {
+				l.runningDigests = map[string]int32{}
+			}
+			for digest := range digests {
+				l.runningDigests[digest]++
+			}
+			live[image] = l
 		}
 	}
 	for origin := range declared {
@@ -450,7 +484,7 @@ func declaredOrigins(pods []*corev1.Pod) map[string]declaredImage {
 // container started.
 func ranDigest(st corev1.ContainerStatus) (string, time.Time, bool) {
 	_, digest, found := strings.Cut(st.ImageID, "@")
-	if !found {
+	if !found || digest == "" {
 		return "", time.Time{}, false
 	}
 	switch {
@@ -474,7 +508,10 @@ func (r *ImageMonitorReconciler) memory(name string, uid types.UID) *monitorMemo
 	defer r.mu.Unlock()
 	m, ok := r.monitors[name]
 	if !ok {
-		m = &monitorMemory{uid: uid, rings: map[string]bool{}, verdicts: map[string]verdict{}, secretErrs: map[string]error{}, anonymous: map[string]bool{}}
+		m = &monitorMemory{
+			uid: uid, rings: map[string]bool{}, verdicts: map[string]verdict{}, secretErrs: map[string]error{},
+			anonymous: map[string]bool{}, upstream: map[string]string{}, drifts: map[string]time.Time{},
+		}
 		r.monitors[name] = m
 	}
 	return m

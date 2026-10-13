@@ -42,11 +42,13 @@ func newMonitorMetrics(registerer prometheus.Registerer) (*monitorMetrics, error
 	return m, nil
 }
 
-// report exports the origin counts of the monitor name, and one kuik_image_origin_unavailable
-// series per failing image, deleting the series of the images that answer again: deleting
-// rather than zeroing resolves an alert at once.
-func (m *monitorMetrics) report(name string, counts imagemetrics.Counts, failing map[string]kuikv1alpha1.CheckFailureReason) {
+// report exports the origin counts of the monitor name, one kuik_image_origin_unavailable
+// series per failing image and one kuik_image_drifted series per drifted tag, deleting the
+// series of the images that answer again or caught up: deleting rather than zeroing resolves
+// an alert at once.
+func (m *monitorMetrics) report(name string, counts imagemetrics.Counts, failing map[string]kuikv1alpha1.CheckFailureReason, drifted []string) {
 	m.images.SetCounts(kindImageMonitor, name, imagemetrics.ReferenceOrigin, counts)
+	m.images.SetDrifted(kindImageMonitor, name, drifted)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
