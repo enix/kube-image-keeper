@@ -137,6 +137,8 @@ var specDefaults = Pacing{
 func defaults() *Config {
 	return &Config{
 		Mirror: Mirror{DestinationScan: DestinationScan{Interval: Duration{time.Hour}}},
+		// The grace pullsecret.GraceDuration has always held.
+		SecretSyncer: SecretSyncer{OnFailureGrace: Duration{15 * time.Minute}},
 		Webhook: Webhook{
 			DemoteMirrorWithPullPolicyAlways: true,
 			AvailabilityCheck: AvailabilityCheck{
@@ -278,6 +280,7 @@ func (c *Config) validate() error {
 		checkInterval("mirror.destinationScan.interval", c.Mirror.DestinationScan.Interval),
 		checkPositive("webhook.availabilityCheck.timeout", c.Webhook.AvailabilityCheck.Timeout),
 		checkPositive("webhook.availabilityCheck.activeCheckCache.ttl", c.Webhook.AvailabilityCheck.ActiveCheckCache.TTL),
+		checkPositive("secretSyncer.onFailureGrace", c.SecretSyncer.OnFailureGrace),
 		c.Registries.Default.validate("registries."+defaultBlock),
 	)
 	for host, block := range c.Registries.Hosts {
