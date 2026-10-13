@@ -212,7 +212,8 @@ tasks:
       - task: fmt
       - task: vet
       - defer: '[ "{{.PREEXISTING}}" = true ] || {{.KIND}} delete cluster --name {{.KIND_CLUSTER}}'
-      - KIND={{.KIND}} KIND_CLUSTER={{.KIND_CLUSTER}} go test -tags=e2e ./test/e2e/ -v -ginkgo.v
+      # go test stops a run at 10 minutes by default, which the suite now outgrows.
+      - KIND={{.KIND}} KIND_CLUSTER={{.KIND_CLUSTER}} go test -tags=e2e ./test/e2e/ -timeout=20m -v -ginkgo.v
 
   cleanup-test-e2e:
     desc: Delete the Kind cluster used by the e2e tests
