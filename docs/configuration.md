@@ -53,6 +53,7 @@ A key left out takes the default below.
 | `clusterID` | none, required | Identity of this cluster, appended to every tag an `ImageMirror` writes, matching `^[a-zA-Z0-9][a-zA-Z0-9.-]*$`, at most 56 characters. Pick a short name that stays stable for the life of the cluster: changing it orphans every tag written under the previous one, and two clusters sharing a mirror destination need different ones. The chart fails to render without `config.clusterID` |
 | `metrics.copyDuration` | `false` | Histogram of how long each copy took, per `ImageMirror` |
 | `mirror.destinationScan.interval` | `1h` | How often each `ImageMirror` re-reads its own destination |
+| `secretSyncer.onFailureGrace` | `15m` | How long an entry of an injected pull Secret stays once no live pod uses it, for a `rewritePolicy: OnFailure` resource: the next pod of a rollout or a scale-up during an outage still finds the credential. Held in memory: a restart of the secret syncer drops the entries in their grace. Must be positive |
 | `webhook.demoteMirrorWithPullPolicyAlways` | `true` | Demote a mirror candidate for a container with `imagePullPolicy: Always` |
 | `webhook.availabilityCheck.timeout` | `2s` | Time before the webhook considers a candidate unavailable |
 | `webhook.availabilityCheck.activeCheckCache.ttl` | `10s` | Lifetime of an active check result, per webhook replica |
