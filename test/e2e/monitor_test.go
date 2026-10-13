@@ -84,6 +84,25 @@ var _ = Describe("Image monitoring", Ordered, func() {
 			`reason="Unreachable",registry="e2e-monitor.invalid"}`, unreachable, monitorName)
 		Eventually(reconcilerSeries).WithArguments(series).Should(Equal(1.0))
 	})
+
+	It("reports no drift for a multi-arch tag the kubelet pulled by tag", func() {
+		// The node's runtime reports the digest it pulled; only a real kubelet can say whether it
+		// is the digest the registry serves for the tag (kubernetes/kubernetes#115199). The pause
+		// tag of availableImage is the node's sandbox image, already present and reported as a
+		// bare config digest: another tag of it is pulled for real.
+		const pulled = "registry.k8s.io/pause:3.9"
+		Expect(kubectlStdin(monitorPodManifest("pulled", pulled), "create", "-f", "-")).
+			Error().NotTo(HaveOccurred())
+		Eventually(kubectl).WithArguments("get", "pod", "pulled", "-n", monitorNamespace,
+			"-o", "jsonpath={.status.containerStatuses[0].imageID}").Should(ContainSubstring("@sha256:"))
+		// Both pause tags answer; the unreachable image of the previous spec does not.
+		Eventually(kubectl).WithTimeout(4*time.Minute).WithArguments("get", "imagemonitor", monitorName,
+			"-o", "jsonpath={.status.images.origin.available}").Should(Equal("2"))
+		// Both the upstream digest and the running one are known: a report holding them follows
+		// within the status interval.
+		Consistently(kubectl).WithTimeout(30*time.Second).WithArguments("get", "imagemonitor", monitorName,
+			"-o", "jsonpath={.status.images.origin.drifted}/{.status.driftedImages}").Should(Equal("0/"))
+	})
 })
 
 // reconcilerSeries sums the value of one series over the reconciler pods.
