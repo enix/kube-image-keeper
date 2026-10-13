@@ -401,13 +401,22 @@ var _ = Describe("Pod routing", Ordered, func() {
 		var original string
 
 		BeforeEach(func() {
-			var err error
-			original, err = kubectl("get", "configmap", configMapName, "-n", namespace,
+			// Set only once read: the AfterEach writes it back, never kubectl's error output.
+			original = ""
+			read, err := kubectl("get", "configmap", configMapName, "-n", namespace,
 				"-o", `jsonpath={.data.config\.yaml}`)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(original).NotTo(BeEmpty())
-			original = strings.TrimRight(original, "\n") + "\n"
-			DeferCleanup(setConfig, original)
+			Expect(read).NotTo(BeEmpty())
+			original = strings.TrimRight(read, "\n") + "\n"
+		})
+
+		// An AfterEach, not a DeferCleanup: Ginkgo runs a DeferCleanup after the AfterAll of the
+		// container, which deletes the routing resources once the last spec ends, and no replica
+		// could route again.
+		AfterEach(func() {
+			if original != "" {
+				restoreConfig(original)
+			}
 		})
 
 		// A 1ms availabilityCheck.timeout fails every probe, so a replica that loaded it stops
@@ -736,6 +745,16 @@ func startAPIProxy() {
 	address, found := strings.CutPrefix(strings.TrimSpace(line), "Starting to serve on ")
 	Expect(found).To(BeTrue(), "unexpected kubectl proxy output: %q", line)
 	apiProxy = "http://" + address
+}
+
+// restoreConfig sets the global config back to content and waits until every webhook replica
+// routes again under it: a ConfigMap reaches a pod only on a kubelet sync, so the specs that run
+// next would otherwise meet the edited config. kuik exposes no signal of a successful reload,
+// hence the wait on routing itself.
+func restoreConfig(content string) {
+	GinkgoHelper()
+	setConfig(content)
+	Eventually(replicasRouting, "3m").Should(everyReplica(BeTrue()))
 }
 
 // everyReplica matches a replicasRouting result where each of the 2 webhook replicas matches
