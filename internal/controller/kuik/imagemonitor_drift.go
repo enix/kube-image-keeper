@@ -7,7 +7,9 @@ import (
 	"slices"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/klog/v2"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
@@ -30,7 +32,7 @@ func (r *ImageMonitorReconciler) drift(ctx context.Context, im *kuikv1alpha1.Ima
 		if len(memory.drifts) > 0 {
 			log.Info("Dropped the drifted tags of an ImageMonitor whose driftDetection is off", "count", len(memory.drifts))
 		}
-		memory.drifts = map[string]time.Time{}
+		memory.drifts = map[string]driftState{}
 		return nil
 	}
 	memory.mu.Lock()
@@ -38,23 +40,45 @@ func (r *ImageMonitorReconciler) drift(ctx context.Context, im *kuikv1alpha1.Ima
 	memory.mu.Unlock()
 
 	stamp := metav1.NewTime(now).Rfc3339Copy().Time
-	drifts := map[string]time.Time{}
+	drifts := map[string]driftState{}
 	var entries []kuikv1alpha1.MonitorDriftedImage
-	for ref, d := range declared {
+	for _, ref := range slices.Sorted(maps.Keys(declared)) {
+		d := declared[ref]
+		if d.undigested != nil && !memory.undigested[ref] && !pinned(ref) {
+			// Its runtime reports a bare config digest: nothing to compare to the upstream one.
+			memory.undigested[ref] = true
+			log.Info("Found image running without a registry digest, its drift is not checked",
+				"image", ref, "pod", klog.KObj(d.undigested))
+		}
 		digest, ok := upstream[ref]
 		if !ok || pinned(ref) || !driftsFrom(d.runningDigests, digest) {
 			continue
 		}
-		since, known := memory.drifts[ref]
+		state, known := memory.drifts[ref]
 		if !known {
-			since = stamp
+			// A drift that goes on while the upstream moves again is the same drift: it is
+			// announced once, when it starts.
+			state = driftState{since: stamp}
 			log.Info("Found image drifted from its upstream digest", "image", ref, "upstreamDigest", digest)
+			r.recorder.Eventf(im, nil, corev1.EventTypeWarning, eventImageTagDrifted, "Check",
+				"The upstream digest of %s moved to %s while pods run another one. Follow it or pin the digest", ref, digest)
 		}
-		drifts[ref] = since
+		skewed := len(d.runningDigests) > 1
+		if skewed && !state.skewed {
+			log.Info("Found image running several digests", "image", ref, "digests", len(d.runningDigests))
+			r.recorder.Eventf(im, nil, corev1.EventTypeWarning, eventImageClusterSkew, "Check",
+				"Pods run %s at %d different digests: part of the cluster has not caught up. "+
+					"Restart the workloads or force a pull", ref, len(d.runningDigests))
+		}
+		if !skewed && state.skewed {
+			log.Info("Found image running one digest again", "image", ref)
+		}
+		state.skewed = skewed
+		drifts[ref] = state
 		entries = append(entries, kuikv1alpha1.MonitorDriftedImage{
 			Ref:            ref,
 			UpstreamDigest: digest,
-			Since:          metav1.NewTime(since),
+			Since:          metav1.NewTime(state.since),
 			RunningDigests: runningDigests(d.runningDigests),
 		})
 	}
@@ -69,6 +93,33 @@ func (r *ImageMonitorReconciler) drift(ctx context.Context, im *kuikv1alpha1.Ima
 		return cmp.Or(a.Since.Compare(b.Since.Time), cmp.Compare(a.Ref, b.Ref))
 	})
 	return entries
+}
+
+// The events a drift emits, on the monitor. See docs/v3/observability.md, "Catalogue". The end
+// of a drift emits nothing: the cluster caught up, which is not news.
+const (
+	eventImageTagDrifted  = "ImageTagDrifted"
+	eventImageClusterSkew = "ImageClusterSkew"
+)
+
+// driftState is what a monitor remembers of a drifted tag.
+type driftState struct {
+	// since is when the drift was first observed, kept while it lasts.
+	since time.Time
+	// skewed is set while pods run the tag at more than one digest, once ImageClusterSkew
+	// announced it.
+	skewed bool
+}
+
+// skewOf returns, per drifted tag its pods run at several digests, how many.
+func skewOf(entries []kuikv1alpha1.MonitorDriftedImage) map[string]int {
+	skew := map[string]int{}
+	for _, e := range entries {
+		if len(e.RunningDigests) > 1 {
+			skew[e.Ref] = len(e.RunningDigests)
+		}
+	}
+	return skew
 }
 
 // pinned reports whether ref carries a digest: a digest cannot drift.

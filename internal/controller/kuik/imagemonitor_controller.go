@@ -118,8 +118,10 @@ type monitorMemory struct {
 	// the one before.
 	upstream map[string]string
 
-	// drifts are the tags reported drifted, with when each drift was first observed.
-	drifts map[string]time.Time
+	// drifts are the tags reported drifted.
+	drifts map[string]driftState
+	// undigested are the tags logged once as running without a registry digest.
+	undigested map[string]bool
 }
 
 // ImageMonitorOptions are what an ImageMonitorReconciler reports with.
@@ -404,7 +406,7 @@ func (r *ImageMonitorReconciler) track(ctx context.Context, im *kuikv1alpha1.Ima
 	condition.SetAnomaly(&next.Conditions, kuikv1alpha1.ConditionImagesDrifted, len(drifted) > 0,
 		kuikv1alpha1.ReasonUpstreamDigestMoved, fmt.Sprintf("%d tags whose upstream digest moved", len(drifted)), im.Generation)
 	next.Truncated = pass.End(&next.Conditions, im.Generation)
-	r.metrics.report(im.Name, counts, failing, refsOf(drifted))
+	r.metrics.report(im.Name, counts, failing, refsOf(drifted), skewOf(drifted))
 	return requeue, digests, r.fallbackSecrets(ctx, memory)
 }
 
@@ -420,6 +422,10 @@ type declaredImage struct {
 	// runningDigests counts, per digest, the pods with a container carrying the reference
 	// itself that runs it. A container whose image is not pulled yet runs none.
 	runningDigests map[string]int32
+	// undigested is a pod with a container carrying the reference itself whose imageID holds
+	// no registry digest: an image the node had before any pull (a preloaded, `kind load` or
+	// `ctr import` image) reports a bare config digest. Nil when there is none.
+	undigested *corev1.Pod
 }
 
 // declaredOrigins returns the origins the containers of pods declare: the origin of a
@@ -449,6 +455,9 @@ func declaredOrigins(pods []*corev1.Pod) map[string]declaredImage {
 			digest, startedAt, ok := ranDigest(statuses[c.Name])
 			if ok && (l.digest == "" || startedAt.After(l.startedAt)) {
 				l.digest, l.startedAt = digest, startedAt
+			}
+			if !ok && statuses[c.Name].ImageID != "" && l.undigested == nil {
+				l.undigested = pod
 			}
 			if ok {
 				if runs[c.Image] == nil {
@@ -510,7 +519,7 @@ func (r *ImageMonitorReconciler) memory(name string, uid types.UID) *monitorMemo
 	if !ok {
 		m = &monitorMemory{
 			uid: uid, rings: map[string]bool{}, verdicts: map[string]verdict{}, secretErrs: map[string]error{},
-			anonymous: map[string]bool{}, upstream: map[string]string{}, drifts: map[string]time.Time{},
+			anonymous: map[string]bool{}, upstream: map[string]string{}, drifts: map[string]driftState{}, undigested: map[string]bool{},
 		}
 		r.monitors[name] = m
 	}

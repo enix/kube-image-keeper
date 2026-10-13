@@ -16,11 +16,14 @@ import (
 type monitorMetrics struct {
 	images            *imagemetrics.Exporter
 	originUnavailable *prometheus.GaugeVec
+	clusterSkew       *prometheus.GaugeVec
 
 	mu sync.Mutex
 	// failing are the label values of the kuik_image_origin_unavailable series of each
 	// monitor, so that an image answering again deletes its series.
 	failing map[string]map[[3]string]bool
+	// skewed are the images each monitor has a kuik_image_cluster_skew_digests series for.
+	skewed map[string]map[string]bool
 }
 
 func newMonitorMetrics(registerer prometheus.Registerer) (*monitorMetrics, error) {
@@ -33,25 +36,44 @@ func newMonitorMetrics(registerer prometheus.Registerer) (*monitorMetrics, error
 		originUnavailable: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "kuik_image_origin_unavailable",
 			Help: "1 while a tracked origin reference is failing its availability check",
-		}, []string{seriesKind, seriesName, "image", "registry", seriesReason}),
+		}, []string{seriesKind, seriesName, seriesImage, seriesRegistry, seriesReason}),
+		clusterSkew: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "kuik_image_cluster_skew_digests",
+			Help: "Number of distinct digests running for one image reference. Present only while pods disagree, so its value is always 2 or more",
+		}, []string{seriesKind, seriesName, seriesImage, seriesRegistry}),
 		failing: map[string]map[[3]string]bool{},
+		skewed:  map[string]map[string]bool{},
 	}
-	if err := registerer.Register(m.originUnavailable); err != nil {
-		return nil, err
+	for _, c := range []prometheus.Collector{m.originUnavailable, m.clusterSkew} {
+		if err := registerer.Register(c); err != nil {
+			return nil, err
+		}
 	}
 	return m, nil
 }
 
 // report exports the origin counts of the monitor name, one kuik_image_origin_unavailable
-// series per failing image and one kuik_image_drifted series per drifted tag, deleting the
-// series of the images that answer again or caught up: deleting rather than zeroing resolves
-// an alert at once.
-func (m *monitorMetrics) report(name string, counts imagemetrics.Counts, failing map[string]kuikv1alpha1.CheckFailureReason, drifted []string) {
+// series per failing image, one kuik_image_drifted series per drifted tag and one
+// kuik_image_cluster_skew_digests series per tag pods run at several digests, deleting the
+// series of the anomalies that ended: deleting rather than zeroing resolves an alert at once.
+func (m *monitorMetrics) report(name string, counts imagemetrics.Counts, failing map[string]kuikv1alpha1.CheckFailureReason, drifted []string, skew map[string]int) {
 	m.images.SetCounts(kindImageMonitor, name, imagemetrics.ReferenceOrigin, counts)
 	m.images.SetDrifted(kindImageMonitor, name, drifted)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	skewed := map[string]bool{}
+	for image, digests := range skew {
+		skewed[image] = true
+		m.clusterSkew.WithLabelValues(kindImageMonitor, name, image, registryOf(image)).Set(float64(digests))
+	}
+	for image := range m.skewed[name] {
+		if !skewed[image] {
+			m.clusterSkew.DeleteLabelValues(kindImageMonitor, name, image, registryOf(image))
+		}
+	}
+	m.skewed[name] = skewed
+
 	current := map[[3]string]bool{}
 	for image, reason := range failing {
 		labels := [3]string{image, registryOf(image), string(reason)}
@@ -80,7 +102,9 @@ func registryOf(image string) string {
 func (m *monitorMetrics) forget(name string) {
 	m.images.Forget(kindImageMonitor, name)
 	m.originUnavailable.DeletePartialMatch(prometheus.Labels{seriesKind: kindImageMonitor, seriesName: name})
+	m.clusterSkew.DeletePartialMatch(prometheus.Labels{seriesKind: kindImageMonitor, seriesName: name})
 	m.mu.Lock()
 	delete(m.failing, name)
+	delete(m.skewed, name)
 	m.mu.Unlock()
 }
