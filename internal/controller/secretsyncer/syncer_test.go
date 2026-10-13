@@ -264,7 +264,7 @@ var _ = Describe("Secret syncer", func() {
 			leaving := createRewrittenPod(ns, cr, "ghcr.io/acme/foo:1")
 			Eventually(users(ns, cr)).WithTimeout(timeout).Should(HaveLen(2))
 
-			Expect(k8sClient.Delete(ctx, leaving)).To(Succeed())
+			deleteAndReconcile(leaving)
 			Consistently(users(ns, cr)).WithTimeout(2 * time.Second).Should(HaveLen(2))
 
 			now.Advance(pullsecret.GraceDuration)
@@ -284,7 +284,7 @@ var _ = Describe("Secret syncer", func() {
 			leaving := createRewrittenPod(ns, cr, "ghcr.io/acme/foo:1")
 			Eventually(users(ns, cr)).WithTimeout(timeout).Should(HaveLen(2))
 
-			Expect(k8sClient.Delete(ctx, leaving)).To(Succeed())
+			deleteAndReconcile(leaving)
 			Consistently(users(ns, cr)).WithTimeout(2 * time.Second).Should(HaveLen(2))
 
 			// A minute, far below the 15 minute default.
@@ -304,7 +304,7 @@ var _ = Describe("Secret syncer", func() {
 			leaving := createRewrittenPod(ns, cr, "ghcr.io/acme/foo:1")
 			Eventually(users(ns, cr)).WithTimeout(timeout).Should(HaveLen(2))
 
-			Expect(k8sClient.Delete(ctx, leaving)).To(Succeed())
+			deleteAndReconcile(leaving)
 			Consistently(users(ns, cr)).WithTimeout(2 * time.Second).Should(HaveLen(2))
 
 			running.syncer.SetConfig(&kuikconfig.Config{
@@ -326,7 +326,7 @@ var _ = Describe("Secret syncer", func() {
 			leaving := createRewrittenPod(ns, cr, "ghcr.io/acme/foo:1")
 			Eventually(users(ns, cr)).WithTimeout(timeout).Should(HaveLen(2))
 
-			Expect(k8sClient.Delete(ctx, leaving)).To(Succeed())
+			deleteAndReconcile(leaving)
 			Consistently(users(ns, cr)).WithTimeout(2 * time.Second).Should(HaveLen(2))
 
 			// No time passes: the new process holds no grace to keep the entry with.
@@ -344,7 +344,7 @@ var _ = Describe("Secret syncer", func() {
 			pod := createRewrittenPod(ns, cr, "ghcr.io/acme/foo:1")
 			Eventually(users(ns, cr)).WithTimeout(timeout).Should(HaveLen(1))
 
-			Expect(k8sClient.Delete(ctx, pod)).To(Succeed())
+			deleteAndReconcile(pod)
 			Consistently(users(ns, cr)).WithTimeout(2 * time.Second).Should(HaveLen(1))
 			now.Advance(pullsecret.GraceDuration)
 			// A pod of the entry without credentials reconciles the pair again.
