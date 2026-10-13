@@ -362,6 +362,7 @@ var _ = Describe("Grace", func() {
 
 	It("keeps an entry that left the desired set for the default 15 minutes", func() {
 		grace.Retain(pair, []Credential{a, b})
+		grace.Retain(pair, []Credential{a})
 		now = now.Add(15*time.Minute - time.Second)
 
 		Expect(grace.Retain(pair, []Credential{a})).To(ConsistOf(a, b))
@@ -369,14 +370,27 @@ var _ = Describe("Grace", func() {
 
 	It("drops it once the default 15 minutes have elapsed", func() {
 		grace.Retain(pair, []Credential{a, b})
+		grace.Retain(pair, []Credential{a})
 		now = now.Add(15 * time.Minute)
 
+		Expect(grace.Retain(pair, []Credential{a})).To(ConsistOf(a))
+	})
+
+	It("starts the grace when an entry leaves the desired set, however long it was used before", func() {
+		grace.Retain(pair, []Credential{a, b})
+		now = now.Add(time.Hour)
+
+		Expect(grace.Retain(pair, []Credential{a})).To(ConsistOf(a, b), "b leaves after an hour of use")
+		now = now.Add(15*time.Minute - time.Second)
+		Expect(grace.Retain(pair, []Credential{a})).To(ConsistOf(a, b))
+		now = now.Add(time.Second)
 		Expect(grace.Retain(pair, []Credential{a})).To(ConsistOf(a))
 	})
 
 	It("drops an entry once the duration it was given has elapsed, not 15 minutes", func() {
 		grace.SetDuration(time.Minute)
 		grace.Retain(pair, []Credential{a, b})
+		grace.Retain(pair, []Credential{a})
 
 		now = now.Add(time.Minute - time.Second)
 		Expect(grace.Retain(pair, []Credential{a})).To(ConsistOf(a, b))
@@ -387,7 +401,9 @@ var _ = Describe("Grace", func() {
 	It("measures the entries already in their grace against a changed duration, shortened or lengthened", func() {
 		other := Pair{Namespace: "team-b"}
 		grace.Retain(pair, []Credential{a, b})
+		grace.Retain(pair, []Credential{a})
 		grace.Retain(other, []Credential{a, b})
+		grace.Retain(other, []Credential{a})
 
 		now = now.Add(5 * time.Minute)
 		grace.SetDuration(2 * time.Minute)
@@ -400,10 +416,10 @@ var _ = Describe("Grace", func() {
 
 	It("restarts the period when the entry comes back and leaves again", func() {
 		grace.Retain(pair, []Credential{a, b})
-		now = now.Add(10 * time.Minute)
 		grace.Retain(pair, []Credential{a})
-		now = now.Add(2 * time.Minute)
+		now = now.Add(10 * time.Minute)
 		grace.Retain(pair, []Credential{a, b})
+		grace.Retain(pair, []Credential{a})
 
 		now = now.Add(14 * time.Minute)
 		Expect(grace.Retain(pair, []Credential{a})).To(ConsistOf(a, b))
@@ -414,9 +430,10 @@ var _ = Describe("Grace", func() {
 	It("tracks each pair and entry separately", func() {
 		other := Pair{Namespace: "team-b"}
 		grace.Retain(pair, []Credential{a, b})
+		grace.Retain(pair, []Credential{b})
 		grace.Retain(other, []Credential{a})
 		now = now.Add(10 * time.Minute)
-		grace.Retain(pair, []Credential{b})
+		grace.Retain(pair, nil)
 		grace.Retain(other, []Credential{a})
 
 		now = now.Add(6 * time.Minute)
