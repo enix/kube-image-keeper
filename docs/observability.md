@@ -51,6 +51,7 @@ created.
 | `AnonymousAccessDenied` | Warning | A registry refused an anonymous check with `Unauthorized`: the image is likely private, and neither a pod's pull secret nor `fallbackAuth` covers it. Declare a [`fallbackAuth`](./configuration.md#fallbackauth) entry. Never for an image a `fallbackAuth` entry matches, even one whose Secret is missing or malformed: `Ready` reports that. Once while the image stays in `status.unavailableImages`, whatever reason it fails with meanwhile; a restart does not announce it again, unless the image was beyond the cap of that list or its last persisted reason was not `Unauthorized`. Only the monitor whose ring sent the request emits it, not the ones that reuse its verdict |
 | `ImageTagDrifted` | Warning | The upstream digest of a tag pods run moved: the tag entered `status.driftedImages`. Follow it or pin the digest. Once per drift: the upstream moving again while it lasts emits nothing, and a restart does not announce it again unless the tag was beyond the cap of the list |
 | `ImageClusterSkew` | Warning | Pods run a drifted tag at more than one digest: part of the cluster has not caught up. Restart the workloads or force a pull. Once each time a drifted tag goes from one running digest to several; a restart does not announce it again unless the tag was beyond the cap of the list |
+| `AlternativeUnusable` | Warning | A registry refused a monitored alternative with `Unauthorized`: it cannot be offered as a candidate until a credential is declared, in the `auth` of its entry or in [`fallbackAuth`](./configuration.md#fallbackauth). Each time the failure of the alternative becomes `Unauthorized`, not again while it stays so. An alternative failing for any other reason emits nothing |
 
 An image going unavailable for any other reason emits nothing: read `status.unavailableImages`,
 or alert on `kuik_image_origin_unavailable`. A drift that ends, the pods having caught up with
@@ -110,11 +111,11 @@ destination.
 
 ### Monitor
 
-An `ImageMonitor` exports the origin references of the pods it selects, `status.images.origin`.
+An `ImageMonitor` exports the origin references of the pods it selects, `status.images.origin`, and under `monitorAlternatives` their alternatives, `status.images.alternatives` (`reference="alternatives"`). Turning `monitorAlternatives` off deletes the `alternatives` series.
 
 | Metric | Type | Value |
 | ------ | ---- | ----- |
-| `kuik_images_tracked{kind, name, reference, state}` | gauge | Origin references the monitor tracks (`reference="origin"`), by `state`: `running`, `standby`, `retained` |
+| `kuik_images_tracked{kind, name, reference, state}` | gauge | Origin references the monitor tracks (`reference="origin"`), or their alternatives (`reference="alternatives"`), by `state`: `running`, `standby`, `retained` |
 | `kuik_images_checked{kind, name, reference, state}` | gauge | The same references by verdict of their last check: `available`, `unavailable` |
 
 `sum without(state) (kuik_images_tracked{reference="origin"})` is `status.images.origin.tracked`.
@@ -137,6 +138,7 @@ hold every affected image, whatever the cap on the status lists.
 | `kuik_rewrite_stale_pods{kind, name, image, registry}` | `status.staleRewrites` |
 | `kuik_image_copy_failed{kind, name, image, registry, reason}` | `ImageMirror.status.failedImageCopies`. `1` per image whose copy fails; `registry` is the side that failed: the source on `SourceNotFound`, `SourceUnreachable`, the destination on `PushRejected`, `DestinationUnreachable`, whichever side answered on `Unauthorized`, `QuotaExceeded` |
 | `kuik_image_origin_unavailable{kind, name, image, registry, reason}` | `ImageMonitor.status.unavailableImages`. `1` per tracked origin whose last check failed, with its `reason`: `ManifestNotFound`, `Unauthorized`, `QuotaExceeded`, `Unreachable`. No event announces it: alert on this series. After a restart, the series of an image beyond the cap of the list comes back once its ring reaches it |
+| `kuik_image_alternative_unavailable{kind, name, image, registry, derived_from, via, reason}` | `ImageMonitor.status.unavailableAlternatives`. `1` per monitored alternative whose last check failed and origin it stands for: `image` is the alternative, `registry` its host, `derived_from` the origin, `via` the `ImageAlternative` offering it, as `ImageAlternative/<name>` |
 | `kuik_image_drifted{kind, name, image, registry}` | `status.driftedImages`. `1` per tag: on an `ImageMonitor`, whose pods run a digest other than the upstream one, under `driftDetection`; on an `ImageMirror`, whose upstream digest moved away from the copy, under `driftPolicy: Warn`, and briefly under `Sync` until the resync. `image` is the origin reference on both. After a restart, the series of an `ImageMonitor` tag beyond the cap of the list comes back once its ring reaches it |
 | `kuik_image_cluster_skew_digests{kind, name, image, registry}` | `ImageMonitor.status.driftedImages[].runningDigests`, whose length it is: the number of digests pods run a drifted tag at, present only while it is 2 or more. After a restart, the series of a tag beyond the cap of the list comes back once its ring reaches it |
 
