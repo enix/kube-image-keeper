@@ -139,6 +139,12 @@ func reconcilerSeries(series string) (float64, error) {
 // monitorPodManifest is a pod of the monitoring namespace running image in one container
 // named pause, admissible under the restricted security policy.
 func monitorPodManifest(name, image string) string {
+	return pausePodManifest(monitorNamespace, name, image)
+}
+
+// pausePodManifest is a pod of namespace running image in one container named pause,
+// admissible under the restricted security policy.
+func pausePodManifest(namespace, name, image string) string {
 	return fmt.Sprintf(`
 apiVersion: v1
 kind: Pod
@@ -157,5 +163,5 @@ spec:
         runAsUser: 65535
         seccompProfile:
           type: RuntimeDefault
-`, name, monitorNamespace, image)
+`, name, namespace, image)
 }
