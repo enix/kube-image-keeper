@@ -5,6 +5,8 @@ package e2e
 import (
 	"encoding/base64"
 	"fmt"
+	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -28,6 +30,44 @@ const (
 
 // syncedSecret is the pull Secret the syncer writes for syncedAlternative
 const syncedSecret = "kuik-inject-imagealternative-" + syncedAlternative
+
+const (
+	// onFailureAlternative reroutes onFailurePod, whose origin never resolves, to a candidate
+	// carrying syncedSource: its entry is what the grace keeps.
+	onFailureAlternative       = "e2e-secrets-onfailure"
+	onFailureAlternativeOrigin = "e2e-secrets-onfailure.invalid/pause"
+	onFailurePod               = "e2e-secrets-onfailure"
+	onFailureSecret            = "kuik-inject-imagealternative-" + onFailureAlternative
+)
+
+var onFailureResource = fmt.Sprintf(`
+apiVersion: kuik.enix.io/v1alpha1
+kind: ImageAlternative
+metadata:
+  name: %[1]s
+spec:
+  rewritePolicy: OnFailure
+  namespaceSelector:
+    matchLabels:
+      %[2]s: "true"
+  alternatives:
+    - repository: %[3]s
+    - repository: registry.k8s.io/pause
+      auth:
+        secretRef:
+          name: %[4]s
+`, onFailureAlternative, syncerLabel, onFailureAlternativeOrigin, syncedSource)
+
+// pullSecretConfig returns the decoded .dockerconfigjson of the pull Secret name in the syncer
+// namespace.
+func pullSecretConfig(name string) (string, error) {
+	encoded, err := kubectl("get", "secret", name, "-n", syncerNamespace, "-o", `jsonpath={.data.\.dockerconfigjson}`)
+	if err != nil {
+		return "", err
+	}
+	config, err := base64.StdEncoding.DecodeString(encoded)
+	return string(config), err
+}
 
 var syncerResources = fmt.Sprintf(`
 apiVersion: kuik.enix.io/v1alpha1
@@ -107,6 +147,38 @@ var _ = Describe("Pull secret syncing", Ordered, func() {
 		Eventually(kubectl).WithArguments("get", "events.events.k8s.io", "-A",
 			"-o", `jsonpath={range .items[?(@.reason=="PullSecretInjectionFailed")]}{.regarding.name}{"\n"}{end}`).
 			Should(ContainSubstring(unresolvedAlternative))
+	})
+
+	It("keeps the entry of an OnFailure pair after the last live pod using it goes, "+
+		"then empties the Secret once the configured grace elapsed", func() {
+		By("shortening the grace through the global config, reloaded in place")
+		original, err := kubectl("get", "configmap", configMapName, "-n", namespace,
+			"-o", `jsonpath={.data.config\.yaml}`)
+		Expect(err).NotTo(HaveOccurred())
+		original = strings.TrimRight(original, "\n") + "\n"
+		DeferCleanup(setConfig, original)
+		setConfig(original + "secretSyncer:\n  onFailureGrace: 10s\n")
+
+		By("rewriting a pod through an OnFailure ImageAlternative that injects a credential")
+		Expect(kubectlStdin(onFailureResource, "apply", "-f", "-")).Error().NotTo(HaveOccurred())
+		DeferCleanup(kubectl, "delete", "imagealternative", onFailureAlternative, "--ignore-not-found")
+		_, err = kubectl("run", onFailurePod, "-n", syncerNamespace, "--restart=Never",
+			"--image="+onFailureAlternativeOrigin+":3.10")
+		Expect(err).NotTo(HaveOccurred())
+		Eventually(pullSecretConfig).WithArguments(onFailureSecret).
+			Should(ContainSubstring(`"registry.k8s.io/pause"`))
+
+		By("deleting the last pod that uses the entry")
+		_, err = kubectl("delete", "pod", onFailurePod, "-n", syncerNamespace, "--grace-period=0", "--force")
+		Expect(err).NotTo(HaveOccurred())
+		Consistently(pullSecretConfig).WithArguments(onFailureSecret).WithTimeout(3 * time.Second).
+			Should(ContainSubstring(`"registry.k8s.io/pause"`))
+
+		By("waiting for the grace to elapse: the Secret stays, emptied")
+		// The ConfigMap reaches the pod within a kubelet sync, then the syncer rechecks a pair in
+		// its grace every minute.
+		Eventually(pullSecretConfig).WithArguments(onFailureSecret).WithTimeout(4 * time.Minute).
+			Should(Equal(`{"auths":{}}`))
 	})
 
 	It("deletes the pull Secret with its ImageAlternative", func() {
