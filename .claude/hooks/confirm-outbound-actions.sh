@@ -2,8 +2,9 @@
 # PreToolUse hook (Bash): commands that leave the working copy (push, pull requests,
 # releases, deployments) ask the user first, whatever the permission mode. They are not
 # forbidden: notes/0003 says the agent never does them on its own. A session drives its own
-# pull request without asking for 4 single commands: pushing its feature branch, adding the
-# e2e-ready label, asking CodeRabbit for a review, and a GraphQL read. Merging still asks.
+# pull request without asking for 5 single commands: pushing its feature branch, adding the
+# e2e-ready label, disabling auto-merge, asking CodeRabbit for a review, and a GraphQL read.
+# Merging, and enabling auto-merge, still ask.
 set -eu
 
 command -v jq >/dev/null 2>&1 || {
@@ -14,6 +15,28 @@ input=$(cat)
 cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // empty')
 cwd=$(printf '%s' "$input" | jq -r '.cwd // empty')
 [ -n "$cmd" ] || exit 0
+
+# automerge_off holds when the pull request of the current branch has no auto-merge enabled,
+# or when the branch has no pull request yet. With auto-merge enabled, GitHub would merge a
+# push as soon as the checks pass, before anyone reviews it: the push asks. Any other answer
+# of gh (network, auth) asks too.
+automerge_off() {
+  out=$(cd "${cwd:-.}" 2>/dev/null && gh pr view --json autoMergeRequest --jq '.autoMergeRequest == null' 2>&1) && [ "$out" = true ] && return 0
+  case "$out" in *'no pull requests found'*) return 0 ;; esac
+  # Known to be enabled: refuse, and say how to go on; any other answer asks below.
+  if [ "$out" = false ]; then
+    n=$(cd "${cwd:-.}" 2>/dev/null && gh pr view --json number --jq .number 2>/dev/null || true)
+    jq -n --arg n "${n:-<n>}" '{
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: ("Auto-merge is enabled on this pull request: GitHub would merge this push before anyone reviews it. Run `gh pr merge " + $n + " --disable-auto` first, alone, then push again.")
+      }
+    }'
+    exit 0
+  fi
+  return 1
+}
 
 # allowed holds for a single command a session may run on its own pull request. Each form
 # must match the whole command, start to end, with characters the shell gives no meaning
@@ -49,13 +72,19 @@ allowed() {
       if printf '%s' "$branch" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._/-]*$'; then
         b=$(printf '%s' "$branch" | sed 's/\./\\./g')
         flags='([[:space:]]+(-u|--set-upstream|--force-with-lease(=[A-Za-z0-9._/:-]+)?))*'
-        printf '%s' "$cmd" | grep -Eq "^git[[:space:]]+push${flags}[[:space:]]+origin[[:space:]]+${b}${flags}[[:space:]]*\$" && return 0
+        printf '%s' "$cmd" | grep -Eq "^git[[:space:]]+push${flags}[[:space:]]+origin[[:space:]]+${b}${flags}[[:space:]]*\$" && automerge_off && return 0
       fi
       ;;
   esac
   # The e2e-ready label, on the pull request of the current branch only.
   if printf '%s' "$cmd" | grep -Eq '^gh[[:space:]]+pr[[:space:]]+edit[[:space:]]+[0-9]+[[:space:]]+--add-label[[:space:]]+e2e-ready[[:space:]]*$'; then
     n=$(printf '%s' "$cmd" | sed 's/^gh[[:space:]]*pr[[:space:]]*edit[[:space:]]*\([0-9]*\).*/\1/')
+    own=$(cd "${cwd:-.}" 2>/dev/null && gh pr view --json number --jq .number 2>/dev/null || true)
+    [ -n "$own" ] && [ "$n" = "$own" ] && return 0
+  fi
+  # Disabling auto-merge on the pull request of the current branch: it only lowers the risk.
+  if printf '%s' "$cmd" | grep -Eq '^gh[[:space:]]+pr[[:space:]]+merge[[:space:]]+[0-9]+[[:space:]]+--disable-auto[[:space:]]*$'; then
+    n=$(printf '%s' "$cmd" | sed 's/^gh[[:space:]]*pr[[:space:]]*merge[[:space:]]*\([0-9]*\).*/\1/')
     own=$(cd "${cwd:-.}" 2>/dev/null && gh pr view --json number --jq .number 2>/dev/null || true)
     [ -n "$own" ] && [ "$n" = "$own" ] && return 0
   fi
