@@ -128,6 +128,10 @@ func (e *Exporter) Forget(kind, name string) {
 	delete(e.images, resource{kind, name})
 }
 
+// ForgetReference deletes the kuik_images_tracked and kuik_images_checked series of the
+// population reference of the resource (kind, name). Stub.
+func (e *Exporter) ForgetReference(kind, name, reference string) {}
+
 // host is the registry host of a normalised image reference.
 func host(image string) string {
 	h, _, _ := strings.Cut(image, "/")
