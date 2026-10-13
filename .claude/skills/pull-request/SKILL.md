@@ -123,6 +123,11 @@ describes a dropped file misleads the reviewer and CodeRabbit alike.
   incremental review lost its base. An autosquash of reviewed fixups needs none.
 - CodeRabbit answers only comments that mention `@coderabbitai` (`chat.auto_reply: false`
   in `.coderabbit.yaml`), a top-level comment or a reply in one of its threads alike.
+- When CodeRabbit answers that it is rate limited or out of review quota, never ask again
+  in a loop: the quota is shared by every session. Report it to the session that
+  coordinates the others (the user when there is none), which checks the remaining
+  capacity once for all and says when to ask again; ask once more then. If it still cannot
+  review, tell the user and go on without it.
 - Never rewrite the branch under review (no rebase, amend or force-push): the incremental
   review would lose its base. A fix is a `git commit --fixup=<sha>` pushed as is. The
   `conform` check stays red on `fixup!` commits, which keeps the PR from merging unsquashed.
