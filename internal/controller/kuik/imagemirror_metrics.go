@@ -15,6 +15,9 @@ const (
 	seriesKind   = "kind"
 	seriesName   = "name"
 	seriesReason = "reason"
+	// seriesImage and seriesRegistry label the anomaly series: the origin reference and its host.
+	seriesImage    = "image"
+	seriesRegistry = "registry"
 )
 
 // The reasons of kuik_mirror_copies_total and kuik_mirror_tags_deleted_total.
@@ -58,7 +61,7 @@ func newMirrorMetrics(registerer prometheus.Registerer) (*mirrorMetrics, error) 
 		copyFailed: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "kuik_image_copy_failed",
 			Help: "1 while an image cannot be copied to the destination. `image` is the origin reference, the copy being what could not be made",
-		}, []string{seriesKind, seriesName, "image", "registry", seriesReason}),
+		}, []string{seriesKind, seriesName, seriesImage, seriesRegistry, seriesReason}),
 		copies: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "kuik_mirror_copies_total",
 			Help: "Images pushed to a destination, by why (`Initial`, `Recopy` after a manifest went missing, `Resync` after an upstream digest moved)",
