@@ -2,7 +2,7 @@
 name: pull-request
 description: Use when opening a pull request on kuik, rewriting its description, or answering its automated review; prepares the branch, drafts a short readable description for the user to confirm, and keeps it in step with the branch.
 argument-hint: "[PR number]"
-allowed-tools: Bash(git log *) Bash(git diff *) Bash(git status *) Bash(git fetch *) Bash(gh pr view *) Bash(gh pr diff *) Bash(gh pr checks *) Read Grep Glob Write
+allowed-tools: Bash(git log *) Bash(git diff *) Bash(git status *) Bash(git fetch *) Bash(gh pr view *) Bash(gh pr diff *) Bash(gh pr checks *) Bash(hack/wait-coderabbit.sh *) Read Grep Glob Write
 ---
 
 # Pull request
@@ -118,6 +118,11 @@ describes a dropped file misleads the reviewer and CodeRabbit alike.
 
 ## 5. The automated review
 
+- As soon as a review is due (the PR opened, `@coderabbitai review` posted), run
+  `hack/wait-coderabbit.sh <n>` in the background and go on. When it exits 0, the review
+  and its check are done: triage it at once (below). When it exits 3, CodeRabbit is rate
+  limited: follow the rate limit bullet below. When it exits 1, no review came within the
+  hour: tell the user.
 - CodeRabbit reviews once when the PR opens. For later commits, comment
   `@coderabbitai review`. After a force-push, comment `@coderabbitai full review` instead
   whenever the branch holds content CodeRabbit has not reviewed (a rebase on `main`, fixups
@@ -125,11 +130,19 @@ describes a dropped file misleads the reviewer and CodeRabbit alike.
   incremental review lost its base. An autosquash of reviewed fixups needs none.
 - CodeRabbit answers only comments that mention `@coderabbitai` (`chat.auto_reply: false`
   in `.coderabbit.yaml`), a top-level comment or a reply in one of its threads alike.
+- When CodeRabbit answers that it is rate limited or out of review quota, never ask again
+  in a loop: the quota is shared by every session. Report it to the session that
+  coordinates the others (the user when there is none), which checks the remaining
+  capacity once for all and says when to ask again; ask once more then. If it still cannot
+  review, the PR waits: only the user's explicit waiver, possibly relayed by the
+  coordinating session, lets it go on without CodeRabbit.
 - Never rewrite the branch under review (no rebase, amend or force-push): the incremental
   review would lose its base. A fix is a `git commit --fixup=<sha>` pushed as is. The
   `conform` check stays red on `fixup!` commits, which keeps the PR from merging unsquashed.
 - Do not push while a review runs: CodeRabbit drops it ("head changed") and must be asked
   again.
+- Read the body of each review, not only its threads: the `quiet` profile folds findings
+  into the review body without opening a thread.
 - Triage each comment: fix it (a `fixup!` commit), or accept it as a limit and say so in
   the description. An exception is a late batch of fixes touching code that several later
   commits rewrite: regression pairs at the end of the branch instead
