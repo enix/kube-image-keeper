@@ -785,6 +785,56 @@ var _ = Describe("Pod webhook", func() {
 			Eventually(routedImage).Should(Equal(ref(origin)))
 		})
 
+		It("probes last the alternative an ImageMonitor reports unavailable and serves the next one, recording its rewrite", func() {
+			fail(origin)
+			next := newRegistry()
+			cr := alternative("library", onFailure, group(origin), group(alt), group(next))
+			monitor := kuikv1alpha1.ImageMonitor{
+				ObjectMeta: metav1.ObjectMeta{Name: monitorName},
+				Status:     unavailableAlternatives("library", ref(origin), ref(alt)),
+			}
+			d.SetResources([]kuikv1alpha1.ImageAlternative{cr}, nil, monitor)
+			admitted := admit(d, namespace, newPod(namespace, ref(origin)))
+			Expect(manifestHeads(alt)).To(BeZero())
+			Expect(admitted.Spec.Containers[0].Image).To(Equal(ref(next)))
+			Expect(rewrites(admitted, AnnotationRewrites)).To(Equal(map[string]Rewrite{appContainer: {
+				By: "ImageAlternative/" + cr.Name, Origin: ref(origin), RewrittenTo: ref(next), Policy: string(onFailure),
+			}}))
+		})
+
+		It("still probes a demoted alternative, last, and serves it when every other candidate fails", func() {
+			fail(origin)
+			next := newRegistry()
+			fail(next)
+			cr := alternative("library", onFailure, group(origin), group(alt), group(next))
+			monitor := kuikv1alpha1.ImageMonitor{
+				ObjectMeta: metav1.ObjectMeta{Name: monitorName},
+				Status:     unavailableAlternatives("library", ref(origin), ref(alt)),
+			}
+			d.SetResources([]kuikv1alpha1.ImageAlternative{cr}, nil, monitor)
+			admitted := admit(d, namespace, newPod(namespace, ref(origin)))
+			// next answers 404: it was probed, and alt was probed after it.
+			Expect(manifestHeads(next)).To(Equal(1))
+			Expect(manifestHeads(alt)).To(Equal(1))
+			Expect(admitted.Spec.Containers[0].Image).To(Equal(ref(alt)))
+			Expect(rewrites(admitted, AnnotationRewrites)[appContainer].RewrittenTo).To(Equal(ref(alt)))
+		})
+
+		It("follows an ImageMonitor status that starts listing an alternative, without any change to the routing resources", func() {
+			fail(origin)
+			next := newRegistry()
+			cr := alternative("served-library", onFailure, group(origin), group(alt), group(next))
+			apply(&cr)
+			monitor := kuikv1alpha1.ImageMonitor{ObjectMeta: metav1.ObjectMeta{Name: "served-monitor"}}
+			apply(&monitor)
+			routedImage := func() string { return create(newPod(namespace, ref(origin))).Spec.Containers[0].Image }
+			Eventually(routedImage).Should(Equal(ref(alt)))
+
+			monitor.Status = unavailableAlternatives("served-library", ref(origin), ref(alt))
+			Expect(k8sClient.Status().Update(ctx, &monitor)).To(Succeed())
+			Eventually(routedImage).Should(Equal(ref(next)))
+		})
+
 		It("keeps the declared order once demoteKnownFailures is turned off in the config", func() {
 			d.SetResources([]kuikv1alpha1.ImageAlternative{library}, nil, imageMonitor(ref(origin)))
 			Expect(admit(d, namespace, newPod(namespace, ref(origin))).Spec.Containers[0].Image).To(Equal(ref(alt)))
