@@ -131,6 +131,29 @@ jobs:
         if: steps.changes.outputs.run != 'false'
         uses: ./.github/actions/setup-kind
 
+      - name: Set up Docker Buildx
+        if: steps.changes.outputs.run != 'false'
+        uses: docker/setup-buildx-action@v4
+
+      # The image the suite would build itself (managerImage in test/e2e/e2e_suite_test.go, no
+      # build arg as in task docker-build), its layers cached across runs; the suite only loads
+      # it into Kind. The cache goes through the runtime token: no permission to add.
+      - name: Build the manager image
+        if: steps.changes.outputs.run != 'false'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          tags: example.com/kube-image-keeper:v0.0.1
+          # A single-manifest image, as a plain docker build gives: kind load handles it on any
+          # image store.
+          provenance: false
+          cache-from: type=gha
+          # A cache the GitHub service fails to store costs the next run time, never this one.
+          cache-to: type=gha,mode=max,ignore-error=true
+
       - name: Run the e2e suite
         if: steps.changes.outputs.run != 'false'
+        env:
+          KUIK_E2E_SKIP_IMAGE_BUILD: 'true'
         run: task test-e2e
