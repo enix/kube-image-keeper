@@ -15,8 +15,7 @@ hooks:
     - matcher: "Bash"
       hooks:
         - type: command
-          command: |-
-            jq -e '.tool_input.command | test("(^|[^[:alnum:]_-])(git[[:space:]]+([^;&|]*[[:space:]])?(push|rebase|reset|stash|checkout|switch|restore|clean|worktree|filter-branch|update-ref|branch[[:space:]]+-[dDmMfC])|git[[:space:]]+([^;&|]*[[:space:]])?commit[^;&|]*--amend|gh|kubectl|helm|kind|docker|task[[:space:]]+([^;&|]*[[:space:]])?(deploy|kind-deploy|undeploy|install|uninstall|run|test-e2e|setup-test-e2e|cleanup-test-e2e|docker-push|docker-buildx))([^[:alnum:]_-]|$)") | not' >/dev/null || { echo "implementer: this command is reserved to the session that owns the pull request (push, history rewrite, GitHub, cluster, e2e). Stop and hand it back." >&2; exit 2; }
+          command: '"$CLAUDE_PROJECT_DIR"/.claude/hooks/implementer-guard.sh || exit 2'
 ---
 
 # Implementer
@@ -38,6 +37,9 @@ second one, so it keeps its context.
   and no test helper package.
 - Run the specs of the component focused, then its package; `task lint-fix` before each
   commit. Small separate commands.
+- When a hook refuses or asks about a command, stop and report it to the owning session.
+  Never swap in another command, task, glob, file or wrapper to get the same effect: the
+  hook guards the step, not the spelling.
 - After each `feat` commit, stop and report: the sha of the `test` and the `feat` commits, the
   specs now green, anything left open. The session starts a reviewer on that `feat` and
   resumes you for the next component.
