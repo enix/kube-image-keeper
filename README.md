@@ -60,15 +60,16 @@ This branch holds **kuik v3**, a rewrite currently in development and released a
 | ------- | ------ |
 | [Image routing](./docs/crds.md#imagealternative) (`ImageAlternative`, mutating webhook) | Available since 3.0.0-alpha.2 |
 | [Pull secret injection](./docs/concepts/pull-secrets.md) (secret syncer) | Available since 3.0.0-alpha.3 |
-| [Image copy](./docs/crds.md#imagemirror) (`ImageMirror`) | Merged on `main` ([#710](https://github.com/enix/kube-image-keeper/pull/710)), ships with 3.0.0-alpha.4 |
-| [Image monitoring](https://github.com/enix/kube-image-keeper/issues/718) (`ImageMonitor`) | In progress, for the beta |
+| [Image copy](./docs/crds.md#imagemirror) (`ImageMirror`) | Available since 3.0.0-alpha.4 |
+| [Image monitoring](./docs/crds.md#imagemonitor) (`ImageMonitor`) | Tracking and checks available since 3.0.0-alpha.4; drift merged on `main` ([#739](https://github.com/enix/kube-image-keeper/pull/739)); alternatives in progress ([#745](https://github.com/enix/kube-image-keeper/pull/745)); complete for the beta |
 | [Admission validation](https://github.com/enix/kube-image-keeper/issues/719) | Planned for the beta |
-| Credentials from a cloud provider (`auth.provider`) | Not planned yet |
-| Plain-HTTP registries and private CAs | Not planned yet |
-| Migration from v2 | None: a migration plan will be proposed once GA is out |
+| Credentials from a cloud provider (`auth.provider`) | Planned for v3.1 ([#747](https://github.com/enix/kube-image-keeper/issues/747)) |
+| Plain-HTTP alternatives and mirror destinations (`insecure`) | Available since 3.0.0-alpha.2 for `ImageAlternative`, since 3.0.0-alpha.4 for `ImageMirror` |
+| Private certificate authorities | Not planned yet ([#750](https://github.com/enix/kube-image-keeper/issues/750)) |
+| Migration from v2 | None: a migration plan will be proposed once GA is out ([#749](https://github.com/enix/kube-image-keeper/issues/749)) |
 
 - **Stable version**: [v2.3](https://github.com/enix/kube-image-keeper/releases), documented on [kuik.enix.io](https://kuik.enix.io/2.3/). It is in maintenance: bug fixes only.
-- **v3 specification**: [`docs/v3/`](./docs/v3/), starting with [`spec.md`](./docs/v3/spec.md). It is the source of truth for v3 behaviour, frozen for now, it may evolves after we reach beta.
+- **v3 specification**: [`docs/v3/`](./docs/v3/), starting with [`spec.md`](./docs/v3/spec.md). It is the source of truth for v3 behaviour, frozen for now, it may evolve after we reach beta.
 - **Custom resources**: `ImageAlternative` (routing), `ImageMirror` (copy) and `ImageMonitor` (monitoring), described in the [CRD reference](./docs/crds.md).
 
 Development process and decisions are recorded in [`notes/`](./notes/). Contributions follow [`CONTRIBUTING.md`](./CONTRIBUTING.md).
