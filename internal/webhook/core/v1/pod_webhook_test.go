@@ -731,20 +731,93 @@ var _ = Describe("Pod webhook", func() {
 		})
 	})
 
+	Context("demoteKnownFailures", func() {
+		It("probes last the original an ImageMonitor reports unavailable and serves the next candidate, recording its rewrite", func() {
+			d.SetResources([]kuikv1alpha1.ImageAlternative{library}, nil, imageMonitor(ref(origin)))
+			admitted := admit(d, namespace, newPod(namespace, ref(origin)))
+			Expect(manifestHeads(origin)).To(BeZero())
+			Expect(manifestHeads(alt)).To(Equal(1))
+			Expect(admitted.Spec.Containers[0].Image).To(Equal(ref(alt)))
+			Expect(rewrites(admitted, AnnotationRewrites)).To(Equal(map[string]Rewrite{appContainer: {
+				By: "ImageAlternative/library", Origin: ref(origin), RewrittenTo: ref(alt), Policy: string(onFailure),
+			}}))
+		})
+
+		It("still probes a demoted original, last, and serves it when every other candidate fails", func() {
+			fail(alt)
+			d.SetResources([]kuikv1alpha1.ImageAlternative{library}, nil, imageMonitor(ref(origin)))
+			admitted := admit(d, namespace, newPod(namespace, ref(origin)))
+			// alt answers 404: it was probed, and the original was probed after it.
+			Expect(manifestHeads(alt)).To(Equal(1))
+			Expect(manifestHeads(origin)).To(Equal(1))
+			Expect(admitted.Spec.Containers[0].Image).To(Equal(ref(origin)))
+			Expect(admitted.Annotations).To(BeEmpty())
+		})
+
+		It("probes the original before the candidate of an Always ImageMirror that reports the copy failed", func() {
+			// The mirror serves the copy: it is served only once the original was probed and
+			// failed, so as a fallback.
+			fail(origin)
+			destination := newRegistry()
+			mirrorRef := mirrored(destination, origin)
+			m := failedCopies(imageMirror("prod-mirror", always, destination), ref(origin))
+			d.SetResources(nil, []kuikv1alpha1.ImageMirror{m})
+			admitted := admit(d, namespace, newPod(namespace, ref(origin)))
+			Expect(manifestHeads(origin)).To(Equal(1))
+			Expect(admitted.Spec.Containers[0].Image).To(Equal(mirrorRef))
+			Expect(rewrites(admitted, AnnotationRewrites)[appContainer].Policy).To(Equal(string(onFailure)))
+		})
+
+		It("follows an ImageMonitor status that starts then stops listing the original, without any change to the routing resources", func() {
+			// Both candidates answer: only the order decides, whatever activeCheckCache holds.
+			cr := alternative("served-library", onFailure, group(origin), group(alt))
+			apply(&cr)
+			monitor := kuikv1alpha1.ImageMonitor{ObjectMeta: metav1.ObjectMeta{Name: "served-monitor"}}
+			apply(&monitor)
+			routedImage := func() string { return create(newPod(namespace, ref(origin))).Spec.Containers[0].Image }
+
+			monitor.Status = unavailableImages(ref(origin))
+			Expect(k8sClient.Status().Update(ctx, &monitor)).To(Succeed())
+			Eventually(routedImage).Should(Equal(ref(alt)))
+
+			monitor.Status = kuikv1alpha1.ImageMonitorStatus{}
+			Expect(k8sClient.Status().Update(ctx, &monitor)).To(Succeed())
+			Eventually(routedImage).Should(Equal(ref(origin)))
+		})
+
+		It("keeps the declared order once demoteKnownFailures is turned off in the config", func() {
+			d.SetResources([]kuikv1alpha1.ImageAlternative{library}, nil, imageMonitor(ref(origin)))
+			Expect(admit(d, namespace, newPod(namespace, ref(origin))).Spec.Containers[0].Image).To(Equal(ref(alt)))
+
+			cfg := testConfig()
+			cfg.Webhook.AvailabilityCheck.DemoteKnownFailures = false
+			d.SetConfig(cfg)
+			Expect(admit(d, namespace, newPod(namespace, ref(origin))).Spec.Containers[0].Image).To(Equal(ref(origin)))
+			Expect(manifestHeads(origin)).To(Equal(1))
+		})
+
+		It("logs each demoted candidate with the resource that reported it", func() {
+			destination := newRegistry()
+			mirrorRef := mirrored(destination, origin)
+			m := failedCopies(imageMirror("prod-mirror", always, destination), ref(origin))
+			d.SetResources([]kuikv1alpha1.ImageAlternative{library}, []kuikv1alpha1.ImageMirror{m}, imageMonitor(ref(origin)))
+			_, lines := admitLogged(d, namespace, newPod(namespace, ref(origin)))
+			var demoted []map[string]any
+			for _, line := range lines {
+				if line["msg"] == msgDemoted {
+					demoted = append(demoted, line)
+				}
+			}
+			Expect(demoted).To(ConsistOf(
+				And(HaveKeyWithValue("level", "debug"), HaveKeyWithValue("container", appContainer),
+					HaveKeyWithValue("candidate", mirrorRef), HaveKeyWithValue("resource", "ImageMirror/prod-mirror")),
+				And(HaveKeyWithValue("level", "debug"), HaveKeyWithValue("container", appContainer),
+					HaveKeyWithValue("candidate", ref(origin)), HaveKeyWithValue("resource", "ImageMonitor/"+monitorName)),
+			))
+		})
+	})
+
 	Context("through the API server", func() {
-		// create creates a pod through the API server, which calls the served webhook.
-		create := func(pod *corev1.Pod) *corev1.Pod {
-			GinkgoHelper()
-			Expect(k8sClient.Create(ctx, pod)).To(Succeed())
-			DeferCleanup(func() { Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, pod))).To(Succeed()) })
-			return pod
-		}
-		// apply creates a routing resource, deleted when the spec ends.
-		apply := func(obj client.Object) {
-			GinkgoHelper()
-			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
-			DeferCleanup(func() { Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, obj))).To(Succeed()) })
-		}
 		// routedImage creates a pod of ref(origin) in namespace and returns its image.
 		routedImage := func(namespace string) func() string {
 			return func() string { return create(newPod(namespace, ref(origin))).Spec.Containers[0].Image }

@@ -18,6 +18,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -56,8 +57,9 @@ func testConfig() *config.Config {
 		Webhook: config.Webhook{
 			DemoteMirrorWithPullPolicyAlways: true,
 			AvailabilityCheck: config.AvailabilityCheck{
-				Timeout:          config.Duration{Duration: 500 * time.Millisecond},
-				ActiveCheckCache: config.ActiveCheckCache{TTL: config.Duration{Duration: 10 * time.Second}},
+				Timeout:             config.Duration{Duration: 500 * time.Millisecond},
+				ActiveCheckCache:    config.ActiveCheckCache{TTL: config.Duration{Duration: 10 * time.Second}},
+				DemoteKnownFailures: true,
 			},
 		},
 	}
@@ -220,6 +222,49 @@ func admit(d *PodDefaulter, namespace string, pod *corev1.Pod) *corev1.Pod {
 	return mutated
 }
 
+// create creates a pod through the API server, which calls the served webhook.
+func create(pod *corev1.Pod) *corev1.Pod {
+	GinkgoHelper()
+	Expect(k8sClient.Create(ctx, pod)).To(Succeed())
+	DeferCleanup(func() { Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, pod))).To(Succeed()) })
+	return pod
+}
+
+// apply creates a resource, deleted when the spec ends.
+func apply(obj client.Object) {
+	GinkgoHelper()
+	Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+	DeferCleanup(func() { Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, obj))).To(Succeed()) })
+}
+
+// failedCopies makes m report the copies of origins failed in status.failedImageCopies.
+func failedCopies(m kuikv1alpha1.ImageMirror, origins ...string) kuikv1alpha1.ImageMirror {
+	for _, o := range origins {
+		m.Status.FailedImageCopies = append(m.Status.FailedImageCopies,
+			kuikv1alpha1.FailedImageCopy{Ref: o, Reason: kuikv1alpha1.CopySourceUnreachable, Since: metav1.Now()})
+	}
+	return m
+}
+
+// unavailableImages is the status of an ImageMonitor reporting refs unavailable.
+func unavailableImages(refs ...string) kuikv1alpha1.ImageMonitorStatus {
+	var status kuikv1alpha1.ImageMonitorStatus
+	for _, r := range refs {
+		status.UnavailableImages = append(status.UnavailableImages, kuikv1alpha1.UnavailableImage{
+			Ref: r, Reason: kuikv1alpha1.CheckManifestNotFound, Since: metav1.Now(), Pods: 1,
+		})
+	}
+	return status
+}
+
+// monitorName is the name of imageMonitor.
+const monitorName = "registry-health"
+
+// imageMonitor is an ImageMonitor named monitorName reporting refs unavailable.
+func imageMonitor(refs ...string) kuikv1alpha1.ImageMonitor {
+	return kuikv1alpha1.ImageMonitor{ObjectMeta: metav1.ObjectMeta{Name: monitorName}, Status: unavailableImages(refs...)}
+}
+
 // rewrites reads kuik.enix.io/rewrites or kuik.enix.io/conceded-rewrites.
 func rewrites(pod *corev1.Pod, annotation string) map[string]Rewrite {
 	GinkgoHelper()
@@ -256,6 +301,9 @@ const (
 	msgNoCandidate = "Found no available candidate for container image"
 	msgConceded    = "Conceded container image"
 )
+
+// msgDemoted is the message of the line that logs a candidate demoted as a known failure.
+const msgDemoted = "Demoted candidate known to fail"
 
 // requestUID is the UID of the admission requests admitLogged sends.
 const requestUID types.UID = "3f2a9c1e-request"
