@@ -401,10 +401,10 @@ tasks:
       - '{{.KUBECTL}} delete --ignore-not-found={{.IGNORE_NOT_FOUND}} -f {{.CRDS}}'
 
   deploy:
-    desc: Install or upgrade the chart with image IMG in NAMESPACE (release RELEASE, config.clusterID CLUSTER_ID, default dev)
+    desc: Install or upgrade the chart with image IMG in NAMESPACE (release RELEASE, config.clusterID CLUSTER_ID, default dev, optional values file HELM_VALUES)
     cmds:
       - task: manifests
-      - helm upgrade --install {{.RELEASE}} {{.CHART}} --namespace {{.NAMESPACE}} --create-namespace {{.HELM_IMAGE_ARGS}} --set config.clusterID={{.CLUSTER_ID}} {{.CLI_ARGS}}
+      - helm upgrade --install {{.RELEASE}} {{.CHART}} --namespace {{.NAMESPACE}} --create-namespace {{.HELM_IMAGE_ARGS}} --set config.clusterID={{.CLUSTER_ID}} {{if .HELM_VALUES}}--values {{.HELM_VALUES}}{{end}} {{.CLI_ARGS}}
 
   undeploy:
     desc: Uninstall the chart release (CRDs stay, see uninstall)

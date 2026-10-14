@@ -75,7 +75,7 @@ var _ = Describe("Image monitoring", Ordered, func() {
 		Expect(kubectlStdin(monitorPodManifest("unreachable", unreachable), "create", "-f", "-")).
 			Error().NotTo(HaveOccurred())
 
-		// The reconciler checks it on its own windows, one minute apart by default: no reconcile
+		// The reconciler checks it on its own windows, 10s apart on the e2e release: no reconcile
 		// is asked for.
 		Eventually(kubectl).WithTimeout(4*time.Minute).WithArguments("get", "imagemonitor", monitorName,
 			"-o", fmt.Sprintf(`jsonpath={.status.unavailableImages[?(@.ref==%q)].reason}`, unreachable)).

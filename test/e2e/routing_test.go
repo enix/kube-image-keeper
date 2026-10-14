@@ -276,7 +276,8 @@ var _ = Describe("Pod routing", Ordered, func() {
 
 			original, err := kubectl("get", "configmap", configMapName, "-n", namespace, "-o", `jsonpath={.data.config\.yaml}`)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(original).NotTo(ContainSubstring("registries:"))
+			// The fragment is the only pace of registry.k8s.io:443: restoring the original drops it.
+			Expect(original).NotTo(ContainSubstring("registry.k8s.io:443"))
 			original = strings.TrimRight(original, "\n") + "\n"
 			// The restore needs no wait: the fragment only paces registry.k8s.io:443, which no
 			// other spec reads, and the monitor that checks it is deleted.
@@ -295,10 +296,10 @@ var _ = Describe("Pod routing", Ordered, func() {
 			Expect(kuikAnnotations("demote-kept")).To(BeEmpty())
 
 			By("failing the monitor's checks of the original's registry")
-			setConfig(original + failingOriginChecks)
+			setConfig(mergeConfig(original, failingOriginChecks))
 			// The kubelet syncs the ConfigMap volume on its sync period (10s on the e2e cluster,
-			// see kind-config.yaml), then the ring checks the original on its next window, a
-			// minute apart by default.
+			// see kind-config.yaml), then the ring checks the original on its next window, 10s
+			// apart on the e2e release (see values.yaml).
 			Eventually(kubectl).WithTimeout(4*time.Minute).WithArguments("get", "imagemonitor", demoteName, "-o",
 				fmt.Sprintf(`jsonpath={.status.unavailableImages[?(@.ref==%q)].ref}`, demotedOrigin)).
 				Should(Equal(demotedOrigin))
@@ -330,7 +331,8 @@ var _ = Describe("Pod routing", Ordered, func() {
 
 			original, err := kubectl("get", "configmap", configMapName, "-n", namespace, "-o", `jsonpath={.data.config\.yaml}`)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(original).NotTo(ContainSubstring("registries:"))
+			// The fragment is the only pace of k8s.gcr.io: restoring the original drops it.
+			Expect(original).NotTo(ContainSubstring("k8s.gcr.io"))
 			original = strings.TrimRight(original, "\n") + "\n"
 			// The restore needs no wait: the fragment only paces k8s.gcr.io, which no other spec
 			// reads, and the monitor that checks it is deleted.
@@ -355,9 +357,10 @@ var _ = Describe("Pod routing", Ordered, func() {
 				To(HaveKeyWithValue("kuik.enix.io/rewrites", MatchJSON(rewrittenTo(demotedAlternative))))
 
 			By("failing the monitor's checks of the first alternative's registry")
-			setConfig(original + failingAlternativeChecks)
-			// The kubelet syncs the ConfigMap volume within about 2m, then the ring checks the
-			// alternative on its next window, a minute apart by default.
+			setConfig(mergeConfig(original, failingAlternativeChecks))
+			// The kubelet syncs the ConfigMap volume on its sync period (10s on the e2e cluster,
+			// see kind-config.yaml), then the ring checks the alternative on its next window, 5s
+			// apart for k8s.gcr.io.
 			via := fmt.Sprintf(`jsonpath={range .status.unavailableAlternatives[?(@.ref==%q)]}{.via}{end}`,
 				demotedAlternative)
 			Eventually(kubectl).WithTimeout(4*time.Minute).
@@ -414,7 +417,7 @@ var _ = Describe("Pod routing", Ordered, func() {
 		It("applies a valid edit without a restart", func() {
 			before := webhookRestarts()
 
-			setConfig(original + failingTimeout)
+			setConfig(mergeConfig(original, failingTimeout))
 
 			Eventually(replicasRouting, "3m").Should(everyReplica(BeFalse()))
 			Expect(webhookRestarts()).To(Equal(before))
@@ -422,13 +425,13 @@ var _ = Describe("Pod routing", Ordered, func() {
 
 		It("keeps the previously loaded config when the edited file does not validate, and counts the failure", func() {
 			By("loading a config that differs from the defaults")
-			setConfig(original + failingTimeout)
+			setConfig(mergeConfig(original, failingTimeout))
 			Eventually(replicasRouting, "3m").Should(everyReplica(BeFalse()))
 			before := webhookRestarts()
 			errorsBefore, err := webhookMetric("kuik_config_reload_errors_total")
 			Expect(err).NotTo(HaveOccurred())
 
-			setConfig(original + "webhook:\n  availabilityCheck:\n    timeout: banana\n")
+			setConfig(mergeConfig(original, "webhook:\n  availabilityCheck:\n    timeout: banana\n"))
 
 			for pod, count := range errorsBefore {
 				Eventually(func() (float64, error) {
@@ -555,6 +558,37 @@ func setConfig(content string) {
 	Expect(err).NotTo(HaveOccurred())
 	_, err = kubectl("patch", "configmap", configMapName, "-n", namespace, "--type=merge", "-p", string(patch))
 	Expect(err).NotTo(HaveOccurred())
+}
+
+// mergeConfig returns the global config file base with the YAML fragment merged in, key by key:
+// a mapping of the fragment merges into the mapping base holds under the same key, any other
+// value replaces it. Appending the fragment would repeat a top-level key the base already has
+// (registries, set by the e2e values), which the config loader refuses.
+func mergeConfig(base, fragment string) string {
+	GinkgoHelper()
+	var merged, patch map[string]any
+	Expect(yaml.Unmarshal([]byte(base), &merged)).To(Succeed())
+	Expect(yaml.Unmarshal([]byte(fragment), &patch)).To(Succeed())
+	if merged == nil {
+		merged = map[string]any{}
+	}
+	mergeMappings(merged, patch)
+	content, err := yaml.Marshal(merged)
+	Expect(err).NotTo(HaveOccurred())
+	return string(content)
+}
+
+// mergeMappings merges patch into dst, recursing into the mappings both hold under one key.
+func mergeMappings(dst, patch map[string]any) {
+	for key, value := range patch {
+		into, isMapping := dst[key].(map[string]any)
+		from, fromMapping := value.(map[string]any)
+		if isMapping && fromMapping {
+			mergeMappings(into, from)
+			continue
+		}
+		dst[key] = value
+	}
 }
 
 // webhookMetric reads an unlabelled counter on each webhook pod: each replica counts its own.
