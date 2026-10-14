@@ -123,8 +123,10 @@ const demoteNamespace = "kuik-e2e-demote"
 const demoteLabel = "kuik.enix.io/e2e-demote"
 
 // failingOriginChecks is a global config fragment under which no background check of the
-// registry of demotedOrigin answers in time; the webhook's probe is not bound by it
-const failingOriginChecks = "registries:\n  \"registry.k8s.io:443\":\n    check:\n      timeout: 1ms\n"
+// registry of demotedOrigin answers in time, checked every 5s so the monitor reports it within
+// seconds of the reload; the webhook's probe is not bound by it
+const failingOriginChecks = "registries:\n  \"registry.k8s.io:443\":\n" +
+	"    check:\n      interval: 5s\n      timeout: 1ms\n"
 
 var demoteResources = fmt.Sprintf(`
 apiVersion: kuik.enix.io/v1alpha1
@@ -171,8 +173,9 @@ const demoteAlternativeNamespace = "kuik-e2e-demote-alternative"
 const demoteAlternativeLabel = "kuik.enix.io/e2e-demote-alternative"
 
 // failingAlternativeChecks is a global config fragment under which no background check of the
-// registry of demotedAlternative answers in time; the webhook's probe is not bound by it
-const failingAlternativeChecks = "registries:\n  k8s.gcr.io:\n    check:\n      timeout: 1ms\n"
+// registry of demotedAlternative answers in time, checked every 5s so the monitor reports it
+// within seconds of the reload; the webhook's probe is not bound by it
+const failingAlternativeChecks = "registries:\n  k8s.gcr.io:\n    check:\n      interval: 5s\n      timeout: 1ms\n"
 
 var demoteAlternativeResources = fmt.Sprintf(`
 apiVersion: kuik.enix.io/v1alpha1
