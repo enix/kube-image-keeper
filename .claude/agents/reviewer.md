@@ -50,6 +50,9 @@ not inherit the implementer's or an earlier review's view.
   does the code do exactly that, on every path (errors, retries, restart, a resource being
   deleted, concurrent goroutines and their locks)?
 - When kuik does what the kubelet does, does it do the same?
+- Credentials: trace where each one is sent. It goes only to the registry host of its entry
+  or the token realm that registry announces, never over a weaker transport (plain HTTP, TLS
+  not verified) than its entry.
 - The specs: does each one exercise a behaviour and fail without the code it pins; is any
   path of the `feat` left without a spec; is anything flaky (sleeps, wall clock)?
 - The rules of `go.md` (logging keys, RBAC markers, image references) and the docs that should
