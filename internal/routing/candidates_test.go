@@ -314,6 +314,63 @@ var _ = Describe("Candidates", func() {
 				To(Equal([]string{"docker.io/acme/foo:v1", "quay.io/acme/foo:v1"}))
 		})
 
+		It("moves an alternative candidate to the end of the list when a monitor reports it unavailable via its ImageAlternative", func() {
+			index := NewIndex(alternatives(library(onFailure)), nil, unavailableAlternative(monitor(), ecrNginx, dockerNginx, libraryName))
+			Expect(references(index.Candidates(request(nginx), options))).To(Equal([]string{dockerNginx, gcrNginx, ecrNginx}))
+		})
+
+		It("leaves an alternative candidate in place when the monitor reports the same reference via another ImageAlternative", func() {
+			// acme offers the ecr reference with its own credential, so both candidates are kept.
+			authenticated := group(ecrLibrary)
+			authenticated.Auth = secretAuth("ecr-creds")
+			acme := alternative("acme", onFailure, group(dockerLibrary), authenticated)
+			index := NewIndex(alternatives(library(onFailure), acme), nil, unavailableAlternative(monitor(), ecrNginx, dockerNginx, libraryName))
+			result := index.Candidates(request(nginx), options)
+			Expect(references(result)).To(Equal([]string{dockerNginx, ecrNginx, gcrNginx, ecrNginx}))
+			Expect(result.Candidates[1].Resource).To(Equal(&Resource{Kind: KindImageAlternative, Name: "acme"}))
+			Expect(result.Candidates[3].Resource).To(Equal(&Resource{Kind: KindImageAlternative, Name: libraryName}))
+		})
+
+		It("demotes an alternative whatever origin the monitor reported it for", func() {
+			// The monitor met the ecr reference as an alternative of a pod running the gcr one.
+			index := NewIndex(alternatives(library(onFailure)), nil, unavailableAlternative(monitor(), ecrNginx, gcrNginx, libraryName))
+			Expect(references(index.Candidates(request(nginx), options))).To(Equal([]string{dockerNginx, gcrNginx, ecrNginx}))
+		})
+
+		It("matches an alternative reference a status writes in short form", func() {
+			cr := alternative("acme", onFailure, repository("quay.io/acme/foo"), repository("docker.io/library/foo"), repository("ghcr.io/acme/foo"))
+			index := NewIndex(alternatives(cr), nil, unavailableAlternative(monitor(), "foo:v1", "quay.io/acme/foo:v1", "acme"))
+			Expect(references(index.Candidates(request("quay.io/acme/foo:v1"), options))).
+				To(Equal([]string{"quay.io/acme/foo:v1", "ghcr.io/acme/foo:v1", "docker.io/library/foo:v1"}))
+		})
+
+		It("demotes an alternative whose rewritten reference is not canonical", func() {
+			// The docker.io group carries no library segment: the rewrite of ghcr.io/acme/nginx
+			// reads docker.io/nginx, which the monitor writes as is.
+			cr := alternative("acme", onFailure, group("ghcr.io/acme"), group("docker.io"), group("quay.io/acme"))
+			index := NewIndex(alternatives(cr), nil, unavailableAlternative(monitor(), "docker.io/nginx:1", "ghcr.io/acme/nginx:1", "acme"))
+			Expect(references(index.Candidates(request("ghcr.io/acme/nginx:1"), options))).
+				To(Equal([]string{"ghcr.io/acme/nginx:1", "quay.io/acme/nginx:1", "docker.io/nginx:1"}))
+		})
+
+		It("reports a demoted alternative with the monitor that lists it, the first by name", func() {
+			// audit sorts first but lists the reference via another ImageAlternative.
+			audit := unavailableAlternative(monitor(), ecrNginx, dockerNginx, "acme")
+			audit.Name = "audit"
+			web := unavailableAlternative(monitor(), ecrNginx, dockerNginx, libraryName)
+			billing := unavailableAlternative(monitor(), ecrNginx, dockerNginx, libraryName)
+			billing.Name = "billing"
+			index := NewIndex(alternatives(library(onFailure)), nil, web, audit, billing)
+			Expect(index.Candidates(request(nginx), options).Demoted).To(Equal([]Demotion{
+				{Candidate: ecrNginx, ReportedBy: Resource{Kind: KindImageMonitor, Name: "billing"}},
+			}))
+		})
+
+		It("records a demoted Always alternative as OnFailure", func() {
+			index := NewIndex(alternatives(library(always)), nil, unavailableAlternative(monitor(), ecrNginx, dockerNginx, libraryName))
+			Expect(candidate(index.Candidates(request(nginx), options), ecrNginx).Policy).To(Equal(kuikv1alpha1.RewritePolicyOnFailure))
+		})
+
 		It("leaves the order unchanged when nothing is known to fail", func() {
 			index := NewIndex(alternatives(library(onFailure)), mirrors(failedCopies(prodMirror(always), "docker.io/library/redis:8")),
 				monitor("docker.io/library/nginx:1.26"))
@@ -434,6 +491,8 @@ const (
 	archiveNginx = "registry.tld/archive/docker.io/library/nginx:1.27_cluster-a"
 
 	prodMirrorName = "prod-mirror"
+	// libraryName names the ImageAlternative library builds.
+	libraryName = "library"
 )
 
 // options are the global config settings every spec uses, the defaults of the spec.
@@ -471,7 +530,7 @@ func pullAlways(req Request) Request {
 
 // library is walkthrough 01's ImageAlternative under policy: ecr, gcr, then docker.io.
 func library(policy string) kuikv1alpha1.ImageAlternative {
-	return alternative("library", policy, group(ecrLibrary), group(gcrLibrary), group(dockerLibrary))
+	return alternative(libraryName, policy, group(ecrLibrary), group(gcrLibrary), group(dockerLibrary))
 }
 
 func alternative(name, policy string, entries ...kuikv1alpha1.Alternative) kuikv1alpha1.ImageAlternative {
@@ -520,6 +579,18 @@ func monitor(refs ...string) kuikv1alpha1.ImageMonitor {
 		m.Status.UnavailableImages = append(m.Status.UnavailableImages,
 			kuikv1alpha1.UnavailableImage{Ref: r, Reason: kuikv1alpha1.CheckManifestNotFound})
 	}
+	return m
+}
+
+// unavailableAlternative makes m report ref, an alternative of derivedFrom offered by the
+// ImageAlternative named alternative, in status.unavailableAlternatives.
+func unavailableAlternative(m kuikv1alpha1.ImageMonitor, ref, derivedFrom, alternative string) kuikv1alpha1.ImageMonitor {
+	m.Status.UnavailableAlternatives = append(m.Status.UnavailableAlternatives, kuikv1alpha1.UnavailableAlternative{
+		Ref:         ref,
+		DerivedFrom: derivedFrom,
+		Via:         KindImageAlternative + "/" + alternative,
+		Reason:      kuikv1alpha1.CheckManifestNotFound,
+	})
 	return m
 }
 

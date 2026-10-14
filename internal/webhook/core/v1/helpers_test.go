@@ -257,6 +257,19 @@ func unavailableImages(refs ...string) kuikv1alpha1.ImageMonitorStatus {
 	return status
 }
 
+// unavailableAlternatives is the status of an ImageMonitor reporting refs, alternatives of
+// derivedFrom offered by the ImageAlternative named alternative, unavailable.
+func unavailableAlternatives(alternative, derivedFrom string, refs ...string) kuikv1alpha1.ImageMonitorStatus {
+	var status kuikv1alpha1.ImageMonitorStatus
+	for _, r := range refs {
+		status.UnavailableAlternatives = append(status.UnavailableAlternatives, kuikv1alpha1.UnavailableAlternative{
+			Ref: r, DerivedFrom: derivedFrom, Via: "ImageAlternative/" + alternative,
+			Reason: kuikv1alpha1.CheckManifestNotFound, Since: metav1.Now(),
+		})
+	}
+	return status
+}
+
 // monitorName is the name of imageMonitor.
 const monitorName = "registry-health"
 
