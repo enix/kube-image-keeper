@@ -206,6 +206,132 @@ var _ = Describe("Candidates", func() {
 		})
 	})
 
+	Context("known failures", func() {
+		It("moves the original to the end of the list when a monitor reports its reference unavailable", func() {
+			index := NewIndex(alternatives(library(onFailure)), mirrors(prodMirror(onFailure)), monitor(dockerNginx))
+			Expect(references(index.Candidates(request(dockerNginx), options))).
+				To(Equal([]string{ecrNginx, gcrNginx, mirrorNginx, dockerNginx}))
+		})
+
+		It("moves the original to the end of the list when a monitor whose podSelector does not select the pod reports it unavailable", func() {
+			m := monitor(dockerNginx)
+			m.Spec.PodSelector = &metav1.LabelSelector{MatchLabels: map[string]string{"tier": "batch"}}
+			index := NewIndex(alternatives(library(onFailure)), nil, m)
+			Expect(references(index.Candidates(request(dockerNginx), options))).To(Equal([]string{ecrNginx, gcrNginx, dockerNginx}))
+		})
+
+		It("matches a short pod image against the canonical reference a status lists", func() {
+			index := NewIndex(alternatives(library(onFailure)), nil, monitor("docker.io/library/nginx:latest"))
+			Expect(references(index.Candidates(request("nginx"), options))).To(Equal([]string{
+				"public.ecr.aws/docker/library/nginx:latest",
+				"mirror.gcr.io/library/nginx:latest",
+				"docker.io/library/nginx:latest",
+			}))
+		})
+
+		It("matches a status ref written in short form against the pod image", func() {
+			index := NewIndex(alternatives(library(onFailure)), nil, monitor(nginx))
+			Expect(references(index.Candidates(request(dockerNginx), options))).To(Equal([]string{ecrNginx, gcrNginx, dockerNginx}))
+		})
+
+		It("reports each demoted candidate with the resource whose status lists it, the first monitor by name", func() {
+			zeta := monitor(dockerNginx)
+			zeta.Name = "zeta"
+			alpha := monitor(dockerNginx)
+			alpha.Name = "alpha"
+			index := NewIndex(alternatives(library(onFailure)), mirrors(failedCopies(prodMirror(always), dockerNginx)), zeta, alpha)
+			// Matched by field name: the test commit builds before Demotion exists.
+			Expect(index.Candidates(request(nginx), options)).To(HaveField("Demoted", HaveExactElements(
+				And(HaveField("Candidate", mirrorNginx), HaveField("ReportedBy", Resource{Kind: KindImageMirror, Name: prodMirrorName})),
+				And(HaveField("Candidate", dockerNginx), HaveField("ReportedBy", Resource{Kind: "ImageMonitor", Name: "alpha"})),
+			)))
+		})
+
+		It("demotes the original a monitor reports even when an Always alternative entry produces the same reference", func() {
+			// The other docker.io entry produces the original's reference, with the same config:
+			// deduplication keeps it at the head of the Always band, in place of the original.
+			cr := alternative("library", always, group(dockerLibrary), group(dockerLibrary), group(ecrLibrary))
+			index := NewIndex(alternatives(cr), nil, monitor(dockerNginx))
+			Expect(references(index.Candidates(request(nginx), options))).To(Equal([]string{ecrNginx, dockerNginx}))
+		})
+
+		It("keeps the candidate of a mirror in place when another mirror with the same destination reports the copy failed", func() {
+			first := prodMirror(always)
+			first.Name = "team-a"
+			second := prodMirror(always)
+			second.Name = "team-b"
+			index := NewIndex(nil, mirrors(first, failedCopies(second, dockerNginx)))
+			result := index.Candidates(request(nginx), options)
+			Expect(references(result)).To(Equal([]string{mirrorNginx, dockerNginx}))
+			// Matched by field name: the test commit builds before Demotion exists.
+			Expect(result).To(HaveField("Demoted", BeEmpty()))
+		})
+
+		It("keeps the candidate of an ImageMirror in place when the copy it reports failed is a resync of a tag it lists in driftedImages", func() {
+			m := failedCopies(prodMirror(always), dockerNginx)
+			m.Status.DriftedImages = []kuikv1alpha1.MirrorDriftedImage{{Ref: dockerNginx, UpstreamDigest: "sha256:new", CopiedDigest: "sha256:old"}}
+			index := NewIndex(nil, mirrors(m))
+			Expect(references(index.Candidates(request(nginx), options))).To(Equal([]string{mirrorNginx, dockerNginx}))
+		})
+
+		It("records a demoted Always mirror as OnFailure", func() {
+			result := NewIndex(nil, mirrors(failedCopies(prodMirror(always), dockerNginx))).Candidates(request(nginx), options)
+			Expect(candidate(result, mirrorNginx).Policy).To(Equal(kuikv1alpha1.RewritePolicyOnFailure))
+		})
+
+		It("moves the candidate of an Always ImageMirror behind the original when that mirror reports the copy of the origin failed", func() {
+			index := NewIndex(nil, mirrors(failedCopies(prodMirror(always), dockerNginx)))
+			Expect(references(index.Candidates(request(nginx), options))).To(Equal([]string{dockerNginx, mirrorNginx}))
+		})
+
+		It("leaves the candidate of another Always ImageMirror of the same origin in place", func() {
+			archive := otherMirror("archive", always)
+			index := NewIndex(nil, mirrors(failedCopies(archive, dockerNginx), prodMirror(always)))
+			Expect(references(index.Candidates(request(nginx), options))).
+				To(Equal([]string{mirrorNginx, dockerNginx, archiveNginx}))
+		})
+
+		It("keeps the relative order of the demoted candidates and of the others", func() {
+			index := NewIndex(alternatives(library(onFailure)), mirrors(failedCopies(prodMirror(always), dockerNginx)),
+				monitor(dockerNginx))
+			Expect(references(index.Candidates(request(nginx), options))).
+				To(Equal([]string{ecrNginx, gcrNginx, mirrorNginx, dockerNginx}))
+		})
+
+		It("places a known failure after an original demoted by an unavailable entry", func() {
+			cr := alternative("library", onFailure, unavailable(group(dockerLibrary)), group(ecrLibrary), group(gcrLibrary))
+			index := NewIndex(alternatives(cr), mirrors(failedCopies(prodMirror(always), dockerNginx)))
+			Expect(references(index.Candidates(request(nginx), options))).
+				To(Equal([]string{ecrNginx, gcrNginx, dockerNginx, mirrorNginx}))
+		})
+
+		It("does not demote an alternative candidate whose reference a monitor reports unavailable as an origin", func() {
+			// The monitor reports both references, each the origin of some pod: only the
+			// original of this pod moves.
+			cr := alternative("acme", onFailure, repository("quay.io/acme/foo"), repository("docker.io/acme/foo"))
+			index := NewIndex(alternatives(cr), nil, monitor("quay.io/acme/foo:v1", "docker.io/acme/foo:v1"))
+			Expect(references(index.Candidates(request("quay.io/acme/foo:v1"), options))).
+				To(Equal([]string{"docker.io/acme/foo:v1", "quay.io/acme/foo:v1"}))
+		})
+
+		It("leaves the order unchanged when nothing is known to fail", func() {
+			index := NewIndex(alternatives(library(onFailure)), mirrors(failedCopies(prodMirror(always), "docker.io/library/redis:8")),
+				monitor("docker.io/library/nginx:1.26"))
+			Expect(references(index.Candidates(request(nginx), options))).
+				To(Equal([]string{mirrorNginx, dockerNginx, ecrNginx, gcrNginx}))
+		})
+
+		It("leaves the order unchanged when demoteKnownFailures is false", func() {
+			index := NewIndex(alternatives(library(onFailure)), mirrors(failedCopies(prodMirror(always), dockerNginx)),
+				monitor(dockerNginx))
+			declared := []string{mirrorNginx, dockerNginx, ecrNginx, gcrNginx}
+			Expect(references(index.Candidates(request(nginx), options))).NotTo(Equal(declared))
+			opts := options
+			opts.DemoteKnownFailures = false
+			Expect(references(index.Candidates(request(nginx), opts))).To(Equal(declared))
+		})
+	})
+
 	Context("the config each candidate is probed with", func() {
 		It("carries the auth and insecure of the alternative entry that produced it", func() {
 			entry := group(ecrLibrary)
@@ -304,12 +430,14 @@ const (
 	ecrNginx    = "public.ecr.aws/docker/library/nginx:1.27"
 	gcrNginx    = "mirror.gcr.io/library/nginx:1.27"
 	mirrorNginx = "registry.tld/mirror/docker.io/library/nginx:1.27_cluster-a"
+	// archiveNginx is the reference otherMirror("archive", ...) serves nginx at.
+	archiveNginx = "registry.tld/archive/docker.io/library/nginx:1.27_cluster-a"
 
 	prodMirrorName = "prod-mirror"
 )
 
 // options are the global config settings every spec uses, the defaults of the spec.
-var options = Options{ClusterID: "cluster-a", DemoteMirrorWithPullPolicyAlways: true}
+var options = Options{ClusterID: "cluster-a", DemoteMirrorWithPullPolicyAlways: true, DemoteKnownFailures: true}
 
 // tableReferences maps the names of the ordering table to their references.
 func tableReferences(names []string) []string {
@@ -365,6 +493,34 @@ func prodMirror(policy string) kuikv1alpha1.ImageMirror {
 			Destination:   kuikv1alpha1.MirrorDestination{Path: "registry.tld/mirror/"},
 		},
 	}
+}
+
+// otherMirror is an ImageMirror named name under policy with destination
+// registry.tld/<name>/.
+func otherMirror(name, policy string) kuikv1alpha1.ImageMirror {
+	m := prodMirror(policy)
+	m.Name = name
+	m.Spec.Destination.Path = "registry.tld/" + name + "/"
+	return m
+}
+
+// failedCopies makes m report the copies of origins failed in status.failedImageCopies.
+func failedCopies(m kuikv1alpha1.ImageMirror, origins ...string) kuikv1alpha1.ImageMirror {
+	for _, o := range origins {
+		m.Status.FailedImageCopies = append(m.Status.FailedImageCopies,
+			kuikv1alpha1.FailedImageCopy{Ref: o, Reason: kuikv1alpha1.CopySourceUnreachable})
+	}
+	return m
+}
+
+// monitor is an ImageMonitor reporting refs in status.unavailableImages.
+func monitor(refs ...string) kuikv1alpha1.ImageMonitor {
+	m := kuikv1alpha1.ImageMonitor{ObjectMeta: metav1.ObjectMeta{Name: "web"}}
+	for _, r := range refs {
+		m.Status.UnavailableImages = append(m.Status.UnavailableImages,
+			kuikv1alpha1.UnavailableImage{Ref: r, Reason: kuikv1alpha1.CheckManifestNotFound})
+	}
+	return m
 }
 
 func alternatives(crs ...kuikv1alpha1.ImageAlternative) []kuikv1alpha1.ImageAlternative { return crs }
