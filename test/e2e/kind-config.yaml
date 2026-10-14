@@ -1,0 +1,10 @@
+# The Kind cluster of the e2e suite. The kubelet refreshes a ConfigMap volume on its sync period
+# (1m by default, plus jitter), and every spec that edits the global config of kuik waits for it to
+# reach the pods: a 10s period cuts that wait. A cluster created before this file keeps the
+# defaults: delete it with `task cleanup-test-e2e`.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+kubeadmConfigPatches:
+  - |
+    kind: KubeletConfiguration
+    syncFrequency: 10s
