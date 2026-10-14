@@ -56,6 +56,11 @@ func kubectl(args ...string) (string, error) {
 	return runBounded(kubectlTimeout, nil, "kubectl", args...)
 }
 
+// envSet tells whether the environment variable name is set to true.
+func envSet(name string) bool {
+	return os.Getenv(name) == "true"
+}
+
 // makeTarget runs make with args, bounded by makeTimeout.
 func makeTarget(args ...string) (string, error) {
 	return runBounded(makeTimeout, nil, "make", args...)
@@ -76,6 +81,8 @@ var (
 // To enable kubectl kuberc (use custom kubectl configurations), set: KUBECTL_KUBERC=true
 // By default, kuberc is disabled to ensure consistent test behavior across different environments.
 // To skip CertManager installation, set: CERT_MANAGER_INSTALL_SKIP=true
+// To skip the teardown on a cluster deleted after the run, set: KUIK_E2E_DISPOSABLE_CLUSTER=true
+// (task test-e2e sets it when it created the cluster)
 func TestE2E(t *testing.T) {
 	RegisterFailHandler(Fail)
 	_, _ = fmt.Fprintf(GinkgoWriter, "Starting kube-image-keeper e2e test suite\n")
@@ -99,6 +106,14 @@ var _ = BeforeSuite(func() {
 })
 
 var _ = AfterSuite(func() {
+	// task test-e2e deletes a Kind cluster it created once the suite ends: uninstalling kuik
+	// and cert-manager from it first only adds to the run. A reused cluster outlives the run,
+	// so it gets the full teardown.
+	if envSet("KUIK_E2E_DISPOSABLE_CLUSTER") {
+		_, _ = fmt.Fprintf(GinkgoWriter, "Skipping the teardown: the cluster is deleted after the run "+
+			"(KUIK_E2E_DISPOSABLE_CLUSTER=true)\n")
+		return
+	}
 	undeployChart()
 	teardownCertManager()
 })
@@ -182,7 +197,7 @@ func undeployChart() {
 // This prevents local kubectl configurations from affecting test behavior.
 // To enable kuberc, set: KUBECTL_KUBERC=true
 func configureKubectlKubeRC() {
-	if os.Getenv("KUBECTL_KUBERC") != "true" {
+	if !envSet("KUBECTL_KUBERC") {
 		By("disabling kubectl kuberc for test isolation")
 		err := os.Setenv("KUBECTL_KUBERC", "false")
 		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to disable kubectl kuberc")
@@ -196,7 +211,7 @@ func configureKubectlKubeRC() {
 // setupCertManager installs CertManager if needed for webhook tests.
 // Skips installation if CERT_MANAGER_INSTALL_SKIP=true or if already present.
 func setupCertManager() {
-	if os.Getenv("CERT_MANAGER_INSTALL_SKIP") == "true" {
+	if envSet("CERT_MANAGER_INSTALL_SKIP") {
 		_, _ = fmt.Fprintf(GinkgoWriter, "Skipping CertManager installation (CERT_MANAGER_INSTALL_SKIP=true)\n")
 		return
 	}
