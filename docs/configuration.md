@@ -57,7 +57,7 @@ A key left out takes the default below.
 | `webhook.demoteMirrorWithPullPolicyAlways` | `true` | Demote a mirror candidate for a container with `imagePullPolicy: Always` |
 | `webhook.availabilityCheck.timeout` | `2s` | Time before the webhook considers a candidate unavailable |
 | `webhook.availabilityCheck.activeCheckCache.ttl` | `10s` | Lifetime of an active check result, per webhook replica |
-| `webhook.availabilityCheck.demoteKnownFailures` | `true` | Try last a candidate the background loops report failing |
+| `webhook.availabilityCheck.demoteKnownFailures` | `true` | Try last a candidate the background loops report failing, see [`rewritePolicy`](./crds.md#rewritepolicy) |
 | `registries.default.check` | `interval: 1m`, `timeout: 10s` | Pace of the background checks against every host |
 | `registries.default.copy` | `interval: 3m`, `timeout: 0` | Pace of the copies from every host. A `timeout` of `0` means no bound |
 | `registries.<host>` | `registries.default` | Pace of one host, field by field: a host block overrides the fields it names and inherits the others. `index.docker.io` and `docker.io` are the same host |
