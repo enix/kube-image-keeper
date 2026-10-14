@@ -85,6 +85,9 @@ type Options struct {
 	// DemoteMirrorWithPullPolicyAlways ignores an ImageMirror's `rewritePolicy: Always` for a
 	// container with `imagePullPolicy: Always`.
 	DemoteMirrorWithPullPolicyAlways bool
+	// DemoteKnownFailures sends the candidates the loops report failing to the end of the
+	// list.
+	DemoteKnownFailures bool
 }
 
 // Result is the candidate list of a container.
@@ -161,7 +164,7 @@ type mirrorResource struct {
 }
 
 // NewIndex builds an index over the given resources.
-func NewIndex(alternatives []kuikv1alpha1.ImageAlternative, mirrors []kuikv1alpha1.ImageMirror) *Index {
+func NewIndex(alternatives []kuikv1alpha1.ImageAlternative, mirrors []kuikv1alpha1.ImageMirror, _ ...kuikv1alpha1.ImageMonitor) *Index {
 	index := &Index{entries: imagepath.NewTrie[entryRef]()}
 
 	alternatives = slices.SortedFunc(slices.Values(alternatives), func(a, b kuikv1alpha1.ImageAlternative) int {
