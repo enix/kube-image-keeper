@@ -122,6 +122,11 @@ type Index struct {
 	// unavailable holds the origins the ImageMonitors list in status.unavailableImages, in
 	// canonical form, each with the names of the monitors listing it, sorted.
 	unavailable map[string][]string
+	// unavailableAlternatives holds the alternatives the ImageMonitors list in
+	// status.unavailableAlternatives, keyed by the name of the ImageAlternative their `via`
+	// names, then by reference in canonical form, each with the names of the monitors listing
+	// it, sorted.
+	unavailableAlternatives map[string]map[string][]string
 	// failedCopies holds the origins each ImageMirror lists in status.failedImageCopies, in
 	// canonical form, keyed by mirror name.
 	failedCopies map[string]map[string]bool
@@ -187,9 +192,10 @@ type mirrorResource struct {
 // the status lists of the ImageMirrors and the ImageMonitors that report known failures.
 func NewIndex(alternatives []kuikv1alpha1.ImageAlternative, mirrors []kuikv1alpha1.ImageMirror, monitors ...kuikv1alpha1.ImageMonitor) *Index {
 	index := &Index{
-		entries:      imagepath.NewTrie[entryRef](),
-		unavailable:  map[string][]string{},
-		failedCopies: map[string]map[string]bool{},
+		entries:                 imagepath.NewTrie[entryRef](),
+		unavailable:             map[string][]string{},
+		unavailableAlternatives: map[string]map[string][]string{},
+		failedCopies:            map[string]map[string]bool{},
 	}
 
 	alternatives = slices.SortedFunc(slices.Values(alternatives), func(a, b kuikv1alpha1.ImageAlternative) int {
@@ -249,6 +255,21 @@ func NewIndex(alternatives []kuikv1alpha1.ImageAlternative, mirrors []kuikv1alph
 		for _, e := range cr.Status.UnavailableImages {
 			if ref, ok := canonical(e.Ref); ok && !slices.Contains(index.unavailable[ref], cr.Name) {
 				index.unavailable[ref] = append(index.unavailable[ref], cr.Name)
+			}
+		}
+		for _, e := range cr.Status.UnavailableAlternatives {
+			name, isAlternative := strings.CutPrefix(e.Via, KindImageAlternative+"/")
+			ref, ok := canonical(e.Ref)
+			if !isAlternative || name == "" || !ok {
+				continue
+			}
+			byRef := index.unavailableAlternatives[name]
+			if byRef == nil {
+				byRef = map[string][]string{}
+				index.unavailableAlternatives[name] = byRef
+			}
+			if !slices.Contains(byRef[ref], cr.Name) {
+				byRef[ref] = append(byRef[ref], cr.Name)
 			}
 		}
 	}
@@ -336,13 +357,23 @@ func demoteKnownFailures(list []Candidate, reporters []*Resource) ([]Candidate, 
 // knownFailure tells whether a status lists the candidate c of origin failing, and the
 // resource that does, the first by name: the original when an ImageMonitor lists it in
 // unavailableImages, a mirror candidate when its own ImageMirror lists the origin in
-// failedImageCopies. An alternative candidate is never one here: unavailableImages lists
-// origins, and the alternatives are demoted from their own list,
-// status.unavailableAlternatives, in a later change.
+// failedImageCopies, an alternative candidate when an ImageMonitor lists its reference in
+// unavailableAlternatives via its own ImageAlternative, whatever origin it was derived from.
+// unavailableImages lists origins: a reference it lists demotes no alternative candidate.
 func (i *Index) knownFailure(origin string, c Candidate) (Resource, bool) {
 	switch {
 	case c.Resource == nil:
 		if monitors := i.unavailable[origin]; len(monitors) > 0 {
+			return Resource{Kind: KindImageMonitor, Name: monitors[0]}, true
+		}
+	case c.Resource.Kind == KindImageAlternative:
+		// A rewrite may read short, docker.io/nginx for a docker.io group: the status lists
+		// it in canonical form once read back.
+		ref, ok := canonical(c.Reference)
+		if !ok {
+			break
+		}
+		if monitors := i.unavailableAlternatives[c.Resource.Name][ref]; len(monitors) > 0 {
 			return Resource{Kind: KindImageMonitor, Name: monitors[0]}, true
 		}
 	case c.Resource.Kind == KindImageMirror:
@@ -427,8 +458,8 @@ func (i *Index) mirrorCandidates(req Request, opts Options, b *bands) {
 // deduplicate keeps the first occurrence of each (reference, config), and returns along the
 // resource known reports failing for each kept candidate, nil for none. A kept candidate is
 // judged on its own occurrence, and also carries the failure of an original deduplicated
-// behind it: the original is known to fail whoever offers its reference, while a mirror
-// candidate is only by its own mirror.
+// behind it: the original is known to fail whoever offers its reference, while a mirror or
+// an alternative candidate is only through the resource that offered it.
 func deduplicate(list []Candidate, known func(Candidate) (Resource, bool)) ([]Candidate, []*Resource) {
 	seen := map[string]int{}
 	kept := make([]Candidate, 0, len(list))
