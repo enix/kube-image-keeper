@@ -205,7 +205,10 @@ build are in [`.claude/rules/docs.md`](./.claude/rules/docs.md).
   `2.3.x` with `git show` and recommends what to lift). The session that owns the pull
   request launches one `implementer` and resumes it for the whole pull request, a fresh
   `reviewer` per review, and does the pushes and GitHub writes itself; CodeRabbit reviews
-  last ([0014](./notes/0014-implementer-and-reviewer-agents.md)).
+  last ([0014](./notes/0014-implementer-and-reviewer-agents.md)). The session stays where it
+  started and reaches its pull request's worktree by path: it never switches its own
+  worktree (EnterWorktree) while an agent works, since the agent's isolation moves with the
+  session and blocks it mid-task.
 - [`.mcp.json`](./.mcp.json) (at the repository root): the `astro-docs` MCP server, the
   Astro and Starlight documentation for the site under `website/`. Public endpoint, no
   credentials; Claude Code asks once per user before enabling it. The outbound hook

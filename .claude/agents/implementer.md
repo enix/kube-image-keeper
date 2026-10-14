@@ -64,6 +64,9 @@ Stop, report and wait to be resumed only in these cases:
 - the outline, when you write it: the `PIt` / `PEntry` tree, shown with
   `task test-outline`. The session has `spec-reviewer` check it, reports it to the
   maintainer and resumes you at once, without waiting for an approval;
+- the specs of a `test` commit already pass before any `feat`: the component is cut wrong.
+  Report it before committing. The one exception is a regression spec for a bug in code
+  already on `main`, committed after its fix ([`tests.md`](../rules/tests.md));
 - a spec rewritten or relaxed after its `test` commit in a way that opens a gap with
   `docs/v3/`: leave it uncommitted and report the diff and the gap;
 - a fix that belongs in a shared package (`internal/registry/*`, `internal/status/*`,

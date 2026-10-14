@@ -116,6 +116,13 @@ The session that owns the pull request hands the checked outline to one `impleme
 agent, which writes the bodies and the code; a `reviewer` agent reviews each `feat` commit
 as it lands ([0014](../../../notes/0014-implementer-and-reviewer-agents.md)).
 
+Cut the outline into components by the code each `feat` commit changes, not by test layer:
+each component names the files its `feat` commit modifies. A spec that needs no code of its
+own (an earlier component already makes it pass) goes in the `test` commit of the component
+whose `feat` turns it green, never in a `test` commit of its own, which would be green from
+the start. e2e specs are the exception: they come in one last `test` commit, once the pull
+request is ready ([`e2e-spec`](../e2e-spec/SKILL.md)).
+
 Work one component at a time, in 2 commits:
 
 1. `test(<scope>): ...`: turn `PIt` into `It` (`PEntry` into `Entry`) and write the full
