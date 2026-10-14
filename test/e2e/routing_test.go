@@ -150,6 +150,55 @@ spec:
       %[3]s: "true"
 `, demoteName, routingLabel, demoteLabel)
 
+// alternativeOrigin is an image whose registry does not resolve, offered demotedAlternative
+// then availableImage
+const alternativeOrigin = "e2e-demote-alternative.invalid/pause:" + pauseTag
+
+// demotedAlternative answers from k8s.gcr.io, which redirects to registry.k8s.io: its registry
+// has a pacing block of its own, so a check timeout set there fails the monitor's checks of it
+// alone, while the webhook, bound by its own timeout, still finds it available
+const demotedAlternative = "k8s.gcr.io/pause:" + pauseTag
+
+// demoteAlternativeName names the ImageAlternative offering the alternatives of
+// alternativeOrigin, and the ImageMonitor monitoring them
+const demoteAlternativeName = "e2e-demote-alternative"
+
+// demoteAlternativeNamespace holds the pod of alternativeOrigin the monitor tracks; the
+// ImageAlternative selects it as it does the routing namespace, the monitor selects it alone
+const demoteAlternativeNamespace = "kuik-e2e-demote-alternative"
+
+// demoteAlternativeLabel is the namespace label the ImageMonitor of demoteAlternativeName selects
+const demoteAlternativeLabel = "kuik.enix.io/e2e-demote-alternative"
+
+// failingAlternativeChecks is a global config fragment under which no background check of the
+// registry of demotedAlternative answers in time; the webhook's probe is not bound by it
+const failingAlternativeChecks = "registries:\n  k8s.gcr.io:\n    check:\n      timeout: 1ms\n"
+
+var demoteAlternativeResources = fmt.Sprintf(`
+apiVersion: kuik.enix.io/v1alpha1
+kind: ImageAlternative
+metadata:
+  name: %[1]s
+spec:
+  namespaceSelector:
+    matchLabels:
+      %[2]s: "true"
+  alternatives:
+    - repository: e2e-demote-alternative.invalid/pause
+    - repository: k8s.gcr.io/pause
+    - repository: registry.k8s.io/pause
+---
+apiVersion: kuik.enix.io/v1alpha1
+kind: ImageMonitor
+metadata:
+  name: %[1]s
+spec:
+  monitorAlternatives: true
+  namespaceSelector:
+    matchLabels:
+      %[3]s: "true"
+`, demoteAlternativeName, routingLabel, demoteAlternativeLabel)
+
 var _ = Describe("Pod routing", Ordered, func() {
 	BeforeAll(func() {
 		startAPIProxy()
@@ -258,6 +307,66 @@ var _ = Describe("Pod routing", Ordered, func() {
 			Expect(kuikAnnotations("demote-served")).To(HaveKeyWithValue("kuik.enix.io/rewrites", MatchJSON(fmt.Sprintf(
 				`{"pause":{"by":"ImageAlternative/%s","origin":%q,"rewrittenTo":%q,"policy":"OnFailure"}}`,
 				demoteName, demotedOrigin, availableImage))))
+		})
+	})
+
+	Context("with an ImageMonitor reporting an alternative unavailable", func() {
+		// Only a real reconciler, monitoring alternatives, writes unavailableAlternatives, from
+		// checks that really fail. The original never answers and both alternatives answer the
+		// webhook, so the first alternative is served unless it is demoted.
+		It("serves the next alternative while an ImageMonitor lists the first one unavailable", func() {
+			By("tracking the original with an ImageMonitor monitoring its alternatives")
+			_, err := kubectl("create", "ns", demoteAlternativeNamespace)
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(kubectl, "delete", "ns", demoteAlternativeNamespace, "--wait=false")
+			_, err = kubectl("label", "ns", demoteAlternativeNamespace, routingLabel+"=true", demoteAlternativeLabel+"=true")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(kubectlStdin(demoteAlternativeResources, "apply", "-f", "-")).Error().NotTo(HaveOccurred())
+			DeferCleanup(kubectl, "delete", "imagealternative,imagemonitor", demoteAlternativeName, "--ignore-not-found")
+
+			original, err := kubectl("get", "configmap", configMapName, "-n", namespace, "-o", `jsonpath={.data.config\.yaml}`)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(original).NotTo(ContainSubstring("registries:"))
+			original = strings.TrimRight(original, "\n") + "\n"
+			// The restore needs no wait: the fragment only paces k8s.gcr.io, which no other spec
+			// reads, and the monitor that checks it is deleted.
+			DeferCleanup(setConfig, original)
+
+			// rewrittenTo is the kuik.enix.io/rewrites value of a pod of alternativeOrigin served target.
+			rewrittenTo := func(target string) string {
+				return fmt.Sprintf(`{"pause":{"by":"ImageAlternative/%s","origin":%q,"rewrittenTo":%q,"policy":"OnFailure"}}`,
+					demoteAlternativeName, alternativeOrigin, target)
+			}
+
+			By("waiting until every webhook replica serves the first alternative")
+			Eventually(replicasRewritingTo).WithTimeout(30*time.Second).
+				WithArguments(alternativeOrigin, demotedAlternative).Should(everyReplica(BeTrue()))
+			// The webhook rewrites the tracked pod: the monitor tracks its origin and the
+			// alternatives offered for it.
+			tracked := pausePodManifest(demoteAlternativeNamespace, "tracked", alternativeOrigin)
+			Expect(kubectlStdin(tracked, "create", "-f", "-")).Error().NotTo(HaveOccurred())
+			createPod("demote-alternative-kept", alternativeOrigin)
+			Expect(podImage("demote-alternative-kept")).To(Equal(demotedAlternative))
+			Expect(kuikAnnotations("demote-alternative-kept")).
+				To(HaveKeyWithValue("kuik.enix.io/rewrites", MatchJSON(rewrittenTo(demotedAlternative))))
+
+			By("failing the monitor's checks of the first alternative's registry")
+			setConfig(original + failingAlternativeChecks)
+			// The kubelet syncs the ConfigMap volume within about 2m, then the ring checks the
+			// alternative on its next window, a minute apart by default.
+			via := fmt.Sprintf(`jsonpath={range .status.unavailableAlternatives[?(@.ref==%q)]}{.via}{end}`,
+				demotedAlternative)
+			Eventually(kubectl).WithTimeout(4*time.Minute).
+				WithArguments("get", "imagemonitor", demoteAlternativeName, "-o", via).
+				Should(Equal("ImageAlternative/" + demoteAlternativeName))
+
+			// Each replica's informer may see the status a moment after the API server does.
+			Eventually(replicasRewriting).WithTimeout(30 * time.Second).WithArguments(alternativeOrigin).
+				Should(everyReplica(BeTrue()))
+			createPod("demote-alternative-served", alternativeOrigin)
+			Expect(podImage("demote-alternative-served")).To(Equal(availableImage))
+			Expect(kuikAnnotations("demote-alternative-served")).
+				To(HaveKeyWithValue("kuik.enix.io/rewrites", MatchJSON(rewrittenTo(availableImage))))
 		})
 	})
 
@@ -478,10 +587,16 @@ func replicasRouting() (map[string]bool, error) {
 }
 
 // replicasRewriting tells, for each webhook pod, whether it rewrites a pod of image to
-// availableImage. It sends the AdmissionReview to each pod through the API server's proxy:
-// admission itself reaches whichever replica the API server's connection is bound to, so it
-// cannot tell whether every replica holds the same resources and config.
+// availableImage.
 func replicasRewriting(image string) (map[string]bool, error) {
+	return replicasRewritingTo(image, availableImage)
+}
+
+// replicasRewritingTo tells, for each webhook pod, whether it rewrites a pod of image to
+// target. It sends the AdmissionReview to each pod through the API server's proxy: admission
+// itself reaches whichever replica the API server's connection is bound to, so it cannot tell
+// whether every replica holds the same resources and config.
+func replicasRewritingTo(image, target string) (map[string]bool, error) {
 	pods, err := webhookPods()
 	if err != nil {
 		return nil, err
@@ -531,7 +646,7 @@ func replicasRewriting(image string) (map[string]bool, error) {
 		if !answer.Response.Allowed || answer.Response.Result != nil && answer.Response.Result.Code >= 400 {
 			return nil, fmt.Errorf("the webhook pod %s did not process the review: %s", pod, output)
 		}
-		routing[pod] = strings.Contains(string(answer.Response.Patch), availableImage)
+		routing[pod] = strings.Contains(string(answer.Response.Patch), target)
 	}
 	return routing, nil
 }
