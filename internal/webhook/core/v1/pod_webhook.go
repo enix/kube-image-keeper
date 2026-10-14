@@ -147,7 +147,7 @@ func (d *PodDefaulter) SetConfig(cfg *config.Config) {
 }
 
 // SetResources replaces the routing resources the webhook matches pods against.
-func (d *PodDefaulter) SetResources(alternatives []kuikv1alpha1.ImageAlternative, mirrors []kuikv1alpha1.ImageMirror) {
+func (d *PodDefaulter) SetResources(alternatives []kuikv1alpha1.ImageAlternative, mirrors []kuikv1alpha1.ImageMirror, _ ...kuikv1alpha1.ImageMonitor) {
 	d.index.Store(routing.NewIndex(alternatives, mirrors))
 }
 
