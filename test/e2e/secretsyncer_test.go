@@ -175,7 +175,8 @@ var _ = Describe("Pull secret syncing", Ordered, func() {
 			Should(ContainSubstring(`"registry.k8s.io/pause"`))
 
 		By("waiting for the grace to elapse: the Secret stays, emptied")
-		// The ConfigMap reaches the pod within a kubelet sync, then the grace runs its 10s.
+		// The ConfigMap reaches the pod within a kubelet sync (10s on the e2e cluster, see
+		// kind-config.yaml), then the grace runs its 10s.
 		Eventually(pullSecretConfig).WithArguments(onFailureSecret).WithTimeout(3 * time.Minute).
 			Should(Equal(`{"auths":{}}`))
 	})

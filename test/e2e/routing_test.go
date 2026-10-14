@@ -296,8 +296,9 @@ var _ = Describe("Pod routing", Ordered, func() {
 
 			By("failing the monitor's checks of the original's registry")
 			setConfig(original + failingOriginChecks)
-			// The kubelet syncs the ConfigMap volume within about 2m, then the ring checks the
-			// original on its next window, a minute apart by default.
+			// The kubelet syncs the ConfigMap volume on its sync period (10s on the e2e cluster,
+			// see kind-config.yaml), then the ring checks the original on its next window, a
+			// minute apart by default.
 			Eventually(kubectl).WithTimeout(4*time.Minute).WithArguments("get", "imagemonitor", demoteName, "-o",
 				fmt.Sprintf(`jsonpath={.status.unavailableImages[?(@.ref==%q)].ref}`, demotedOrigin)).
 				Should(Equal(demotedOrigin))
@@ -408,8 +409,8 @@ var _ = Describe("Pod routing", Ordered, func() {
 
 		// A 1ms availabilityCheck.timeout fails every probe, so a replica that loaded it stops
 		// rewriting: routing tells which config each replica holds, with no timing involved. The
-		// kubelet refreshes a ConfigMap volume on its sync period, up to a minute or more, and
-		// the check cache keeps earlier answers for its TTL.
+		// kubelet refreshes a ConfigMap volume on its sync period (10s on the e2e cluster, see
+		// kind-config.yaml), and the check cache keeps earlier answers for its TTL.
 		It("applies a valid edit without a restart", func() {
 			before := webhookRestarts()
 
