@@ -67,7 +67,8 @@ func makeTarget(args ...string) (string, error) {
 }
 
 var (
-	// managerImage is the manager image to be built and loaded for testing.
+	// managerImage is the manager image to be built and loaded for testing. The e2e workflow
+	// builds it under the same name: keep them in sync.
 	managerImage = "example.com/kube-image-keeper:v0.0.1"
 	// chartValues is the values file of the e2e release, relative to the project directory.
 	chartValues = "test/e2e/values.yaml"
@@ -83,6 +84,7 @@ var (
 // To skip CertManager installation, set: CERT_MANAGER_INSTALL_SKIP=true
 // To skip the teardown on a cluster deleted after the run, set: KUIK_E2E_DISPOSABLE_CLUSTER=true
 // (task test-e2e sets it when it created the cluster)
+// To load a manager image built beforehand instead of building it, set: KUIK_E2E_SKIP_IMAGE_BUILD=true
 func TestE2E(t *testing.T) {
 	RegisterFailHandler(Fail)
 	_, _ = fmt.Fprintf(GinkgoWriter, "Starting kube-image-keeper e2e test suite\n")
@@ -90,14 +92,19 @@ func TestE2E(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	By("building the manager image")
-	_, err := makeTarget("docker-build", fmt.Sprintf("IMG=%s", managerImage))
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the manager image")
+	// The CI builds managerImage before the suite, with its layers cached across runs.
+	if envSet("KUIK_E2E_SKIP_IMAGE_BUILD") {
+		_, _ = fmt.Fprintf(GinkgoWriter, "Skipping the manager image build (KUIK_E2E_SKIP_IMAGE_BUILD=true)\n")
+	} else {
+		By("building the manager image")
+		_, err := makeTarget("docker-build", fmt.Sprintf("IMG=%s", managerImage))
+		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the manager image")
+	}
 
 	// TODO(user): If you want to change the e2e test vendor from Kind,
 	// ensure the image is built and available, then remove the following block.
 	By("loading the manager image on Kind")
-	err = utils.LoadImageToKindClusterWithName(managerImage)
+	err := utils.LoadImageToKindClusterWithName(managerImage)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the manager image into Kind")
 
 	configureKubectlKubeRC()
