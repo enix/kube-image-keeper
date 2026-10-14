@@ -25,6 +25,10 @@ const (
 	KindImageMirror      = "ImageMirror"
 )
 
+// KindImageMonitor names the resource that reports an original unavailable. It offers no
+// candidate, so it is never a `by`.
+const KindImageMonitor = "ImageMonitor"
+
 // Resource identifies a routing resource.
 type Resource struct {
 	Kind string
@@ -96,6 +100,16 @@ type Result struct {
 	Candidates []Candidate
 	// Offering are the resources that offered at least one candidate.
 	Offering []Resource
+	// Demoted are the candidates sent to the end of the list as known failures, in order.
+	Demoted []Demotion
+}
+
+// Demotion is a candidate a status lists failing, sent to the end of the list.
+type Demotion struct {
+	// Candidate is the reference of the demoted candidate.
+	Candidate string
+	// ReportedBy is the resource whose status lists it failing.
+	ReportedBy Resource
 }
 
 // Index holds the routing resources and answers candidate lists from them. It is built
@@ -105,6 +119,12 @@ type Index struct {
 	mirrors      []mirrorResource
 	// entries holds every valid entry of alternatives, keyed by its resource and position.
 	entries *imagepath.Trie[entryRef]
+	// unavailable holds the origins the ImageMonitors list in status.unavailableImages, in
+	// canonical form, each with the names of the monitors listing it, sorted.
+	unavailable map[string][]string
+	// failedCopies holds the origins each ImageMirror lists in status.failedImageCopies, in
+	// canonical form, keyed by mirror name.
+	failedCopies map[string]map[string]bool
 }
 
 // scope is where a resource applies: its selectors, nil when one does not parse, in which
@@ -163,9 +183,14 @@ type mirrorResource struct {
 	scope scope
 }
 
-// NewIndex builds an index over the given resources.
-func NewIndex(alternatives []kuikv1alpha1.ImageAlternative, mirrors []kuikv1alpha1.ImageMirror, _ ...kuikv1alpha1.ImageMonitor) *Index {
-	index := &Index{entries: imagepath.NewTrie[entryRef]()}
+// NewIndex builds an index over the given resources: the spec of the routing resources, and
+// the status lists of the ImageMirrors and the ImageMonitors that report known failures.
+func NewIndex(alternatives []kuikv1alpha1.ImageAlternative, mirrors []kuikv1alpha1.ImageMirror, monitors ...kuikv1alpha1.ImageMonitor) *Index {
+	index := &Index{
+		entries:      imagepath.NewTrie[entryRef](),
+		unavailable:  map[string][]string{},
+		failedCopies: map[string]map[string]bool{},
+	}
 
 	alternatives = slices.SortedFunc(slices.Values(alternatives), func(a, b kuikv1alpha1.ImageAlternative) int {
 		return cmp.Compare(a.Name, b.Name)
@@ -200,8 +225,44 @@ func NewIndex(alternatives []kuikv1alpha1.ImageAlternative, mirrors []kuikv1alph
 			spec:  cr.Spec,
 			scope: newScope(cr.Spec.PodSelector, cr.Spec.NamespaceSelector),
 		})
+		// A failed copy of a tag listed in driftedImages is a failed resync: the destination
+		// still serves the previous copy, so the mirror candidate is no known failure.
+		drifted := map[string]bool{}
+		for _, e := range cr.Status.DriftedImages {
+			if ref, ok := canonical(e.Ref); ok {
+				drifted[ref] = true
+			}
+		}
+		failed := map[string]bool{}
+		for _, e := range cr.Status.FailedImageCopies {
+			if ref, ok := canonical(e.Ref); ok && !drifted[ref] {
+				failed[ref] = true
+			}
+		}
+		index.failedCopies[cr.Name] = failed
+	}
+
+	monitors = slices.SortedFunc(slices.Values(monitors), func(a, b kuikv1alpha1.ImageMonitor) int {
+		return cmp.Compare(a.Name, b.Name)
+	})
+	for _, cr := range monitors {
+		for _, e := range cr.Status.UnavailableImages {
+			if ref, ok := canonical(e.Ref); ok && !slices.Contains(index.unavailable[ref], cr.Name) {
+				index.unavailable[ref] = append(index.unavailable[ref], cr.Name)
+			}
+		}
 	}
 	return index
+}
+
+// canonical is the canonical form of a reference a status lists, false when it does not
+// parse.
+func canonical(ref string) (string, bool) {
+	parsed, err := imagepath.Parse(ref)
+	if err != nil {
+		return "", false
+	}
+	return parsed.String(), true
 }
 
 // policyOrDefault is policy, or OnFailure when unset.
@@ -236,7 +297,60 @@ func (i *Index) Candidates(req Request, opts Options) Result {
 	if b.demoteOriginal {
 		list = append(list, original)
 	}
-	return Result{Candidates: deduplicate(list), Offering: offering(list)}
+	// A known failure is decided before deduplication: the original deduplicated away behind
+	// an alternative entry producing its reference is still known to fail.
+	known := func(Candidate) (Resource, bool) { return Resource{}, false }
+	if opts.DemoteKnownFailures {
+		origin := req.Image.String()
+		known = func(c Candidate) (Resource, bool) { return i.knownFailure(origin, c) }
+	}
+	candidates, reporters := deduplicate(list, known)
+	result := Result{Offering: offering(list)}
+	result.Candidates, result.Demoted = demoteKnownFailures(candidates, reporters)
+	return result
+}
+
+// demoteKnownFailures moves the candidates of list a status lists failing, those with a
+// reporter, to the end, both parts keeping their order. Nothing is dropped. A demoted
+// candidate of an Always band is served only once the original failed, a fallback: it takes
+// the OnFailure policy, as an Always mirror demoted for imagePullPolicy Always does. See
+// docs/v3/spec.md, "demoteKnownFailures: reusing what the loops already know".
+func demoteKnownFailures(list []Candidate, reporters []*Resource) ([]Candidate, []Demotion) {
+	kept := make([]Candidate, 0, len(list))
+	var moved []Candidate
+	var demoted []Demotion
+	for k, c := range list {
+		if reporters[k] == nil {
+			kept = append(kept, c)
+			continue
+		}
+		if c.Policy == kuikv1alpha1.RewritePolicyAlways {
+			c.Policy = kuikv1alpha1.RewritePolicyOnFailure
+		}
+		moved = append(moved, c)
+		demoted = append(demoted, Demotion{Candidate: c.Reference, ReportedBy: *reporters[k]})
+	}
+	return append(kept, moved...), demoted
+}
+
+// knownFailure tells whether a status lists the candidate c of origin failing, and the
+// resource that does, the first by name: the original when an ImageMonitor lists it in
+// unavailableImages, a mirror candidate when its own ImageMirror lists the origin in
+// failedImageCopies. An alternative candidate is never one here: unavailableImages lists
+// origins, and the alternatives are demoted from their own list,
+// status.unavailableAlternatives, in a later change.
+func (i *Index) knownFailure(origin string, c Candidate) (Resource, bool) {
+	switch {
+	case c.Resource == nil:
+		if monitors := i.unavailable[origin]; len(monitors) > 0 {
+			return Resource{Kind: KindImageMonitor, Name: monitors[0]}, true
+		}
+	case c.Resource.Kind == KindImageMirror:
+		if i.failedCopies[c.Resource.Name][origin] {
+			return *c.Resource, true
+		}
+	}
+	return Resource{}, false
 }
 
 // alternativeCandidates adds the entries of every ImageAlternative matching the image, the
@@ -310,21 +424,34 @@ func (i *Index) mirrorCandidates(req Request, opts Options, b *bands) {
 	}
 }
 
-// deduplicate keeps the first occurrence of each (reference, config).
-func deduplicate(list []Candidate) []Candidate {
-	seen := map[string]bool{}
+// deduplicate keeps the first occurrence of each (reference, config), and returns along the
+// resource known reports failing for each kept candidate, nil for none. A kept candidate is
+// judged on its own occurrence, and also carries the failure of an original deduplicated
+// behind it: the original is known to fail whoever offers its reference, while a mirror
+// candidate is only by its own mirror.
+func deduplicate(list []Candidate, known func(Candidate) (Resource, bool)) ([]Candidate, []*Resource) {
+	seen := map[string]int{}
 	kept := make([]Candidate, 0, len(list))
+	reporters := make([]*Resource, 0, len(list))
 	for _, c := range list {
 		// Config holds plain values only, so its JSON form cannot fail and identifies it.
 		config, _ := json.Marshal(c.Config)
 		key := c.Reference + "\x00" + string(config)
-		if seen[key] {
+		var reporter *Resource
+		if by, failing := known(c); failing {
+			reporter = &by
+		}
+		if k, ok := seen[key]; ok {
+			if reporters[k] == nil && c.Resource == nil {
+				reporters[k] = reporter
+			}
 			continue
 		}
-		seen[key] = true
+		seen[key] = len(kept)
 		kept = append(kept, c)
+		reporters = append(reporters, reporter)
 	}
-	return kept
+	return kept, reporters
 }
 
 // offering lists the resources of list, in order of first appearance.
