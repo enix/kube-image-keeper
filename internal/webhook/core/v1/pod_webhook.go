@@ -146,9 +146,10 @@ func (d *PodDefaulter) SetConfig(cfg *config.Config) {
 	d.config.Store(cfg)
 }
 
-// SetResources replaces the routing resources the webhook matches pods against.
-func (d *PodDefaulter) SetResources(alternatives []kuikv1alpha1.ImageAlternative, mirrors []kuikv1alpha1.ImageMirror, _ ...kuikv1alpha1.ImageMonitor) {
-	d.index.Store(routing.NewIndex(alternatives, mirrors))
+// SetResources replaces the routing resources the webhook matches pods against, and the
+// ImageMonitors whose status reports the originals failing.
+func (d *PodDefaulter) SetResources(alternatives []kuikv1alpha1.ImageAlternative, mirrors []kuikv1alpha1.ImageMirror, monitors ...kuikv1alpha1.ImageMonitor) {
+	d.index.Store(routing.NewIndex(alternatives, mirrors, monitors...))
 }
 
 // pass is one pass of the webhook over a pod.
@@ -291,6 +292,10 @@ func (a *pass) candidates(ctx context.Context, c *corev1.Container) (pending, bo
 	if len(result.Offering) == 0 {
 		return pending{}, false
 	}
+	for _, dm := range result.Demoted {
+		containerLog(ctx, c).V(1).Info("Demoted candidate known to fail",
+			"candidate", dm.Candidate, "resource", dm.ReportedBy.String())
+	}
 	return pending{container: c, origin: origin, result: result}, true
 }
 
@@ -307,6 +312,7 @@ func (a *pass) options() routing.Options {
 	return routing.Options{
 		ClusterID:                        a.cfg.ClusterID,
 		DemoteMirrorWithPullPolicyAlways: a.cfg.Webhook.DemoteMirrorWithPullPolicyAlways,
+		DemoteKnownFailures:              a.cfg.Webhook.AvailabilityCheck.DemoteKnownFailures,
 	}
 }
 
@@ -485,7 +491,8 @@ func readRecords(ctx context.Context, pod *corev1.Pod) podrecord.Records {
 }
 
 // resourceWatch keeps the webhook's resources in step with the manager's cache: every event
-// on an ImageAlternative or an ImageMirror rebuilds the index from the cache.
+// on an ImageAlternative, an ImageMirror or an ImageMonitor, status updates included,
+// rebuilds the index from the cache.
 type resourceWatch struct {
 	cache     cache.Cache
 	defaulter *PodDefaulter
@@ -505,7 +512,7 @@ func (w *resourceWatch) Start(ctx context.Context) error {
 		UpdateFunc: func(any, any) { notify() },
 		DeleteFunc: func(any) { notify() },
 	}
-	for _, obj := range []client.Object{&kuikv1alpha1.ImageAlternative{}, &kuikv1alpha1.ImageMirror{}} {
+	for _, obj := range []client.Object{&kuikv1alpha1.ImageAlternative{}, &kuikv1alpha1.ImageMirror{}, &kuikv1alpha1.ImageMonitor{}} {
 		informer, err := w.cache.GetInformer(ctx, obj)
 		if err != nil {
 			return err
@@ -524,6 +531,7 @@ func (w *resourceWatch) Start(ctx context.Context) error {
 		case <-changed:
 			var alternatives kuikv1alpha1.ImageAlternativeList
 			var mirrors kuikv1alpha1.ImageMirrorList
+			var monitors kuikv1alpha1.ImageMonitorList
 			if err := w.cache.List(ctx, &alternatives); err != nil {
 				log.Error(err, "Failed to list ImageAlternatives, kept the previous routing resources")
 				continue
@@ -532,7 +540,11 @@ func (w *resourceWatch) Start(ctx context.Context) error {
 				log.Error(err, "Failed to list ImageMirrors, kept the previous routing resources")
 				continue
 			}
-			w.defaulter.SetResources(alternatives.Items, mirrors.Items)
+			if err := w.cache.List(ctx, &monitors); err != nil {
+				log.Error(err, "Failed to list ImageMonitors, kept the previous routing resources")
+				continue
+			}
+			w.defaulter.SetResources(alternatives.Items, mirrors.Items, monitors.Items...)
 		}
 	}
 }

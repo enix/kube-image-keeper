@@ -43,6 +43,16 @@ Where a resource's candidates sit relative to the original image when the webhoo
 
 When several resources cover one image, their candidates are merged in one list: `Always` mirrors, then `Always` alternatives, then the original, then `OnFailure` alternatives, then `OnFailure` mirrors, resources sorted by name within each band.
 
+With [`webhook.availabilityCheck.demoteKnownFailures`](./configuration.md#keys) (on by default), the webhook then moves to the end of the list the candidates the background loops report failing:
+
+- the original, while any `ImageMonitor` lists it in `status.unavailableImages`, whatever that monitor's selectors
+- a mirror candidate, while its own `ImageMirror` lists the pod's image in `status.failedImageCopies`; another mirror of the same image keeps its place. A failed resync of a tag the mirror also lists in `status.driftedImages` does not count: the destination still serves the previous copy
+
+The moved candidates keep their relative order, after everything else, an original already sent last by an [`unavailable: true`](#imagealternative) entry included. A moved candidate is still probed and served when everything above it fails, and a candidate reported available is never moved up. A moved `Always` mirror candidate is served as a fallback, after the original failed, so it is recorded with `policy: OnFailure`, as for a container with `imagePullPolicy: Always`. An entry counts as long as the status lists it, and the webhook only reads these statuses. Two limits:
+
+- an entry beyond the cap of its status list (`truncated`) is not seen, and its candidate keeps its place
+- a mirror candidate whose copy is still waiting, not yet failed, keeps its place: the first pods of a new image probe it and fall back as without the setting
+
 ### What the webhook records on a pod
 
 The webhook probes the candidates in order and places the first one that answers. It records its decision on the pod, in three annotations holding JSON objects keyed by container name. A container appears in at most one of them:
