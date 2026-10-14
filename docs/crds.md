@@ -47,11 +47,13 @@ With [`webhook.availabilityCheck.demoteKnownFailures`](./configuration.md#keys) 
 
 - the original, while any `ImageMonitor` lists it in `status.unavailableImages`, whatever that monitor's selectors
 - a mirror candidate, while its own `ImageMirror` lists the pod's image in `status.failedImageCopies`; another mirror of the same image keeps its place. A failed resync of a tag the mirror also lists in `status.driftedImages` does not count: the destination still serves the previous copy
+- an alternative candidate, while any `ImageMonitor` lists its reference in `status.unavailableAlternatives` with `via` naming the `ImageAlternative` that offered it, whatever its `derivedFrom` and that monitor's selectors; the same reference offered by another `ImageAlternative` keeps its place
 
-The moved candidates keep their relative order, after everything else, an original already sent last by an [`unavailable: true`](#imagealternative) entry included. A moved candidate is still probed and served when everything above it fails, and a candidate reported available is never moved up. A moved `Always` mirror candidate is served as a fallback, after the original failed, so it is recorded with `policy: OnFailure`, as for a container with `imagePullPolicy: Always`. An entry counts as long as the status lists it, and the webhook only reads these statuses. Two limits:
+The moved candidates keep their relative order, after everything else, an original already sent last by an [`unavailable: true`](#imagealternative) entry included. A moved candidate is still probed and served when everything above it fails, and a candidate reported available is never moved up. A moved `Always` candidate is served as a fallback, after the original failed, so it is recorded with `policy: OnFailure`, as an `Always` mirror is for a container with `imagePullPolicy: Always`. An entry counts as long as the status lists it, and the webhook only reads these statuses. Three limits:
 
 - an entry beyond the cap of its status list (`truncated`) is not seen, and its candidate keeps its place
 - a mirror candidate whose copy is still waiting, not yet failed, keeps its place: the first pods of a new image probe it and fall back as without the setting
+- `via` names only the first `ImageAlternative` offering an alternative, in candidate order: when several offer the same reference, only the candidate of that one moves
 
 ### What the webhook records on a pod
 
@@ -172,7 +174,7 @@ Rejected at admission:
 | ----- | ----------- |
 | `status.pods.tracked` / `.rewritten` | Pods selected, and pods carrying at least one standing rewrite by this resource. Neither sums across resources |
 | `status.containers.*` | Containers of the selected pods, partitioned into `untouched`, `rewritten`, `conceded` (another webhook overwrote kuik's rewrite), `stale` (edited after admission) and `noAlternatives` |
-| `status.activeFallbacks[]` | Origin images this resource currently stands in for, with `rewrittenTo`, `pods` and `since`. `OnFailure` only |
+| `status.activeFallbacks[]` | Origin images this resource currently stands in for, with `rewrittenTo`, `pods` and `since`. Rewrites recorded `OnFailure` only, which includes an `Always` candidate moved last as a known failure ([`demoteKnownFailures`](#rewritepolicy)) |
 | `status.noAlternatives[]` | Images no candidate could serve |
 | `status.concededRewrites[]` / `status.staleRewrites[]` | Rewrites something replaced, with `replacedBy` |
 | `status.truncated` | Per capped list, how many entries were left out, see [bounded lists](#status-conventions) |
