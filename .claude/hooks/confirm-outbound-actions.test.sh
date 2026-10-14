@@ -36,11 +36,25 @@ check() {
 # request of the current branch.
 check pass "gh pr edit 4242 --add-label e2e-ready"
 check ask "gh pr edit 4243 --add-label e2e-ready"
+# A CodeRabbit review request too, with exactly that body.
+check pass "gh pr comment 4242 --body \"@coderabbitai review\""
+check pass "gh pr comment 4242 --body '@coderabbitai full review'"
+check pass "gh pr comment 4242 -b \"@coderabbitai full review\""
+check ask "gh pr comment 4243 --body \"@coderabbitai review\""
+check ask "gh pr comment 4242 --body \"@coderabbitai review please\""
+check ask "gh pr comment 4242 --body \"@coderabbitai resolve\""
+check ask "gh pr comment 4242 --body-file x.md"
+check ask "gh pr comment 4242 --body \"@coderabbitai review\" && git push"
+check ask "gh pr comment 4242 --body \"@coderabbitai review\" --repo other/repo"
 check pass "git push origin $branch"
 check pass "git push -u origin $branch"
 check pass "git push --force-with-lease=$branch:0123abc origin $branch"
 check pass "gh api graphql -f query='query { viewer { login } }' --jq '.data | .viewer'"
 check pass "gh api graphql -f query='query { viewer { login } }'"
+# Double quotes are literal inside the single-quoted query: the open threads query of the
+# pull-request skill passes.
+check pass "gh api graphql -f query='query { repository(owner: \"enix\", name: \"kube-image-keeper\") { pullRequest(number: 12) { reviewThreads(first: 100) { nodes { id isResolved path } } } } }' --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved | not)'"
+check ask "gh api graphql -f query='query { search(query: \"mutation\") { issueCount } }'"
 # Anything else that leaves the working copy still asks.
 check ask "git push"
 check ask "git push origin"
@@ -337,6 +351,16 @@ check ask "git commit -m \"\`git push origin main\`\""
 check pass "git commit -m \"fix: the \\\"git push\\\" step\""
 check pass "git commit --message='fix: kubectl apply is not run here'"
 check pass "gh pr view 713"
+# A gh filter or template naming env could print the environment and its tokens.
+check ask "gh pr view 713 --json number --jq 'env.GH_TOKEN'"
+check ask "gh pr view 713 --json number -q '\$ENV'"
+check ask "gh pr view 713 --json number --template '{{ env }}'"
+check ask "gh api graphql -f query='query { viewer { login } }' --jq 'env'"
+check pass "gh pr view 713 --json environment"
+check ask "gh pr view 713 --json number --jq e'n'v.GH_TOKEN"
+check ask "gh pr view 713 --json number -q '\$''ENV'"
+check ask "gh pr view 713 --json number --jq e\\nv"
+check pass "go env GOPATH"
 
 [ "$failed" -eq 0 ] && echo "all cases pass"
 exit "$failed"

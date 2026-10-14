@@ -2,8 +2,8 @@
 # PreToolUse hook (Bash): commands that leave the working copy (push, pull requests,
 # releases, deployments) ask the user first, whatever the permission mode. They are not
 # forbidden: notes/0003 says the agent never does them on its own. A session drives its own
-# pull request without asking for 3 single commands: pushing its feature branch, adding the
-# e2e-ready label, and a GraphQL read. Merging still asks.
+# pull request without asking for 4 single commands: pushing its feature branch, adding the
+# e2e-ready label, asking CodeRabbit for a review, and a GraphQL read. Merging still asks.
 set -eu
 
 command -v jq >/dev/null 2>&1 || {
@@ -59,8 +59,17 @@ allowed() {
     own=$(cd "${cwd:-.}" 2>/dev/null && gh pr view --json number --jq .number 2>/dev/null || true)
     [ -n "$own" ] && [ "$n" = "$own" ] && return 0
   fi
-  # A GraphQL read: one query in single quotes, with no quote, backslash, $ or backtick
-  # inside, so the shell passes it as written and "mutation" cannot be split or built;
+  # A CodeRabbit review request, on the pull request of the current branch only, with
+  # exactly that body.
+  review="(\"@coderabbitai (full )?review\"|'@coderabbitai (full )?review')"
+  if printf '%s' "$cmd" | grep -Eq "^gh[[:space:]]+pr[[:space:]]+comment[[:space:]]+[0-9]+[[:space:]]+(--body|-b)[[:space:]]+${review}[[:space:]]*\$"; then
+    n=$(printf '%s' "$cmd" | sed 's/^gh[[:space:]]*pr[[:space:]]*comment[[:space:]]*\([0-9]*\).*/\1/')
+    own=$(cd "${cwd:-.}" 2>/dev/null && gh pr view --json number --jq .number 2>/dev/null || true)
+    [ -n "$own" ] && [ "$n" = "$own" ] && return 0
+  fi
+  # A GraphQL read: one query in single quotes, with no single quote, backslash, $ or
+  # backtick inside (double quotes are literal there), so the shell passes it as written and
+  # "mutation" cannot be split or built;
   # optionally a --jq filter written the same way.
   sq="[^'\\\$\`]*"
   graphql="^gh[[:space:]]+api[[:space:]]+graphql[[:space:]]+-f[[:space:]]+query='${sq}'([[:space:]]+--jq[[:space:]]+'${sq}')?[[:space:]]*\$"
@@ -69,6 +78,21 @@ allowed() {
   fi
   return 1
 }
+# gh's --jq and --template can read the environment (env.GH_TOKEN): a gh command naming env
+# asks, even a read the allow rules or the forms above let through.
+# Quotes and backslashes are dropped first, so e'n'v or $''ENV still match.
+if printf '%s' "$cmd" | grep -Eq '(^|[;&|(`[:space:]"'"'"'])gh[[:space:]]' &&
+  printf '%s' "$cmd" | tr -d "\"'\\\\" | grep -Eq '(^|[^A-Za-z0-9_])(env|\$ENV)([^A-Za-z0-9_]|$)'; then
+  jq -n '{
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "ask",
+      permissionDecisionReason: "This gh command names env, which a --jq or --template filter can use to print the environment and its tokens: the user confirms it explicitly."
+    }
+  }'
+  exit 0
+fi
+
 allowed && exit 0
 
 # "opts" lets global options, or for task and make other task names, sit between the
