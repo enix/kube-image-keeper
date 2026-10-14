@@ -53,9 +53,35 @@ any Secret outside the cluster resource namespace. It writes again when:
 - a `secretRef` Secret is created or changes in the cluster resource namespace;
 - the resource changes, or a namespace enters or leaves its scope;
 - the pods of a namespace change what an `OnFailure` resource needs;
-- the informers resync, which restores a Secret someone else edited.
+- the informers resync, which restores a Secret someone else deleted.
 
 A write that changes nothing is a no-op on the API server.
+
+## What the syncer may write
+
+The syncer may create and patch Secrets in every namespace, which RBAC cannot narrow further. A
+`ValidatingAdmissionPolicy` installed by the chart bounds it at the API server. A Secret the
+syncer creates or updates must:
+
+- be of type `kubernetes.io/dockerconfigjson`;
+- carry the label `app.kubernetes.io/managed-by: kuik-secret-syncer`;
+- be named `kuik-inject-*` in any namespace, or `kuik-provider-*` in the namespace kuik is installed in.
+
+The two prefixes are reserved both ways: any other identity is refused the creation or update
+of a Secret named `kuik-inject-*` or `kuik-provider-*`, in every namespace. Two updates are let
+through, both leaving the type, the data, the labels and the immutability unchanged: one that
+also leaves the owner references unchanged, such as a `kubectl replace` of every Secret to
+rotate the encryption at rest, and the garbage collector removing an owner reference. Deletions
+are not checked, so deleting a resource still deletes its Secrets. The policy fails closed: when
+the API server cannot evaluate it, the write is refused. Since the policy sees every Secret
+write in the cluster, a failure to evaluate it would refuse all of them, Helm releases
+included: its match conditions limit it to the writes of the syncer and to the reserved names,
+and every other Secret write skips it.
+
+A backup tool that recreates Secrets on restore, such as Velero, is refused these names. It is
+harmless, since the syncer writes them again, but the refusals show in the restore log, and
+Velero marks the restore `PartiallyFailed`, which fires any alert on that status: exclude these
+Secrets from the backup to avoid them.
 
 ## When a credential is no longer needed
 
