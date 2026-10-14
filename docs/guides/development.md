@@ -40,7 +40,7 @@ task kind-deploy IMG=kuik:dev KIND_CLUSTER=kuik-dev
 >
 > Persist them in `/etc/sysctl.d/` to survive a reboot.
 
-`task deploy IMG=...` alone runs `helm upgrade --install` against the current kubeconfig, with `config.clusterID` set to `CLUSTER_ID` (`dev` by default; the chart itself has no default); arguments after `--` go to Helm (`task deploy -- --set verbosity=DEBUG`). `task undeploy` removes the release, `task uninstall` the CRDs.
+`task deploy IMG=...` alone runs `helm upgrade --install` against the current kubeconfig, with `config.clusterID` set to `CLUSTER_ID` (`dev` by default; the chart itself has no default) and, when `HELM_VALUES` names a file, the values it holds; arguments after `--` go to Helm (`task deploy -- --set verbosity=DEBUG`). `task undeploy` removes the release, `task uninstall` the CRDs.
 
 ## Run the manager on your host
 

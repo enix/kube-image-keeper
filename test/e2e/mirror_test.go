@@ -153,7 +153,7 @@ var _ = Describe("Image mirroring", Ordered, func() {
 		Expect(clusterID).NotTo(BeEmpty())
 		original = strings.TrimRight(original, "\n") + "\n"
 		DeferCleanup(setConfig, original)
-		setConfig(original + "registries:\n  registry.k8s.io:\n    copy:\n      interval: 5s\n")
+		setConfig(mergeConfig(original, "registries:\n  registry.k8s.io:\n    copy:\n      interval: 5s\n"))
 
 		By("deploying the destination registry")
 		_, err = kubectl("create", "ns", registryNamespace)

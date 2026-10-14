@@ -1,0 +1,9 @@
+# Chart values of the e2e release, on top of the chart's defaults (task deploy HELM_VALUES=...).
+# The monitoring specs wait for the background checks of a registry, one window apart: 10s
+# instead of the default 1m (5s is the minimum) cuts that wait. Every host the suite's monitors
+# and mirrors check is registry.k8s.io or a .invalid host, so the faster pace reaches no rate limit.
+config:
+  registries:
+    default:
+      check:
+        interval: 10s

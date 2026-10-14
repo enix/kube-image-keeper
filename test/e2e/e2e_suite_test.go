@@ -64,6 +64,8 @@ func makeTarget(args ...string) (string, error) {
 var (
 	// managerImage is the manager image to be built and loaded for testing.
 	managerImage = "example.com/kube-image-keeper:v0.0.1"
+	// chartValues is the values file of the e2e release, relative to the project directory.
+	chartValues = "test/e2e/values.yaml"
 	// shouldCleanupCertManager tracks whether CertManager was installed by this suite.
 	shouldCleanupCertManager = false
 )
@@ -160,7 +162,7 @@ func deployChart() {
 	Expect(err).NotTo(HaveOccurred(), "Failed to install CRDs")
 
 	By("deploying the controller-manager")
-	_, err = makeTarget("deploy", fmt.Sprintf("IMG=%s", managerImage))
+	_, err = makeTarget("deploy", fmt.Sprintf("IMG=%s", managerImage), "HELM_VALUES="+chartValues)
 	Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
 }
 

@@ -31,6 +31,7 @@ on:
       - Makefile
       - Taskfile.yaml
       - test/e2e/kind-config.yaml
+      - test/e2e/values.yaml
       - helm/**
       - config/crd/**
       - .github/workflows/e2e.yaml
@@ -84,6 +85,7 @@ jobs:
             Makefile \
             Taskfile.yaml \
             test/e2e/kind-config.yaml \
+            test/e2e/values.yaml \
             'helm/**' \
             'config/crd/**' \
             .github/workflows/e2e.yaml \

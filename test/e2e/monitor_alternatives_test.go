@@ -83,7 +83,7 @@ var _ = Describe("Alternative monitoring", Ordered, func() {
 	})
 
 	It("lists an unreachable alternative and its via in unavailableAlternatives and sets AlternativesUnavailable", func() {
-		// The reconciler checks it on its own windows, one minute apart by default: no reconcile
+		// The reconciler checks it on its own windows, 10s apart on the e2e release: no reconcile
 		// is asked for.
 		entry := fmt.Sprintf(`jsonpath={range .status.unavailableAlternatives[?(@.ref==%q)]}`+
 			`{.reason}/{.via}/{.derivedFrom}{end}`, unreachableAlternative)

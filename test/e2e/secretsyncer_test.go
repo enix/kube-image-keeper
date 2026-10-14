@@ -157,7 +157,7 @@ var _ = Describe("Pull secret syncing", Ordered, func() {
 		Expect(err).NotTo(HaveOccurred())
 		original = strings.TrimRight(original, "\n") + "\n"
 		DeferCleanup(setConfig, original)
-		setConfig(original + "secretSyncer:\n  onFailureGrace: 10s\n")
+		setConfig(mergeConfig(original, "secretSyncer:\n  onFailureGrace: 10s\n"))
 
 		By("rewriting a pod through an OnFailure ImageAlternative that injects a credential")
 		Expect(kubectlStdin(onFailureResource, "apply", "-f", "-")).Error().NotTo(HaveOccurred())
