@@ -2,6 +2,8 @@ apiVersion: v2
 name: kube-image-keeper
 description: The keeper of your images in your cluster!
 type: application
+# ValidatingAdmissionPolicy, which bounds the secret syncer's writes, is GA from 1.30.
+kubeVersion: ">=1.30.0-0"
 # version and appVersion are set by the release pipeline, see .github/workflows/build.yaml
 version: 0.0.0
 appVersion: 0.0.0

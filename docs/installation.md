@@ -5,6 +5,10 @@ sidebar:
 
 # Installation
 
+kuik requires Kubernetes 1.30 or later: the chart installs a `ValidatingAdmissionPolicy`, GA from that version.
+
+A cluster runs one kuik install: the Secret names its secret syncer reserves are cluster-wide, so the syncers of two installs would refuse each other's writes.
+
 We rely on [cert-manager Custom Resources](https://github.com/enix/kube-image-keeper/tree/v2.2.3/helm/kube-image-keeper/templates/webhook-certificate.yaml) to manage the kuik mutating webhook certificate, so you need to [install it first](https://cert-manager.io/docs/installation/).
 
 ```bash

@@ -294,7 +294,8 @@ secretSyncer:
     # -- (bool) Create the ServiceAccount of the secret syncer
     # @default -- the root `serviceAccount.create`
     create: ~
-    # -- Name of the ServiceAccount of the secret syncer, `<fullname>-secret-syncer` when empty
+    # -- Name of the ServiceAccount of the secret syncer, `<fullname>-secret-syncer` when empty.
+    # Never "default": the chart fails to render when the secret syncer would run under it
     name: ""
     # -- Annotations added to the ServiceAccount of the secret syncer, merged over the root ones
     # @default -- the root `serviceAccount.annotations`
@@ -307,7 +308,8 @@ secretSyncer:
 # may set its own, like any pod setting.
 serviceAccount:
   # -- Create the ServiceAccounts. When false, a process runs under the ServiceAccount its
-  # block names, or "default"
+  # block names, or "default". The secret syncer refuses "default": its Secret writes are
+  # bounded by identity, so it needs a ServiceAccount of its own
   create: true
   # -- Annotations added to the ServiceAccounts
   annotations: {}

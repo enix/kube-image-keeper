@@ -437,7 +437,7 @@ func (s *Syncer) pairsOf(ctx context.Context, res routing.Resource) []pullsecret
 
 // resourceHandler enqueues the pairs of a routing resource. An update that changes nothing is
 // the informer's resync: its pairs are re-applied whatever their hash, which bounds how long
-// someone else's edit of a managed Secret survives.
+// someone else's deletion of a managed Secret lasts.
 func resourceHandler[T client.Object](s *Syncer, kind string) handler.TypedEventHandler[T, pullsecret.Pair] {
 	pairs := func(ctx context.Context, object T) []pullsecret.Pair {
 		return s.pairsOf(ctx, routing.Resource{Kind: kind, Name: object.GetName()})
