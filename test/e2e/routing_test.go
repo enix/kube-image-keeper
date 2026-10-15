@@ -407,7 +407,7 @@ var _ = Describe("Pod routing", Ordered, func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(original).NotTo(BeEmpty())
 			original = strings.TrimRight(original, "\n") + "\n"
-			DeferCleanup(setConfig, original)
+			DeferCleanup(restoreConfig, original)
 		})
 
 		// A 1ms availabilityCheck.timeout fails every probe, so a replica that loaded it stops
@@ -726,6 +726,16 @@ func startAPIProxy() {
 
 // everyReplica matches a replicasRouting result where each of the 2 webhook replicas matches
 // matcher.
+// restoreConfig sets the global config back to content and waits until every webhook replica
+// routes again under it: a ConfigMap reaches a pod within a kubelet sync, a minute or more, so the
+// specs that run next would otherwise meet the edited config. kuik exposes no signal of a
+// successful reload, hence the wait on routing itself.
+func restoreConfig(content string) {
+	GinkgoHelper()
+	setConfig(content)
+	Eventually(replicasRouting, "3m").Should(everyReplica(BeTrue()))
+}
+
 func everyReplica(matcher OmegaMatcher) OmegaMatcher {
 	return And(HaveLen(2), HaveEach(matcher))
 }
