@@ -1,0 +1,9 @@
+# since: 3.0.0-alpha.5
+# Test 17: a Secret under the prefix reserved to the secret syncer, written by another identity.
+# The ValidatingAdmissionPolicy of the chart must refuse it, so setup never applies this file.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kuik-inject-kuik-test-reserved
+  namespace: kuik-test
+type: Opaque

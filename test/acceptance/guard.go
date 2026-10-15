@@ -433,8 +433,8 @@ func (e *env) refuseLeftovers(ctx context.Context) error {
 	return nil
 }
 
-// runCleanup deletes what owned lists, the CRs before the namespaces, waits for every one of them
-// to be gone and checks nothing is left.
+// runCleanup deletes what owned lists and waits for it to be gone, the CRs first, then the
+// Secrets and the namespaces, and checks nothing is left.
 func runCleanup(ctx context.Context, e *env, _ []string) error {
 	if err := e.checkKuikNamespace(ctx); err != nil {
 		return err
@@ -443,18 +443,48 @@ func runCleanup(ctx context.Context, e *env, _ []string) error {
 	if err != nil {
 		return err
 	}
+	// The CRs go alone, and are gone before any Secret: a deleted ImageMirror keeps its finalizer
+	// until it has deleted its tags, with a manage credential a test Secret may hold.
+	crs := slices.DeleteFunc(slices.Clone(left), func(o client.Object) bool { return !isCR(o) })
+	rest := slices.DeleteFunc(slices.Clone(left), isCR)
+	// A CR still there keeps the Secrets: its finalizer may need them.
+	if err := errors.Join(e.deleteAndWait(ctx, crs)...); err != nil {
+		return err
+	}
+	if err := errors.Join(e.deleteAndWait(ctx, rest)...); err != nil {
+		return err
+	}
+	if left, err = e.owned(ctx); err != nil {
+		return fmt.Errorf("cannot list the test objects after cleanup: %w", err)
+	}
+	if len(left) > 0 {
+		return fmt.Errorf("left after cleanup: %s", describeAll(left))
+	}
+	fmt.Println("no test object left")
+	return nil
+}
+
+func isCR(obj client.Object) bool {
+	switch obj.(type) {
+	case *kuikv1alpha1.ImageAlternative, *kuikv1alpha1.ImageMirror, *kuikv1alpha1.ImageMonitor:
+		return true
+	}
+	return false
+}
+
+// deleteAndWait deletes every object and waits for each one to be gone: kuik holds a deleted
+// ImageMirror with its finalizer until it has deleted its tags.
+func (e *env) deleteAndWait(ctx context.Context, objs []client.Object) []error {
 	var errs []error
-	for _, obj := range left {
+	for _, obj := range objs {
 		if err := e.client.Delete(ctx, obj); err != nil && !apierrors.IsNotFound(err) {
 			errs = append(errs, fmt.Errorf("cannot delete %s: %w", describe(obj), err))
 			continue
 		}
 		fmt.Printf("deleted %s\n", describe(obj))
 	}
-	// Every object, not only the namespaces: kuik holds a deleted ImageMirror with its finalizer
-	// until it has deleted its tags.
 	deadline := time.Now().Add(deletionWait)
-	for _, obj := range left {
+	for _, obj := range objs {
 		live, ok := obj.DeepCopyObject().(client.Object)
 		if !ok {
 			errs = append(errs, fmt.Errorf("copy %s", describe(obj)))
@@ -472,17 +502,7 @@ func runCleanup(ctx context.Context, e *env, _ []string) error {
 			time.Sleep(3 * time.Second)
 		}
 	}
-	if err := errors.Join(errs...); err != nil {
-		return err
-	}
-	if left, err = e.owned(ctx); err != nil {
-		return fmt.Errorf("cannot list the test objects after cleanup: %w", err)
-	}
-	if len(left) > 0 {
-		return fmt.Errorf("left after cleanup: %s", describeAll(left))
-	}
-	fmt.Println("no test object left")
-	return nil
+	return errs
 }
 
 func describe(obj client.Object) string {

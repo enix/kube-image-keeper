@@ -6,6 +6,8 @@ What a kuik v3 release must show on a real cluster, one scenario per test, numbe
 
 In every command, `<path>` is the kubeconfig file and `<name>` its context. Add `--kuik-namespace <ns>` to a task when kuik is not installed in `kuik-system`, and `--release <release>` when its Helm release is not `kube-image-keeper`. The `kubectl` commands only read, and never a Secret's data.
 
+`<public-repo>` is the repository the test pods pull anonymously, `quay.io/nginx/nginx-unprivileged` by default. On a cluster where a real ImageAlternative or ImageMirror covers it, every routing scenario shows that resource at work instead of the test one: pass `--public-repo <repo>` to `setup` and every `apply`, a repository holding a copy of `nginx-unprivileged:1.31.6-alpine` that no resource of the cluster covers (`KUBECONFIG=<path> kubectl --context <name> get imagealternatives,imagemirrors -o yaml` lists what they cover). On a cluster whose egress IP is shared, prefer a registry without an anonymous pull quota: the tests check and copy it every minute.
+
 Apply the 2 test namespaces first, once per run:
 
 ```sh
@@ -72,13 +74,13 @@ task acceptance-apply -- --kubeconfig <path> --context <name> --file test/accept
 
 **They expect**:
 
-- the pod rewritten to `quay.io/nginx/nginx-unprivileged:1.31.6-alpine`, the first candidate that answers ([ImageAlternative](../../docs/v3/spec.md#imagealternative));
+- the pod rewritten to `<public-repo>:1.31.6-alpine`, the first candidate that answers ([ImageAlternative](../../docs/v3/spec.md#imagealternative));
 - the `kuik.enix.io/rewrites` annotation naming `ImageAlternative/kuik-test-nginx` ([Annotations](../../docs/v3/observability.md#annotations));
 - the pod Running;
 - an `ImageFallback` event on the pod ([Catalogue](../../docs/v3/observability.md#catalogue));
 - `kuik_routing_rewrites_total` of `kuik-test-nginx`, summed over the webhook replicas, one above its value before the pod (only the replica that served the admission counts it) ([Counters](../../docs/v3/observability.md#counters--cumulative-safe-to-sum-across-replicas)).
 
-**Prepare**: [`03-fallback.yaml`](./fixtures/03-fallback.yaml), shared with scenarios 4, 5, 7 and 12. First note the counter of every webhook replica (absent counts as 0); `acceptance-setup` prints it for you:
+**Prepare**: [`03-fallback.yaml`](./fixtures/03-fallback.yaml), shared with scenarios 4, 5, 7, 12, 15 and 16. First note the counter of every webhook replica (absent counts as 0); `acceptance-setup` prints it for you:
 
 ```sh
 task acceptance-inspect -- --kubeconfig <path> --context <name> --metrics kuik_routing_rewrites_total
@@ -153,7 +155,7 @@ task acceptance-apply -- --kubeconfig <path> --context <name> --file test/accept
 
 Since 3.0.0-alpha.4, the mirror tries to copy the image and fails:
 
-- `status.failedImageCopies` holding `quay.io/nginx/nginx-unprivileged:1.31.6-alpine`, reason `DestinationUnreachable`, and `status.images.copy` at `tracked` 1, `unavailable` 1 ([status](../../docs/v3/status.md#imagemirror));
+- `status.failedImageCopies` holding `<public-repo>:1.31.6-alpine`, reason `DestinationUnreachable`, and `status.images.copy` at `tracked` 1, `unavailable` 1 ([status](../../docs/v3/status.md#imagemirror));
 - `DestinationOutOfSync` `True`, reason `MissingImages`; `Ready` `True`, reason `IsReady`: a failing image never touches `Ready` ([conditions](../../docs/v3/status.md#conditions-and-their-reasons));
 - an `ImageCopyFailed` event on the CR ([Catalogue](../../docs/v3/observability.md#catalogue));
 - `kuik_image_copy_failed` for the image, with the destination as `registry` ([Anomalies](../../docs/v3/observability.md#anomalies-signal-by-presence)).
@@ -164,7 +166,7 @@ Since 3.0.0-alpha.4, the mirror tries to copy the image and fails:
 task acceptance-apply -- --kubeconfig <path> --context <name> --file test/acceptance/fixtures/06-mirror.yaml
 ```
 
-**Do**: wait 5 minutes: a copy waits for a copy window of quay.io, 3 minutes apart by default ([Scheduling](../../docs/v3/spec.md#scheduling)).
+**Do**: wait 5 minutes: a copy waits for a copy window of the host of `<public-repo>`, 3 minutes apart by default ([Scheduling](../../docs/v3/spec.md#scheduling)).
 
 **Check**:
 
@@ -174,7 +176,7 @@ task acceptance-apply -- --kubeconfig <path> --context <name> --file test/accept
 - conditions: `KUBECONFIG=<path> kubectl --context <name> get imagemirror kuik-test-mirror -o jsonpath='{range .status.conditions[*]}{.type} {.status} {.reason}{"\n"}{end}'`
 - event (section "events") and metric: `task acceptance-inspect -- --kubeconfig <path> --context <name> --grep kuik-test-mirror --metrics 'kuik_image_copy_failed.*kuik-test-mirror"'`
 
-**Explore**: a pod with `imagePullPolicy: Always` on the mirrored image ([`imagePullPolicy: Always` demotes a mirror](../../docs/v3/spec.md#imagepullpolicy-always-demotes-a-mirror)). This mirror never completes its copy: read `failedImageCopies[0].lastAttempt` across 2 copy windows of quay.io; it is refreshed at every retry ([status](../../docs/v3/status.md#imagemirror)), so a value that never moves means the copy is not retried. Delete the CR (`task acceptance-delete -- --kubeconfig <path> --context <name> imagemirror/kuik-test-mirror`): no pod runs its copies and cleanup is off, so it must be gone within a minute ([Deleting an ImageMirror](../../docs/crds.md#deleting-an-imagemirror)). The fixture turns cleanup off because the mirror records its repository before the push fails, and a finalizer listing the tags of a host that never answers would hold the CR.
+**Explore**: a pod with `imagePullPolicy: Always` on the mirrored image ([`imagePullPolicy: Always` demotes a mirror](../../docs/v3/spec.md#imagepullpolicy-always-demotes-a-mirror)). This mirror never completes its copy: read `failedImageCopies[0].lastAttempt` across 2 copy windows of the host of `<public-repo>`; it is refreshed at every retry ([status](../../docs/v3/status.md#imagemirror)), so a value that never moves means the copy is not retried. Delete the CR (`task acceptance-delete -- --kubeconfig <path> --context <name> imagemirror/kuik-test-mirror`): no pod runs its copies and cleanup is off, so it must be gone within a minute ([Deleting an ImageMirror](../../docs/crds.md#deleting-an-imagemirror)). The fixture turns cleanup off because the mirror records its repository before the push fails, and a finalizer listing the tags of a host that never answers would hold the CR.
 
 ## 7. The ImageAlternative status tells what it did
 
@@ -321,8 +323,9 @@ task acceptance-apply -- --kubeconfig <path> --context <name> --file test/accept
 - once the rings have checked both images, `available` 1 and `unavailable` 1;
 - `status.unavailableImages` holding `kuik-test.invalid/nginx/nginx-unprivileged:1.31.6-alpine`, reason `Unreachable`, `pods` 1;
 - `ImagesUnavailable` `True`, reason `ChecksFailed`; `Ready` `True`, reason `IsReady`;
-- `status.checks.registries` with an entry for `quay.io` and one for `kuik-test.invalid`;
-- `kuik_image_origin_unavailable` for the image that fails, and no such series for the quay.io one.
+- `status.checks.registries` with an entry for the host of `<public-repo>` and one for `kuik-test.invalid`;
+- `kuik_image_origin_unavailable` for the image that fails, and no such series for the `<public-repo>` one;
+- since 3.0.0-alpha.5, no drift on a fixed tag with `driftDetection` at its default (`true`): `status.images.origin.drifted` 0, no `status.driftedImages`, `ImagesDrifted` `False`, and no `ImageTagDrifted` or `ImageClusterSkew` event ([Events](../../docs/v3/observability.md#events)). A drift reported here means upstream rebuilt `1.31.6-alpine`, or a node whose runtime reports a platform manifest or a config digest in `imageID` ([ImageMonitor fields](../../docs/crds.md#fields-2)): check the digests before calling it a bug.
 
 **Prepare**: the fixture of [scenario 3](#3-an-onfailure-alternative-reroutes-a-pod-whose-origin-is-down), then [`12-monitor.yaml`](./fixtures/12-monitor.yaml):
 
@@ -338,8 +341,9 @@ task acceptance-apply -- --kubeconfig <path> --context <name> --file test/accept
 - conditions: `KUBECONFIG=<path> kubectl --context <name> get imagemonitor kuik-test-monitor -o jsonpath='{range .status.conditions[*]}{.type} {.status} {.reason}{"\n"}{end}'`
 - rings: `KUBECONFIG=<path> kubectl --context <name> get imagemonitor kuik-test-monitor -o jsonpath='{.status.checks.registries}'`
 - metric: `task acceptance-inspect -- --kubeconfig <path> --context <name> --metrics 'kuik_image_origin_unavailable.*kuik-test-monitor'`
+- drift (since 3.0.0-alpha.5): `KUBECONFIG=<path> kubectl --context <name> get imagemonitor kuik-test-monitor -o jsonpath='{.status.images.origin.drifted}{"\n"}{.status.driftedImages}{"\n"}'`, and the events of `task acceptance-inspect -- --kubeconfig <path> --context <name> --grep kuik-test-monitor`
 
-**Explore**: delete the pod `origin-up` (`task acceptance-delete -- --kubeconfig <path> --context <name> pod/origin-up`): its image must move to `status.retainedImages` with `unusedSince` and a digest, and count as `retained` ([status](../../docs/v3/status.md#imagemonitor)). Does a `cycleDuration` appear once a lap completes, and is it close to what the shared quay.io windows allow?
+**Explore**: delete the pod `origin-up` (`task acceptance-delete -- --kubeconfig <path> --context <name> pod/origin-up`): its image must move to `status.retainedImages` with `unusedSince` and a digest, and count as `retained` ([status](../../docs/v3/status.md#imagemonitor)). Does a `cycleDuration` appear once a lap completes, and is it close to what the shared windows of that host allow?
 
 ## 13. A private image checked anonymously is announced
 
@@ -391,7 +395,7 @@ task acceptance-apply -- --kubeconfig <path> --context <name> --private-repo <pr
 task acceptance-apply -- --kubeconfig <path> --context <name> --mirror-prefix <prefix> --file test/acceptance/fixtures/14-mirror-copy.yaml
 ```
 
-**Do**: wait 5 minutes: the copy waits for a copy window of quay.io.
+**Do**: wait 5 minutes: the copy waits for a copy window of the host of `<public-repo>`.
 
 **Check**:
 
@@ -401,3 +405,89 @@ task acceptance-apply -- --kubeconfig <path> --context <name> --mirror-prefix <p
 - event (section "events") and counter: `task acceptance-inspect -- --kubeconfig <path> --context <name> --grep kuik-test-mirror-copy --metrics 'kuik_mirror_copies_total.*kuik-test-mirror-copy'`
 
 **Explore**: the tag in the registry carries this cluster's `clusterID` suffix ([Multi-cluster](../../docs/v3/spec.md#multi-cluster-shared-destination-one-tag-per-cluster)); `selfChecked` appears within one `mirror.destinationScan.interval` (1 hour by default). Delete the CR (`task acceptance-delete -- --kubeconfig <path> --context <name> imagemirror/kuik-test-mirror-copy`): it is held until no pod runs its copies, then its tags are deleted and it goes ([Deleting an ImageMirror](../../docs/crds.md#deleting-an-imagemirror)). Without `--mirror-prefix`, the scenario is reported as not tested.
+
+## 15. An ImageMonitor that monitors alternatives reports the one that fails
+
+**Since**: 3.0.0-alpha.5
+
+**The user** declares a second ImageMonitor on the pods of scenarios 3 and 4, with `monitorAlternatives: true`: `kuik-test-nginx` offers `kuik-test.invalid`, which never resolves, and `<public-repo>`, which answers and stands in for the origin of `fallback`.
+
+**They expect** ([ImageMonitor](../../docs/v3/spec.md#imagemonitor), [status](../../docs/v3/status.md#imagemonitor), [conditions](../../docs/v3/status.md#conditions-and-their-reasons), [Events](../../docs/v3/observability.md#events), [Anomalies](../../docs/v3/observability.md#anomalies-signal-by-presence)):
+
+- `status.images.alternatives` present next to `origin`, with `running` 1: the `<public-repo>` alternative standing in for the origin of `fallback`. The other counts are judged against the alternatives `kuik-test-nginx` offers for the 2 origins;
+- `status.unavailableAlternatives` holding `kuik-test.invalid/nginx/nginx-unprivileged:1.31.6-alpine`, `derivedFrom` `<public-repo>:1.31.6-alpine`, `via` `ImageAlternative/kuik-test-nginx`, reason `Unreachable`;
+- `AlternativesUnavailable` `True`, reason `ChecksFailed`; `Ready` `True`, reason `IsReady`;
+- `kuik_image_alternative_unavailable` for that alternative, with its `derived_from` and `via`;
+- no `AlternativeUnusable` event: `Unreachable` has no remedy, only `Unauthorized` emits.
+
+**Prepare**: the fixture of [scenario 3](#3-an-onfailure-alternative-reroutes-a-pod-whose-origin-is-down), then [`15-monitor-alternatives.yaml`](./fixtures/15-monitor-alternatives.yaml):
+
+```sh
+task acceptance-apply -- --kubeconfig <path> --context <name> --file test/acceptance/fixtures/15-monitor-alternatives.yaml
+```
+
+**Do**: wait 5 minutes, as for [scenario 12](#12-an-imagemonitor-tracks-the-images-of-its-pods-and-reports-the-one-that-fails).
+
+**Check**:
+
+- counts and unavailable alternatives: `KUBECONFIG=<path> kubectl --context <name> get imagemonitor kuik-test-alternatives -o jsonpath='{.status.images}{"\n"}{.status.unavailableAlternatives}{"\n"}'`
+- conditions: `KUBECONFIG=<path> kubectl --context <name> get imagemonitor kuik-test-alternatives -o jsonpath='{range .status.conditions[*]}{.type} {.status} {.reason}{"\n"}{end}'`
+- events (section "events") and metric: `task acceptance-inspect -- --kubeconfig <path> --context <name> --grep kuik-test-alternatives --metrics 'kuik_image_alternative_unavailable.*kuik-test-alternatives'`
+
+**Explore**: apply the same ImageMonitor with `monitorAlternatives: false` (a copy in the scratchpad): `status.images.alternatives`, `unavailableAlternatives` and `AlternativesUnavailable` go, and so do the `kuik_images_tracked` series of the population `alternatives` and `kuik_image_alternative_unavailable` ([Catalogue](../../docs/v3/observability.md#catalogue)).
+
+## 16. A candidate the monitors report failing is tried last
+
+**Since**: 3.0.0-alpha.5
+
+**The user** runs a second pod with the origin of `fallback` once the ImageMonitors of scenarios 12 and 15 report `kuik-test.invalid` unavailable.
+
+**They expect** ([`demoteKnownFailures`](../../docs/v3/spec.md#demoteknownfailures-reusing-what-the-loops-already-know), on by default):
+
+- a webhook log line at debug, `Demoted candidate known to fail`, with `candidate` `kuik-test.invalid/nginx/nginx-unprivileged:1.31.6-alpine` and `resource` one of the 2 test ImageMonitors;
+- no `Candidate failed its check` for that candidate at this admission: `<public-repo>` answered first, so the demoted one was never probed;
+- the pod rewritten to `<public-repo>:1.31.6-alpine`, as in [scenario 3](#3-an-onfailure-alternative-reroutes-a-pod-whose-origin-is-down).
+
+**Prepare**: scenarios 12 and 15 checked, their `unavailableImages` and `unavailableAlternatives` holding `kuik-test.invalid`. The webhook logs at debug (step 2 of the run). Reported as not tested when the kuik config sets `webhook.availabilityCheck.demoteKnownFailures: false`.
+
+**Do**: apply [`16-fallback-again.yaml`](./fixtures/16-fallback-again.yaml), which `setup` never applies:
+
+```sh
+task acceptance-apply -- --kubeconfig <path> --context <name> --file test/acceptance/fixtures/16-fallback-again.yaml
+```
+
+**Check**:
+
+- webhook logs: `task acceptance-inspect -- --kubeconfig <path> --context <name> --grep 'Demoted candidate|Candidate failed its check'`, the lines after the time of the apply
+- image and annotations: `KUBECONFIG=<path> kubectl --context <name> get pod -n kuik-test fallback-again -o jsonpath='{.spec.containers[0].image}{"\n"}{.metadata.annotations}{"\n"}'`
+
+**Explore**: the ImageMirror of [scenario 6](#6-an-imagemirror-whose-destination-is-down-leaves-the-pod-on-its-origin) copies to a `.invalid` host: once its `failedImageCopies` holds the origin, is its mirror candidate demoted for a new pod it selects ([`failedImageCopies`](../../docs/v3/status.md#imagemirror))?
+
+## 17. Nobody but the secret syncer writes a Secret under its reserved prefix
+
+**Since**: 3.0.0-alpha.5
+
+**The user** creates a Secret named `kuik-inject-*` in a namespace of theirs.
+
+**They expect** ([Bounding what the syncer may write](../../docs/v3/architecture.md#bounding-what-the-syncer-may-write)):
+
+- the chart installs a ValidatingAdmissionPolicy and its binding, both named `<fullname>-secret-syncer` (`kube-image-keeper-secret-syncer` for the default release), the binding with `validationActions` `[Deny]`;
+- the API server refuses the Secret, with `the names kuik-inject-* and kuik-provider-* are reserved to the kuik secret syncer, <user> may not write kuik-test/kuik-inject-kuik-test-reserved`; nothing is created;
+- the pull Secret the syncer wrote in [scenario 11](#11-a-pod-pulls-from-a-private-registry-with-the-declared-credential) still there: the policy bounds its writes, it does not block them. Scenario 10 deleted the one of scenario 8; without `--private-repo`, scenario 8 passing on this release shows the same.
+
+**Prepare**: nothing: `setup` never applies [`17-reserved-prefix.yaml`](./fixtures/17-reserved-prefix.yaml), since the API server must refuse it.
+
+**Do**: apply it by hand; the task must fail:
+
+```sh
+task acceptance-apply -- --kubeconfig <path> --context <name> --file test/acceptance/fixtures/17-reserved-prefix.yaml
+```
+
+**Check**:
+
+- policy and binding: `KUBECONFIG=<path> kubectl --context <name> get validatingadmissionpolicy,validatingadmissionpolicybinding <fullname>-secret-syncer`
+- binding actions: `KUBECONFIG=<path> kubectl --context <name> get validatingadmissionpolicybinding <fullname>-secret-syncer -o jsonpath='{.spec.validationActions}'`
+- nothing created: `KUBECONFIG=<path> kubectl --context <name> get secret -n kuik-test kuik-inject-kuik-test-reserved` answers `NotFound`
+- the syncer still writes: `KUBECONFIG=<path> kubectl --context <name> get secret -n kuik-test kuik-inject-imagealternative-kuik-test-private -o name`
+
+**Explore**: the refusal comes from the policy, not from RBAC: the error names the policy and its message, never `forbidden: User ... cannot create`. A Secret that slipped through means the policy is missing or not bound: report it, `acceptance-cleanup` removes it with the namespace.

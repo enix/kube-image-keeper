@@ -7,9 +7,9 @@
 //	acceptance check   --kubeconfig PATH --context NAME [--kuik-version V]   reads the installation
 //	acceptance inspect --kubeconfig PATH --context NAME [--since D] [--grep RE] reads the test objects
 //	acceptance setup   --kubeconfig PATH --context NAME [--kuik-version V] [--private-repo R --pull-auth S]
-//	                   [--mirror-prefix P]
+//	                   [--mirror-prefix P] [--public-repo R]
 //	acceptance apply   --kubeconfig PATH --context NAME --file F [--private-repo R --pull-auth S]
-//	                   [--mirror-prefix P]
+//	                   [--mirror-prefix P] [--public-repo R]
 //	acceptance delete  --kubeconfig PATH --context NAME [--namespace NS] KIND/NAME
 //	acceptance cleanup --kubeconfig PATH --context NAME
 //	acceptance validate                                                     checks the fixtures, no cluster
@@ -48,6 +48,9 @@ type env struct {
 	pullAuth string
 	// mirrorPrefix is the registry path the user dedicates to test mirrors, on top of .invalid hosts.
 	mirrorPrefix string
+	// publicRepo is the repository the test pods pull anonymously, which no resource of the
+	// cluster may cover.
+	publicRepo string
 }
 
 type command struct {
@@ -93,6 +96,9 @@ func main() {
 	fs.StringVar(&e.release, "release", "kube-image-keeper", "Helm release of kuik")
 	fs.StringVar(&e.mirrorPrefix, "mirror-prefix", "",
 		"registry path dedicated to test ImageMirrors, where they may write; otherwise only .invalid hosts")
+	fs.StringVar(&e.publicRepo, "public-repo", "quay.io/nginx/nginx-unprivileged",
+		"repository holding nginx-unprivileged:1.31.6-alpine, pulled anonymously by the test pods; "+
+			"pick one no ImageAlternative or ImageMirror of the cluster covers")
 	if cmd.flags != nil {
 		cmd.flags(fs)
 	}
