@@ -24,8 +24,8 @@ import (
 var fixtures embed.FS
 
 const (
-	// privatePrefix marks the fixtures of test 11, applied only with --private-repo and --pull-auth.
-	privatePrefix = "11-"
+	// mirrorPrefixFixtures marks the fixtures of test 14, applied only with --mirror-prefix.
+	mirrorPrefixFixtures = "14-"
 	// privateAlternative is the fixture after which setup waits for the pull Secret of test 11.
 	privateAlternative = "11-private-alternative.yaml"
 	privateInjected    = "kuik-inject-imagealternative-kuik-test-private"
@@ -36,6 +36,10 @@ const (
 // sincePrefix starts the first line of every fixture: the kuik version that introduced its test.
 const sincePrefix = "# since: "
 
+// privatePrefixes mark the fixtures of tests 11 and 13, applied only with --private-repo and
+// --pull-auth.
+var privatePrefixes = []string{"11-", "13-"}
+
 // privateFlags fill ${PRIVATE_REPO} and ${PULL_AUTH}, for setup and apply alike.
 type privateFlags struct {
 	privateRepo, pullAuth string
@@ -43,14 +47,18 @@ type privateFlags struct {
 
 func (f *privateFlags) register(flags *flag.FlagSet) {
 	flags.StringVar(&f.privateRepo, "private-repo", "",
-		"private repository holding nginx-unprivileged:1.31.6-alpine, for the real pull of test 11")
+		"private repository holding nginx-unprivileged:1.31.6-alpine, for the real pull of test 11 "+
+			"and the anonymous check of test 13")
 	flags.StringVar(&f.pullAuth, "pull-auth", "",
 		"docker config Secret in the kuik namespace that can pull --private-repo; the user's, never touched")
 }
 
 // vars are the values of the ${NAME} a fixture may use.
 func (e *env) vars(f *privateFlags) map[string]string {
-	return map[string]string{"KUIK_NAMESPACE": e.kuikNamespace, "PRIVATE_REPO": f.privateRepo, "PULL_AUTH": f.pullAuth}
+	return map[string]string{
+		"KUIK_NAMESPACE": e.kuikNamespace, "PRIVATE_REPO": f.privateRepo, "PULL_AUTH": f.pullAuth,
+		"MIRROR_PREFIX": e.mirrorPrefix,
+	}
 }
 
 type setupFlags struct {
@@ -61,7 +69,7 @@ type setupFlags struct {
 func setupCommand() *command {
 	f := &setupFlags{}
 	return &command{
-		usage: "apply the fixtures, the base objects of tests 2 to 11, refusing to start over the objects of an earlier run",
+		usage: "apply the fixtures, the base objects of the tests, refusing to start over the objects of an earlier run",
 		flags: func(fs *flag.FlagSet) {
 			f.register(fs)
 			fs.StringVar(&f.kuikVersion, "kuik-version", "",
@@ -111,8 +119,13 @@ func (e *env) setup(ctx context.Context, f *setupFlags) error {
 				base, strings.TrimPrefix(file.since, "v"), f.kuikVersion)
 			continue
 		}
-		if strings.HasPrefix(base, privatePrefix) && f.privateRepo == "" {
+		if slices.ContainsFunc(privatePrefixes, func(p string) bool { return strings.HasPrefix(base, p) }) &&
+			f.privateRepo == "" {
 			fmt.Printf("\n== %s: skipped, no --private-repo and --pull-auth\n", base)
+			continue
+		}
+		if strings.HasPrefix(base, mirrorPrefixFixtures) && e.mirrorPrefix == "" {
+			fmt.Printf("\n== %s: skipped, no --mirror-prefix\n", base)
 			continue
 		}
 		expanded, err := expand(base, raw, vars)

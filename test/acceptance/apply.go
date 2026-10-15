@@ -150,7 +150,7 @@ func deleteCommand() *command {
 	}
 }
 
-var deletableKinds = []string{"pod", "secret", "configmap", "imagealternative", "imagemirror"}
+var deletableKinds = []string{"pod", "secret", "configmap", "imagealternative", "imagemirror", "imagemonitor"}
 
 // newDeletable is the empty object of a kind delete takes. Namespaces are not among them: a
 // test namespace goes with cleanup, once the test is over.
@@ -166,6 +166,8 @@ func newDeletable(kind string) client.Object {
 		return &kuikv1alpha1.ImageAlternative{}
 	case "imagemirror":
 		return &kuikv1alpha1.ImageMirror{}
+	case "imagemonitor":
+		return &kuikv1alpha1.ImageMonitor{}
 	}
 	return nil
 }

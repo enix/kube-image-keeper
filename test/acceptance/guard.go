@@ -74,7 +74,7 @@ func (e *env) guard(obj client.Object) error {
 	case *kuikv1alpha1.ImageMirror:
 		namespaceSelector, podSelector = o.Spec.NamespaceSelector, o.Spec.PodSelector
 	case *kuikv1alpha1.ImageMonitor:
-		return fmt.Errorf("%s: ImageMonitor is not handled yet: add its scoping check here", describe(obj))
+		namespaceSelector, podSelector = o.Spec.NamespaceSelector, o.Spec.PodSelector
 	default:
 		return fmt.Errorf("%s: kind not handled: add it to guard and to owned", describe(obj))
 	}
