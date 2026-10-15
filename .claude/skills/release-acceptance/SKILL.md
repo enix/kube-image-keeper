@@ -44,7 +44,8 @@ Ask the user for anything missing:
 4. whether kuik is managed by GitOps (Flux, Argo CD): if it is, never change kuik's config with kubectl or helm;
 5. where to write the report: by default a Markdown report in the conversation (see step 6). The user, or their own memory, may name another destination;
 6. for the real pull (test 11): a private repository holding a copy of `quay.io/nginx/nginx-unprivileged:1.31.6-alpine`, and the name of a docker config Secret in the kuik namespace that can pull it. The user creates that Secret; never create, read or print it. Without them, test 11 is skipped and reported as not tested.
-7. only if a scenario needs an ImageMirror that copies for real: `--mirror-prefix`, a registry path the user dedicates to the test. Never guess one: a test mirror deletes the tags of this cluster it finds under its path.
+7. `--public-repo`: a repository holding a copy of `nginx-unprivileged:1.31.6-alpine`, pulled anonymously by the test pods, when a real ImageAlternative or ImageMirror of the cluster covers the default `quay.io/nginx/nginx-unprivileged` (list them with a read-only `KUBECONFIG=<path> kubectl --context <name> get imagealternatives,imagemirrors`). On a cluster whose egress IP is shared, prefer a registry without an anonymous pull quota;
+8. only if a scenario needs an ImageMirror that copies for real: `--mirror-prefix`, a registry path the user dedicates to the test. Never guess one: a test mirror deletes the tags of this cluster it finds under its path.
 
 The previous tag is the latest `v3.*` tag before the version (`git tag --list 'v3.*'`).
 
@@ -70,7 +71,7 @@ If any process does not log at `debug`, switch them all for the test: the webhoo
 
 ### 4. Setup
 
-`task acceptance-setup -- --kubeconfig <path> --context <name> --kuik-version <version>`, with `--private-repo` and `--pull-auth` for tests 11 and 13, and `--mirror-prefix` for test 14. It skips, with a line, every fixture whose `since` is newer than the version. It prints the time it started, the rewrite counters of the test CRs before any test pod existed (keep them: test 3 compares with them), and every object it created, fixture by fixture. It waits for nothing kuik does, except the pull Secret of test 11 before its pod.
+`task acceptance-setup -- --kubeconfig <path> --context <name> --kuik-version <version>`, with `--private-repo` and `--pull-auth` for tests 11 and 13, `--mirror-prefix` for test 14, and `--public-repo` from step 1, passed again to every `acceptance-apply`. It skips, with a line, every fixture whose `since` is newer than the version. It prints the time it started, the rewrite counters of the test CRs before any test pod existed (keep them: test 3 compares with them), and every object it created, fixture by fixture. It waits for nothing kuik does, except the pull Secret of test 11 before its pod.
 
 ### 5. Evaluate and explore
 
