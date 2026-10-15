@@ -1,0 +1,22 @@
+# since: 3.0.0-alpha.5
+# Test 16: a second pod with the origin of test 3, applied by hand once the ImageMonitors of
+# tests 12 and 15 report kuik-test.invalid unavailable, so the webhook demotes it at admission.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: fallback-again
+  namespace: kuik-test
+  labels:
+    kuik-test/routing: alternative
+spec:
+  containers:
+    - name: nginx
+      image: kuik-test.invalid/nginx/nginx-unprivileged:1.31.6-alpine
+      resources:
+        requests: {cpu: 10m, memory: 16Mi}
+        limits: {memory: 64Mi}
+      securityContext:
+        runAsNonRoot: true
+        allowPrivilegeEscalation: false
+        capabilities: {drop: [ALL]}
+        seccompProfile: {type: RuntimeDefault}

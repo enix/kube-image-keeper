@@ -1,5 +1,5 @@
 # since: 3.0.0-alpha.2
-# Tests 3, 4, 5 and 7: an OnFailure ImageAlternative whose first candidate never resolves
+# Tests 3, 4, 5 and 7, and the base of 12, 15 and 16: an OnFailure ImageAlternative whose first candidate never resolves
 # (.invalid is reserved, RFC 2606) and whose second is the real image; a pod it must
 # reroute, a pod whose origin answers, a pod with the right label in a namespace it does
 # not select.
@@ -18,7 +18,7 @@ spec:
   rewritePolicy: OnFailure
   alternatives:
     - repository: kuik-test.invalid/nginx/nginx-unprivileged
-    - repository: quay.io/nginx/nginx-unprivileged
+    - repository: ${PUBLIC_REPO}
 ---
 # Test 3: the origin never resolves.
 apiVersion: v1
@@ -52,7 +52,7 @@ metadata:
 spec:
   containers:
     - name: nginx
-      image: quay.io/nginx/nginx-unprivileged:1.31.6-alpine
+      image: ${PUBLIC_REPO}:1.31.6-alpine
       resources:
         requests: {cpu: 10m, memory: 16Mi}
         limits: {memory: 64Mi}

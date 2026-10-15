@@ -40,6 +40,11 @@ const sincePrefix = "# since: "
 // --pull-auth.
 var privatePrefixes = []string{"11-", "13-"}
 
+// handPrefixes mark the fixtures setup never applies, applied by hand with apply when their
+// scenario says: test 16 recreates a pod once the monitors have reported, and the API server
+// must refuse the one of test 17.
+var handPrefixes = []string{"16-", "17-"}
+
 // privateFlags fill ${PRIVATE_REPO} and ${PULL_AUTH}, for setup and apply alike.
 type privateFlags struct {
 	privateRepo, pullAuth string
@@ -57,7 +62,7 @@ func (f *privateFlags) register(flags *flag.FlagSet) {
 func (e *env) vars(f *privateFlags) map[string]string {
 	return map[string]string{
 		"KUIK_NAMESPACE": e.kuikNamespace, "PRIVATE_REPO": f.privateRepo, "PULL_AUTH": f.pullAuth,
-		"MIRROR_PREFIX": e.mirrorPrefix,
+		"MIRROR_PREFIX": e.mirrorPrefix, "PUBLIC_REPO": e.publicRepo,
 	}
 }
 
@@ -122,6 +127,10 @@ func (e *env) setup(ctx context.Context, f *setupFlags) error {
 		if slices.ContainsFunc(privatePrefixes, func(p string) bool { return strings.HasPrefix(base, p) }) &&
 			f.privateRepo == "" {
 			fmt.Printf("\n== %s: skipped, no --private-repo and --pull-auth\n", base)
+			continue
+		}
+		if slices.ContainsFunc(handPrefixes, func(p string) bool { return strings.HasPrefix(base, p) }) {
+			fmt.Printf("\n== %s: skipped, applied by hand when its scenario says\n", base)
 			continue
 		}
 		if strings.HasPrefix(base, mirrorPrefixFixtures) && e.mirrorPrefix == "" {

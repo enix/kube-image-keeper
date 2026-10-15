@@ -9,7 +9,7 @@ metadata:
 spec:
   containers:
     - name: nginx
-      image: quay.io/nginx/nginx-unprivileged:1.31.6-alpine
+      image: ${PUBLIC_REPO}:1.31.6-alpine
       resources:
         requests: {cpu: 10m, memory: 16Mi}
         limits: {memory: 64Mi}

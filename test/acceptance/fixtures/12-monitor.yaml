@@ -1,7 +1,7 @@
 # since: 3.0.0-alpha.4
 # Test 12: an ImageMonitor on the pods of test 3 and 4. It tracks the origin the pod fallback
 # declares (kuik-test.invalid, standby since kuik rerouted it) and the one origin-up runs
-# (quay.io), and finds the first unavailable.
+# (${PUBLIC_REPO}), and finds the first unavailable.
 apiVersion: kuik.enix.io/v1alpha1
 kind: ImageMonitor
 metadata:

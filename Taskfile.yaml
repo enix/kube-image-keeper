@@ -237,12 +237,12 @@ tasks:
       - go run ./test/acceptance inspect {{.CLI_ARGS}}
 
   acceptance-setup:
-    desc: Apply the fixtures, the base test objects, on the cluster, skipping those newer than --kuik-version (-- --kubeconfig PATH --context NAME [--kuik-version V] [--private-repo R --pull-auth S])
+    desc: Apply the fixtures, the base test objects, on the cluster, skipping those newer than --kuik-version (-- --kubeconfig PATH --context NAME [--kuik-version V] [--private-repo R --pull-auth S] [--mirror-prefix P] [--public-repo R])
     cmds:
       - go run ./test/acceptance setup {{.CLI_ARGS}}
 
   acceptance-apply:
-    desc: Create or update test objects from a YAML file on the cluster, its ${VARIABLES} filled from the flags (-- --kubeconfig PATH --context NAME --file F [--private-repo R --pull-auth S])
+    desc: Create or update test objects from a YAML file on the cluster, its ${VARIABLES} filled from the flags (-- --kubeconfig PATH --context NAME --file F [--private-repo R --pull-auth S] [--mirror-prefix P] [--public-repo R])
     cmds:
       - go run ./test/acceptance apply {{.CLI_ARGS}}
 
