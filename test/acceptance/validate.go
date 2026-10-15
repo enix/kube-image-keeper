@@ -13,6 +13,9 @@ var examplePrivate = privateFlags{
 	pullAuth:    "example-pull-auth",
 }
 
+// exampleMirrorPrefix fills ${MIRROR_PREFIX} for validate when no --mirror-prefix is given.
+const exampleMirrorPrefix = "registry.example.com/kuik-test/mirror"
+
 // runValidate checks every fixture without a cluster: its since line, its strict decoding with
 // example values, and the guard on each of its objects. It prints one line per fixture and goes
 // on after a failure, so one run lists them all.
@@ -20,6 +23,9 @@ func runValidate(_ context.Context, e *env, _ []string) error {
 	names, err := fixtureNames()
 	if err != nil {
 		return err
+	}
+	if e.mirrorPrefix == "" {
+		e.mirrorPrefix = exampleMirrorPrefix
 	}
 	failed := 0
 	for _, name := range names {

@@ -16,6 +16,10 @@ spec:
   rewritePolicy: Always
   destination:
     path: registry.invalid/kuik-test
+  # Since 3.0.0-alpha.4 the mirror records its repository before the push fails: with cleanup
+  # on, its finalizer would list the tags of a host that never answers and hold the CR forever.
+  cleanup:
+    enabled: false
 ---
 apiVersion: v1
 kind: Pod

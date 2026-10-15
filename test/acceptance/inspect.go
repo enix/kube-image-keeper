@@ -92,7 +92,14 @@ func (e *env) printCRs(ctx context.Context) {
 	for _, m := range mirrors.Items {
 		printObject("ImageMirror", m.Name, m.Generation, m.Spec, m.Status)
 	}
-	if len(alternatives.Items)+len(mirrors.Items) == 0 {
+	var monitors kuikv1alpha1.ImageMonitorList
+	if err := e.client.List(ctx, &monitors, selector); err != nil {
+		fmt.Printf("cannot list the ImageMonitors: %v\n", err)
+	}
+	for _, m := range monitors.Items {
+		printObject("ImageMonitor", m.Name, m.Generation, m.Spec, m.Status)
+	}
+	if len(alternatives.Items)+len(mirrors.Items)+len(monitors.Items) == 0 {
 		fmt.Println("none")
 	}
 }
@@ -204,7 +211,7 @@ func (e *env) printEvents(ctx context.Context, since time.Time) {
 		}
 		printEventList(events.Items, since)
 	}
-	for _, kind := range []string{"ImageAlternative", "ImageMirror"} {
+	for _, kind := range []string{"ImageAlternative", "ImageMirror", "ImageMonitor"} {
 		events, err := e.clientset.EventsV1().Events("").List(ctx,
 			metav1.ListOptions{FieldSelector: "regarding.kind=" + kind})
 		if err != nil {

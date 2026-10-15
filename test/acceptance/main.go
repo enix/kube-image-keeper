@@ -7,7 +7,9 @@
 //	acceptance check   --kubeconfig PATH --context NAME [--kuik-version V]   reads the installation
 //	acceptance inspect --kubeconfig PATH --context NAME [--since D] [--grep RE] reads the test objects
 //	acceptance setup   --kubeconfig PATH --context NAME [--kuik-version V] [--private-repo R --pull-auth S]
+//	                   [--mirror-prefix P]
 //	acceptance apply   --kubeconfig PATH --context NAME --file F [--private-repo R --pull-auth S]
+//	                   [--mirror-prefix P]
 //	acceptance delete  --kubeconfig PATH --context NAME [--namespace NS] KIND/NAME
 //	acceptance cleanup --kubeconfig PATH --context NAME
 //	acceptance validate                                                     checks the fixtures, no cluster
