@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"encoding/base64"
 	"errors"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -24,6 +25,7 @@ const (
 	entryCreds    = "entry-creds"
 	podCreds      = "pod-creds"
 	fallbackCreds = "fallback-creds"
+	invalidCreds  = "invalid-creds"
 
 	// restrictedRole grants the restricted identity Secrets in the cluster resource namespace.
 	restrictedRole = "secret-reader"
@@ -207,6 +209,24 @@ var _ = Describe("Resolver", func() {
 			},
 			Entry("Opaque", "Opaque"),
 			Entry("the legacy kubernetes.io/dockercfg", "kubernetes.io/dockercfg"),
+		)
+
+		DescribeTable("reports as malformed a kubernetes.io/dockerconfigjson Secret whose docker config the keyring rejects",
+			func(auth string) {
+				Expect(k8sClient.Create(ctx, &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Namespace: clusterNS, Name: invalidCreds},
+					Type:       corev1.SecretTypeDockerConfigJson,
+					Data: map[string][]byte{
+						corev1.DockerConfigJsonKey: []byte(`{"auths":{"quay.io":{"auth":"` + auth + `"}}}`),
+					},
+				})).To(Succeed())
+				_, err := resolve(ModeReconciler, nil, secretRefAuth(invalidCreds), nil)
+				var malformed *ErrSecretMalformed
+				Expect(errors.As(err, &malformed)).To(BeTrue(), "got %v", err)
+				Expect(malformed.Name).To(Equal(invalidCreds))
+			},
+			Entry("an auth field that is not base64", "not base64!"),
+			Entry("an auth field that decodes without a colon", base64.StdEncoding.EncodeToString([]byte("user-without-password"))),
 		)
 	})
 

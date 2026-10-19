@@ -16,6 +16,7 @@ import (
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/imagepath"
+	"github.com/enix/kube-image-keeper/internal/registry/credentialprovider/secrets"
 )
 
 // FallbackAuthEntry is one entry of the global config's `fallbackAuth`: a `repository` or a
@@ -72,13 +73,22 @@ func (e *ErrSecretNotFound) Error() string {
 	return fmt.Sprintf("secret %q not found", e.Name)
 }
 
-// ErrSecretMalformed is a declared Secret that is not a docker-registry Secret.
+// ErrSecretMalformed is a declared Secret that is not a docker-registry Secret, or whose
+// docker config the keyring rejects (Err).
 type ErrSecretMalformed struct {
 	Name string
+	Err  error
 }
 
 func (e *ErrSecretMalformed) Error() string {
+	if e.Err != nil {
+		return fmt.Sprintf("secret %q holds a malformed docker config: %v", e.Name, e.Err)
+	}
 	return fmt.Sprintf("secret %q is not a docker-registry secret", e.Name)
+}
+
+func (e *ErrSecretMalformed) Unwrap() error {
+	return e.Err
 }
 
 // Resolver resolves credentials with the caller's client. It carries no RBAC marker: the
@@ -171,6 +181,10 @@ func (r *Resolver) declared(ctx context.Context, source Source, secretRef *kuikv
 	if secret.Type != corev1.SecretTypeDockerConfigJson {
 		return Credential{}, &ErrSecretMalformed{Name: secretRef.Name}
 	}
+	// Parsed as the copies and checks will: content the keyring rejects is no credential.
+	if _, err := secrets.MakeDockerKeyring([]corev1.Secret{secret}); err != nil {
+		return Credential{}, &ErrSecretMalformed{Name: secretRef.Name, Err: err}
+	}
 	return Credential{Source: source, Secrets: []corev1.Secret{secret}}, nil
 }
 
@@ -182,7 +196,7 @@ func (r *Resolver) podPullSecrets(ctx context.Context, pod *corev1.Pod) (Credent
 	}
 	log := logf.FromContext(ctx)
 
-	var secrets []corev1.Secret
+	var pullSecrets []corev1.Secret
 	for _, ref := range pod.Spec.ImagePullSecrets {
 		var secret corev1.Secret
 		err := r.reader.Get(ctx, client.ObjectKey{Namespace: pod.Namespace, Name: ref.Name}, &secret)
@@ -197,10 +211,10 @@ func (r *Resolver) podPullSecrets(ctx context.Context, pod *corev1.Pod) (Credent
 			log.V(1).Info("Skipped pod pull Secret", "secret", klog.KRef(pod.Namespace, ref.Name), "type", string(secret.Type))
 			continue
 		}
-		secrets = append(secrets, secret)
+		pullSecrets = append(pullSecrets, secret)
 	}
-	if len(secrets) == 0 {
+	if len(pullSecrets) == 0 {
 		return Credential{}, false
 	}
-	return Credential{Source: SourcePodPullSecret, Secrets: secrets}, true
+	return Credential{Source: SourcePodPullSecret, Secrets: pullSecrets}, true
 }
