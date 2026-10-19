@@ -38,7 +38,7 @@ func TestRateLimitedRequestIsNotRetried(t *testing.T) {
 	defer server.Close()
 
 	reference := strings.TrimPrefix(server.URL, "http://") + "/test/image:latest"
-	client := NewClient([]string{strings.TrimPrefix(server.URL, "http://")}, nil)
+	client := NewClient()
 
 	_, headers, err := client.ReadDescriptor(http.MethodHead, reference)
 	if err == nil {
