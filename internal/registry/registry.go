@@ -2,8 +2,6 @@ package registry
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"net/http"
@@ -39,30 +37,19 @@ var retryStatusCodes = []int{
 }
 
 type Client struct {
-	insecureRegistries []string
-	rootCAs            *x509.CertPool
-	timeout            time.Duration
-	pullSecrets        []corev1.Secret
-	headerCapture      *HeaderCapture
+	timeout       time.Duration
+	pullSecrets   []corev1.Secret
+	headerCapture *HeaderCapture
 }
 
-func NewClient(insecureRegistries []string, rootCAs *x509.CertPool) *Client {
+func NewClient() *Client {
 	return &Client{
-		insecureRegistries: insecureRegistries,
-		rootCAs:            rootCAs,
-		headerCapture:      &HeaderCapture{},
+		headerCapture: &HeaderCapture{},
 	}
 }
 
-func (c *Client) newTransportOption(ref name.Reference) remote.Option {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.TLSClientConfig = &tls.Config{RootCAs: c.rootCAs}
-
-	if slices.Contains(c.insecureRegistries, ref.Context().RegistryStr()) {
-		transport.TLSClientConfig.InsecureSkipVerify = true
-	}
-
-	c.headerCapture.roundTripper = transport
+func (c *Client) newTransportOption() remote.Option {
+	c.headerCapture.roundTripper = http.DefaultTransport.(*http.Transport).Clone()
 
 	return remote.WithTransport(c.headerCapture)
 }
@@ -99,7 +86,7 @@ func (c *Client) Execute(imageName string, action func(ref name.Reference, opts 
 	}
 
 	ctx := context.Background()
-	transportOption := c.newTransportOption(sourceRef)
+	transportOption := c.newTransportOption()
 
 	if len(keychains) == 0 {
 		keychains = append(keychains, authn.DefaultKeychain)
