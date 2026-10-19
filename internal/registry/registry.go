@@ -50,11 +50,7 @@ func NewClient() *Client {
 }
 
 func (c *Client) newTransportOption() remote.Option {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	if c.tls != nil && c.tls.dialContext != nil {
-		transport.DialContext = c.tls.dialContext
-	}
-	c.headerCapture.roundTripper = transport
+	c.headerCapture.roundTripper = newTLSRouter(c.tls)
 
 	return remote.WithTransport(c.headerCapture)
 }
@@ -216,11 +212,9 @@ func (c *Client) DeleteImage(imageName string) error {
 			return err
 		}
 
-		digest, err := name.NewDigest(ref.Name()+"@"+descriptor.Digest.String(), name.Insecure)
-		if err != nil {
-			return err
-		}
-		return remote.Delete(digest, opts...)
+		// keeps the scheme of ref: plain HTTP only where go-containerregistry
+		// allows it (localhost, loopback and private addresses)
+		return remote.Delete(ref.Context().Digest(descriptor.Digest.String()), opts...)
 	})
 }
 
