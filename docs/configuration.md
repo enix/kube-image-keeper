@@ -64,6 +64,8 @@ metrics:
       start: 1
       factor: 1.94
       # min, max, custom: see "legacy" section below
+
+tls: {}               # no entry: every registry host is verified against the system trust store
 ```
 
 ## `routing`
@@ -222,4 +224,56 @@ metrics:
     legacy:
       bucketType: custom
       custom: [1, 15, 60, 240, 720, 1440]
+```
+
+## `tls`
+
+How the manager verifies the certificate of each registry host, for every request it sends: the availability checks of the webhook, the `ClusterImageSetAvailability` monitoring, and the copies (source and destination) and deletions of `ImageSetMirror` and `ClusterImageSetMirror`. CRDs do not change: the entry of an image's registry host applies. A host without an entry is verified against the system trust store.
+
+`tls` is a map keyed by registry host. Each entry takes one of:
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `caSecretRef.namespace` | string | required | Namespace of the Secret holding the CA bundle. |
+| `caSecretRef.name` | string | required | Name of the Secret. |
+| `caSecretRef.key` | string | `ca.crt` | Key of the Secret holding a PEM bundle of one or more CA certificates. |
+| `insecureSkipVerify` | bool | `false` | Keeps HTTPS without verifying the certificate, neither its chain nor its name (as `curl -k`). |
+
+### Rules
+
+- A key matches a registry host exactly, port included: `registry.lab.tld` and `registry.lab.tld:5000` are 2 keys, as containerd's and CRI-O's `certs.d/<host:port>` directories are. A key is `host[:port]`, with no scheme and no path; it is lowercased, and `index.docker.io` is stored as `docker.io`. Two keys naming the same host are invalid.
+- The `docker.io` entry covers the registry host `index.docker.io` only. Docker Hub's token server (`auth.docker.io`) and blob CDN are other hosts, with their own entries.
+- `caSecretRef` adds its bundle to the system trust store, for that host only. The bundle may hold several certificates; text outside the PEM blocks is ignored, but a truncated block, a block that is not a `CERTIFICATE` or a certificate that does not parse makes the bundle unusable.
+- `caSecretRef` and `insecureSkipVerify` are exclusive. An empty entry is valid and means no entry. An invalid `tls` block makes the manager refuse to start.
+- Plain HTTP follows go-containerregistry for a host without an entry or with `insecureSkipVerify`: for `localhost:<port>`, `*.localhost`, `127.0.0.1`, `::1` and private (RFC 1918) IPv4 addresses, HTTPS and plain HTTP race (plain HTTP starts 300 ms after HTTPS, or as soon as HTTPS fails) and the first success wins. Plain HTTP is never tried for another host; `insecureSkipVerify` does not enable it.
+- A host with a `caSecretRef` is never reached over plain HTTP, whatever its address: a declared CA says it speaks verified TLS. A plain HTTP request to it is refused before it is sent, with an error naming the host.
+- A redirect (blob storage, CDN) and a token server get the entry of the host they go to, not the one of the registry. Through an HTTPS proxy, the proxy hop is verified against the system trust store, whatever the entry of the registry holds. In front of a host with an entry, two HTTPS proxies are refused before any request, as their hop could not be verified apart from the entry: a proxy addressed by IP (TLS sends no server name to an IP address; address it by DNS name), and a proxy sharing the host name of the host, whatever its port. Host names compare in IDNA ASCII, the form the requests carry; a non-ASCII proxy name with no IDNA ASCII form is refused too.
+- A CA Secret that is missing, lacks its key, or holds an unusable bundle does not stop the manager: every request to its host fails before it is sent, and the image is reported unreachable with a message naming the Secret and the problem. kuik never falls back to a weaker verification.
+- A change of a CA Secret applies without a restart. A change of `tls` itself needs a restart, as the rest of this file.
+
+> [!IMPORTANT]
+> kuik never configures the nodes. The container runtime of each node (containerd, CRI-O) must trust the same registries on its own, or pods rewritten to them cannot pull.
+
+### Migrating from v1
+
+- `insecureRegistries`: give each listed host an entry with `insecureSkipVerify: true`.
+- `rootCertificateAuthorities` applied to every registry. Each host now names its own CA: give each registry signed by a private CA an entry with a `caSecretRef`.
+  - Its `keys` become one bundle: concatenate the certificates under one key of the Secret.
+  - `namespace` is the namespace the v1 Secret was in, the release namespace.
+  - A bundle v1 tolerated (blocks that are not certificates, certificates that do not parse) is now rejected.
+  - The CA no longer applies to an HTTPS proxy hop, verified against the system trust store.
+- `docker.io` and `index.docker.io` keys both work, for Docker Hub.
+- A redirect (blob storage, CDN) and a token server no longer inherit the setting of the registry: when they need one, give their hosts their own entries.
+
+### Example
+
+```yaml
+tls:
+  harbor.corp.tld:           # private CA
+    caSecretRef:
+      namespace: kuik-system
+      name: harbor-ca
+      key: ca.crt            # Default: ca.crt, a PEM bundle, one or more certificates
+  registry.lab.tld:5000:     # self-signed certificate
+    insecureSkipVerify: true
 ```
