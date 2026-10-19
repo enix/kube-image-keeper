@@ -20,6 +20,7 @@ type Config struct {
 	Mirroring  Mirroring  `koanf:"mirroring"`
 	Monitoring Monitoring `koanf:"monitoring"`
 	Metrics    Metrics    `koanf:"metrics"`
+	TLS        TLS        `koanf:"-"` // stub: not loaded yet
 }
 
 type Routing struct {
@@ -73,6 +74,31 @@ type RegistryMonitoring struct {
 // an enabled default for this specific registry), *true = enabled.
 func (r *RegistryMonitoring) ResolveDigestEnabled() bool {
 	return r.ResolveDigest != nil && *r.ResolveDigest
+}
+
+// TLS holds how kuik verifies the certificate of each registry host, keyed by
+// host[:port]: matched exactly, port included, lowercased, index.docker.io
+// being docker.io. A host without an entry is verified against the system
+// trust store.
+type TLS map[string]TLSEntry
+
+type TLSEntry struct {
+	// CASecretRef adds a PEM bundle of CA certificates to the system trust
+	// store, for this host only.
+	CASecretRef *CASecretRef `koanf:"caSecretRef"`
+	// InsecureSkipVerify keeps HTTPS without verifying the certificate.
+	InsecureSkipVerify bool `koanf:"insecureSkipVerify"`
+}
+
+// Hosts returns the entries keyed by host. Stub.
+func (t TLS) Hosts() map[string]TLSEntry {
+	return t
+}
+
+type CASecretRef struct {
+	Namespace string `koanf:"namespace"`
+	Name      string `koanf:"name"`
+	Key       string `koanf:"key"`
 }
 
 type Metrics struct {
