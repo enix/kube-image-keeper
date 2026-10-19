@@ -40,6 +40,7 @@ type Client struct {
 	timeout       time.Duration
 	pullSecrets   []corev1.Secret
 	headerCapture *HeaderCapture
+	tls           *TLSSettings
 }
 
 func NewClient() *Client {
@@ -49,7 +50,11 @@ func NewClient() *Client {
 }
 
 func (c *Client) newTransportOption() remote.Option {
-	c.headerCapture.roundTripper = http.DefaultTransport.(*http.Transport).Clone()
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	if c.tls != nil && c.tls.dialContext != nil {
+		transport.DialContext = c.tls.dialContext
+	}
+	c.headerCapture.roundTripper = transport
 
 	return remote.WithTransport(c.headerCapture)
 }

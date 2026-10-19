@@ -218,7 +218,7 @@ func TestCheckImageAvailabilityResolveDigest(t *testing.T) {
 			if method == "" {
 				method = http.MethodHead
 			}
-			got, err := CheckImageAvailability(context.Background(), tt.reference, method, 5*time.Second, nil, tt.resolveDigest)
+			got, err := CheckImageAvailability(context.Background(), tt.reference, method, 5*time.Second, nil, tt.resolveDigest, nil)
 
 			if got != tt.want {
 				t.Errorf("status = %v, want %v (err: %v)", got, tt.want, err)
