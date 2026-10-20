@@ -47,6 +47,7 @@ internal/info                 Build information and the kuik_build_info collecto
 internal/imagepath            Image references, repository paths and the segment trie that matches them
 internal/mirrorpath           What an ImageMirror does with one origin: destination reference, tags, exclusion
 internal/mirrorpath/plan      What an ImageMirror owes its destination: desired state, tag sweep, status counts
+internal/mirrorpath/clusterid  The cluster ID: generated once, kept in ConfigMap kuik-cluster-id, read by the reconciler and the webhook
 internal/auth                 Credential resolution order and the reserved Secret names
 internal/auth/pullsecret      The desired injected pull Secret of a pair, and its grace period
 internal/config               The global config file: schema, defaults, validation, reload
