@@ -141,16 +141,18 @@ var _ = Describe("Image mirroring", Ordered, func() {
 		By("waiting for the reconciler Deployment to become available")
 		Eventually(deploymentAvailable).WithArguments("reconciler").Should(Succeed())
 
-		By("reading the cluster identity and opening a copy window every 5s on registry.k8s.io")
+		By("reading the cluster ID the reconciler generated")
+		var err error
+		clusterID, err = kubectl("get", "configmap", "kuik-cluster-id", "-n", namespace,
+			"-o", "jsonpath={.data.clusterID}")
+		Expect(err).NotTo(HaveOccurred())
+		clusterID = strings.TrimSpace(clusterID)
+		Expect(clusterID).NotTo(BeEmpty())
+
+		By("opening a copy window every 5s on registry.k8s.io")
 		original, err := kubectl("get", "configmap", configMapName, "-n", namespace,
 			"-o", `jsonpath={.data.config\.yaml}`)
 		Expect(err).NotTo(HaveOccurred())
-		for line := range strings.SplitSeq(original, "\n") {
-			if value, found := strings.CutPrefix(line, "clusterID: "); found {
-				clusterID = strings.Trim(value, `"' `)
-			}
-		}
-		Expect(clusterID).NotTo(BeEmpty())
 		original = strings.TrimRight(original, "\n") + "\n"
 		DeferCleanup(setConfig, original)
 		setConfig(mergeConfig(original, "registries:\n  registry.k8s.io:\n    copy:\n      interval: 5s\n"))

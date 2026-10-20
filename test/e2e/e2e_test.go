@@ -191,6 +191,21 @@ var _ = Describe("Manager", Ordered, func() {
 				"reconciler", "update", "leases", "default", false),
 			Entry("the secret syncer holds its lease", "secret-syncer", "update", "leases", namespace, true),
 
+			// configmaps: beyond the table, from issue #727. The cluster ID, created by the reconciler
+			// and read by the webhook, with uncached gets in the install namespace only, never rewritten
+			Entry("the reconciler creates the cluster ID ConfigMap", "reconciler", "create", "configmaps", namespace, true),
+			Entry("the reconciler never rewrites the cluster ID ConfigMap",
+				"reconciler", "update", "configmaps", namespace, false),
+			Entry("the reconciler reads no ConfigMap outside the install namespace",
+				"reconciler", "get", "configmaps", "default", false),
+			Entry("the webhook reads the cluster ID ConfigMap", "webhook", "get", "configmaps", namespace, true),
+			Entry("the webhook reads no ConfigMap outside the install namespace",
+				"webhook", "get", "configmaps", "default", false),
+			Entry("the webhook lists no ConfigMap, its read is uncached", "webhook", "list", "configmaps", namespace, false),
+			Entry("the webhook cannot create a ConfigMap, the reconciler does",
+				"webhook", "create", "configmaps", namespace, false),
+			Entry("the secret syncer reads no ConfigMap", "secret-syncer", "get", "configmaps", namespace, false),
+
 			// nodes: nobody in v3.0
 			Entry("no process reads the nodes", "reconciler", "get", "nodes", "", false),
 		)
