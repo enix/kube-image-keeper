@@ -39,6 +39,8 @@ type Config struct {
 	// FallbackAuth is the credentials the reconciler reads an image with when no CR declares
 	// any.
 	FallbackAuth []auth.FallbackAuthEntry `json:"fallbackAuth"`
+	// TLS is how kuik verifies the certificate of each registry host.
+	TLS TLS `json:"tls"`
 	// SecretSyncer configures the pull Secrets the secret syncer injects.
 	SecretSyncer SecretSyncer `json:"secretSyncer"`
 }
