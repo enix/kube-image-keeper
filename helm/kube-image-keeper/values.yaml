@@ -336,7 +336,7 @@ secretAccess:
 
 # The global config file, mounted from a ConfigMap in the three processes and reloaded in
 # place without a restart. Write any key of the file here as in the file (`metrics`,
-# `mirror`, `webhook`, `registries`, `fallbackAuth`); a key left out takes its default. A
+# `mirror`, `webhook`, `registries`, `fallbackAuth`, `tls`); a key left out takes its default. A
 # file that does not validate is refused whole: at startup the process exits, on a reload
 # the previous config stays. See docs/configuration.md.
 # -- The global config file, empty by default: every key takes its default. The cluster ID is

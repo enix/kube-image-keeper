@@ -152,6 +152,12 @@ func (d *PodDefaulter) SetConfig(cfg *config.Config) {
 	d.config.Store(cfg)
 }
 
+// RegistryClient is the client the webhook probes candidates with, for the TLS settings of
+// the global config to reach it.
+func (d *PodDefaulter) RegistryClient() *registry.Client {
+	return d.registry
+}
+
 // SetResources replaces the routing resources the webhook matches pods against, and the
 // ImageMonitors whose status reports the originals and the alternatives failing.
 func (d *PodDefaulter) SetResources(alternatives []kuikv1alpha1.ImageAlternative, mirrors []kuikv1alpha1.ImageMirror, monitors ...kuikv1alpha1.ImageMonitor) {

@@ -54,6 +54,7 @@ type ImageAlternativeReconciler struct {
 	StatusInterval time.Duration
 
 	namespace string
+	secrets   cache.Cache
 	resolver  *auth.Resolver
 	tracker   *routingstatus.Tracker
 	limiter   *capped.Limiter
@@ -66,6 +67,9 @@ type ImageAlternativeOptions struct {
 	APIReader client.Reader
 	// ClusterResourceNamespace is where a secretRef resolves.
 	ClusterResourceNamespace string
+	// Secrets is the cache of the Secrets of ClusterResourceNamespace the process shares. Nil
+	// makes SetupWithManager build one.
+	Secrets cache.Cache
 	// Recorder emits the events, on the resources and on the pods.
 	Recorder events.EventRecorder
 	// Registerer exports the series.
@@ -90,6 +94,7 @@ func NewImageAlternativeReconciler(c client.Client, scheme *runtime.Scheme, opts
 		Client:    c,
 		Scheme:    scheme,
 		namespace: opts.ClusterResourceNamespace,
+		secrets:   opts.Secrets,
 		// Webhook mode skips fallbackAuth: Ready answers for the Secrets the resource itself
 		// names, never for the global config.
 		resolver:  auth.NewResolver(opts.APIReader, opts.ClusterResourceNamespace, auth.ModeWebhook),
@@ -267,17 +272,8 @@ func (r *ImageAlternativeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if r.StatusInterval == 0 {
 		r.StatusInterval = DefaultStatusInterval
 	}
-	// The reconciler reads Secrets in the cluster resource namespace only, so it watches them
-	// through a cache of that namespace alone.
-	secrets, err := cache.New(mgr.GetConfig(), cache.Options{
-		Scheme:            mgr.GetScheme(),
-		Mapper:            mgr.GetRESTMapper(),
-		DefaultNamespaces: map[string]cache.Config{r.namespace: {}},
-	})
+	secrets, err := secretCache(mgr, r.namespace, r.secrets)
 	if err != nil {
-		return err
-	}
-	if err := mgr.Add(secrets); err != nil {
 		return err
 	}
 	// Runs once this replica holds the lease, which is when pod events may be emitted.
