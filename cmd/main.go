@@ -239,10 +239,26 @@ func main() {
 		metrics.Registry.MustRegister(scheduler.Collector())
 		onConfigChange = append(onConfigChange, scheduler.SetConfig)
 
+		// One cache of the Secrets of the cluster resource namespace, for the CA Secrets and the
+		// secretRefs of the reconcilers alike.
+		secrets, err := newSecretCache(mgr, clusterResourceNamespace)
+		if err != nil {
+			setupLog.Error(err, "Failed to set up the Secret cache")
+			os.Exit(1)
+		}
+		mirrorRegistry, monitorRegistry := registry.NewClient(), registry.NewClient()
+		trust, err := setupRegistryTLS(mgr, secrets, clusterResourceNamespace, globalConfig, mirrorRegistry, monitorRegistry)
+		if err != nil {
+			setupLog.Error(err, "Failed to set up the registry TLS settings")
+			os.Exit(1)
+		}
+		onConfigChange = append(onConfigChange, trust.SetConfig)
+
 		imageAlternatives, err := kuikcontroller.NewImageAlternativeReconciler(mgr.GetClient(), mgr.GetScheme(),
 			kuikcontroller.ImageAlternativeOptions{
 				APIReader:                mgr.GetAPIReader(),
 				ClusterResourceNamespace: clusterResourceNamespace,
+				Secrets:                  secrets,
 				Recorder:                 mgr.GetEventRecorder("kuik-reconciler"),
 				Registerer:               metrics.Registry,
 			})
@@ -266,10 +282,11 @@ func main() {
 			kuikcontroller.ImageMirrorOptions{
 				APIReader:                mgr.GetAPIReader(),
 				ClusterResourceNamespace: clusterResourceNamespace,
+				Secrets:                  secrets,
 				Recorder:                 mgr.GetEventRecorder("kuik-reconciler"),
 				Registerer:               metrics.Registry,
 				Scheduler:                scheduler,
-				Registry:                 registry.NewClient(),
+				Registry:                 mirrorRegistry,
 				Config:                   globalConfig,
 				ClusterID:                clusterID,
 				Clock:                    clock.RealClock{},
@@ -290,7 +307,7 @@ func main() {
 				Recorder:                 mgr.GetEventRecorder("kuik-reconciler"),
 				Registerer:               metrics.Registry,
 				Scheduler:                scheduler,
-				Registry:                 registry.NewClient(),
+				Registry:                 monitorRegistry,
 				Config:                   globalConfig,
 				Clock:                    clock.RealClock{},
 			})
@@ -334,6 +351,17 @@ func main() {
 			os.Exit(1)
 		}
 		onConfigChange = append(onConfigChange, podWebhook.SetConfig)
+		secrets, err := newSecretCache(mgr, clusterResourceNamespace)
+		if err != nil {
+			setupLog.Error(err, "Failed to set up the Secret cache")
+			os.Exit(1)
+		}
+		trust, err := setupRegistryTLS(mgr, secrets, clusterResourceNamespace, globalConfig, podWebhook.RegistryClient())
+		if err != nil {
+			setupLog.Error(err, "Failed to set up the registry TLS settings")
+			os.Exit(1)
+		}
+		onConfigChange = append(onConfigChange, trust.SetConfig)
 	}
 	// The kubebuilder CLI injects the setup of a new reconciler or webhook here, outside
 	// the switch above: move it into the case of the process that owns it, or it runs in
