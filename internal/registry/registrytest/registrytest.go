@@ -3,14 +3,17 @@
 package registrytest
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -32,13 +35,15 @@ type Request struct {
 // false to let the registry answer. It may set response headers before passing through.
 type Interceptor func(w http.ResponseWriter, r *http.Request) bool
 
-// Registry is an in-memory registry served over plain HTTP.
+// Registry is an in-memory registry served over plain HTTP, or HTTPS with WithTLS.
 type Registry struct {
 	server       *httptest.Server
 	handler      http.Handler
 	user         string
 	password     string
 	tagsPageSize int
+	certificate  *tls.Certificate
+	open         atomic.Int64
 
 	mu        sync.Mutex
 	requests  []Request
@@ -60,13 +65,33 @@ func WithTagsPageSize(n int) Option {
 	return func(r *Registry) { r.tagsPageSize = n }
 }
 
+// WithTLS serves the registry over HTTPS only, with certificate.
+func WithTLS(certificate tls.Certificate) Option {
+	return func(r *Registry) { r.certificate = &certificate }
+}
+
 // New starts a registry. It is closed when the caller calls Close.
 func New(opts ...Option) *Registry {
 	r := &Registry{handler: ggcrregistry.New()}
 	for _, opt := range opts {
 		opt(r)
 	}
-	r.server = httptest.NewServer(http.HandlerFunc(r.serveHTTP))
+	r.server = httptest.NewUnstartedServer(http.HandlerFunc(r.serveHTTP))
+	r.server.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		switch state {
+		case http.StateNew:
+			r.open.Add(1)
+		case http.StateClosed, http.StateHijacked:
+			r.open.Add(-1)
+		case http.StateActive, http.StateIdle:
+		}
+	}
+	if r.certificate == nil {
+		r.server.Start()
+		return r
+	}
+	r.server.TLS = &tls.Config{Certificates: []tls.Certificate{*r.certificate}}
+	r.server.StartTLS()
 	return r
 }
 
@@ -74,7 +99,19 @@ func New(opts ...Option) *Registry {
 func (r *Registry) Close() { r.server.Close() }
 
 // Host is the host:port of the registry.
-func (r *Registry) Host() string { return strings.TrimPrefix(r.server.URL, "http://") }
+func (r *Registry) Host() string {
+	return strings.TrimPrefix(strings.TrimPrefix(r.server.URL, "http://"), "https://")
+}
+
+// Port is the port of the registry, to reach it under another host name.
+func (r *Registry) Port() string {
+	_, port, _ := strings.Cut(r.Host(), ":")
+	return port
+}
+
+// OpenConnections counts the client connections open on the registry. The registry's own
+// setup calls (Push, PushIndex, Head) close theirs before they return.
+func (r *Registry) OpenConnections() int64 { return r.open.Load() }
 
 // Intercept installs f in front of the registry, replacing any previous interceptor.
 func (r *Registry) Intercept(f Interceptor) {
@@ -109,7 +146,9 @@ func (r *Registry) Reset() {
 func (r *Registry) Push(ref string, img v1.Image) v1.Hash {
 	tag, err := name.NewTag(r.Host()+"/"+ref, name.Insecure)
 	must(err)
-	must(remote.Write(tag, img, r.remoteOptions()...))
+	options, done := r.remoteOptions()
+	defer done()
+	must(remote.Write(tag, img, options...))
 	digest, err := img.Digest()
 	must(err)
 	return digest
@@ -119,7 +158,9 @@ func (r *Registry) Push(ref string, img v1.Image) v1.Hash {
 func (r *Registry) PushIndex(ref string, idx v1.ImageIndex) v1.Hash {
 	tag, err := name.NewTag(r.Host()+"/"+ref, name.Insecure)
 	must(err)
-	must(remote.WriteIndex(tag, idx, r.remoteOptions()...))
+	options, done := r.remoteOptions()
+	defer done()
+	must(remote.WriteIndex(tag, idx, options...))
 	digest, err := idx.Digest()
 	must(err)
 	return digest
@@ -131,14 +172,23 @@ func (r *Registry) Head(ref string) (*v1.Descriptor, error) {
 	if err != nil {
 		return nil, err
 	}
-	return remote.Head(parsed, r.remoteOptions()...)
+	options, done := r.remoteOptions()
+	defer done()
+	return remote.Head(parsed, options...)
 }
 
-func (r *Registry) remoteOptions() []remote.Option {
-	if r.user == "" {
-		return nil
+// remoteOptions reach the registry from the test itself, whatever its certificate, through a
+// transport of their own: done closes its connections.
+func (r *Registry) remoteOptions() (options []remote.Option, done func()) {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	if r.certificate != nil {
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // the test's own registry
 	}
-	return []remote.Option{remote.WithAuth(&authn.Basic{Username: r.user, Password: r.password})}
+	options = append(options, remote.WithTransport(transport))
+	if r.user != "" {
+		options = append(options, remote.WithAuth(&authn.Basic{Username: r.user, Password: r.password}))
+	}
+	return options, transport.CloseIdleConnections
 }
 
 func (r *Registry) serveHTTP(w http.ResponseWriter, req *http.Request) {
