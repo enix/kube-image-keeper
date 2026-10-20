@@ -69,6 +69,7 @@ type ImageMirrorReconciler struct {
 	scheduler      *pacing.Scheduler
 	registry       *registry.Client
 	clock          clock.Clock
+	clusterID      string
 	config         atomic.Pointer[config.Config]
 
 	metrics *mirrorMetrics
@@ -117,6 +118,10 @@ type ImageMirrorOptions struct {
 
 // NewImageMirrorReconciler returns a reconciler writing with c.
 func NewImageMirrorReconciler(c client.Client, scheme *runtime.Scheme, opts ImageMirrorOptions) (*ImageMirrorReconciler, error) {
+	// An empty ID would make the reconciler write and sweep tags of no cluster.
+	if opts.ClusterID == "" {
+		return nil, errors.New("the ImageMirror reconciler needs a cluster ID")
+	}
 	tracker, err := routingstatus.NewTracker(opts.Recorder, opts.Registerer)
 	if err != nil {
 		return nil, err
@@ -152,6 +157,7 @@ func NewImageMirrorReconciler(c client.Client, scheme *runtime.Scheme, opts Imag
 		scheduler:      opts.Scheduler,
 		registry:       opts.Registry,
 		clock:          opts.Clock,
+		clusterID:      opts.ClusterID,
 		metrics:        metrics,
 		states:         map[string]*mirrorState{},
 	}
@@ -234,7 +240,7 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	st := r.state(im.Name)
 	st.seed(&im)
-	clusterID := r.config.Load().ClusterID
+	clusterID := r.clusterID
 	cleanup := im.Spec.Cleanup.IsEnabled()
 	mirror := plan.Mirror{Path: im.Spec.Destination.Path, ExcludeImages: im.Spec.ExcludeImages, CleanupEnabled: cleanup}
 	live := plan.Desired(plan.Mirror{Path: mirror.Path, ExcludeImages: mirror.ExcludeImages}, pods, nil)

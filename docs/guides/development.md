@@ -40,7 +40,7 @@ task kind-deploy IMG=kuik:dev KIND_CLUSTER=kuik-dev
 >
 > Persist them in `/etc/sysctl.d/` to survive a reboot.
 
-`task deploy IMG=...` alone runs `helm upgrade --install` against the current kubeconfig, with `config.clusterID` set to `CLUSTER_ID` (`dev` by default; the chart itself has no default) and, when `HELM_VALUES` names a file, the values it holds; arguments after `--` go to Helm (`task deploy -- --set verbosity=DEBUG`). `task undeploy` removes the release, `task uninstall` the CRDs.
+`task deploy IMG=...` alone runs `helm upgrade --install` against the current kubeconfig, with, when `HELM_VALUES` names a file, the values it holds; arguments after `--` go to Helm (`task deploy -- --set verbosity=DEBUG`). `task undeploy` removes the release, `task uninstall` the CRDs.
 
 ## Run the manager on your host
 
@@ -53,7 +53,7 @@ task run:reconciler
 
 kuik runs as three separate processes, one subcommand each: `webhook`, `reconciler` and `secret-syncer`. They are split by privilege and availability, they exchange nothing directly, and the chart deploys one Deployment per process. Run one with `task run:<process>`, and the three side by side with `task run`, which starts them in the same terminal and stops them together.
 
-The webhook is the one that needs setting up: it serves TLS, so it wants a certificate in `/tmp/k8s-webhook-server/serving-certs` and a way for the API server to reach your host, see [Local webhook for remote cluster](#local-webhook-for-remote-cluster). The other two need nothing beyond your kubeconfig, which is why the reconciler is the usual starting point.
+The webhook is the one that needs setting up: it serves TLS, so it wants a certificate in `/tmp/k8s-webhook-server/serving-certs` and a way for the API server to reach your host, see [Local webhook for remote cluster](#local-webhook-for-remote-cluster). The other two need nothing beyond your kubeconfig, which is why the reconciler is the usual starting point. The reconciler creates the ConfigMap `kuik-cluster-id` in the cluster resource namespace (`kuik-system` by default), so create that namespace first (`kubectl create namespace kuik-system`); the webhook stays unready until the reconciler has run once.
 
 Each process binds its own metrics and probe ports, so they can run side by side: metrics on `METRICS_PORT` (8080 by default) and probes on `HEALTH_PORT` (8090), plus 1 and plus 2 for the second and third process started by `task run`.
 

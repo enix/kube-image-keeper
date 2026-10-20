@@ -16,6 +16,9 @@ import (
 // errNotRead is what Check reports until the cluster ID is read.
 var errNotRead = errors.New("cluster ID not read yet from ConfigMap " + ConfigMapName)
 
+// The webhook only reads the ConfigMap the reconciler creates.
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get,namespace=kuik-system,roleName=webhook
+
 // Awaiter waits for the ConfigMap the reconciler creates and reads the cluster ID from it. It
 // never creates the ConfigMap: a process that does not hold the reconciler's permissions
 // waits for it instead.

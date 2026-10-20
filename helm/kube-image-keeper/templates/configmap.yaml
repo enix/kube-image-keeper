@@ -1,12 +1,10 @@
 {{/*
-The global config file of the three processes. clusterID is required and has no default: a
-cluster picks its own identity, since changing it orphans every tag its mirrors wrote.
+The global config file of the three processes. A clusterID left in the values from an older
+release fails the render here, before the processes refuse the file. A null or empty one, the
+way to clear it from the values a release reuses, is dropped from the file.
 */}}
-{{- if not .Values.config.clusterID }}
-{{- fail "config.clusterID is required: a short name that stays stable for the life of this cluster, see docs/configuration.md" }}
-{{- end }}
-{{- if gt (len .Values.config.clusterID) 56 }}
-{{- fail "config.clusterID is longer than 56 characters: the anchor tag of a digest-pinned image would exceed the OCI 128-character tag limit, see docs/configuration.md" }}
+{{- if .Values.config.clusterID }}
+{{- fail "config.clusterID is no longer a value: kuik generates the cluster ID and keeps it in ConfigMap kuik-cluster-id; to keep the value of an existing install, see docs/configuration.md#upgrading-from-a-configured-clusterid" }}
 {{- end }}
 apiVersion: v1
 kind: ConfigMap
@@ -17,4 +15,4 @@ metadata:
     {{- include "kube-image-keeper.labels" . | nindent 4 }}
 data:
   config.yaml: |
-    {{- toYaml .Values.config | nindent 4 }}
+    {{- toYaml (omit .Values.config "clusterID") | nindent 4 }}

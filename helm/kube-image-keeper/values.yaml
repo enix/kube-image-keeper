@@ -339,11 +339,7 @@ secretAccess:
 # `mirror`, `webhook`, `registries`, `fallbackAuth`); a key left out takes its default. A
 # file that does not validate is refused whole: at startup the process exits, on a reload
 # the previous config stays. See docs/configuration.md.
-config:
-  # -- Required, no default: the identity of this cluster, appended to every tag an
-  # ImageMirror writes. A short name that stays stable for the life of the cluster, matching
-  # `^[a-zA-Z0-9][a-zA-Z0-9.-]*$` and at most 56 characters: changing it orphans every tag
-  # written under the previous one, and two clusters sharing a mirror destination need
-  # different ones. The chart fails to render without it, or when it is longer than 56
-  # characters. Read at startup only
-  clusterID: ""
+# -- The global config file, empty by default: every key takes its default. The cluster ID is
+# not set here: the reconciler generates it on its first start and keeps it in the ConfigMap
+# kuik-cluster-id of the release namespace
+config: {}
