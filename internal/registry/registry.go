@@ -60,12 +60,18 @@ func (e Endpoint) nameOptions() []name.Option {
 // Client talks to registries. One Client is safe for concurrent use: nothing a call
 // observes is kept on it.
 type Client struct {
-	transport http.RoundTripper
+	// router applies the TLS settings of each request host.
+	router *tlsRouter
 }
 
-// NewClient returns a Client.
+// NewClient returns a Client that verifies every host against the system trust store until
+// SetTLS says otherwise.
 func NewClient() *Client {
-	return &Client{transport: http.DefaultTransport.(*http.Transport).Clone()}
+	return newClient(clientOptions{})
+}
+
+func newClient(opts clientOptions) *Client {
+	return &Client{router: newTLSRouter(opts)}
 }
 
 // WithTimeout bounds ctx by timeout, or leaves it unbounded when timeout is 0.
@@ -88,16 +94,12 @@ type stopAttempts struct{ err error }
 
 func (e *stopAttempts) Error() string { return e.err.Error() }
 
-// try runs do once per credential of auths, in order, and stops at the first success. With
-// no credential it runs do once, anonymously: anonymous is what is left when nothing else
-// is declared, never a fallback after a refused credential. It returns the credential that
-// answered, or the error of every attempt in order. The caller's context bounds the whole
-// loop, and an error do marks with stopAttempts ends it.
-func (c *Client) try(ctx context.Context, auths []authn.Authenticator, do func(attempt) error) (authn.Authenticator, []error) {
-	return c.tryThrough(ctx, c.transport, auths, do)
-}
-
-// tryThrough is try with the requests sent through base.
+// tryThrough runs do once per credential of auths, in order, and stops at the first
+// success, sending the requests through base. With no credential it runs do once,
+// anonymously: anonymous is what is left when nothing else is declared, never a fallback
+// after a refused credential. It returns the credential that answered, or the error of every
+// attempt in order. The caller's context bounds the whole loop, and an error do marks with
+// stopAttempts ends it.
 func (c *Client) tryThrough(ctx context.Context, base http.RoundTripper, auths []authn.Authenticator,
 	do func(attempt) error) (authn.Authenticator, []error) {
 	auth, errs, _ := c.tryUntilStopped(ctx, base, auths, do)
@@ -143,7 +145,7 @@ func (c *Client) tryUntilStopped(ctx context.Context, base http.RoundTripper, au
 func registryLabel(ref name.Reference) string {
 	host := ref.Context().RegistryStr()
 	if host == name.DefaultRegistry {
-		return "docker.io"
+		return dockerHubKey
 	}
 	return host
 }

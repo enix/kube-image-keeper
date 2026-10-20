@@ -8,21 +8,34 @@ import (
 
 // headerCapture records the headers of the manifest responses of one attempt. It lives as
 // long as that attempt, so concurrent calls on one Client never read each other's headers.
+// It also records whether the attempt sent any request: one refused before it was sent is
+// not a request kuik sent.
 type headerCapture struct {
 	next http.RoundTripper
 
-	mu   sync.Mutex
-	last http.Header
+	mu      sync.Mutex
+	last    http.Header
+	anySent bool
 }
 
 func (h *headerCapture) RoundTrip(req *http.Request) (*http.Response, error) {
 	resp, err := h.next.RoundTrip(req)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if sent(err) {
+		h.anySent = true
+	}
 	if resp != nil && strings.Contains(req.URL.Path, "/manifests/") {
-		h.mu.Lock()
 		h.last = resp.Header.Clone()
-		h.mu.Unlock()
 	}
 	return resp, err
+}
+
+// sent reports whether the attempt sent any request.
+func (h *headerCapture) sent() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.anySent
 }
 
 func (h *headerCapture) headers() http.Header {
@@ -39,6 +52,8 @@ type failureWatch struct {
 
 	mu     sync.Mutex
 	failed bool
+	// sentFailure is a failure of a request that was sent, not refused before.
+	sentFailure bool
 }
 
 func (f *failureWatch) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -48,6 +63,7 @@ func (f *failureWatch) RoundTrip(req *http.Request) (*http.Response, error) {
 	if err != nil || (resp.StatusCode >= 400 && resp.StatusCode != http.StatusUnauthorized) {
 		f.mu.Lock()
 		f.failed = true
+		f.sentFailure = f.sentFailure || sent(err)
 		f.mu.Unlock()
 	}
 	return resp, err
@@ -56,7 +72,14 @@ func (f *failureWatch) RoundTrip(req *http.Request) (*http.Response, error) {
 func (f *failureWatch) reset() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.failed = false
+	f.failed, f.sentFailure = false, false
+}
+
+// failedUnsent reports whether every failure seen was a request refused before it was sent.
+func (f *failureWatch) failedUnsent() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.failed && !f.sentFailure
 }
 
 func (f *failureWatch) hasFailed() bool {
