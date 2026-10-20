@@ -189,17 +189,26 @@ func (r *Registries) UnmarshalJSON(data []byte) error {
 			r.Default = block
 			continue
 		}
-		p, err := imagepath.ParsePath(key, imagepath.Group)
-		if err != nil || len(p.Segments) > 0 {
-			return fmt.Errorf("registries.%s: the key must be a registry host", key)
+		host, err := hostKey("registries", key)
+		if err != nil {
+			return err
 		}
-		host := p.Host
 		if _, dup := r.Hosts[host]; dup {
 			return fmt.Errorf("registries.%s: host %s is declared twice", key, host)
 		}
 		r.Hosts[host] = block
 	}
 	return nil
+}
+
+// hostKey reads a key of a section keyed by host (`registries`, `tls`) as a registry host,
+// normalised as references are: lowercased, index.docker.io as docker.io.
+func hostKey(section, key string) (string, error) {
+	p, err := imagepath.ParsePath(key, imagepath.Group)
+	if err != nil || len(p.Segments) > 0 {
+		return "", fmt.Errorf("%s.%s: the key must be a registry host", section, key)
+	}
+	return p.Host, nil
 }
 
 // normalizeHost names a registry host the way normalised references do: index.docker.io is
@@ -283,6 +292,7 @@ func (c *Config) validate() error {
 		checkPositive("webhook.availabilityCheck.activeCheckCache.ttl", c.Webhook.AvailabilityCheck.ActiveCheckCache.TTL),
 		checkPositive("secretSyncer.onFailureGrace", c.SecretSyncer.OnFailureGrace),
 		c.Registries.Default.validate("registries."+defaultBlock),
+		c.TLS.validate(),
 	)
 	for host, block := range c.Registries.Hosts {
 		errs = append(errs, block.validate("registries."+host))
