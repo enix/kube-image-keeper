@@ -43,6 +43,7 @@ internal/registry/keychain    Registry credentials from docker config Secrets
 internal/registry/credentialprovider  Vendored kubelet keyring, kept as upstream wrote it
 internal/registry/registrytest  In-memory registry fakes for the registry specs
 internal/registry/pacing      The windows that pace every read of a source registry: check rings, copy queues
+internal/registry/tlstrust    The CA Secrets of the tls key, read and handed to the registry clients without restart
 internal/info                 Build information and the kuik_build_info collector
 internal/imagepath            Image references, repository paths and the segment trie that matches them
 internal/mirrorpath           What an ImageMirror does with one origin: destination reference, tags, exclusion
