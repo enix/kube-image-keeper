@@ -54,13 +54,13 @@ func (c *Client) Copy(ctx context.Context, src, dst Endpoint, tags []string) (v1
 		return v1.Hash{}, err
 	}
 
-	watch := &failureWatch{next: c.transport}
+	watch := &failureWatch{next: c.transportFor(srcRef.Context().Registry, src.Insecure)}
 	source, err := c.readSource(ctx, srcRef, src, watch)
 	if err != nil {
 		return v1.Hash{}, err
 	}
 
-	_, errs, stopped := c.tryUntilStopped(ctx, c.transport, dst.Auth, func(a attempt) error {
+	_, errs, stopped := c.tryUntilStopped(ctx, c.transportFor(dstRepo.Registry, dst.Insecure), dst.Auth, func(a attempt) error {
 		// Each attempt starts clean: a source failure of an earlier one says nothing of it.
 		watch.reset()
 		err := writeDestination(srcRef, source, dstRepo, tags, a.options, watch)
@@ -76,7 +76,7 @@ func (c *Client) Copy(ctx context.Context, src, dst Endpoint, tags []string) (v1
 		if stopped != nil {
 			decisive = stopped
 		}
-		if fromSource, ok := errors.AsType[*sourceError](decisive); ok {
+		if fromSource, ok := errors.AsType[*sourceError](decisive); ok && !watch.failedUnsent() {
 			// The blobs read during the transfer are source requests too.
 			RequestsTotal.WithLabelValues(registryLabel(srcRef), "Copy", checkResultLabel(fromSource.err)).Inc()
 		}
@@ -92,7 +92,9 @@ func (c *Client) readSource(ctx context.Context, ref name.Reference, src Endpoin
 	var source *remote.Descriptor
 	_, errs := c.tryThrough(ctx, watch, src.Auth, func(a attempt) error {
 		descriptor, err := remote.Get(ref, a.options...)
-		RequestsTotal.WithLabelValues(host, "Copy", checkResultLabel(err)).Inc()
+		if a.headers.sent() {
+			RequestsTotal.WithLabelValues(host, "Copy", checkResultLabel(err)).Inc()
+		}
 		source = descriptor
 		return err
 	})

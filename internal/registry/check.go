@@ -53,12 +53,13 @@ func (c *Client) check(ctx context.Context, image Endpoint, count bool) (*CheckR
 	host := registryLabel(ref)
 
 	var descriptor *v1.Descriptor
-	auth, errs := c.try(ctx, image.Auth, func(a attempt) error {
+	auth, errs := c.tryThrough(ctx, c.transportFor(ref.Context().Registry, image.Insecure), image.Auth, func(a attempt) error {
 		d, err := remote.Head(ref, a.options...)
 		if isRateLimited(a.headers.headers()) {
 			err = errors.Join(errRateLimited, err)
 		}
-		if count {
+		// A request refused before it was sent is not one kuik sent.
+		if count && a.headers.sent() {
 			RequestsTotal.WithLabelValues(host, "Check", checkResultLabel(err)).Inc()
 		}
 		descriptor = d

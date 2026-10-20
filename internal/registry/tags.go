@@ -19,7 +19,7 @@ func (c *Client) ListTags(ctx context.Context, repository Endpoint) ([]string, e
 		return nil, err
 	}
 	var tags []string
-	_, errs := c.try(ctx, repository.Auth, func(a attempt) error {
+	_, errs := c.tryThrough(ctx, c.transportFor(repo.Registry, repository.Insecure), repository.Auth, func(a attempt) error {
 		listed, err := remote.List(repo, a.options...)
 		if TransportStatusCode(err) == http.StatusNotFound {
 			listed, err = nil, nil
@@ -47,7 +47,7 @@ func (c *Client) DeleteTag(ctx context.Context, tag Endpoint) error {
 	if err != nil {
 		return err
 	}
-	_, errs := c.try(ctx, tag.Auth, func(a attempt) error {
+	_, errs := c.tryThrough(ctx, c.transportFor(ref.Context().Registry, tag.Insecure), tag.Auth, func(a attempt) error {
 		err := remote.Delete(ref, a.options...)
 		switch TransportStatusCode(err) {
 		case http.StatusNotFound:
