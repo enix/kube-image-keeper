@@ -142,6 +142,13 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - configmaps
+  verbs:
+  - create
+  - get
+- apiGroups:
+  - ""
+  resources:
   - secrets
   verbs:
   - get
@@ -192,6 +199,12 @@ metadata:
   name: webhook
   namespace: kuik-system
 rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
 - apiGroups:
   - ""
   resources:

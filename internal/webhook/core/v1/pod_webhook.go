@@ -77,7 +77,8 @@ type Dependencies struct {
 	Registry *registry.Client
 	// Config is the global config at startup.
 	Config *config.Config
-	// ClusterID returns the cluster ID, and false until it is read.
+	// ClusterID returns the cluster ID, and false until it is read: a pod admitted before is
+	// left unchanged.
 	ClusterID func() (string, bool)
 }
 
@@ -127,6 +128,7 @@ type PodDefaulter struct {
 	resolver   *auth.Resolver
 	registry   *registry.Client
 	checks     *checkCache
+	clusterID  func() (string, bool)
 	config     atomic.Pointer[config.Config]
 	index      atomic.Pointer[routing.Index]
 }
@@ -138,6 +140,7 @@ func NewPodDefaulter(d Dependencies) *PodDefaulter {
 		resolver:   auth.NewResolver(d.Secrets, d.ClusterResourceNamespace, auth.ModeWebhook),
 		registry:   d.Registry,
 		checks:     newCheckCache(),
+		clusterID:  d.ClusterID,
 	}
 	w.config.Store(d.Config)
 	w.index.Store(routing.NewIndex(nil, nil))
@@ -162,6 +165,7 @@ type pass struct {
 	// probed is the pod as the credential resolution reads it, in the admission's namespace.
 	probed          *corev1.Pod
 	namespaceLabels map[string]string
+	clusterID       string
 	cfg             *config.Config
 	index           *routing.Index
 }
@@ -172,7 +176,8 @@ func (d *PodDefaulter) Default(ctx context.Context, pod *corev1.Pod) error {
 	if _, static := pod.Annotations[annotationStaticPod]; static {
 		return nil
 	}
-	a := &pass{PodDefaulter: d, pod: pod, cfg: d.config.Load(), index: d.index.Load()}
+	clusterID, read := d.clusterID()
+	a := &pass{PodDefaulter: d, pod: pod, clusterID: clusterID, cfg: d.config.Load(), index: d.index.Load()}
 
 	// A pod created through a namespaced endpoint may carry no namespace yet.
 	probed := *pod
@@ -190,6 +195,13 @@ func (d *PodDefaulter) Default(ctx context.Context, pod *corev1.Pod) error {
 		log = log.WithValues("generateName", pod.GenerateName)
 	}
 	ctx = logf.IntoContext(ctx, log)
+
+	// A mirror candidate needs the cluster ID; the readiness check keeps the webhook out of
+	// the Service until it is read, so this only covers a request arriving earlier.
+	if !read {
+		log.V(1).Info("Admitted Pod unchanged, cluster ID not read yet")
+		return nil
+	}
 
 	a.namespaceLabels = d.namespaceLabels(ctx, probed.Namespace)
 
@@ -313,7 +325,7 @@ func (a *pass) request(image imagepath.Reference, pullPolicy corev1.PullPolicy) 
 
 func (a *pass) options() routing.Options {
 	return routing.Options{
-		ClusterID:                        a.cfg.ClusterID,
+		ClusterID:                        a.clusterID,
 		DemoteMirrorWithPullPolicyAlways: a.cfg.Webhook.DemoteMirrorWithPullPolicyAlways,
 		DemoteKnownFailures:              a.cfg.Webhook.AvailabilityCheck.DemoteKnownFailures,
 	}

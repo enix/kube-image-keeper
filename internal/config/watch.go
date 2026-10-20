@@ -24,8 +24,8 @@ func init() {
 // Watch reloads the file on change until ctx is done, and calls onChange with every config
 // that validates and differs from the current one. It watches the file's directory: a
 // ConfigMap mount replaces the file by swapping a symlink. A rejected reload keeps the
-// current config, and is logged and counted. clusterID and metrics are read at startup only:
-// a change to them is logged and ignored until restart.
+// current config, and is logged and counted. metrics is read at startup only: a change to
+// it is logged and ignored until restart.
 func Watch(ctx context.Context, path string, current *Config, onChange func(*Config)) error {
 	log := logf.FromContext(ctx).WithValues("path", path)
 
@@ -50,10 +50,6 @@ func Watch(ctx context.Context, path string, current *Config, onChange func(*Con
 				reloadErrors.Inc()
 				log.Error(err, "Rejected global config reload, kept the previous config")
 				continue
-			}
-			if next.ClusterID != current.ClusterID {
-				log.Info("Ignored clusterID change until restart", "clusterID", current.ClusterID, "ignored", next.ClusterID)
-				next.ClusterID = current.ClusterID
 			}
 			if next.Metrics != current.Metrics {
 				log.Info("Ignored metrics change until restart")

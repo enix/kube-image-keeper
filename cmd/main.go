@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -13,9 +15,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
@@ -28,6 +32,7 @@ import (
 	kuikcontroller "github.com/enix/kube-image-keeper/internal/controller/kuik"
 	"github.com/enix/kube-image-keeper/internal/controller/secretsyncer"
 	"github.com/enix/kube-image-keeper/internal/info"
+	"github.com/enix/kube-image-keeper/internal/mirrorpath/clusterid"
 	"github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/enix/kube-image-keeper/internal/registry/pacing"
 	webhookcorev1 "github.com/enix/kube-image-keeper/internal/webhook/core/v1"
@@ -114,8 +119,8 @@ func main() {
 		setupLog.Error(err, "Failed to load the global config")
 		os.Exit(1)
 	}
-	setupLog.Info("Loaded global config", "path", configPath, "clusterID", globalConfig.ClusterID,
-		"clusterResourceNamespace", clusterResourceNamespace)
+	setupLog.Info("Loaded global config", "path", configPath, "clusterResourceNamespace", clusterResourceNamespace)
+	ctx := ctrl.SetupSignalHandler()
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -220,6 +225,8 @@ func main() {
 
 	// onConfigChange are what each process hands a reloaded global config to.
 	var onConfigChange []func(*config.Config)
+	// readyChecks are the readiness checks of the process, besides the ping.
+	readyChecks := map[string]healthz.Checker{}
 	switch proc.name {
 	case reconcilerProcess:
 		// One scheduler paces every read of a source registry, so that each host has a
@@ -247,6 +254,14 @@ func main() {
 			setupLog.Error(err, "Failed to create controller", "controller", "kuik-imagealternative")
 			os.Exit(1)
 		}
+		clusterIDConfigMap := klog.KRef(clusterResourceNamespace, clusterid.ConfigMapName)
+		clusterID, err := ensureClusterID(ctx, mgr, clusterResourceNamespace)
+		if err != nil {
+			setupLog.Error(err, "Failed to load the cluster ID", "configmap", clusterIDConfigMap)
+			os.Exit(1)
+		}
+		setupLog.Info("Loaded cluster ID", "clusterID", clusterID, "configmap", clusterIDConfigMap)
+
 		imageMirrors, err := kuikcontroller.NewImageMirrorReconciler(mgr.GetClient(), mgr.GetScheme(),
 			kuikcontroller.ImageMirrorOptions{
 				APIReader:                mgr.GetAPIReader(),
@@ -256,6 +271,7 @@ func main() {
 				Scheduler:                scheduler,
 				Registry:                 registry.NewClient(),
 				Config:                   globalConfig,
+				ClusterID:                clusterID,
 				Clock:                    clock.RealClock{},
 			})
 		if err != nil {
@@ -304,8 +320,15 @@ func main() {
 		}
 		onConfigChange = append(onConfigChange, syncer.SetConfig)
 	case webhookProcess:
-		podWebhook, err := webhookcorev1.SetupPodWebhookWithManager(mgr, globalConfig, clusterResourceNamespace,
-			func() (string, bool) { return globalConfig.ClusterID, true })
+		// The webhook never creates the ConfigMap: it waits for the reconciler's, and stays
+		// unready until it reads it.
+		clusterID := clusterid.Await(mgr.GetAPIReader(), clusterResourceNamespace)
+		if err := mgr.Add(clusterID); err != nil {
+			setupLog.Error(err, "Failed to set up the cluster ID read")
+			os.Exit(1)
+		}
+		readyChecks["cluster-id"] = clusterID.Check
+		podWebhook, err := webhookcorev1.SetupPodWebhookWithManager(mgr, globalConfig, clusterResourceNamespace, clusterID.ID)
 		if err != nil {
 			setupLog.Error(err, "Failed to create webhook", "webhook", "Pod")
 			os.Exit(1)
@@ -332,10 +355,34 @@ func main() {
 		setupLog.Error(err, "Failed to set up ready check")
 		os.Exit(1)
 	}
+	for name, check := range readyChecks {
+		if err := mgr.AddReadyzCheck(name, check); err != nil {
+			setupLog.Error(err, "Failed to set up ready check", "check", name)
+			os.Exit(1)
+		}
+	}
 
 	logStarting(setupLog, proc.name)
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "Failed to run manager")
 		os.Exit(1)
 	}
+}
+
+// ensureClusterIDTimeout bounds the start of the reconciler on an API server that does not answer:
+// the process exits and the kubelet restarts it with its backoff.
+const ensureClusterIDTimeout = 30 * time.Second
+
+// ensureClusterID returns the cluster ID, creating its ConfigMap on the first start. It runs
+// before the manager starts, on every replica whether it holds the lease or not, so that no
+// reconcile ever runs without the ID: the manager's client reads from a cache not started yet,
+// so it goes through a client of its own, uncached.
+func ensureClusterID(ctx context.Context, mgr ctrl.Manager, namespace string) (string, error) {
+	c, err := client.New(mgr.GetConfig(), client.Options{Scheme: mgr.GetScheme()})
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(ctx, ensureClusterIDTimeout)
+	defer cancel()
+	return clusterid.Ensure(ctx, c, namespace)
 }

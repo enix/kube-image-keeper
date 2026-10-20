@@ -138,7 +138,7 @@ func (r *ImageMirrorReconciler) deleteTags(ctx context.Context, im *kuikv1alpha1
 	if err != nil {
 		return false, err
 	}
-	suffix := "_" + r.config.Load().ClusterID
+	suffix := "_" + r.clusterID
 	for _, repository := range im.Status.Repositories {
 		endpoint := registry.Endpoint{Reference: repository, Insecure: im.Spec.Destination.Insecure, Auth: manage(repository)}
 		tags, err := r.registry.ListTags(ctx, endpoint)

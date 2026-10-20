@@ -276,7 +276,7 @@ func (r *ImageMirrorReconciler) copySources(ctx context.Context, desired []image
 		return nil, err
 	}
 
-	opts := routing.Options{ClusterID: r.config.Load().ClusterID}
+	opts := routing.Options{ClusterID: r.clusterID}
 	sources := make(map[string]*copySource, len(desired))
 	for _, ref := range desired {
 		req := routing.Request{Image: ref}
@@ -406,7 +406,7 @@ func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
 		return nil
 	}
 
-	destination := destinationRepository(&im, source.origin, r.config.Load().ClusterID)
+	destination := destinationRepository(&im, source.origin, r.clusterID)
 	// The registry offers no way to list the repositories a client populated: the one that
 	// is not recorded before its first push is never swept.
 	if err := r.recordRepository(ctx, &im, destination); err != nil {
@@ -418,7 +418,7 @@ func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
 	}
 	destinationEndpoint := registry.Endpoint{Reference: destination, Insecure: im.Spec.Destination.Insecure, Auth: manage(destination)}
 	started := time.Now()
-	digest, err := r.registry.Copy(ctx, sourceEndpoint, destinationEndpoint, mirrorpath.Tags(source.origin, r.config.Load().ClusterID))
+	digest, err := r.registry.Copy(ctx, sourceEndpoint, destinationEndpoint, mirrorpath.Tags(source.origin, r.clusterID))
 	took := time.Since(started)
 
 	st.mu.Lock()

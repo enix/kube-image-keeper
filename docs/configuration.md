@@ -11,7 +11,8 @@ kuik runs as 3 processes, each deployed by the chart as its own Deployment:
 - `secret-syncer` materialises and renews the injected pull secrets
 
 They read the same [global config file](#global-config-file) and share the
-[cluster resource namespace](#cluster-resource-namespace). The custom resources are documented in
+[cluster resource namespace](#cluster-resource-namespace); the reconciler and the webhook also
+share the [cluster ID](#cluster-id). The custom resources are documented in
 [`crds.md`](./crds.md).
 
 ## Global config file
@@ -23,7 +24,6 @@ processes at `/etc/kuik/config.yaml`. The `--config` flag of each process names 
 ```yaml
 # values.yaml
 config:
-  clusterID: prod-eu
   registries:
     docker.io:
       copy:
@@ -41,8 +41,11 @@ The file is validated whole:
 - a change is reloaded in place, without a restart. A reload that does not validate is refused
   whole: the previous config stays in effect, the failure is logged and counted in
   `kuik_config_reload_errors_total`
-- `clusterID` and `metrics` are read at startup only: a reload that changes them is logged and
-  ignored until the process restarts
+- `metrics` is read at startup only: a reload that changes it is logged and ignored until the
+  process restarts
+- `clusterID` is not a key: kuik generates the [cluster ID](#cluster-id), and a file that still
+  sets it is refused, see
+  [Upgrading from a configured `clusterID`](#upgrading-from-a-configured-clusterid)
 
 ### Keys
 
@@ -50,7 +53,6 @@ A key left out takes the default below.
 
 | Key | Default | Effect |
 | --- | ------- | ------ |
-| `clusterID` | none, required | Identity of this cluster, appended to every tag an `ImageMirror` writes, matching `^[a-zA-Z0-9][a-zA-Z0-9.-]*$`, at most 56 characters. Pick a short name that stays stable for the life of the cluster: changing it orphans every tag written under the previous one, and two clusters sharing a mirror destination need different ones. The chart fails to render without `config.clusterID` |
 | `metrics.copyDuration` | `false` | Histogram of how long each copy took, per `ImageMirror` |
 | `mirror.destinationScan.interval` | `1h` | How often each `ImageMirror` re-reads its own destination |
 | `secretSyncer.onFailureGrace` | `15m` | How long an entry of an injected pull Secret stays once no live pod uses it, for a `rewritePolicy: OnFailure` resource: the next pod of a rollout or a scale-up during an outage still finds the credential. Held in memory: a restart of the secret syncer drops the entries in their grace. Must be positive |
@@ -68,6 +70,67 @@ Durations are written with their unit (`30s`, `10m`, `1h`).
 
 How `registries` paces each host, and what a reload does to it, is explained in
 [Registry pacing](./concepts/pacing.md).
+
+## Cluster ID
+
+The cluster ID is the identity of this cluster, appended as `_<clusterID>` to every tag an
+`ImageMirror` writes, so that several clusters can share one destination. kuik generates it: on
+its first start, the reconciler creates the ConfigMap `kuik-cluster-id` in the
+[cluster resource namespace](#cluster-resource-namespace), with the ID under the key
+`clusterID`, and reads it back on every later start. It never rewrites the ConfigMap, and the
+chart does not render it, so `helm upgrade` and `helm uninstall` leave it in place.
+
+A generated ID is an adjective and a surname of the Docker container name generator joined by
+`-`, then `-` and 4 random hexadecimal characters: `focused-turing-7f3a`.
+
+The reconciler does not start when the ConfigMap holds no `clusterID`, or a value that does not
+match `^[a-zA-Z0-9][a-zA-Z0-9.-]*$` or is longer than 56 characters: fix the ConfigMap, kuik
+never replaces the value. The webhook only reads the ConfigMap, once at startup: until it has
+read a valid ID, it reports not ready and admits pods unchanged.
+
+> [!IMPORTANT]
+> The reconciler must have run at least once. Until it has created `kuik-cluster-id`, the
+> webhook stays unready and admits every pod unchanged, `ImageAlternative` routing included.
+> With `reconciler.replicas: 0`, the webhook never becomes ready.
+
+> [!WARNING]
+> Deleting the ConfigMap, or the namespace that holds it, changes the cluster ID. The next start
+> generates a new one, and every tag already copied under the previous one is orphaned: kuik no
+> longer recognises it as its own, so it never verifies nor deletes it. Keep a copy of the value,
+> and restore the ConfigMap before kuik starts again. The reconciler and the webhook read the ID
+> once at startup: after restoring the value, restart both, or a process that started in between
+> keeps the ID it read or generated then.
+
+To choose the ID, create the ConfigMap before the first install.
+
+> [!CAUTION]
+> Two clusters sharing a destination need different IDs: never copy `kuik-cluster-id` to another
+> cluster, whether through a backup restored elsewhere, a GitOps repository or a ConfigMap created
+> before the install with a value already in use. Each cluster deletes the tags carrying its own
+> suffix, so 2 clusters with the same ID delete each other's tags.
+
+### Upgrading from a configured `clusterID`
+
+Up to 3.0.0-alpha.5, `clusterID` was a key of the global config, set by `config.clusterID` in the
+chart values. A file that still sets it is now refused, and an upgrade without the ConfigMap
+would generate a new ID, orphaning every tag the mirrors copied. Before upgrading, read the old
+value from the global config the release renders, `<release>-config` (or
+`<release>-kube-image-keeper-config` when the release name does not contain
+`kube-image-keeper`):
+
+```sh
+kubectl get configmap <release>-config -n <namespace> -o jsonpath='{.data.config\.yaml}'
+```
+
+Then create the ConfigMap with that value, in the release namespace:
+
+```sh
+kubectl create configmap kuik-cluster-id -n <namespace> --from-literal=clusterID=<old value>
+```
+
+Last, remove `config.clusterID` from your values and upgrade: the chart refuses to render while
+it is set. With a values file, delete the key. A release upgraded with `--reuse-values` keeps the
+old value from its stored values: add `--set config.clusterID=null`.
 
 ## Registry credentials
 

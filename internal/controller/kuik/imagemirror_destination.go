@@ -49,7 +49,7 @@ func (r *ImageMirrorReconciler) selfCheck(ctx context.Context, im *kuikv1alpha1.
 	if err != nil {
 		return now, err
 	}
-	clusterID := r.config.Load().ClusterID
+	clusterID := r.clusterID
 	endpoint := func(ref string) registry.Endpoint {
 		return registry.Endpoint{Reference: ref, Insecure: im.Spec.Destination.Insecure, Auth: manage(ref)}
 	}
@@ -135,7 +135,7 @@ func (r *ImageMirrorReconciler) sweep(ctx context.Context, im *kuikv1alpha1.Imag
 		retention = im.Spec.Cleanup.Retention.Duration
 	}
 	result := plan.Sweep{
-		ClusterID: r.config.Load().ClusterID,
+		ClusterID: r.clusterID,
 		Path:      im.Spec.Destination.Path,
 		Retention: retention,
 		Live:      live,

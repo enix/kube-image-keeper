@@ -25,8 +25,6 @@ vars:
   # Helm release used by deploy / undeploy
   NAMESPACE: '{{.NAMESPACE | default "kuik-system"}}'
   RELEASE: '{{.RELEASE | default "kube-image-keeper"}}'
-  # The chart requires config.clusterID and has no default: the dev tasks name the cluster.
-  CLUSTER_ID: '{{.CLUSTER_ID | default "dev"}}'
 
   CHART: helm/kube-image-keeper
   CRDS: config/crd/bases
@@ -363,7 +361,7 @@ tasks:
     cmds:
       - task: manifests
       - mkdir -p dist
-      - helm template {{.RELEASE}} {{.CHART}} --namespace {{.NAMESPACE}} --include-crds {{.HELM_IMAGE_ARGS}} --set config.clusterID={{.CLUSTER_ID}} > dist/install.yaml
+      - helm template {{.RELEASE}} {{.CHART}} --namespace {{.NAMESPACE}} --include-crds {{.HELM_IMAGE_ARGS}} > dist/install.yaml
 
   # ---------------------------------------------------------------------------------------------
   # Helm
@@ -371,7 +369,7 @@ tasks:
   helm-lint:
     desc: Lint the Helm chart
     cmds:
-      - helm lint {{.CHART}} --set config.clusterID={{.CLUSTER_ID}}
+      - helm lint {{.CHART}}
 
   generate-helm-docs:
     desc: Generate the chart README from README.md.gotmpl, README.md (up to HELM_DOCS_END) and LICENSE
@@ -402,10 +400,10 @@ tasks:
       - '{{.KUBECTL}} delete --ignore-not-found={{.IGNORE_NOT_FOUND}} -f {{.CRDS}}'
 
   deploy:
-    desc: Install or upgrade the chart with image IMG in NAMESPACE (release RELEASE, config.clusterID CLUSTER_ID, default dev, optional values file HELM_VALUES)
+    desc: Install or upgrade the chart with image IMG in NAMESPACE (release RELEASE, optional values file HELM_VALUES)
     cmds:
       - task: manifests
-      - helm upgrade --install {{.RELEASE}} {{.CHART}} --namespace {{.NAMESPACE}} --create-namespace {{.HELM_IMAGE_ARGS}} --set config.clusterID={{.CLUSTER_ID}} {{if .HELM_VALUES}}--values {{.HELM_VALUES}}{{end}} {{.CLI_ARGS}}
+      - helm upgrade --install {{.RELEASE}} {{.CHART}} --namespace {{.NAMESPACE}} --create-namespace {{.HELM_IMAGE_ARGS}} {{if .HELM_VALUES}}--values {{.HELM_VALUES}}{{end}} {{.CLI_ARGS}}
 
   undeploy:
     desc: Uninstall the chart release (CRDs stay, see uninstall)

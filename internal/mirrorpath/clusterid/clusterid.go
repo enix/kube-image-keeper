@@ -98,6 +98,10 @@ func pick(random io.Reader, words []string) (string, error) {
 	}
 }
 
+// The reconciler creates the ConfigMap on its first start and reads it on the next ones; it
+// never updates it.
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;create,namespace=kuik-system,roleName=reconciler
+
 // Ensure returns the cluster ID kept in the ConfigMap of namespace, creating the ConfigMap
 // with a generated ID when it is missing. It never rewrites an existing ConfigMap: changing
 // the ID orphans every tag written under the previous one, so a stored value that does not

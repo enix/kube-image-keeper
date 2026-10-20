@@ -230,7 +230,7 @@ spec:
 | `spec.cleanup.retention` | | Default `168h`. How long an unused tag is held before deletion, so a CronJob's image survives between runs. A Go duration |
 | `spec.driftPolicy` | | What to do when the upstream digest of a copied tag moves: `Ignore` (default, copy once), `Warn` (re-read the upstream periodically and report), `Sync` (re-read and copy again) |
 
-The tag of every copy carries the operator's [`clusterID`](./configuration.md) as a `_<clusterID>` suffix, so that several clusters can share one destination: the second cluster to need an image uploads nothing, and each cluster only ever creates, verifies and deletes its own tags. The `ImageMirror` object is identical on every cluster.
+The tag of every copy carries the operator's [cluster ID](./configuration.md#cluster-id) as a `_<clusterID>` suffix, so that several clusters can share one destination: the second cluster to need an image uploads nothing, and each cluster only ever creates, verifies and deletes its own tags. The `ImageMirror` object is identical on every cluster.
 
 ### Excluding images
 
