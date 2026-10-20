@@ -635,11 +635,25 @@ func replicasRewriting(image string) (map[string]bool, error) {
 // itself reaches whichever replica the API server's connection is bound to, so it cannot tell
 // whether every replica holds the same resources and config.
 func replicasRewritingTo(image, target string) (map[string]bool, error) {
+	responses, err := replicaResponses(routingNamespace, podManifest("replica-probe", image))
+	if err != nil {
+		return nil, err
+	}
+	routing := map[string]bool{}
+	for pod, response := range responses {
+		routing[pod] = strings.Contains(string(response.Patch), target)
+	}
+	return routing, nil
+}
+
+// replicaResponses sends the AdmissionReview of the pod manifest, created in reviewNamespace,
+// to each webhook pod through the API server's proxy, and returns the answer of each pod.
+func replicaResponses(reviewNamespace, manifest string) (map[string]*admissionv1.AdmissionResponse, error) {
 	pods, err := webhookPods()
 	if err != nil {
 		return nil, err
 	}
-	object, err := yaml.YAMLToJSON([]byte(podManifest("replica-probe", image)))
+	object, err := yaml.YAMLToJSON([]byte(manifest))
 	if err != nil {
 		return nil, err
 	}
@@ -649,7 +663,7 @@ func replicasRewritingTo(image, target string) (map[string]bool, error) {
 			UID:       "e2e-replica-probe",
 			Kind:      metav1.GroupVersionKind{Version: "v1", Kind: "Pod"},
 			Resource:  metav1.GroupVersionResource{Version: "v1", Resource: "pods"},
-			Namespace: routingNamespace,
+			Namespace: reviewNamespace,
 			Operation: admissionv1.Create,
 			Object:    runtime.RawExtension{Raw: object},
 		},
@@ -657,7 +671,7 @@ func replicasRewritingTo(image, target string) (map[string]bool, error) {
 	if err != nil {
 		return nil, err
 	}
-	routing := map[string]bool{}
+	responses := map[string]*admissionv1.AdmissionResponse{}
 	for _, pod := range pods {
 		// kubectl create --raw sends no Content-Type, which the webhook server refuses.
 		url := fmt.Sprintf("%s/api/v1/namespaces/%s/pods/https:%s:%d/proxy%s",
@@ -684,9 +698,9 @@ func replicasRewritingTo(image, target string) (map[string]bool, error) {
 		if !answer.Response.Allowed || answer.Response.Result != nil && answer.Response.Result.Code >= 400 {
 			return nil, fmt.Errorf("the webhook pod %s did not process the review: %s", pod, output)
 		}
-		routing[pod] = strings.Contains(string(answer.Response.Patch), target)
+		responses[pod] = answer.Response
 	}
-	return routing, nil
+	return responses, nil
 }
 
 // apiProxy is the base URL of the kubectl proxy the routing specs reach the API server through,
