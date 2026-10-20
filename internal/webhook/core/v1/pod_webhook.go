@@ -77,12 +77,14 @@ type Dependencies struct {
 	Registry *registry.Client
 	// Config is the global config at startup.
 	Config *config.Config
+	// ClusterID returns the cluster ID, and false until it is read.
+	ClusterID func() (string, bool)
 }
 
 // SetupPodWebhookWithManager registers the webhook for Pod in the manager, keeps its
 // resources in step with the manager's cache, and returns it so that config reloads reach it.
 // It registers the two routing counters, and nothing else.
-func SetupPodWebhookWithManager(mgr ctrl.Manager, cfg *config.Config, clusterResourceNamespace string) (*PodDefaulter, error) {
+func SetupPodWebhookWithManager(mgr ctrl.Manager, cfg *config.Config, clusterResourceNamespace string, clusterID func() (string, bool)) (*PodDefaulter, error) {
 	for _, c := range []prometheus.Collector{RewritesTotal, AlternativesExhaustedTotal} {
 		if err := metrics.Registry.Register(c); err != nil && !errors.As(err, &prometheus.AlreadyRegisteredError{}) {
 			return nil, err
@@ -94,6 +96,7 @@ func SetupPodWebhookWithManager(mgr ctrl.Manager, cfg *config.Config, clusterRes
 		ClusterResourceNamespace: clusterResourceNamespace,
 		Registry:                 registry.NewClient(),
 		Config:                   cfg,
+		ClusterID:                clusterID,
 	})
 	if err := mgr.Add(&resourceWatch{cache: mgr.GetCache(), defaulter: d}); err != nil {
 		return nil, err

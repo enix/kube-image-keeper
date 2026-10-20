@@ -819,7 +819,7 @@ var _ = Describe("ImageMirror Controller", func() {
 			h.reconciler, err = NewImageMirrorReconciler(k8sClient, k8sClient.Scheme(), ImageMirrorOptions{
 				APIReader: k8sClient, ClusterResourceNamespace: installNamespace, Recorder: h.recorder,
 				Registerer: prometheus.NewRegistry(), Scheduler: restarted, Registry: kuikregistry.NewClient(),
-				Config: h.config, Clock: h.clock,
+				Config: h.config, ClusterID: mirrorClusterID, Clock: h.clock,
 			})
 			Expect(err).NotTo(HaveOccurred())
 			h.reconciler.Elected(h.clock.Now())
@@ -1688,12 +1688,23 @@ var _ = Describe("ImageMirror Controller", func() {
 		})
 	})
 
+	Describe("building the reconciler", func() {
+		It("refuses to build an ImageMirror reconciler without a cluster ID", func() {
+			_, err := NewImageMirrorReconciler(k8sClient, k8sClient.Scheme(), ImageMirrorOptions{
+				APIReader: k8sClient, ClusterResourceNamespace: installNamespace, Recorder: h.recorder,
+				Registerer: prometheus.NewRegistry(), Scheduler: h.scheduler, Registry: kuikregistry.NewClient(),
+				Config: h.config, Clock: h.clock,
+			})
+			Expect(err).To(HaveOccurred())
+		})
+	})
+
 	Describe("writing the status", func() {
 		It("writes no status before the lease is held, and writes it once the lease is held", func() {
 			fresh, err := NewImageMirrorReconciler(k8sClient, k8sClient.Scheme(), ImageMirrorOptions{
 				APIReader: k8sClient, ClusterResourceNamespace: installNamespace, Recorder: h.recorder,
 				Registerer: prometheus.NewRegistry(), Scheduler: h.scheduler, Registry: kuikregistry.NewClient(),
-				Config: h.config, Clock: h.clock,
+				Config: h.config, ClusterID: mirrorClusterID, Clock: h.clock,
 			})
 			Expect(err).NotTo(HaveOccurred())
 			h.mirror()
@@ -1737,7 +1748,7 @@ var _ = Describe("ImageMirror Controller", func() {
 			r, err := NewImageMirrorReconciler(mgr.GetClient(), mgr.GetScheme(), ImageMirrorOptions{
 				APIReader: mgr.GetAPIReader(), ClusterResourceNamespace: installNamespace, Recorder: h.recorder,
 				Registerer: prometheus.NewRegistry(), Scheduler: h.scheduler, Registry: kuikregistry.NewClient(),
-				Config: h.config, Clock: h.clock,
+				Config: h.config, ClusterID: mirrorClusterID, Clock: h.clock,
 			})
 			Expect(err).NotTo(HaveOccurred())
 			r.StatusInterval = debounce

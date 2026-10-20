@@ -64,7 +64,6 @@ func mirrorConfig() *config.Config {
 		return &config.Window{Interval: &config.Duration{Duration: time.Minute}, Timeout: &config.Duration{}}
 	}
 	return &config.Config{
-		ClusterID:  mirrorClusterID,
 		Registries: config.Registries{Default: config.RegistryPacing{Check: minute(), Copy: minute()}},
 		Mirror:     config.Mirror{DestinationScan: config.DestinationScan{Interval: config.Duration{Duration: time.Hour}}},
 	}
@@ -98,6 +97,7 @@ func newMirrorHarness() *mirrorHarness {
 		Scheduler:                h.scheduler,
 		Registry:                 kuikregistry.NewClient(),
 		Config:                   h.config,
+		ClusterID:                mirrorClusterID,
 		Clock:                    h.clock,
 	})
 	Expect(err).NotTo(HaveOccurred())
@@ -119,6 +119,7 @@ func (h *mirrorHarness) withListCapacity(capacity int) {
 		Scheduler:                h.scheduler,
 		Registry:                 kuikregistry.NewClient(),
 		Config:                   h.config,
+		ClusterID:                mirrorClusterID,
 		Clock:                    h.clock,
 		ListCapacity:             capacity,
 	})
@@ -146,6 +147,7 @@ func (h *mirrorHarness) restart() {
 		Scheduler:                h.scheduler,
 		Registry:                 kuikregistry.NewClient(),
 		Config:                   h.config,
+		ClusterID:                mirrorClusterID,
 		Clock:                    h.clock,
 	})
 	Expect(err).NotTo(HaveOccurred())
@@ -176,6 +178,7 @@ func (h *mirrorHarness) withStatusConflict(conflict *atomic.Bool) {
 		Scheduler:                h.scheduler,
 		Registry:                 kuikregistry.NewClient(),
 		Config:                   h.config,
+		ClusterID:                mirrorClusterID,
 		Clock:                    h.clock,
 	})
 	Expect(err).NotTo(HaveOccurred())

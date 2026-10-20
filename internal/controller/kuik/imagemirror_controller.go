@@ -107,6 +107,8 @@ type ImageMirrorOptions struct {
 	Registry *registry.Client
 	// Config is the global config as loaded at start-up; SetConfig hands over a reload.
 	Config *config.Config
+	// ClusterID suffixes every tag the reconciler writes, and picks the tags it owns.
+	ClusterID string
 	// Clock dates the destination passes and the status entries.
 	Clock clock.Clock
 	// ListCapacity caps the anomaly lists of the status. Zero means capped.Capacity.

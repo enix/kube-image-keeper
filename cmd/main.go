@@ -304,7 +304,8 @@ func main() {
 		}
 		onConfigChange = append(onConfigChange, syncer.SetConfig)
 	case webhookProcess:
-		podWebhook, err := webhookcorev1.SetupPodWebhookWithManager(mgr, globalConfig, clusterResourceNamespace)
+		podWebhook, err := webhookcorev1.SetupPodWebhookWithManager(mgr, globalConfig, clusterResourceNamespace,
+			func() (string, bool) { return globalConfig.ClusterID, true })
 		if err != nil {
 			setupLog.Error(err, "Failed to create webhook", "webhook", "Pod")
 			os.Exit(1)

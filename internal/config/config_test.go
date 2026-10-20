@@ -15,7 +15,6 @@ import (
 
 // specExample is the global config of docs/v3/spec.md, "Global config", comments dropped.
 const specExample = `
-clusterID: cluster-a
 metrics:
   copyDuration: false
 mirror:
@@ -62,8 +61,8 @@ fallbackAuth:
     name: dockerhub-creds
 `
 
-// minimal carries the one key the spec requires.
-const minimal = "clusterID: cluster-a\n"
+// minimal is an empty file: the spec requires no key.
+const minimal = ""
 
 // writeFile writes content to a config file in a fresh directory and returns its path.
 func writeFile(content string) string {
@@ -81,20 +80,25 @@ func mustLoad(content string) *Config {
 }
 
 var _ = Describe("Load", func() {
-	It("accepts the full example of the spec", func() {
+	It("accepts the full example of the spec, clusterID left out", func() {
 		cfg := mustLoad(specExample)
-		Expect(cfg.ClusterID).To(Equal("cluster-a"))
 		Expect(cfg.FallbackAuth).To(HaveLen(4))
 		Expect(cfg.FallbackAuth[2].Provider.ServiceAccountRef.Name).To(Equal("kuik-ecr-access"))
 		Expect(cfg.Registries.For("public.ecr.aws").Check.Interval).To(Equal(5 * time.Minute))
 	})
 
-	It("accepts a clusterID of exactly 56 characters", func() {
-		clusterID := strings.Repeat("a", 56)
-		Expect(mustLoad("clusterID: " + clusterID + "\n").ClusterID).To(Equal(clusterID))
+	It("rejects a file that still sets clusterID, now generated, with an error pointing at the upgrade note", func() {
+		cfg, err := Load(writeFile("clusterID: cluster-a\n"))
+		Expect(cfg).To(BeNil())
+		Expect(err).To(MatchError(And(
+			ContainSubstring("clusterID"),
+			ContainSubstring("generated"),
+			ContainSubstring("ConfigMap kuik-cluster-id"),
+			ContainSubstring("docs/configuration.md#upgrading-from-a-configured-clusterid"),
+		)))
 	})
 
-	It("applies the defaults the spec states to a file carrying only clusterID", func() {
+	It("applies the defaults the spec states to an empty file", func() {
 		cfg := mustLoad(minimal)
 		Expect(cfg.Metrics.CopyDuration).To(BeFalse())
 		Expect(cfg.Mirror.DestinationScan.Interval.Duration).To(Equal(time.Hour))
@@ -129,9 +133,6 @@ fallbackAuth:
 			Expect(cfg).To(BeNil())
 		},
 		Entry("when it is not YAML", "clusterID: [cluster-a\n"),
-		Entry("when clusterID is missing", "metrics:\n  copyDuration: true\n"),
-		Entry("when clusterID is outside ^[a-zA-Z0-9][a-zA-Z0-9.-]*$", "clusterID: cluster_a\n"),
-		Entry("when clusterID is longer than 56 characters", "clusterID: "+strings.Repeat("a", 57)+"\n"),
 		Entry("when a key the schema does not define appears, at any level", minimal+`
 registries:
   docker.io:
@@ -334,12 +335,11 @@ var _ = Describe("Watch", func() {
 		Eventually(func() float64 { return testutil.ToFloat64(reloadErrors) }).Should(BeNumerically(">", before))
 	})
 
-	It("keeps clusterID and metrics until restart and applies the other keys", func() {
+	It("keeps metrics until restart and applies the other keys", func() {
 		startWatch(minimal)
-		mount.swap("clusterID: cluster-b\nmetrics:\n  copyDuration: true\nmirror:\n  destinationScan:\n    interval: 2h\n")
+		mount.swap("metrics:\n  copyDuration: true\nmirror:\n  destinationScan:\n    interval: 2h\n")
 		var next *Config
 		Eventually(changes).Should(Receive(&next))
-		Expect(next.ClusterID).To(Equal("cluster-a"))
 		Expect(next.Metrics.CopyDuration).To(BeFalse())
 		Expect(next.Mirror.DestinationScan.Interval.Duration).To(Equal(2 * time.Hour))
 	})

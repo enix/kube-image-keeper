@@ -53,7 +53,6 @@ const (
 // testConfig is the global config of the specs: the spec's defaults, a short timeout.
 func testConfig() *config.Config {
 	return &config.Config{
-		ClusterID: clusterID,
 		Webhook: config.Webhook{
 			DemoteMirrorWithPullPolicyAlways: true,
 			AvailabilityCheck: config.AvailabilityCheck{
@@ -67,13 +66,20 @@ func testConfig() *config.Config {
 
 // newDefaulter returns a webhook reading with the envtest API server and the given config.
 func newDefaulter(cfg *config.Config) *PodDefaulter {
-	return NewPodDefaulter(Dependencies{
+	return NewPodDefaulter(dependencies(cfg))
+}
+
+// dependencies are those of a webhook reading with the envtest API server and the given
+// config, that has read clusterID.
+func dependencies(cfg *config.Config) Dependencies {
+	return Dependencies{
 		Namespaces:               k8sClient,
 		Secrets:                  k8sClient,
 		ClusterResourceNamespace: clusterResourceNamespace,
 		Registry:                 registry.NewClient(),
 		Config:                   cfg,
-	})
+		ClusterID:                func() (string, bool) { return clusterID, true },
+	}
 }
 
 // newRegistry starts a registry serving repository, closed when the spec ends. It forgets
