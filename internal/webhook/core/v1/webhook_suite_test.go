@@ -101,7 +101,7 @@ var _ = BeforeSuite(func() {
 	})
 	Expect(err).NotTo(HaveOccurred())
 
-	served, err = SetupPodWebhookWithManager(mgr, testConfig(), clusterResourceNamespace)
+	served, err = SetupPodWebhookWithManager(mgr, testConfig(), clusterResourceNamespace, func() (string, bool) { return clusterID, true })
 	Expect(err).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:webhook

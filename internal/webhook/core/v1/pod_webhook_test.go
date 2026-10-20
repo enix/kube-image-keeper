@@ -43,6 +43,21 @@ var _ = Describe("Pod webhook", func() {
 		d.SetResources([]kuikv1alpha1.ImageAlternative{library}, nil)
 	})
 
+	Context("before the cluster ID is read", func() {
+		It("admits the pod unchanged: no rewrite, no annotation, no pull secret", func() {
+			fail(origin)
+			deps := dependencies(testConfig())
+			deps.ClusterID = func() (string, bool) { return "", false }
+			unread := NewPodDefaulter(deps)
+			unread.SetResources([]kuikv1alpha1.ImageAlternative{
+				alternative("library", onFailure, group(origin), withAuth(group(alt), secretAuth("alt-creds"))),
+			}, nil)
+			pod := newPod(namespace, ref(origin))
+			Expect(admit(unread, namespace, pod)).To(Equal(pod))
+			Expect(manifestHeads(origin) + manifestHeads(alt)).To(BeZero())
+		})
+	})
+
 	Context("gates", func() {
 		It("leaves a static pod untouched: no rewrite, no annotation, no pull secret", func() {
 			fail(origin)
