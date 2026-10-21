@@ -31,10 +31,11 @@ import (
 // for rate-constrained registries (e.g. docker.io) when enabling this flag.
 // The timeout applies to each request individually, so the total wall time is
 // bounded by 2 × timeout when resolveDigest is enabled.
-func CheckImageAvailability(ctx context.Context, reference string, method string, timeout time.Duration, pullSecrets []corev1.Secret, resolveDigest bool) (kuikv1alpha1.ImageAvailabilityStatus, error) {
-	client := NewClient(nil, nil).
+func CheckImageAvailability(ctx context.Context, reference string, method string, timeout time.Duration, pullSecrets []corev1.Secret, resolveDigest bool, tlsSettings *TLSSettings) (kuikv1alpha1.ImageAvailabilityStatus, error) {
+	client := NewClient().
 		WithTimeout(timeout).
-		WithPullSecrets(pullSecrets)
+		WithPullSecrets(pullSecrets).
+		WithTLS(tlsSettings)
 
 	desc, headers, err := client.ReadDescriptor(method, reference)
 

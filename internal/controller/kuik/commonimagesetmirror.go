@@ -47,6 +47,15 @@ func (r *ImageSetMirrorBaseReconciler) setupPlatforms() {
 	}
 }
 
+// tlsSettings reads the TLS settings of the registry clients, CA Secrets
+// included, each time a client is built.
+func (r *ImageSetMirrorBaseReconciler) tlsSettings(ctx context.Context) *registry.TLSSettings {
+	if r.Config == nil {
+		return nil
+	}
+	return registry.LoadTLSSettings(ctx, r.Client, &r.Config.TLS)
+}
+
 func (r *ImageSetMirrorBaseReconciler) getPullSecret(ctx context.Context, namespace, name string, secret *corev1.Secret) error {
 	secretReference := client.ObjectKey{Namespace: namespace, Name: name}
 	if err := r.Get(ctx, secretReference, secret); err != nil {
@@ -106,7 +115,7 @@ func (r *ImageSetMirrorBaseReconciler) mirrorImage(ctx context.Context, namespac
 
 	defer func() {
 		if err != nil {
-			client := registry.NewClient(nil, nil).WithPullSecrets(destSecrets)
+			client := registry.NewClient().WithPullSecrets(destSecrets).WithTLS(r.tlsSettings(ctx))
 			_, destErr := client.GetDescriptor(to.Image)
 			if destErr == nil {
 				logf.FromContext(ctx).V(1).Info("could not mirror image, but the image seems to be already mirrored")
@@ -117,7 +126,7 @@ func (r *ImageSetMirrorBaseReconciler) mirrorImage(ctx context.Context, namespac
 		}
 	}()
 
-	client := registry.NewClient(nil, nil).WithPullSecrets(srcSecrets)
+	client := registry.NewClient().WithPullSecrets(srcSecrets).WithTLS(r.tlsSettings(ctx))
 	srcDesc, err := client.GetDescriptor(from)
 	if err != nil {
 		return err
@@ -146,7 +155,7 @@ func (r *ImageSetMirrorBaseReconciler) cleanupMirror(ctx context.Context, image,
 		return true
 	}
 
-	if err := registry.NewClient(nil, nil).WithPullSecrets([]corev1.Secret{*secret}).DeleteImage(image); err != nil {
+	if err := registry.NewClient().WithPullSecrets([]corev1.Secret{*secret}).WithTLS(r.tlsSettings(ctx)).DeleteImage(image); err != nil {
 		log.Error(err, "could not delete image")
 		return false
 	}

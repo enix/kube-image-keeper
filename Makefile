@@ -252,7 +252,9 @@ BASE_BRANCH ?= origin/main
 .PHONY: conform
 conform: $(CONFORM) ## Run conform (checks COMMIT_MSG_FILE if set, commits on current branch vs BASE_BRANCH otherwise).
 ifneq ($(strip $(COMMIT_MSG_FILE)),)
-	$(CONFORM) enforce --commit-msg-file=$(COMMIT_MSG_FILE)
+# conform rejects fixup!, squash! and amend! messages, which autosquash folds into their target.
+# CI still lints the branch, so a pull request must be autosquashed before merging.
+	head -n1 '$(COMMIT_MSG_FILE)' | grep -qE '^(fixup|squash|amend)! ' || $(CONFORM) enforce --commit-msg-file=$(COMMIT_MSG_FILE)
 else
 	$(CONFORM) enforce --base-branch=$(BASE_BRANCH)
 endif
