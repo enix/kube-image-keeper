@@ -31,7 +31,8 @@ only.
 
 - One behaviour per string, present tense, the observable outcome.
 - No implementation detail: `"sets Ready to False when the destination registry is
-  unreachable"`, not `"calls probe()"`.
+  unreachable"`, not `"calls probe()"`. A case that would break if the code were reorganised
+  without changing what the user sees tests an implementation detail: drop it.
 - A test exercises a behaviour, not a value (see [`tests.md`](../../rules/tests.md)): no spec
   that reads a literal back. In envtest and e2e, one spec per rule rather than per verb, kind
   or field; in a unit suite, one `Entry` per distinct input of a mapping or a parser.
