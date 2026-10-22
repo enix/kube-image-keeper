@@ -22,6 +22,10 @@ jobs:
       channel: ${{ steps.dry-run.outputs.new_release_channel }}
       # Any channel is a pre-release; a stable release carries none
       prerelease: ${{ steps.dry-run.outputs.new_release_channel != '' }}
+      # Whether the release publishes written notes from its draft release: false for an alpha
+      written_notes: ${{ steps.draft.outcome == 'success' }}
+      # The chart's artifacthub.io/changes, rendered from the release-notes.yaml asset of the draft
+      changes: ${{ steps.draft.outputs.changes }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v7
@@ -75,6 +79,37 @@ jobs:
             exit 1
           fi
 
+      # From the beta on, a release publishes the notes its releaser wrote with the
+      # release-notes skill, kept in a draft release for the tag of the version computed
+      # above (CONTRIBUTING.md, "Release notes"). Alphas keep the generated notes. The
+      # pre-release identifier of the version tells them apart, not the channel: main
+      # publishes alphas and betas alike on the "main" channel. The notes are the draft's
+      # release-notes.yaml asset, their single source: the release body and the chart's
+      # artifacthub.io/changes are rendered from it, and the draft's body is only the
+      # skill's preview of that rendering.
+      - name: Setup Go
+        if: ${{ !contains(steps.dry-run.outputs.new_release_version, '-alpha.') }}
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Require the draft release of the written notes
+        id: draft
+        if: ${{ !contains(steps.dry-run.outputs.new_release_version, '-alpha.') }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
+          NEXT_VERSION: ${{ steps.dry-run.outputs.new_release_version }}
+        run: |
+          id=$(.github/release-draft.sh find "v${NEXT_VERSION}")
+          .github/release-draft.sh source "${id}" "${RUNNER_TEMP}/release-notes.yaml"
+          go run ./hack/releasenotes -version "${NEXT_VERSION}" changes "${RUNNER_TEMP}/release-notes.yaml" > "${RUNNER_TEMP}/changes.yaml"
+          delimiter="changes-$(openssl rand -hex 8)"
+          {
+            echo "changes<<${delimiter}"
+            cat "${RUNNER_TEMP}/changes.yaml"
+            echo "${delimiter}"
+          } >> "${GITHUB_OUTPUT}"
+
   lint:
     name: Lint
     uses: ./.github/workflows/lint.yaml
@@ -105,6 +140,7 @@ jobs:
       # Only a stable release of the main line owns the :latest image tag. A maintenance line
       # also publishes stable versions, and they must not move :latest back to an older major.
       IS_LATEST: ${{ needs.semver.outputs.channel == '' && github.ref_name == 'release' }}
+      CHANGES: ${{ needs.semver.outputs.changes }}
     secrets:
       REPO_LOGIN: ${{ secrets.QUAY_USERNAME }}
       REPO_TOKEN: ${{ secrets.QUAY_ROBOT_TOKEN }}
@@ -132,6 +168,34 @@ jobs:
         with:
           persist-credentials: false
 
+      # @semantic-release/github always creates a new release (publish.js of v12, the one
+      # semantic-release 25 depends on), so the notes leave their draft for semantic-release's
+      # generateNotes step (.releaserc.mjs). The draft goes first, while no release holds its
+      # tag, and comes back below when no release follows. Found by tag again, not by the id
+      # the semver job saw, so "Re-run failed jobs" takes a draft written again since. The
+      # published notes are the rendering of its release-notes.yaml asset, not its body,
+      # which nobody edits by hand; the asset is kept for the restore below.
+      - name: Setup Go
+        if: ${{ needs.semver.outputs.written_notes == 'true' }}
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Take the written notes out of their draft release
+        if: ${{ needs.semver.outputs.written_notes == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
+          VERSION: ${{ needs.semver.outputs.version }}
+        run: |
+          id=$(.github/release-draft.sh find "v${VERSION}")
+          .github/release-draft.sh source "${id}" "${RUNNER_TEMP}/release-notes.yaml"
+          go run ./hack/releasenotes -version "${VERSION}" render "${RUNNER_TEMP}/release-notes.yaml" > "${RUNNER_TEMP}/rendered.md"
+          cat "${RUNNER_TEMP}/rendered.md"
+          gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${id}"
+          # The notes file last: the restore step below keys on it, so it exists only once the
+          # draft is gone, and a failed delete never leads to a second draft.
+          mv "${RUNNER_TEMP}/rendered.md" "${RUNNER_TEMP}/release-notes.md"
+
       - name: Run semantic-release
         id: release
         uses: cycjimmy/semantic-release-action@v6
@@ -142,10 +206,34 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          RELEASE_NOTES_FILE: ${{ needs.semver.outputs.written_notes == 'true' && format('{0}/release-notes.md', runner.temp) || '' }}
           GIT_COMMITTER_NAME: ${{ env.COMMIT_NAME }}
           GIT_COMMITTER_EMAIL: ${{ env.COMMIT_EMAIL }}
           GIT_AUTHOR_NAME: ${{ env.COMMIT_NAME }}
           GIT_AUTHOR_EMAIL: ${{ env.COMMIT_EMAIL }}
+
+      # semantic-release published nothing (main moved during the build, a failure before or
+      # after the tag): put the draft back, so the notes are not left in a log. If the tag was
+      # pushed, publish that draft by hand; otherwise dispatch again (CONTRIBUTING.md).
+      - name: Restore the draft release when no release was published
+        if: ${{ always() && needs.semver.outputs.written_notes == 'true' && steps.release.outputs.new_release_published != 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
+          VERSION: ${{ needs.semver.outputs.version }}
+          PRERELEASE: ${{ needs.semver.outputs.prerelease }}
+        run: |
+          notes="${RUNNER_TEMP}/release-notes.md"
+          if [[ ! -s "${notes}" ]]; then
+            echo "The notes were never taken out of their draft: nothing to restore."
+            exit 0
+          fi
+          if gh api "repos/${GITHUB_REPOSITORY}/releases/tags/v${VERSION}" --jq .html_url; then
+            echo "A release already exists for v${VERSION}: nothing to restore."
+            exit 0
+          fi
+          # Marked as semantic-release would mark it, so publishing it by hand needs no flag.
+          # Its source goes back as its asset, named after the file.
+          gh release create "v${VERSION}" --repo "${GITHUB_REPOSITORY}" --draft --prerelease="${PRERELEASE}" --title "v${VERSION}" --notes-file "${notes}" "${RUNNER_TEMP}/release-notes.yaml"
 
       - name: Inspect semantic-release outcome
         id: inspect
