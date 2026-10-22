@@ -224,6 +224,12 @@ The hooks need `jq` and refuse the call without it, so the guards always hold: i
 it before developing. `worktrees/`, `artifacts/` and
 `settings.local.json` are gitignored.
 
+**One command per Bash call.** The hooks match the whole command: a chain or a substitution
+around a command they let through alone makes them ask the user. Never chain (`&&`, `;`, `|`) around a
+command that asks (a commit, a push, a GitHub write), never use `$(...)` or backticks, and
+write files with Write or Edit, never a heredoc, `>` or `sed -i`. Read-only pipes
+(`git log | head`) are fine.
+
 ## Writing
 
 Everything written here is read under time pressure. Be concise and go straight to the
