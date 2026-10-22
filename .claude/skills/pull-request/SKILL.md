@@ -221,10 +221,11 @@ once those conditions hold. The checks need not be green yet. Run it alone in it
 the outbound hook asks the user first, and their confirmation is the go to merge (they may
 want to test the PR before giving it). Pin the head the user saw, so a later push cannot be
 merged on the same go. When CodeRabbit's review was waived, say so in the message that
-precedes the command: the prompt itself does not.
+precedes the command: the prompt itself does not. The sha is the full 40 characters, printed
+by `git rev-parse HEAD` in its own command: `gh` rejects a short one.
 
 ```sh
-gh pr merge <n> --auto --rebase --match-head-commit <HEAD sha>
+gh pr merge <n> --auto --rebase --match-head-commit <full HEAD sha>
 ```
 
 GitHub merges once `Conform`, `Test` and `E2E` pass and no review thread is open. Follow it
@@ -242,7 +243,7 @@ with a sleep loop:
   10 minutes later the PR is still open. GitHub re-evaluates auto-merge only on an event of
   the pull request, and a check run cancelled by a concurrency group can make it miss the
   last one. The user's go covers this merge, for the head they saw only: run
-  `gh pr merge <n> --rebase --match-head-commit <the sha auto-merge was enabled on>`, and
+  `gh pr merge <n> --rebase --match-head-commit <the full sha auto-merge was enabled on>`, and
   tell the user auto-merge stalled.
 
 Confirm the merge with `gh pr view <n> --json state,mergedAt`. If that call is refused, ask
