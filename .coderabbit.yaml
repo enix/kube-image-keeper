@@ -117,6 +117,12 @@ reviews:
   # short and load-bearing: long instructions get diluted. docs/v3 is the
   # specification; flag code that contradicts it.
   path_instructions:
+    - path: "**"
+      instructions: |
+        docs/v3 is frozen until the alpha runs (notes/0010); deviations
+        are tracked as amendments outside the repository. Never ask to
+        edit docs/v3 to match the code.
+
     - path: "internal/webhook/**/*.go"
       instructions: |
         Mutating Pod webhook, in the admission path of every Pod
