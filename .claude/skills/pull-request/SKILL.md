@@ -59,8 +59,6 @@ What to look at:
 
 - **<Topic>**: <one line on what changed there, or the choice to weigh in on>.
 - **<Topic>**: <...>.
-
-<How it was verified, in one line.>
 ```
 
 - The introduction says what the PR brings, not how the diff is organised.
@@ -82,8 +80,8 @@ What to look at:
   GitHub resolves a relative link against the PR URL and it 404s. Link a file the PR adds
   on `main` too, marked "added by this PR": the link works once merged, and until then the
   file is in the diff. Link an issue or a PR by its URL. Link instead of paraphrasing.
-- The verification line may say, in one line, that the tests came first and where to see
-  it (`git log --stat`: no `feat` commit touches a test file).
+- Never say that the tests or the lint pass: CI runs them and shows the result. Name only a
+  check CI does not run (a manual test on a cluster, a case tried by hand), in one line.
 - Never paste the test outline: the `Test outline comment` workflow posts the cases the PR
   adds and removes as a comment, and updates it on every push.
 
