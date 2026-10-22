@@ -84,17 +84,16 @@ Scopes in commit messages are optional, but when used they must belong to the li
 
 ### Use of AI tools
 
-Concerning AI usage in your contributions, we follow the [Kubernetes AI guidance](https://github.com/kubernetes/community/blob/main/contributors/guide/pull-requests.md#ai-guidance).
-
-Using AI tools to help write your PR is acceptable, but **as the author, you are responsible for understanding every change**. If you used AI tools in preparing your PR, you must disclose this in the description of your PR.
+Using AI tools to help write your PR is acceptable, but **as the author, you are responsible for understanding every change**. We judge the result, not the tools that produced it.
 
 The following rules apply:
 
 - **No AI attribution on commits.** Do not list AI as a co-author, do not co-sign commits with an AI, and do not use trailers like `Assisted-by:` or `Co-developed-by:` referring to an AI. The commit author is the human who submits the work.
 - **Verify before you submit.** Do not leave the first review of AI-generated changes to the reviewers. Run `task test`, exercise the behaviour, confirm the APIs/types you reference actually exist, and read the full diff yourself.
-- **No large AI-generated PRs and no AI-generated commit messages.** Conventional commit subjects and bodies are written by you (see [Pull requests](#pull-requests)).
+- **No large PRs.** Keep each pull request small enough to be reviewed as a whole.
+- **Commit messages follow the conventions and say why.** Conventional commit subjects, and a body for what the diff does not show (see [Pull requests](#pull-requests)).
 - **Be ready to explain your changes.** If, during review, you cannot explain why a change was made, the PR will be closed.
-- **Respond to reviews yourself.** When replying to review comments, do so without relying on AI tools.
+- **Answer reviews with your own understanding.** Replies to review comments show that you understand the change.
 
 ### License
 
