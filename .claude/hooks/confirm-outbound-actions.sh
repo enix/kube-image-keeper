@@ -158,6 +158,7 @@ approval=kuik-acceptance-approved
 base=refs/remotes/origin/main
 fixtures_spec=':(exclude,glob)test/acceptance/fixtures/*.yaml'
 markdown_spec=':(exclude,glob)**/*.md'
+tooling_specs=':(exclude).claude :(exclude).github :(exclude).coderabbit.yaml'
 
 ask() {
   jq -n --arg reason "$1" '{
@@ -227,8 +228,10 @@ if printf '%s' "$cmd" | grep -Eq "(task|make)[[:space:]]+${opts}acceptance-appro
   if ! printf '%s' "$cmd" | grep -Eq '^task[[:space:]]+acceptance-approve[[:space:]]*$' || [ -z "$here" ] || [ "$here" != "$there" ]; then
     ask "This command approves an acceptance program whose changes the hook cannot list: run \`task acceptance-approve\` alone, from the top of the worktree to approve, to see them. The user confirms this command explicitly."
   fi
-  changed=$(git -C "$top" diff --no-ext-diff --no-renames --stat "$base" -- . "$fixtures_spec" "$markdown_spec" 2>/dev/null) || changed="(git diff failed)"
-  untracked=$(git -C "$top" ls-files --others --exclude-standard -- . "$fixtures_spec" "$markdown_spec" 2>/dev/null) || untracked="(git ls-files failed)"
+  # shellcheck disable=SC2086 # tooling_specs holds pathspecs without spaces, split on purpose
+  changed=$(git -C "$top" diff --no-ext-diff --no-renames --stat "$base" -- . "$fixtures_spec" "$markdown_spec" $tooling_specs 2>/dev/null) || changed="(git diff failed)"
+  # shellcheck disable=SC2086
+  untracked=$(git -C "$top" ls-files --others --exclude-standard -- . "$fixtures_spec" "$markdown_spec" $tooling_specs 2>/dev/null) || untracked="(git ls-files failed)"
   ask "Approve the acceptance program as it differs from origin/main: the acceptance tasks then run it without asking, until it changes again. Read the agent's explanation of each change first.
 Changed files:
 ${changed:-none}
@@ -241,7 +244,8 @@ fi
 # objects. Both hold for the reviewed code only. Almost anything in
 # the repository can change what runs (the program, the API types it decodes into, go.mod, a
 # go.work, another Taskfile), so they pass only as one plain `task acceptance-X -- <args>` in a
-# working copy equal to origin/main but for the fixtures and Markdown files: no other change, no
+# working copy equal to origin/main but for the fixtures, Markdown files and tooling (.claude/,
+# .github/, .coderabbit.yaml, none of which the program runs): no other change, no
 # other untracked file, no ignored file Go or Task would pick up. A fixture goes through the
 # guard of origin/main object by object, and Markdown never runs, so a branch of new scenarios
 # runs before its pull request. Any other change passes only while its fingerprint equals the one
@@ -276,7 +280,7 @@ if printf '%s' "$cmd" | grep -Eq "(task|make)[[:space:]]+${opts}acceptance-(chec
   changed=$(git -C "$top" diff --no-ext-diff --no-renames --name-only "$base" 2>/dev/null) || ask "$reason"
   untracked=$(git -C "$top" ls-files --others --exclude-standard 2>/dev/null) || ask "$reason"
   if printf '%s\n%s\n' "$changed" "$untracked" |
-    grep -Ev '^(test/acceptance/fixtures/[A-Za-z0-9._-]+\.yaml|[A-Za-z0-9._/-]+\.md)?$' | grep -q .; then
+    grep -Ev '^(test/acceptance/fixtures/[A-Za-z0-9._-]+\.yaml|[A-Za-z0-9._/-]+\.md|\.claude/[A-Za-z0-9._/-]+|\.github/[A-Za-z0-9._/-]+|\.coderabbit\.yaml)?$' | grep -q .; then
     unapproved="This acceptance task runs code that differs from origin/main and that the user has not approved as it is: run \`task acceptance-approve\` after explaining the changes, or the user confirms this command explicitly."
     git_dir=$(git -C "$top" rev-parse --absolute-git-dir 2>/dev/null) || ask "$unapproved"
     approved=$(cat "$git_dir/$approval" 2>/dev/null) || ask "$unapproved"

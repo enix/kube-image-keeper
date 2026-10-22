@@ -159,7 +159,7 @@ build are in [`.claude/rules/docs.md`](./.claude/rules/docs.md).
 - `hooks/confirm-outbound-actions.sh` asks the user before any command that leaves the
   working copy (`git push`, `gh pr|issue` writes, `docker push`, releases, `task deploy`
   or `run`, the e2e tasks, `task acceptance-cleanup` and any `go run|build` of `test/acceptance`,
-  any other acceptance task when anything but the acceptance fixtures and Markdown files differs from `origin/main` and the user has not approved that change with `task acceptance-approve`, or when git could not compare against the real `origin/main`, `task acceptance-approve` itself,
+  any other acceptance task when anything but the acceptance fixtures, Markdown files and tooling (`.claude/`, `.github/`, `.coderabbit.yaml`) differs from `origin/main` and the user has not approved that change with `task acceptance-approve`, or when git could not compare against the real `origin/main`, `task acceptance-approve` itself,
   a `task` with `--taskfile`, `--dir` or `--global`,
   `helm install`, `kubectl apply|label`...), in every permission
   mode, even when several tasks share one call (`task build deploy`). Not forbidden: the
