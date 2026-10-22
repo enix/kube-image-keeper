@@ -316,6 +316,28 @@ tasks:
           esac
         done
 
+  release-dry-run:
+    desc: Print what the Release workflow would publish from BRANCH (default main) - a semantic-release dry-run on a fresh clone of origin (Node.js ^22.14.0 or >= 24.10.0, push access to origin)
+    vars:
+      BRANCH: '{{.BRANCH | default "main"}}'
+    cmds:
+      # A fresh clone of the branch on origin, as the workflow checks it out: local commits,
+      # tags and changes never count. The plugins are the workflow's extra_plugins; semantic-release
+      # 25 is the major cycjimmy/semantic-release-action@v6 installs. --verify-conditions false
+      # skips the GitHub and Slack checks, which need the workflow's secrets; semantic-release
+      # still checks with a git push --dry-run that origin would accept the tag.
+      - |
+        set -e
+        dir=$(mktemp -d)
+        trap 'rm -rf "$dir"' EXIT
+        git clone --quiet --filter=blob:none --branch {{shellQuote .BRANCH}} "$(git remote get-url origin)" "$dir"
+        set --
+        for p in $(awk '/extra_plugins: \|/ { f = 1; next } f && NF == 1 && /@/ { print $1; next } f { exit }' "$dir/.github/workflows/release.yaml"); do
+          set -- "$@" -p "$p"
+        done
+        cd "$dir"
+        npx --yes -p semantic-release@^25.0.2 "$@" semantic-release --dry-run --no-ci --verify-conditions false
+
   # ---------------------------------------------------------------------------------------------
   # Build
 
