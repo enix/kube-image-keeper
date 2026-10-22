@@ -1,0 +1,52 @@
+# since: 3.0.0-alpha.6
+# Test 19: an ImageMonitor on a pod of a public HTTPS registry (gcr.io), whose certificate the
+# system trust store verifies. The scenario adds a tls entry for gcr.io to the kuik config, first
+# naming a CA Secret that does not exist, then the Secret below, whose bundle is not a
+# certificate: both must make gcr.io unreachable, never verify it more weakly. gcr.io because
+# real workloads seldom pull from it, unlike ghcr.io, and the entry applies to the whole host.
+apiVersion: kuik.enix.io/v1alpha1
+kind: ImageMonitor
+metadata:
+  name: kuik-test-tls
+spec:
+  namespaceSelector:
+    matchLabels:
+      kuik.enix.io/test: "true"
+      kubernetes.io/metadata.name: kuik-test
+  podSelector:
+    matchLabels:
+      kuik-test/monitor: tls
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: tls
+  namespace: kuik-test
+  labels:
+    kuik-test/monitor: tls
+spec:
+  containers:
+    - name: hello-app
+      image: gcr.io/google-samples/hello-app:1.0
+      resources:
+        requests: {cpu: 10m, memory: 16Mi}
+        limits: {memory: 64Mi}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        allowPrivilegeEscalation: false
+        capabilities: {drop: [ALL]}
+        seccompProfile: {type: RuntimeDefault}
+---
+# A CA bundle whose only PEM block is not a certificate.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kuik-test-tls-bad-ca
+  namespace: ${KUIK_NAMESPACE}
+type: Opaque
+stringData:
+  ca.crt: |
+    -----BEGIN CERTIFICATE-----
+    bm90IGEgY2VydGlmaWNhdGU=
+    -----END CERTIFICATE-----

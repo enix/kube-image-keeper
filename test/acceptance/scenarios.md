@@ -491,3 +491,82 @@ task acceptance-apply -- --kubeconfig <path> --context <name> --file test/accept
 - the syncer still writes: `KUBECONFIG=<path> kubectl --context <name> get secret -n kuik-test kuik-inject-imagealternative-kuik-test-private -o name`
 
 **Explore**: the refusal comes from the policy, not from RBAC: the error names the policy and its message, never `forbidden: User ... cannot create`. A Secret that slipped through means the policy is missing or not bound: report it, `acceptance-cleanup` removes it with the namespace.
+
+## 18. An upgrade keeps the cluster ID of the install
+
+**Since**: 3.0.0-alpha.6
+
+**The user** upgrades from a release whose values set `config.clusterID`, following [Upgrading from a configured `clusterID`](../../docs/configuration.md#upgrading-from-a-configured-clusterid): they create the ConfigMap `kuik-cluster-id` with the old value, then upgrade without `config.clusterID`. On a fresh install, the reconciler generates the ID instead.
+
+**They expect** ([Cluster ID](../../docs/configuration.md#cluster-id), [Tag naming constraints](../../docs/v3/spec.md#tag-naming-constraints)):
+
+- `helm template` with `--set config.clusterID=<value>` failing, with an error that names `kuik-cluster-id` and the upgrade section;
+- the ConfigMap `kuik-cluster-id` in the kuik namespace, holding the old value (or a generated `<adjective>-<surname>-<4 hex>` on a fresh install), never rewritten by the upgrade;
+- the webhook and the reconciler Ready, as in [scenario 1](#1-the-release-is-installed-and-healthy);
+- the mirror candidate of [scenario 6](#6-an-imagemirror-whose-destination-is-down-leaves-the-pod-on-its-origin) tagged `1.31.6-alpine_<clusterID>`, with the value of the ConfigMap.
+
+**Prepare**: the fixture of [scenario 6](#6-an-imagemirror-whose-destination-is-down-leaves-the-pod-on-its-origin). The upgrade itself is done before the run, by whoever installs the release.
+
+**Do**: nothing.
+
+**Check**:
+
+- chart refusal, no cluster needed: `helm template kube-image-keeper helm/kube-image-keeper --set config.clusterID=dev`
+- the ID: `KUBECONFIG=<path> kubectl --context <name> get configmap -n kuik-system kuik-cluster-id -o jsonpath='{.data.clusterID}{"\n"}{.metadata.creationTimestamp}{"\n"}'`
+- the suffix: `task acceptance-inspect -- --kubeconfig <path> --context <name> --grep registry.invalid`, the candidate of `Candidate failed its check`
+
+**Explore**: the webhook reads the ID once at startup and reports not ready until it has; its readiness probe holds the check `cluster-id` next to `registry-tls`.
+
+## 19. A host whose CA Secret is missing or invalid is unreachable, never verified more weakly
+
+**Since**: 3.0.0-alpha.6
+
+**The user** adds a `tls` entry for a registry host to the kuik config, with a `caSecretRef` that names a Secret that does not exist, then one whose bundle is not a certificate.
+
+**They expect** ([Registry TLS](../../docs/configuration.md#registry-tls), [Global config](../../docs/v3/spec.md#global-config), [status](../../docs/v3/status.md#imagemonitor)):
+
+- before the entry, `gcr.io/google-samples/hello-app:1.0` available in the ImageMonitor `kuik-test-tls`;
+- with either Secret, the image in `status.unavailableImages`, reason `Unreachable`, and a reconciler log line naming the Secret;
+- the webhook and the reconciler still Ready: a missing CA Secret is read as missing, it does not hold the readiness check `registry-tls`;
+- once the entry is removed, the image available again, without a restart of the kuik pods.
+
+**Prepare**: [`19-tls.yaml`](./fixtures/19-tls.yaml), applied by `setup`. Run it only when no real pod of the cluster pulls from `gcr.io` and no real resource names it: the `tls` entry applies to every request kuik sends to that host. Each of the 3 config changes below is a write the user accepts at the permission prompt. With Helm, an upgrade of the release from a values file (`--reuse-values` with `--set config.tls=null` leaves the entry in place). On a cluster managed by GitOps, suspend the release first (Flux: `spec.suspend: true` on the HelmRelease), edit the `config.yaml` key of the ConfigMap `kube-image-keeper-config` instead, and resume the release once the entry is removed and the ConfigMap is back as it was.
+
+**Do**: wait for the image to be available, then, one at a time, waiting 2 minutes after each:
+
+1. add `tls: {gcr.io: {caSecretRef: {name: kuik-test-tls-absent}}}` to the config;
+2. set the name to `kuik-test-tls-bad-ca`;
+3. remove the `tls` entry.
+
+**Check**, after each step:
+
+- the image: `KUBECONFIG=<path> kubectl --context <name> get imagemonitor kuik-test-tls -o jsonpath='{.status.images.origin}{"\n"}{.status.unavailableImages}{"\n"}'`
+- the log line: `task acceptance-inspect -- --kubeconfig <path> --context <name> --grep 'kuik-test-tls'`
+- readiness and restarts: `KUBECONFIG=<path> kubectl --context <name> get pods -n kuik-system`
+
+**Explore**: `insecureSkipVerify: true` on the same host: the image is available again. An `ImageAlternative` alternative with `insecure: true` on a host with a `tls` entry still goes over plain HTTP and ignores the entry. With a registry signed by a private CA reachable from the cluster, a `caSecretRef` holding that CA makes its images available.
+
+## 20. A source Secret whose docker config is unreadable is reported malformed
+
+**Since**: 3.0.0-alpha.6
+
+**The user** declares an ImageAlternative whose `auth.secretRef` names a `kubernetes.io/dockerconfigjson` Secret whose `auth` field is not base64.
+
+**They expect** ([conditions](../../docs/v3/status.md#conditions-and-their-reasons), [Catalogue](../../docs/v3/observability.md#catalogue), [Anomalies](../../docs/v3/observability.md#anomalies-signal-by-presence)):
+
+- `Ready` `False`, reason `SecretMalformed`, with a message naming the Secret: kuik never goes on anonymously with a credential it cannot read;
+- the event `ResourceNotReady` on the CR;
+- `kuik_resource_not_ready` for the CR;
+- the pull Secret `kuik-inject-imagealternative-kuik-test-malformed-creds` in `kuik-test` written without the unreadable credential, and the event `PullSecretInjectionFailed` on the CR, whose message names `SecretMalformed`, the entry's path and `kuik-test` ([Events](../../docs/observability.md)).
+
+**Prepare**: [`20-malformed-creds.yaml`](./fixtures/20-malformed-creds.yaml), applied by `setup`.
+
+**Do**: wait a minute.
+
+**Check**:
+
+- condition: `KUBECONFIG=<path> kubectl --context <name> get imagealternative kuik-test-malformed-creds -o jsonpath='{range .status.conditions[*]}{.type} {.status} {.reason} {.message}{"\n"}{end}'`
+- events `ResourceNotReady` and `PullSecretInjectionFailed` (section "events") and metric: `task acceptance-inspect -- --kubeconfig <path> --context <name> --grep kuik-test-malformed --metrics 'kuik_resource_not_ready.*kuik-test-malformed'`
+- the pull Secret exists (its content is never read; the event says the credential was left out): `KUBECONFIG=<path> kubectl --context <name> get secret -n kuik-test kuik-inject-imagealternative-kuik-test-malformed-creds -o name`
+
+**Explore**: replace the Secret with a valid placeholder, like the source of [`08-pull-auth.yaml`](./fixtures/08-pull-auth.yaml): `Ready` must turn `True` and the metric go.
