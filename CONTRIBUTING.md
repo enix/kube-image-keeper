@@ -103,17 +103,17 @@ kube-image-keeper is licensed under the [MIT License](./LICENSE). By contributin
 
 Releases are cut manually by dispatching the [Release workflow](./.github/workflows/release.yaml) on the branch to publish. semantic-release computes the version from the conventional commits since the last release, and reads its configuration from the dispatched branch's [`.releaserc.mjs`](./.releaserc.mjs): each release line therefore carries its own branches configuration (`main` and `release` for the main line; `X.Y.x-stable` and `X.Y.x-rc` for a maintenance line).
 
-Each release this configuration publishes, alphas and rcs included, is announced on Slack with its notes, through the incoming webhook stored in the `SLACK_WEBHOOK` repository secret. The workflow fails, dry-run included, when that secret is missing.
+Each release this configuration publishes, betas and rcs included, is announced on Slack with its notes, through the incoming webhook stored in the `SLACK_WEBHOOK` repository secret. The workflow fails, dry-run included, when that secret is missing.
 
 ### Channels
 
-- **alpha** (from `main`): development pre-releases of the next major or minor version. The scope is still moving; breaking changes may occur between alphas.
+- **beta** (from `main`): pre-releases of the next major or minor version. Up to `3.0.0-alpha.6`, `main` published alphas.
 - **rc** (from `X.Y.x-rc`): frozen release candidates for a patch of the `X.Y` line, published for validation (for example on a pre-production cluster) before the stable release. Only a release blocker justifies cutting an rc.2.
 - **stable** (from `release` for the main line, from `X.Y.x-stable` for a maintenance line): production releases.
 
 ### Releasing the main line
 
-- Alpha: dispatch the Release workflow on `main`.
+- Beta: dispatch the Release workflow on `main`.
 - Stable: fast-forward `release` to the commit to publish, then dispatch the workflow on `release`. The `release` branch follows `main`'s lineage and is protected against force pushes and deletion: it only moves forward. It is also the only branch that moves the `:latest` image tag, so a maintenance release never pulls it back to an older major.
 
 ### Releasing a maintenance line `X.Y`
