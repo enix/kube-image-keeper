@@ -193,10 +193,13 @@ build are in [`.claude/rules/docs.md`](./.claude/rules/docs.md).
   [`e2e-spec`](./.claude/skills/e2e-spec/SKILL.md) (e2e specs on Kind, added last in a PR),
   [`acceptance-scenarios`](./.claude/skills/acceptance-scenarios/SKILL.md) (drafts the
   acceptance scenarios of a release from its commits, with the user, and writes the agreed
-  ones; never touches a cluster)
-  and [`release-acceptance`](./.claude/skills/release-acceptance/SKILL.md) (acceptance of a release on
+  ones; never touches a cluster),
+  [`release-acceptance`](./.claude/skills/release-acceptance/SKILL.md) (acceptance of a release on
   a shared cluster: runs the scenarios of `test/acceptance/scenarios.md`, explores and
-  judges, and cleans up once the user accepts the results).
+  judges, and cleans up once the user accepts the results)
+  and [`release-notes`](./.claude/skills/release-notes/SKILL.md) (from the beta on: computes
+  the next version, drafts its notes for users with the person who releases, and creates the
+  draft GitHub release the Release workflow requires).
 - `agents/`: [`implementer`](./.claude/agents/implementer.md) (writes one pull request in
   its worktree, `test` then `feat` per component; a hook refuses push, history rewrites,
   GitHub and clusters), [`reviewer`](./.claude/agents/reviewer.md) (read-only, traces the
