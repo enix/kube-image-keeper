@@ -63,8 +63,8 @@ test/acceptance/              Acceptance of a release on a cluster where kuik ru
                               YAML fixtures and a program that applies and prints test objects, never asserts
                               (see its README)
 hack/                         Developer tools run with go run (the test outline, the values check,
-                              the release notes renderer), and the CodeRabbit review wait of the
-                              pull-request skill
+                              the release notes renderer), and the CodeRabbit review wait and slot
+                              ledger of the pull-request skill
 website/                      The docs site (Astro Starlight), see .claude/rules/docs.md
 PROJECT                       Kubebuilder metadata
 ```

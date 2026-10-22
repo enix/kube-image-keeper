@@ -106,6 +106,13 @@ gh pr edit <n> --body-file <file>                      # existing PR
 
 Write the body to a file first: quoting a long body inline breaks.
 
+Opening a PR costs a CodeRabbit review, and so does every `@coderabbitai review` or
+`full review`. The quota is shared by every session on the machine, so take a slot first,
+alone in its command: `hack/coderabbit-slot.sh <n or branch>`. Exit 0: the slot is yours, go
+on at once. Exit 1: it prints when the next slot frees up; wait until then in the
+background, never in a loop, and run it again. Ask for one review per batch of fixes, never
+one per fixup.
+
 ## 4. Keep it in step
 
 Every time the branch changes (a commit added, dropped, split or amended), re-read the
@@ -129,8 +136,9 @@ describes a dropped file misleads the reviewer and CodeRabbit alike.
   review".
 - CodeRabbit answers only comments that mention `@coderabbitai` (`chat.auto_reply: false`
   in `.coderabbit.yaml`), a top-level comment or a reply in one of its threads alike.
-- When CodeRabbit answers that it is rate limited or out of review quota, never ask again
-  in a loop: the quota is shared by every session. Report it to the session that
+- When CodeRabbit answers that it is rate limited or out of review quota despite the slot
+  (a review asked by hand, or the quota lower than the ledger thinks), never ask again in a
+  loop: the quota is shared by every session. Report it to the session that
   coordinates the others (the user when there is none), which checks the remaining
   capacity once for all and says when to ask again; ask once more then. If it still cannot
   review, the PR waits: only the user's explicit waiver, possibly relayed by the
