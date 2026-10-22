@@ -60,7 +60,7 @@ What to look at:
 - **<Topic>**: <one line on what changed there, or the choice to weigh in on>.
 - **<Topic>**: <...>.
 
-Prepared with <tool>; <how it was verified, in one line>.
+<How it was verified, in one line.>
 ```
 
 - The introduction says what the PR brings, not how the diff is organised.
@@ -86,7 +86,6 @@ Prepared with <tool>; <how it was verified, in one line>.
   it (`git log --stat`: no `feat` commit touches a test file).
 - Never paste the test outline: the `Test outline comment` workflow posts the cases the PR
   adds and removes as a comment, and updates it on every push.
-- Keep the AI disclosure CONTRIBUTING requires (`Use of AI tools`) as the last line.
 
 Avoid:
 
@@ -150,8 +149,8 @@ describes a dropped file misleads the reviewer and CodeRabbit alike.
   commits rewrite: regression pairs at the end of the branch instead
   ([`tests.md`](../../rules/tests.md)).
 - Resolve a thread once its fix is pushed. Reply only when resolving without a fix: one
-  sentence on why. CONTRIBUTING asks the author to answer reviews: post the reply yourself,
-  the outbound hook asks the user before every write on GitHub. No thread is left open at
+  sentence on why. Post the reply yourself: the outbound hook asks the user before every
+  write on GitHub. No thread is left open at
   the merge: this lists the open ones, and must print nothing.
 
   ```sh
