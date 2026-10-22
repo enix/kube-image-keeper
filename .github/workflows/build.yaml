@@ -25,6 +25,11 @@ on:
       IS_LATEST:
         required: true
         type: boolean
+      CHANGES:
+        description: The chart's artifacthub.io/changes, a YAML list of kind, description and links entries (go run ./hack/releasenotes changes); empty leaves the annotation empty
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -106,6 +111,13 @@ jobs:
       - name: Set the prerelease artifacthub annotation
         run: |
           yq e '.annotations["artifacthub.io/prerelease"] = "${{ inputs.PRERELEASE }}"' -i ./helm/kube-image-keeper/Chart.yaml
+
+      - name: Set the changes artifacthub annotation
+        if: ${{ inputs.CHANGES != '' }}
+        env:
+          CHANGES: ${{ inputs.CHANGES }}
+        run: |
+          yq e '.annotations["artifacthub.io/changes"] = strenv(CHANGES)' -i ./helm/kube-image-keeper/Chart.yaml
 
       - name: Build helm chart
         uses: appany/helm-oci-chart-releaser@v0.5.0

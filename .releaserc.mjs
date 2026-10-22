@@ -1,6 +1,8 @@
 // semantic-release configuration. JavaScript rather than JSON because `notesPattern`
 // below is a function, which JSON cannot carry.
 
+import { readFileSync } from "node:fs";
+
 // conventional-commits-parser builds its note regex case-insensitively by default, and
 // matches it at the start of every line of the body. Any wrapped line starting with the
 // words "breaking change" is then read as a breaking-change footer. Keep the default
@@ -8,6 +10,15 @@
 const parserOpts = {
   notesPattern: (keywords) => new RegExp(`^[\\s|*]*(${keywords})[:\\s]+(.*)`),
 };
+
+// From the beta on, the Release workflow sets RELEASE_NOTES_FILE to the notes written for
+// the release, rendered from the release-notes.yaml asset of its draft release
+// (CONTRIBUTING.md, "Release notes"). They replace
+// the generated notes, so the GitHub release, the Slack message and the workflow outputs all
+// carry them. The file is read in the generateNotes step, which runs before the tag is
+// pushed: an error there fails the release, while an error at load would make
+// semantic-release silently fall back on its default configuration.
+const notesFile = process.env.RELEASE_NOTES_FILE;
 
 export default {
   plugins: [
@@ -18,13 +29,16 @@ export default {
         parserOpts,
       },
     ],
-    [
-      "@semantic-release/release-notes-generator",
-      {
-        preset: "conventionalcommits",
-        parserOpts,
-      },
-    ],
+    !notesFile
+      ? [
+          "@semantic-release/release-notes-generator",
+          {
+            preset: "conventionalcommits",
+            parserOpts,
+          },
+        ]
+      : // An inline plugin: semantic-release takes an object of step functions as a plugin.
+        { generateNotes: () => readFileSync(notesFile, "utf8") },
     [
       "@semantic-release/github",
       {
