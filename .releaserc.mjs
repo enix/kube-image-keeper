@@ -53,7 +53,7 @@ export default {
   branches: [
     {
       name: "main",
-      prerelease: "alpha",
+      prerelease: "beta",
     },
     {
       name: "release",
