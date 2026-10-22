@@ -43,7 +43,7 @@ lefthook install
 
 The Markdown lint step runs `task lint-markdown-fix` on the staged files (`task lint-markdown` checks the whole repository). It runs [`markdownlint-cli2`](https://github.com/DavidAnson/markdownlint-cli2) via `npx` and requires **Node.js ≥ 22** (the `markdownlint-rule-relative-links` rule needs it). If Node.js is missing or older, the step is automatically skipped — contributors who don't touch any `.md` files don't need a Node toolchain.
 
-The commit message step lets `fixup!`, `squash!` and `amend!` commits through (`git commit --fixup`), since `git rebase --autosquash` folds them into their target. CI still lints every commit of a pull request, so autosquash your branch before opening it. During the review, push fixes as `fixup!` commits without rewriting the branch, and autosquash once the review is over.
+The commit message step lets `fixup!`, `squash!` and `amend!` commits through (`git commit --fixup`), since `git rebase --autosquash` folds them into their target. CI still lints every commit of a pull request and rejects them there.
 
 ## Contributing guidelines
 
@@ -59,11 +59,11 @@ We welcome contributions through pull requests. For your pull request to be acce
 - Include tests covering any new behavior or bug fix.
 - Follow the [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/#summary) specification (enforced on every pull request).
 - Contain no merge commits (the `Conform` check rejects them). To bring your branch up to date with `main`, rebase it (`git rebase origin/main`) instead of merging `main` into it.
-- Hold only commits meant for `main`: pull requests are merged by rebase, so each commit lands as is. Fold fixes into their commit (`git commit --fixup` and `git rebase --autosquash`) before the merge.
+- Hold only commits meant for `main`: pull requests are merged by rebase, so each commit lands as is. Fold review fixes into the commit they fix before the merge, the way you like: amend, interactive rebase, or `git commit --fixup` then `git rebase --autosquash`.
 
 The automated review (CodeRabbit) runs once, when the pull request is opened; comment `@coderabbitai review` to have later commits reviewed.
 
-`Conform`, `Test` and `E2E` are required checks. A pull request that changes no file the e2e suite depends on passes `E2E` without running it and needs no label. Otherwise the suite, which takes minutes on a Kind cluster, runs once, on the branch as it will merge: add the `e2e-ready` label once the pull request is reviewed, its e2e specs are pushed and its `fixup!` commits are autosquashed. Until then, `E2E` fails at once and says what is missing. A failure is fixed with `fixup!` commits, which pause the suite until the next autosquash and force-push.
+`Conform`, `Test` and `E2E` are required checks. A pull request that changes no file the e2e suite depends on passes `E2E` without running it and needs no label. Otherwise the suite, which takes minutes on a Kind cluster, runs once, on the branch as it will merge: add the `e2e-ready` label once the pull request is reviewed, its e2e specs are pushed and it holds only commits meant for `main`. Until then, `E2E` fails at once and says what is missing: a branch carrying `fixup!` commits does not run the suite until they are folded and force-pushed.
 
 Dependabot pull requests that target `main` carry the `e2e-ready` label from the start, and a workflow approves them and enables auto-merge: they are merged once the required checks pass. Major updates, the `kubernetes` group and the pull requests that target a maintenance branch are reviewed and merged by hand.
 

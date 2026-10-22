@@ -238,6 +238,12 @@ documentation, specification and answers to questions alike.
 Most commits need no body. Add one only for what the diff does not show (the reason, a
 rejected alternative, a non-obvious consequence), in a few lines; never list the changes.
 
+**Review fixes** are `fixup!` commits, pushed without rewriting the branch while the review
+runs, then folded by one autosquash and force-push once it is over (the
+[`pull-request`](./.claude/skills/pull-request/SKILL.md) skill). This is the maintainers'
+cycle: `CONTRIBUTING.md` only asks outside contributors for a branch that holds commits
+meant for `main`.
+
 **PR descriptions** are written for the reviewer, the way a colleague would: 1 to 3
 sentences on what the PR does and why, then a short list of the topics worth reviewing (a
 mechanism, a choice to weigh in on, what is deliberately left out), one line each. Link the
