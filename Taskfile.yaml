@@ -309,12 +309,20 @@ tasks:
         {{.LOCALBIN}}/conform enforce {{if .COMMIT_MSG_FILE}}--commit-msg-file={{.COMMIT_MSG_FILE}}{{else}}--base-branch={{.BASE_BRANCH}}{{end}}
 
   check-commits:
-    desc: Check each commit since BASE_BRANCH (after an autosquash) - feat commits pass task test (no e2e), the others build and vet
+    desc: Check each commit since BASE_BRANCH (after an autosquash) - no feat or fix in the claude and e2e scopes, feat commits pass task test (no e2e), the others build and vet
     cmds:
       # A scratch detached worktree, removed even on failure: the branch is never rebased nor
       # checked out. The envtest binaries stay in ENVTEST_BIN_DIR, outside of it.
       - |
         set -e
+        # Checked first, it takes no build: semantic-release puts feat and fix in the release notes
+        # and bumps the version on them, and the tooling changes no product behaviour.
+        tooling=$(git log --format='%h %s' '{{.BASE_BRANCH}}..HEAD' | grep -E '^[0-9a-f]+ (feat|fix)\((claude|e2e)\)!?:' || true)
+        if [ -n "$tooling" ]; then
+          echo "The claude and e2e scopes take chore, docs, ci or test, never feat or fix:" >&2
+          printf '%s\n' "$tooling" >&2
+          exit 1
+        fi
         commits=$(git rev-list --reverse '{{.BASE_BRANCH}}..HEAD')
         dir=$(mktemp -d)
         trap 'git worktree remove --force "$dir" || rm -rf "$dir"; git worktree prune' EXIT

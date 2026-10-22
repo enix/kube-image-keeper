@@ -78,6 +78,8 @@ Scopes in commit messages are optional, but when used they must belong to the li
 | Origin | `deps` | Dependency updates (e.g. `build(deps): ...`). |
 | Tooling | `e2e`, `claude` | Project tooling, not kuik itself: the end-to-end suite under `test/e2e/` with its CI job and label, the shared Claude Code configuration under `.claude/` (skills, agents, rules, hooks). |
 
+**Tooling scopes and types.** The tooling scopes, `claude` and `e2e`, never take `feat` or `fix`: use `chore`, `docs` for a skill or rule whose change is text only, `ci` or `test` (for example `test(e2e): ...`, `chore(claude): ...`). semantic-release lists `feat` and `fix` commits in the release notes and bumps the version on them, and the tooling changes no product behaviour. `task check-commits` rejects them.
+
 **Picking a scope.** Prefer a feature scope over an architectural one. `fix(routing): ...` is more informative than `fix(controller): ...` because the reader learns *what* changed, not where the code happens to live. If no scope fits cleanly, omit it; scopes are optional. If a change crosses feature boundaries, consider splitting it into several commits.
 
 **Proposing a new scope.** Identify which category it belongs to; avoid architectural/layer scopes (`controller`, `webhook`, `crd`) that duplicate feature scopes. Open a pull request updating both `.conform.yaml` and this table.
