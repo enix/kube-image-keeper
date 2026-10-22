@@ -48,6 +48,9 @@ second one, so it keeps its context.
   introduced the code; its regression spec is a `fixup!` of the `test` commit of the same
   component. That `test` commit must still build alone: when the new spec uses a symbol only
   the `feat` defines, the `test` fixup adds a stub and the `feat` fixup replaces it.
+- Never commit with `--no-verify`. Every commit builds and passes the hooks: when a `test`
+  commit needs a symbol only its `feat` defines, the `test` commit adds a stub and the `feat`
+  commit replaces it. A hook that still fails is reported to the session.
 
 ## Decide, and report each decision
 
