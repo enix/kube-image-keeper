@@ -681,6 +681,52 @@ func (e *env) releaseSuspended(ctx context.Context, key client.ObjectKey) (bool,
 	return suspended, nil
 }
 
+// clusterIDConfigMap is the ConfigMap of the kuik namespace kuik keeps its cluster ID in.
+const clusterIDConfigMap = "kuik-cluster-id"
+
+// canRead refuses, before any read, what get may not show: anything but the test objects as
+// guard lets them through, the kuik CRs, the pods of the release in the kuik namespace (get selects
+// them by the release labels, so no other pod there is read), its 2 ConfigMaps
+// <fullname>-config and kuik-cluster-id, and the admission policy and binding
+// <fullname>-secret-syncer. An empty name is a list of kind in namespace: allowed only where every
+// object it reads is.
+func (e *env) canRead(kind, namespace, name string) error {
+	inTest := slices.Contains(testNamespaces, namespace)
+	switch kind {
+	case kindImageAlternative, kindImageMirror, kindImageMonitor:
+		return nil
+	case kindNamespace:
+		if slices.Contains(testNamespaces, name) {
+			return nil
+		}
+		return fmt.Errorf("namespace %q: get reads only %s", name, strings.Join(testNamespaces, " and "))
+	case kindPod:
+		if inTest || namespace == e.kuikNamespace {
+			return nil
+		}
+		return fmt.Errorf("pods of %s: get reads only those of %s, and those of release %s in the kuik namespace %s",
+			namespace, strings.Join(testNamespaces, ", "), e.release, e.kuikNamespace)
+	case kindSecret:
+		if inTest || (namespace == e.kuikNamespace && name != "" && testName.MatchString(name)) {
+			return nil
+		}
+		return fmt.Errorf("secret %s/%s: get reads only the Secrets of %s and those named %s in %s, one by one",
+			namespace, name, strings.Join(testNamespaces, ", "), testName, e.kuikNamespace)
+	case kindConfigMap:
+		if inTest || (namespace == e.kuikNamespace && (name == e.configMapKey().Name || name == clusterIDConfigMap)) {
+			return nil
+		}
+		return fmt.Errorf("configmap %s/%s: get reads only the ConfigMaps of %s, and %s and %s in %s",
+			namespace, name, strings.Join(testNamespaces, ", "), e.configMapKey().Name, clusterIDConfigMap, e.kuikNamespace)
+	case kindPolicy, kindPolicyBinding:
+		if name == e.fullname()+"-secret-syncer" {
+			return nil
+		}
+		return fmt.Errorf("%s %q: get reads only %s-secret-syncer, the one the chart installs", kind, name, e.fullname())
+	}
+	return fmt.Errorf("kind %q: get does not read it", kind)
+}
+
 func describe(obj client.Object) string {
 	kind := strings.TrimPrefix(fmt.Sprintf("%T", obj), "*")
 	if obj.GetNamespace() == "" {

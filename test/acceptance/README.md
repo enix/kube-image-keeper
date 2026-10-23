@@ -14,6 +14,7 @@ Each command is a task; every one but `validate` takes `-- --kubeconfig <path> -
 | `acceptance-validate [--kuik-namespace NS]` | Needs no cluster and no `--kubeconfig`/`--context`; `--kuik-namespace` fills `${KUIK_NAMESPACE}`, as for `setup`. Decodes every fixture strictly with example values for its variables, runs the guard on every object, checks its `# since:` line, and prints one line per fixture |
 | `acceptance-setup [--kuik-version V] [--private-repo R --pull-auth S] [--mirror-prefix P] [--public-repo R]` | Applies the fixtures in order, skipping those newer than `V`. Refuses to start while an object of an earlier run is left, and prints the rewrite counters before any test pod |
 | `acceptance-inspect [--since D] [--grep RE] [--metrics RE]` | Reads the test objects: CRs with their status, pods with their image and kuik annotations, test Secrets (keys only, never the data), events, kuik metrics per pod, kuik log lines |
+| `acceptance-get [-n NS] [-l SELECTOR] [--jsonpath T] KIND[/NAME]` | Reads one object, or the list of a kind in a namespace (`-n`, default `kuik-test`), and prints it as YAML without `managedFields`, or through `--jsonpath` (kubectl's syntax, ranges included). `KIND` is `pod`, `configmap`, `secret`, `namespace`, `imagealternative`, `imagemirror`, `imagemonitor`, `validatingadmissionpolicy` or `validatingadmissionpolicybinding`. A Secret prints as in `inspect`, never its data, and refuses `--jsonpath`. A missing object prints `NotFound: <kind> <name> [in <namespace>]` and exits 0 |
 | `acceptance-apply --file F [--private-repo R] [--pull-auth S] [--mirror-prefix P] [--public-repo R]` | Creates the objects of a YAML file, or updates those the test created; fills its variables like `setup` |
 | `acceptance-delete [--namespace NS] KIND/NAME` | Deletes one test object |
 | `acceptance-config --file F [--kuik-version V] \| --restore [--timeout D]` | Merges a config fixture (`test/acceptance/fixtures/*.config.yaml` only, refused when its `# since:` is newer than `V`) over kuik's original global config and writes it to the ConfigMap `<fullname>-config`, refusing a result kuik would reject; `--restore` puts the original back. Both wait up to `--timeout` (default 3 minutes) for every running kuik pod to log `Reloaded global config` (a pod started after the write counts as reloaded), print that line per pod, and fail naming the pods that did not reload; a config kuik reads the same is not waited for |
@@ -48,7 +49,17 @@ The client is built from `--kubeconfig` and `--context` only, never from the cur
 
 Because of the guard, the Claude Code settings let an agent run every task without asking, except `cleanup`, which ends a run once the user has accepted it, `approve`, and `config`, which changes kuik's own config on a shared cluster and asks every time. That holds for the reviewed guard only: the outbound hook asks before any acceptance task when anything but the fixtures and the Markdown files differs from `origin/main`, or when git could not compare against it (a local ref of that name, a file hidden from the index, a task run from a subdirectory). A fixture goes through the guard of `origin/main` object by object, so a branch of new scenarios runs before its pull request. A change to the program runs once the user approves it as it is, with `task acceptance-approve`: the hook asks there, listing the changed files, and the tasks run without asking until the code moves again. The approval is a fingerprint of the change in the git directory of the worktree, written only by that task.
 
-`inspect` prints no Secret data and no Secret annotation value: `last-applied-configuration` would hold the data.
+`inspect` and `get` print no Secret data and no Secret annotation value: `last-applied-configuration` would hold the data.
+
+`get` reads only, and refuses before any read what is not:
+
+- a test object as the guard defines it: the 2 test namespaces, a Pod, Secret or ConfigMap inside them, a Secret named `kuik-test-*` in the kuik namespace;
+- a kuik CR, test or not: they are cluster-scoped and hold no credential;
+- a pod of the kuik release in the kuik namespace, for its readiness and restarts: `get` selects them by the release labels (`app.kubernetes.io/name: kube-image-keeper`, `app.kubernetes.io/instance: <release>`), so no other pod of that namespace is read;
+- the ConfigMaps `<fullname>-config` and `kuik-cluster-id` of the kuik namespace;
+- the ValidatingAdmissionPolicy and ValidatingAdmissionPolicyBinding `<fullname>-secret-syncer`.
+
+A list (`KIND` without a name) is allowed only where every object it reads is: the kuik CRs, the pods, Secrets and ConfigMaps of a test namespace, the pods of the kuik release.
 
 ## Scenarios
 
