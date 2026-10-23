@@ -7,7 +7,8 @@
 set -eu
 
 hook="$(cd "$(dirname "$0")" && pwd)/confirm-outbound-actions.sh"
-repo=$(mktemp -d)
+# Its physical path: task -d asks on a path through a symlink, as /tmp is on macOS.
+repo=$(cd "$(mktemp -d)" && pwd -P)
 trap 'rm -rf "$repo"' EXIT
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 branch=feature/check
@@ -33,7 +34,7 @@ check() {
   cmd=$2
   out=$(jq -n --arg c "$cmd" --arg d "${3:-$repo}" '{tool_input: {command: $c}, cwd: $d}' | sh "$hook")
   got=pass
-  case "$out" in *'"ask"'*) got=ask ;; *'"deny"'*) got=deny ;; esac
+  case "$out" in *'"ask"'*) got=ask ;; *'"deny"'*) got=deny ;; *'"allow"'*) got=allow ;; esac
   if [ "$got" != "$want" ]; then
     echo "FAIL: want $want, got $got: $cmd"
     failed=1
@@ -283,6 +284,67 @@ mkdir -p "$repo/.claude/worktrees/plain"
 echo hidden >"$repo/.claude/worktrees/plain/hidden.go"
 check ask "task acceptance-setup -- --kubeconfig k --context c"
 rm -r "$repo/.claude/worktrees/plain"
+# task -d to the top of a worktree of this repository under .claude/worktrees/ is checked as the
+# plain task run there: a local task is allowed by the hook itself, a guarded one still
+# asks, and the acceptance tasks pass only with that worktree as on origin/main. Anything riding
+# along with a local task loses the allow and falls back to the usual permission check.
+wt="$repo/.claude/worktrees/topic"
+git -C "$repo" worktree add -q --detach "$wt"
+check allow "task -d $wt lint"
+check allow "task -d $wt lint-fix 2>&1"
+check allow "task -d $wt test -- -run X"
+check allow "task -d $wt manifests generate"
+check allow "task -d $wt check-commits BASE_BRANCH=origin/main"
+check allow "task --dir $wt lint"
+check allow "task --dir=$wt lint"
+check allow "task -d .claude/worktrees/topic lint"
+check ask "task -d ../topic lint" "$wt"
+check allow "task -d $wt lint" "$wt"
+check pass "task -d $wt lint && rm -rf x"
+check pass "task -d $wt lint-fix 2>&1 | tail"
+check pass "task -d $wt lint X=\$(id)"
+check pass "task -d $wt lint -- '\$(id)'"
+check pass "task -d $wt tools"
+check ask "task -d $wt lint --taskfile /tmp/x.yml"
+check ask "task -d /tmp lint-fix 2>&1"
+check ask "task -d $wt deploy"
+check ask "task -d $wt lint deploy"
+check ask "task -d $wt acceptance-cleanup -- --kubeconfig k --context c"
+check ask "task -d $wt acceptance-approve"
+check ask "task -d $wt lint -t /tmp/x.yml"
+check ask "task -d $wt -d /tmp lint"
+check ask "task -g -d $wt lint"
+check ask "task -d $wt 'lint'"
+check ask "task -d \"$wt\" lint"
+check ask "echo ok; task -d $wt deploy"
+check ask "task -d $wt lint; task -d /tmp lint"
+check pass "task -d $wt acceptance-setup -- --kubeconfig k --context c"
+echo changed >"$wt/test/acceptance/guard.go"
+check ask "task -d $wt acceptance-setup -- --kubeconfig k --context c"
+git -C "$wt" checkout -q -- test/acceptance/guard.go
+# Anything but the top of such a worktree still asks: a path outside, the main worktree, a
+# subdirectory, a directory that is not a worktree, a worktree elsewhere, a symlink, a `..`.
+check ask "task -d /tmp lint"
+check ask "task -d $repo lint"
+check ask "task -d $repo/.claude/worktrees lint"
+mkdir -p "$wt/sub" "$repo/.claude/worktrees/plain"
+check ask "task -d $wt/sub lint"
+check ask "task -d $repo/.claude/worktrees/plain lint"
+check ask "task -d $wt/sub/.. lint"
+check ask "task -d $repo/.claude/worktrees/plain/../topic lint"
+rmdir "$wt/sub" "$repo/.claude/worktrees/plain"
+ln -s "$wt" "$repo/.claude/worktrees/link"
+check ask "task -d $repo/.claude/worktrees/link lint"
+rm "$repo/.claude/worktrees/link"
+ln -s .claude/worktrees/topic "$repo/link"
+check ask "task -d $repo/link lint"
+rm "$repo/link"
+outside="$repo.outside"
+git -C "$repo" worktree add -q --detach "$outside"
+check ask "task -d $outside lint"
+git -C "$repo" worktree remove --force "$outside"
+git -C "$repo" worktree remove --force "$wt"
+check ask "task -d $wt lint"
 # Another Taskfile picked through a cluster, a quote, a backslash or a newline.
 check ask "task acceptance-setup -tevil.yml -- --kubeconfig k --context c"
 check ask "task acceptance-setup -\\t evil.yml"

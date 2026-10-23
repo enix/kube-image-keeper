@@ -152,7 +152,11 @@ build are in [`.claude/rules/docs.md`](./.claude/rules/docs.md).
   hook up, `deny` rules on the
   project's secret files (`.env`, keys; `Read` only, a Bash `cat` is not covered) and on
   edits of the acceptance approval (an `Edit` rule covers every file-editing tool, the hook
-  covers Bash), and the hooks below.
+  covers Bash), and the hooks below. A new local task (reads nothing outside the machine,
+  writes only in the working copy) gets its allow rule `task <task> *` in the same PR, and its
+  name in the local task list of the outbound hook,
+  which allows it itself after a leading `-d` to a worktree (an allow rule cannot pin the value
+  of `-d`).
 - `hooks/guard-generated-files.sh` refuses Edit and Write on the generated files of
   [Code](#code) and names the task to run instead. A Bash command that writes a file
   (`sed -i`, `>`) is not covered.
@@ -160,7 +164,8 @@ build are in [`.claude/rules/docs.md`](./.claude/rules/docs.md).
   working copy (`git push`, `gh pr|issue` writes, `docker push`, releases, `task deploy`
   or `run`, the e2e tasks, `task acceptance-cleanup` and any `go run|build` of `test/acceptance`,
   any other acceptance task when anything but the acceptance fixtures, Markdown files and tooling (`.claude/`, `.github/`, `.coderabbit.yaml`) differs from `origin/main` and the user has not approved that change with `task acceptance-approve`, or when git could not compare against the real `origin/main`, `task acceptance-approve` itself,
-  a `task` with `--taskfile`, `--dir` or `--global`,
+  a `task` with `--taskfile`, `--dir` or `--global` (except a leading `-d` to the top of a
+  worktree under `.claude/worktrees/`, checked as the plain task run there),
   `helm install`, `kubectl apply|label`...), in every permission
   mode, even when several tasks share one call (`task build deploy`). Not forbidden: the
   user decides, the agent never does it on its own
