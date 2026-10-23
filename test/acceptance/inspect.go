@@ -177,26 +177,32 @@ func (e *env) printSecrets(ctx context.Context) {
 			if ns == e.kuikNamespace && !testName.MatchString(s.Name) {
 				continue
 			}
-			keys := make([]string, 0, len(s.Data))
-			for k := range s.Data {
-				keys = append(keys, k)
-			}
-			slices.Sort(keys)
-			owners := make([]string, 0, len(s.OwnerReferences))
-			for _, o := range s.OwnerReferences {
-				owners = append(owners, o.Kind+"/"+o.Name)
-			}
-			// Annotation keys only: kubectl.kubernetes.io/last-applied-configuration holds the
-			// whole Secret, data included, when it was created with kubectl apply.
-			annotations := make([]string, 0, len(s.Annotations))
-			for k := range s.Annotations {
-				annotations = append(annotations, k)
-			}
-			slices.Sort(annotations)
-			fmt.Printf("secret %s/%s: type %s, created %s, keys %v, labels %v, annotation keys %v, owners %v\n",
-				s.Namespace, s.Name, s.Type, s.CreationTimestamp.UTC().Format(time.RFC3339), keys, s.Labels, annotations, owners)
+			printSecret(&s)
 		}
 	}
+}
+
+// printSecret prints what a Secret is without its data: name, type, keys, labels, annotation
+// keys and owners.
+func printSecret(s *corev1.Secret) {
+	keys := make([]string, 0, len(s.Data))
+	for k := range s.Data {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	owners := make([]string, 0, len(s.OwnerReferences))
+	for _, o := range s.OwnerReferences {
+		owners = append(owners, o.Kind+"/"+o.Name)
+	}
+	// Annotation keys only: kubectl.kubernetes.io/last-applied-configuration holds the whole
+	// Secret, data included, when it was created with kubectl apply.
+	annotations := make([]string, 0, len(s.Annotations))
+	for k := range s.Annotations {
+		annotations = append(annotations, k)
+	}
+	slices.Sort(annotations)
+	fmt.Printf("secret %s/%s: type %s, created %s, keys %v, labels %v, annotation keys %v, owners %v\n",
+		s.Namespace, s.Name, s.Type, s.CreationTimestamp.UTC().Format(time.RFC3339), keys, s.Labels, annotations, owners)
 }
 
 // printEvents prints the events of the test namespaces, then those kuik emitted about its
