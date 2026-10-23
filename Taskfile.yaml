@@ -231,9 +231,11 @@ tasks:
 
   # The acceptance of a release, on a cluster where kuik is installed, possibly a shared one: see
   # test/acceptance/README.md. Each task runs one subcommand, whose flags parser refuses any other
-  # subcommand or unknown flag: check and inspect stay read-only whatever CLI_ARGS holds, setup,
-  # apply and delete write test objects only, config writes the config.yaml key of kuik's global
-  # config ConfigMap and spec.suspend of its Flux HelmRelease only, validate reaches no cluster.
+  # subcommand or unknown flag: check, inspect and get stay read-only whatever CLI_ARGS holds, setup,
+  # apply and delete write test objects only, config writes the config.yaml key and the
+  # kuik.enix.io/acceptance-original-config(-absent) and kuik.enix.io/acceptance-suspended-release
+  # annotations of kuik's global config ConfigMap and spec.suspend of its Flux HelmRelease only,
+  # validate reaches no cluster.
   # All run without asking, but cleanup.
   acceptance-check:
     desc: Print the state of the installed kuik, reads only (-- --kubeconfig PATH --context NAME [--kuik-version V])
@@ -244,6 +246,11 @@ tasks:
     desc: Print the test objects, their events, metrics and log lines, reads only (-- --kubeconfig PATH --context NAME [--since D] [--grep RE] [--metrics RE])
     cmds:
       - go run ./test/acceptance inspect {{.CLI_ARGS}}
+
+  acceptance-get:
+    desc: Print one object or a list, as YAML or through kubectl's JSONPath, among the test objects, the kuik CRs, the kuik pods, ConfigMaps and admission policy; reads only, a Secret as a summary without its data (-- --kubeconfig PATH --context NAME [-n NS] [-l SELECTOR] [--jsonpath T] KIND[/NAME])
+    cmds:
+      - go run ./test/acceptance get {{.CLI_ARGS}}
 
   acceptance-setup:
     desc: Apply the fixtures, the base test objects, on the cluster, skipping those newer than --kuik-version (-- --kubeconfig PATH --context NAME [--kuik-version V] [--private-repo R --pull-auth S] [--mirror-prefix P] [--public-repo R])
