@@ -47,6 +47,19 @@ pattern="${start}((${git_rewrite}|${git_amend}|${helm_write}|${task_outbound}|${
 # argument otherwise (grep 'kubectl' docs/).
 quoted="(^|[;&|({!]|\\\$\\()[[:space:]]*[\"'\`]([^[:space:];&|()]*/)?(git|gh|kubectl|kind|docker|podman|skopeo|crane|oras|helm|task|make|go)[\"'\`]"
 
+# acceptance-validate decodes the fixtures and reaches no cluster: it passes alone, on one line,
+# with plain arguments after `--` only, so nothing can ride along with it: no second task, no
+# task option (grep matches line by line).
+case "$cmd" in
+  *'
+'* | *"$(printf '\r')"*) ;;
+  *)
+    if printf '%s' "$cmd" | grep -Eq '^task[[:space:]]+acceptance-validate([[:space:]]+--([[:space:]]+[A-Za-z0-9=,./:_@+-]+)*)?[[:space:]]*$'; then
+      exit 0
+    fi
+    ;;
+esac
+
 if printf '%s' "$cmd" | grep -Eq "$pattern" || printf '%s' "$cmd" | grep -Eq "$quoted"; then
   echo "implementer: this command is reserved to the session that owns the pull request (push, history rewrite, GitHub, cluster, e2e). Stop and hand it back; never swap in another command, task or wrapper to get around this." >&2
   exit 2
