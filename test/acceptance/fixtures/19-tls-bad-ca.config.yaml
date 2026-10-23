@@ -1,0 +1,8 @@
+# since: 3.0.0-alpha.6
+# Test 19, step 2: the tls entry for gcr.io names the Secret of 19-tls.yaml, whose bundle is not a
+# certificate. Merged over the cluster's config by task acceptance-config, never applied by setup
+# or apply.
+tls:
+  gcr.io:
+    caSecretRef:
+      name: kuik-test-tls-bad-ca

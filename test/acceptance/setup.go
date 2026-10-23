@@ -129,6 +129,10 @@ func (e *env) setup(ctx context.Context, f *setupFlags) error {
 			fmt.Printf("\n== %s: skipped, no --private-repo and --pull-auth\n", base)
 			continue
 		}
+		if strings.HasSuffix(base, configFixtureSuffix) {
+			fmt.Printf("\n== %s: skipped, a piece of kuik's config, set with acceptance-config when its scenario says\n", base)
+			continue
+		}
 		if slices.ContainsFunc(handPrefixes, func(p string) bool { return strings.HasPrefix(base, p) }) {
 			fmt.Printf("\n== %s: skipped, applied by hand when its scenario says\n", base)
 			continue

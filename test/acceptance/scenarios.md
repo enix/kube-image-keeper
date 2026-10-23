@@ -530,13 +530,27 @@ task acceptance-apply -- --kubeconfig <path> --context <name> --file test/accept
 - the webhook and the reconciler still Ready: a missing CA Secret is read as missing, it does not hold the readiness check `registry-tls`;
 - once the entry is removed, the image available again, without a restart of the kuik pods.
 
-**Prepare**: [`19-tls.yaml`](./fixtures/19-tls.yaml), applied by `setup`. Run it only when no real pod of the cluster pulls from `gcr.io` and no real resource names it: the `tls` entry applies to every request kuik sends to that host. Each of the 3 config changes below is a write the user accepts at the permission prompt. With Helm, an upgrade of the release from a values file (`--reuse-values` with `--set config.tls=null` leaves the entry in place). On a cluster managed by GitOps, suspend the release first (Flux: `spec.suspend: true` on the HelmRelease), edit the `config.yaml` key of the ConfigMap `kube-image-keeper-config` instead, and resume the release once the entry is removed and the ConfigMap is back as it was.
+**Prepare**: [`19-tls.yaml`](./fixtures/19-tls.yaml), applied by `setup`. Run it only when no real pod of the cluster pulls from `gcr.io` and no real resource names it: the `tls` entry applies to every request kuik sends to that host. `acceptance-config` changes kuik's global config itself, and suspends its Flux HelmRelease first when there is one.
 
-**Do**: wait for the image to be available, then, one at a time, waiting 2 minutes after each:
+**Do**: wait for the image to be available, then, one at a time, waiting 2 minutes after each (each command waits for every kuik pod to reload the config first):
 
-1. add `tls: {gcr.io: {caSecretRef: {name: kuik-test-tls-absent}}}` to the config;
-2. set the name to `kuik-test-tls-bad-ca`;
-3. remove the `tls` entry.
+1. add the `tls` entry for `gcr.io` naming the absent Secret `kuik-test-tls-absent`, [`19-tls-absent.config.yaml`](./fixtures/19-tls-absent.config.yaml):
+
+   ```sh
+   task acceptance-config -- --kubeconfig <path> --context <name> --file test/acceptance/fixtures/19-tls-absent.config.yaml
+   ```
+
+2. name the Secret `kuik-test-tls-bad-ca` instead, [`19-tls-bad-ca.config.yaml`](./fixtures/19-tls-bad-ca.config.yaml):
+
+   ```sh
+   task acceptance-config -- --kubeconfig <path> --context <name> --file test/acceptance/fixtures/19-tls-bad-ca.config.yaml
+   ```
+
+3. put the original config back, without the `tls` entry:
+
+   ```sh
+   task acceptance-config -- --kubeconfig <path> --context <name> --restore
+   ```
 
 **Check**, after each step:
 
