@@ -16,6 +16,46 @@ cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // empty')
 cwd=$(printf '%s' "$input" | jq -r '.cwd // empty')
 [ -n "$cmd" ] || exit 0
 
+# worktree_top prints the physical path of dir, read from cwd, when it is the top level of a
+# worktree of this repository, listed by git worktree list, under the main worktree's
+# .claude/worktrees/. A `..` or a symlink on the way fails: the path must be what it says.
+worktree_top() {
+  case "$1" in .. | ../* | */.. | */../*) return 1 ;; esac
+  start=$(cd "${cwd:-.}" 2>/dev/null && pwd -P) || return 1
+  case "$1" in /*) d=$1 ;; *) d=./$1 ;; esac
+  logical=$(cd "$start" && CDPATH='' cd "$d" 2>/dev/null && pwd -L) || return 1
+  physical=$(cd "$start" && CDPATH='' cd "$d" 2>/dev/null && pwd -P) || return 1
+  [ "$logical" = "$physical" ] || return 1
+  listed=$(git -C "$start" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p') || return 1
+  main=$(printf '%s\n' "$listed" | head -n 1)
+  [ -n "$main" ] || return 1
+  main=$(cd "$main" 2>/dev/null && pwd -P) || return 1
+  case "$physical" in "$main"/.claude/worktrees/?*) ;; *) return 1 ;; esac
+  printf '%s\n' "$listed" | while IFS= read -r w; do
+    [ -n "$w" ] && [ "$(cd "$w" 2>/dev/null && pwd -P)" = "$physical" ] && echo "$physical" && break
+  done | grep .
+}
+
+# `task -d <worktree> ...` (or --dir) is checked as the plain `task ...` it runs in that
+# worktree: the command loses its -d and the cwd becomes the worktree, so every check below
+# applies there, the acceptance approval of that worktree included. Only a single line that
+# starts with it, with a plain path, is rewritten; any other -d asks below.
+case "$cmd" in
+  *'
+'* | *"$(printf '\r')"*) ;;
+  *)
+    task_dir='^task[[:space:]]+(-d[[:space:]]+|--dir[[:space:]]+|--dir=)'
+    if printf '%s' "$cmd" | grep -Eq "${task_dir}[A-Za-z0-9._/-]+([[:space:]]|\$)"; then
+      dir=$(printf '%s' "$cmd" | sed -E "s#${task_dir}([A-Za-z0-9._/-]+).*#\\2#")
+      if top=$(worktree_top "$dir"); then
+        cmd="task$(printf '%s' "$cmd" | sed -E "s#${task_dir}[A-Za-z0-9._/-]+##")"
+        cwd=$top
+        in_worktree=1
+      fi
+    fi
+    ;;
+esac
+
 # automerge_off holds when the pull request of the current branch has no auto-merge enabled,
 # or when the branch has no pull request yet. With auto-merge enabled, GitHub would merge a
 # push as soon as the checks pass, before anyone reviews it: the push asks. Any other answer
@@ -200,7 +240,8 @@ case "$unquoted" in *refs/remotes* | *packed-refs* | *--output*)
   ask "This command may write a file, possibly a local ref the acceptance tasks trust: the user confirms it explicitly." ;;
 esac
 
-# A task run from another Taskfile or directory is not the task the allow rules name. Only what
+# A task run from another Taskfile or directory is not the task the allow rules name (a leading
+# -d to a worktree under .claude/worktrees/ was already turned into a plain call above). Only what
 # precedes `--` is task's own: the rest goes to the command the task runs. An option there may be
 # a cluster (-tx.yml) or hidden by a quote or a backslash, so those ask too.
 # Only the words of a task call count, up to the next ; & | or ): an option or a quote in another
@@ -293,4 +334,24 @@ if printf '%s' "$cmd" | grep -Eq "(task|make)[[:space:]]+${opts}acceptance-(chec
   # listed under them, outside a nested repository, still asks.
   ignored=$(printf '%s\n' "$ignored" | grep -v '^\.claude/worktrees/[^/]*/$' || true)
   [ -z "$ignored" ] || ask "$reason"
+fi
+
+# A local task run in a worktree with a leading -d passed every check above as the plain task:
+# the hook allows it itself, since an allow rule cannot pin the value of -d. Local means it reads
+# nothing outside the machine and writes only in the working copy (generated files, formatting,
+# bin/), as when run plainly: the list is the one of the `task <task> *` allow rules of
+# settings.json, keep both in step. Only task names, VAR=value words, plain words after `--` and
+# a trailing 2>&1: nothing can ride along.
+if [ -n "${in_worktree:-}" ]; then
+  local_task='(test|test-short|test-outline|lint|lint-fix|lint-config|helm-lint|lint-values|manifests|generate|generate-helm-docs|build|fmt|vet|conform|check-commits|lint-hooks|lint-markdown|lint-markdown-fix|release-dry-run)'
+  if printf '%s' "$cmd" | grep -Eq "^task([[:space:]]+${local_task})+([[:space:]]+[A-Z_][A-Z0-9_]*=[A-Za-z0-9,./:_@+=-]*)*([[:space:]]+--([[:space:]]+[A-Za-z0-9=,./:_@+-]+)*)?([[:space:]]+2>&1)?[[:space:]]*\$"; then
+    jq -n '{
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "allow",
+        permissionDecisionReason: "A local task run in a worktree of this repository under .claude/worktrees/."
+      }
+    }'
+    exit 0
+  fi
 fi
