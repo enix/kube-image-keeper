@@ -137,6 +137,7 @@ check ask "task acceptance-apply -- --kubeconfig k --context c --file \$(echo f.
 # A single-quoted argument is literal: a regex passes, anything that leaves the quotes asks.
 check pass "task acceptance-inspect -- --kubeconfig k --context c --grep 'Denied|Failed' --metrics 'kuik_(a|b)\$'"
 check pass "task acceptance-inspect -- --kubeconfig k --context c --grep='a|b'"
+check pass "task acceptance-inspect -- --kubeconfig k --context c --grep 'a|[Rr]b|c'"
 check ask "task acceptance-inspect -- --kubeconfig k --context c --grep 'a' ; rm x"
 check ask "task acceptance-inspect -- --kubeconfig k --context c --grep 'a'|sh"
 check ask "task acceptance-inspect -- --kubeconfig k --context c --grep 'a' 2>&1 | grep -v x | cut -c1-9"
