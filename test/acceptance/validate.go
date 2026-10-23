@@ -57,6 +57,17 @@ func (e *env) validateFixture(name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if strings.HasSuffix(name, configFixtureSuffix) {
+		// Merged over an empty config: what kuik reads when the cluster's config sets nothing else.
+		merged, err := mergeConfig("", expanded)
+		if err != nil {
+			return "", err
+		}
+		if _, err := loadConfig([]byte(merged)); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("since %s, kuik config", strings.TrimPrefix(since, "v")), nil
+	}
 	objs, err := e.decode(name, expanded)
 	if err != nil {
 		return "", err

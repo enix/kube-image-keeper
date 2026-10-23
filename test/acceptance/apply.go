@@ -33,6 +33,9 @@ func applyCommand() *command {
 			if file == "" {
 				return errors.New("--file is required")
 			}
+			if strings.HasSuffix(file, configFixtureSuffix) {
+				return fmt.Errorf("%s is a piece of kuik's config: set it with task acceptance-config", file)
+			}
 			if err := e.checkKuikNamespace(ctx); err != nil {
 				return err
 			}
