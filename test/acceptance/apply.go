@@ -33,6 +33,9 @@ func applyCommand() *command {
 			if file == "" {
 				return errors.New("--file is required")
 			}
+			if strings.HasSuffix(file, configFixtureSuffix) {
+				return fmt.Errorf("%s is a piece of kuik's config: set it with task acceptance-config", file)
+			}
 			if err := e.checkKuikNamespace(ctx); err != nil {
 				return err
 			}
@@ -150,23 +153,25 @@ func deleteCommand() *command {
 	}
 }
 
-var deletableKinds = []string{"pod", "secret", "configmap", "imagealternative", "imagemirror", "imagemonitor"}
+var deletableKinds = []string{
+	kindPod, kindSecret, kindConfigMap, kindImageAlternative, kindImageMirror, kindImageMonitor,
+}
 
 // newDeletable is the empty object of a kind delete takes. Namespaces are not among them: a
 // test namespace goes with cleanup, once the test is over.
 func newDeletable(kind string) client.Object {
 	switch kind {
-	case "pod":
+	case kindPod:
 		return &corev1.Pod{}
-	case "secret":
+	case kindSecret:
 		return &corev1.Secret{}
-	case "configmap":
+	case kindConfigMap:
 		return &corev1.ConfigMap{}
-	case "imagealternative":
+	case kindImageAlternative:
 		return &kuikv1alpha1.ImageAlternative{}
-	case "imagemirror":
+	case kindImageMirror:
 		return &kuikv1alpha1.ImageMirror{}
-	case "imagemonitor":
+	case kindImageMonitor:
 		return &kuikv1alpha1.ImageMonitor{}
 	}
 	return nil

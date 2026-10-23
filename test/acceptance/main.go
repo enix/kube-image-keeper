@@ -11,12 +11,17 @@
 //	acceptance apply   --kubeconfig PATH --context NAME --file F [--private-repo R --pull-auth S]
 //	                   [--mirror-prefix P] [--public-repo R]
 //	acceptance delete  --kubeconfig PATH --context NAME [--namespace NS] KIND/NAME
+//	acceptance config  --kubeconfig PATH --context NAME --file F [--kuik-version V] | --restore [--timeout D]
+//	acceptance get     --kubeconfig PATH --context NAME [-n NS] [-l SELECTOR] [--jsonpath T] KIND[/NAME]
 //	acceptance cleanup --kubeconfig PATH --context NAME
 //	acceptance validate                                                     checks the fixtures, no cluster
 //
-// check and inspect only read. setup applies the fixtures of fixtures/; setup, apply, delete and
-// cleanup write test objects only. validate reaches no cluster. Run them through the
-// acceptance-* tasks, see README.md.
+// check, inspect and get only read. setup applies the fixtures of fixtures/; setup, apply, delete
+// and cleanup write test objects only; config writes the config.yaml key of kuik's global config
+// ConfigMap and its annotations kuik.enix.io/acceptance-original-config(-absent) and
+// kuik.enix.io/acceptance-suspended-release, and spec.suspend of its Flux HelmRelease, then
+// restores both. validate reaches no cluster.
+// Run them through the acceptance-* tasks, see README.md.
 package main
 
 import (
@@ -24,6 +29,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
@@ -71,7 +77,12 @@ var commands = map[string]*command{
 	"setup":   setupCommand(),
 	"apply":   applyCommand(),
 	"delete":  deleteCommand(),
-	"cleanup": {usage: "delete every test object, then check none is left", run: runCleanup},
+	"config":  configCommand(),
+	"get":     getCommand(),
+	"cleanup": {
+		usage: "restore the global config when a test config is in place, delete every test object, then check none is left",
+		run:   runCleanup,
+	},
 	"validate": {
 		usage: "decode every fixture with example values, run the guard on its objects and check its since line; " +
 			"reaches no cluster",
@@ -83,7 +94,7 @@ var commands = map[string]*command{
 func main() {
 	if len(os.Args) < 2 || commands[os.Args[1]] == nil {
 		fmt.Fprintln(os.Stderr,
-			"usage: acceptance check|inspect|setup|apply|delete|cleanup --kubeconfig PATH --context NAME ...\n"+
+			"usage: acceptance check|inspect|setup|apply|delete|config|get|cleanup --kubeconfig PATH --context NAME ...\n"+
 				"       acceptance validate")
 		os.Exit(2)
 	}
@@ -106,9 +117,9 @@ func main() {
 		_, _ = fmt.Fprintf(fs.Output(), "acceptance %s: %s\n", name, cmd.usage)
 		fs.PrintDefaults()
 	}
-	_ = fs.Parse(os.Args[2:])
-	if fs.NArg() != cmd.args {
-		fmt.Fprintf(os.Stderr, "acceptance %s takes %d argument(s) after its flags, got %q\n", name, cmd.args, fs.Args())
+	args := parseInterleaved(fs, os.Args[2:])
+	if len(args) != cmd.args {
+		fmt.Fprintf(os.Stderr, "acceptance %s takes %d argument(s) besides its flags, got %q\n", name, cmd.args, args)
 		os.Exit(2)
 	}
 	connect := e.pin
@@ -119,9 +130,23 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
-	if err := cmd.run(context.Background(), e, fs.Args()); err != nil {
+	if err := cmd.run(context.Background(), e, args); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
+	}
+}
+
+// parseInterleaved parses flags before and after the positional arguments, as kubectl does
+// (get KIND/NAME --jsonpath ...), and returns the positional ones.
+func parseInterleaved(fs *flag.FlagSet, args []string) []string {
+	var positional []string
+	for {
+		_ = fs.Parse(args)
+		if fs.NArg() == 0 {
+			return positional
+		}
+		positional = append(positional, fs.Arg(0))
+		args = fs.Args()[1:]
 	}
 }
 
@@ -152,6 +177,15 @@ func (e *env) pin() error {
 	}
 	e.clientset, err = kubernetes.NewForConfig(restConfig)
 	return err
+}
+
+// fullname is the chart's kube-image-keeper.fullname for --release, without nameOverride or
+// fullnameOverride: the prefix of the objects the chart names.
+func (e *env) fullname() string {
+	if strings.Contains(e.release, "kube-image-keeper") {
+		return e.release
+	}
+	return e.release + "-kube-image-keeper"
 }
 
 // offline builds the scheme the fixtures decode with, and no client: what validate needs.

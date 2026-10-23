@@ -1,0 +1,7 @@
+# since: 3.0.0-alpha.6
+# Test 19, step 1: a tls entry for gcr.io naming a CA Secret that does not exist. Merged over the
+# cluster's config by task acceptance-config, never applied by setup or apply.
+tls:
+  gcr.io:
+    caSecretRef:
+      name: kuik-test-tls-absent
