@@ -1,0 +1,192 @@
+version: 3.0.0-beta.1
+intro: >-
+  kuik 3.0.0-beta.1 is the first beta of kuik v3, a rewrite of kuik from a clean tree. Every feature planned for 3.0 is in, except credentials from a cloud provider, but it is not stable yet: keep v2.3 for production.
+
+highlights:
+  - lead: New resources
+    text: >-
+      kuik v3 routes, copies and monitors pod images with 3 new cluster-scoped resources: `ImageAlternative`, `ImageMirror` and `ImageMonitor`.
+  - lead: Shared mirrors
+    text: >-
+      an `ImageMirror` can share its destination registry with other clusters: each cluster only creates, checks and deletes its own tags.
+  - lead: 3 processes
+    text: >-
+      kuik runs as a webhook, a reconciler and a secret syncer, each with its own Deployment and 2 replicas by default.
+  - lead: Paced registry reads
+    text: >-
+      every background read of a registry is paced per host, to spare rate limits and quotas.
+  - lead: No upgrade from v2 (yet)
+    text: >-
+      install v3 on a cluster without v2.
+
+breaking:
+  - from: v2
+    text: >-
+      v3 reads none of the v2 resources (`ImageSetMirror`, `ClusterImageSetMirror`, `ReplicatedImageSet`, `ClusterReplicatedImageSet`, `ClusterImageSetAvailability`) nor the v2 chart values. Install v3 on a cluster without v2; a migration guide is planned after 3.0.
+    refs: {pulls: [670]}
+  - from: 3.0.0-alpha.4
+    text: >-
+      the chart requires Kubernetes 1.30 or later.
+    refs: {pulls: [752]}
+  - from: 3.0.0-alpha.4
+    text: >-
+      with `serviceAccount.create: false`, set `secretSyncer.serviceAccount.name` to an existing ServiceAccount other than `default`, or the chart refuses to render.
+    refs: {pulls: [752]}
+  - from: 3.0.0-alpha.5
+    text: >-
+      `config.clusterID` is removed, and a release that still sets it fails to render. To keep the tags your mirrors copied, create the ConfigMap `kuik-cluster-id` with the old value before upgrading, then remove `config.clusterID` (with `--reuse-values`, add `--set config.clusterID=null`), see [Upgrading from a configured clusterID in the configuration docs](https://kuik.enix.io/configuration/#upgrading-from-a-configured-clusterid).
+    refs: {pulls: [764], closes: [727]}
+  - from: 3.0.0-alpha.2
+    text: >-
+      the processes log JSON instead of console text, with no chart value to switch back.
+    refs: {pulls: [703]}
+  - from: 3.0.0-alpha.2
+    text: >-
+      the root `replicas` value defaults to 2.
+    refs: {pulls: [701]}
+
+limits:
+  - area: Install
+    lead: Cloud credentials
+    text: >-
+      credentials from a cloud provider (`auth.provider`: `aws`, `gcp`, `azure`) are accepted but not used yet: kuik moves on to the next credential. Planned for 3.1.
+  - area: Install
+    lead: One install per cluster
+    text: >-
+      2 secret syncers would refuse each other's writes.
+  - area: Install
+    lead: Reconciler first
+    text: >-
+      the webhook admits pods unchanged until the reconciler has created `kuik-cluster-id`, so never run with `reconciler.replicas: 0`.
+  - area: Install
+    lead: Cluster ID
+    text: >-
+      deleting the ConfigMap `kuik-cluster-id`, or its namespace, generates a new cluster ID and orphans every tag already copied. Never copy it to another cluster that shares a destination: both would delete each other's tags. See the [Cluster ID section of the configuration docs](https://kuik.enix.io/configuration/#cluster-id).
+  - area: Install
+    lead: Backups
+    text: >-
+      a restore tool such as Velero is refused the pull Secrets kuik manages; the syncer recreates them, and the restore ends partially failed.
+  - area: Mirroring
+    lead: Tag deletion
+    text: >-
+      a destination that never accepts tag deletion holds a deleted `ImageMirror` for good: set `cleanup.enabled: false` before deleting it, see [Deleting an ImageMirror](https://kuik.enix.io/crds/#deleting-an-imagemirror).
+  - area: Mirroring
+    lead: Harbor
+    text: >-
+      Harbor refuses tag deletion through the registry API (any `DELETE` by tag answers 400), so `cleanup` deletes nothing on a Harbor destination, and a deleted `ImageMirror` with `cleanup.enabled: true` stays held by its finalizer. Set `cleanup.enabled: false` on a Harbor destination and use Harbor's tag retention rules; support for tag deletion is requested in [goharbor/harbor#24213](https://github.com/goharbor/harbor/issues/24213).
+  - area: Monitoring
+    lead: Drift digests
+    text: >-
+      drift compares the digest the container runtime reports with the registry's: a runtime that reports a platform or config digest shows a tag as drifted, and a preloaded image is never checked for drift, see the [ImageMonitor reference](https://kuik.enix.io/crds/#imagemonitor).
+  - area: Monitoring
+    lead: Retention after a restart
+    text: >-
+      an image whose last pod goes away while no reconciler runs (restart, leader change) is not retained by an `ImageMonitor`.
+  - area: Registries
+    lead: Node runtime
+    text: >-
+      the `tls` key and `insecure: true` configure kuik only: configure the nodes' container runtime for the same hosts, or pods fail to pull.
+
+features:
+  - area: Routing
+    text: >-
+      An `ImageAlternative` lists repositories that hold the same images, and the webhook places the first candidate that answers, as a fallback (`rewritePolicy: OnFailure`, the default) or ahead of the original (`Always`).
+    refs: {pulls: [682]}
+  - area: Routing
+    text: >-
+      Images match on whole path segments, with `repository` for one repository or `repositoryGroup` for every repository under a path, and digest-pinned images are routed too.
+    refs: {pulls: [680, 682]}
+  - area: Routing
+    text: >-
+      An entry marked `unavailable: true` declares a source gone, so an image from it is tried last.
+    refs: {pulls: [682]}
+  - area: Routing
+    text: >-
+      The webhook records each decision on the pod in the `kuik.enix.io/rewrites`, `kuik.enix.io/conceded-rewrites` and `kuik.enix.io/no-alternatives` annotations.
+    refs: {pulls: [682]}
+  - area: Routing
+    text: >-
+      A candidate the background loops report failing is tried last (`webhook.availabilityCheck.demoteKnownFailures`, on by default).
+    refs: {pulls: [751, 753]}
+  - area: Routing
+    text: >-
+      The status of an `ImageAlternative` reports the pods it rewrote, its active fallbacks and the images no candidate could serve.
+    refs: {pulls: [696]}
+  - area: Pull secrets
+    text: >-
+      A candidate's `auth.secretRef` is copied as a `kuik-inject-<kind>-<name>` pull Secret into the namespaces that need it, and added to the pod's `imagePullSecrets`.
+    refs: {pulls: [682, 701]}
+  - area: Mirroring
+    text: >-
+      An `ImageMirror` copies the images of the pods it selects to a destination registry, digest unchanged, and routes to the copy unless `rewritePolicy` is `None`.
+    refs: {pulls: [682, 710]}
+  - area: Mirroring
+    text: >-
+      Several clusters can share one destination: each copy carries a `_<clusterID>` tag suffix, and each cluster only creates, checks and deletes its own tags.
+    refs: {pulls: [710]}
+  - area: Mirroring
+    text: >-
+      `excludeImages` keeps images out of a mirror with globs such as `ghcr.io/foo-bar/**` or `**:latest`.
+    refs: {pulls: [682, 710]}
+  - area: Mirroring
+    text: >-
+      `driftPolicy` (`Ignore`, `Warn`, `Sync`) decides what happens when an upstream tag moves after its copy.
+    refs: {pulls: [710]}
+  - area: Mirroring
+    text: >-
+      `cleanup` deletes the destination tags no pod uses any more once `retention` elapsed (168h by default).
+    refs: {pulls: [710]}
+  - area: Mirroring
+    text: >-
+      A deleted `ImageMirror` waits while pods still run its copies, then deletes its tags.
+    refs: {pulls: [710]}
+  - area: Monitoring
+    text: >-
+      An `ImageMonitor` checks that the images of the pods it selects are still available upstream, and lists the failing ones in `status.unavailableImages`.
+    refs: {pulls: [717, 732]}
+  - area: Monitoring
+    text: >-
+      An image no pod uses any more stays monitored for `unusedImageRetention` (168h by default), so a CronJob's image stays checked between runs.
+    refs: {pulls: [717]}
+  - area: Monitoring
+    text: >-
+      With `driftDetection` (on by default), it reports the tags whose upstream digest moved under the pods that run them, and the tags pods run under several digests.
+    refs: {pulls: [739]}
+  - area: Monitoring
+    text: >-
+      With `monitorAlternatives: true`, it also checks the alternatives `ImageAlternative` resources offer for those images.
+    refs: {pulls: [745]}
+  - area: Registries
+    text: >-
+      Background checks and copies are paced per host on fixed windows, set by `registries` in the global config.
+    refs: {pulls: [697]}
+  - area: Registries
+    text: >-
+      Credentials are tried in the kubelet's order: the resource's `auth`, the pod's pull secrets, the most specific `fallbackAuth` entry, then anonymous.
+    refs: {pulls: [680]}
+  - area: Registries
+    text: >-
+      The `tls` key of the global config trusts a private CA (`caSecretRef`) or a self-signed certificate (`insecureSkipVerify`) per registry host, and `insecure: true` on an entry reaches a registry over plain HTTP.
+    refs: {pulls: [682, 710, 767], closes: [750]}
+  - area: Configuration
+    text: >-
+      The global config file is validated whole and reloaded without a restart; a reload that does not validate keeps the previous config.
+    refs: {pulls: [680]}
+  - area: Configuration
+    text: >-
+      kuik generates its cluster ID and keeps it in the ConfigMap `kuik-cluster-id`.
+    refs: {pulls: [764], closes: [727]}
+  - area: Observability
+    text: >-
+      Kubernetes events on pods and resources, `kuik_*` Prometheus metrics for routing, copies, checks, anomalies and pacing, JSON logs, and conditions where only `Ready` is `True` when all is well.
+    refs: {pulls: [696, 703, 710, 732]}
+  - area: Chart
+    text: >-
+      The webhook, the reconciler and the secret syncer run as 3 Deployments, with 2 replicas each by default and a standby that takes over the lease.
+    refs: {pulls: [672, 701], closes: [548]}
+  - area: Chart
+    text: >-
+      A ValidatingAdmissionPolicy refuses any Secret write by the secret syncer that is not a pull Secret it owns.
+    refs: {pulls: [752]}
+
+fixes: []
