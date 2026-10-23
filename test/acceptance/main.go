@@ -11,11 +11,13 @@
 //	acceptance apply   --kubeconfig PATH --context NAME --file F [--private-repo R --pull-auth S]
 //	                   [--mirror-prefix P] [--public-repo R]
 //	acceptance delete  --kubeconfig PATH --context NAME [--namespace NS] KIND/NAME
+//	acceptance config  --kubeconfig PATH --context NAME --file F | --restore [--timeout D]
 //	acceptance cleanup --kubeconfig PATH --context NAME
 //	acceptance validate                                                     checks the fixtures, no cluster
 //
 // check and inspect only read. setup applies the fixtures of fixtures/; setup, apply, delete and
-// cleanup write test objects only. validate reaches no cluster. Run them through the
+// cleanup write test objects only; config writes the config.yaml key of kuik's global config
+// ConfigMap and suspends its Flux HelmRelease, then restores both. validate reaches no cluster. Run them through the
 // acceptance-* tasks, see README.md.
 package main
 
@@ -24,6 +26,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
@@ -71,6 +74,7 @@ var commands = map[string]*command{
 	"setup":   setupCommand(),
 	"apply":   applyCommand(),
 	"delete":  deleteCommand(),
+	"config":  configCommand(),
 	"cleanup": {usage: "delete every test object, then check none is left", run: runCleanup},
 	"validate": {
 		usage: "decode every fixture with example values, run the guard on its objects and check its since line; " +
@@ -83,7 +87,7 @@ var commands = map[string]*command{
 func main() {
 	if len(os.Args) < 2 || commands[os.Args[1]] == nil {
 		fmt.Fprintln(os.Stderr,
-			"usage: acceptance check|inspect|setup|apply|delete|cleanup --kubeconfig PATH --context NAME ...\n"+
+			"usage: acceptance check|inspect|setup|apply|delete|config|cleanup --kubeconfig PATH --context NAME ...\n"+
 				"       acceptance validate")
 		os.Exit(2)
 	}
@@ -152,6 +156,15 @@ func (e *env) pin() error {
 	}
 	e.clientset, err = kubernetes.NewForConfig(restConfig)
 	return err
+}
+
+// fullname is the chart's kube-image-keeper.fullname for --release, without nameOverride or
+// fullnameOverride: the prefix of the objects the chart names.
+func (e *env) fullname() string {
+	if strings.Contains(e.release, "kube-image-keeper") {
+		return e.release
+	}
+	return e.release + "-kube-image-keeper"
 }
 
 // offline builds the scheme the fixtures decode with, and no client: what validate needs.

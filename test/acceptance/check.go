@@ -47,6 +47,8 @@ func (e *env) check(ctx context.Context, version string) error {
 	e.printRelease(ctx, version)
 	section("verbosity")
 	e.printVerbosity(ctx)
+	section("test config")
+	e.printTestConfig(ctx)
 	section("kuik pods")
 	e.printKuikPods(ctx)
 	section("kuik_build_info of each webhook replica")
@@ -109,13 +111,9 @@ func (e *env) printVerbosity(ctx context.Context) {
 		fmt.Printf("Helm values: verbosity %q, webhook.verbosity %q, reconciler.verbosity %q, secretSyncer.verbosity %q\n",
 			values.Verbosity, values.Webhook.Verbosity, values.Reconciler.Verbosity, values.SecretSyncer.Verbosity)
 	}
-	fullname := e.release
-	if !strings.Contains(fullname, "kube-image-keeper") {
-		fullname += "-kube-image-keeper"
-	}
 	for _, process := range []string{webhookComponent, "reconciler", "secret-syncer"} {
 		var deploy appsv1.Deployment
-		key := client.ObjectKey{Namespace: e.kuikNamespace, Name: fullname + "-" + process}
+		key := client.ObjectKey{Namespace: e.kuikNamespace, Name: e.fullname() + "-" + process}
 		if err := e.client.Get(ctx, key, &deploy); err != nil {
 			fmt.Printf("%s: cannot read Deployment %s: %v\n", process, key.Name, err)
 			continue

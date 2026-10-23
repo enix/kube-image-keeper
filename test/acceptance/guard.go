@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -12,7 +13,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
@@ -433,12 +437,52 @@ func (e *env) refuseLeftovers(ctx context.Context) error {
 	return nil
 }
 
-// runCleanup deletes what owned lists and waits for it to be gone, the CRs first, then the
-// Secrets and the namespaces, and checks nothing is left.
+// runCleanup restores the global config when a test config is in place, then deletes what owned
+// lists and waits for it to be gone, the CRs first, then the Secrets and the namespaces, and
+// checks nothing is left.
 func runCleanup(ctx context.Context, e *env, _ []string) error {
 	if err := e.checkKuikNamespace(ctx); err != nil {
 		return err
 	}
+	// A config written but not reloaded everywhere in time still lets the deletions go on: the
+	// write is done, the error is returned at the end.
+	restored := e.restoreConfig(ctx, 3*time.Minute)
+	if errors.Is(restored, errNoConfigMap) {
+		// Another release's test config would be left in place: stop before any deletion.
+		if err := e.refuseOtherTestConfig(ctx); err != nil {
+			return err
+		}
+		fmt.Printf("%v, so no test config to restore\n", restored)
+		restored = nil
+	}
+	if restored != nil && !errors.Is(restored, errReloadTimeout) {
+		return fmt.Errorf("restore the global config: %w", restored)
+	}
+	if err := e.deleteOwned(ctx); err != nil {
+		return err
+	}
+	return restored
+}
+
+// refuseOtherTestConfig fails when a ConfigMap of the kuik namespace other than the one of
+// --release holds a test config: the run used another --release, and cleanup must restore it.
+func (e *env) refuseOtherTestConfig(ctx context.Context) error {
+	var cms corev1.ConfigMapList
+	if err := e.client.List(ctx, &cms, client.InNamespace(e.kuikNamespace)); err != nil {
+		return fmt.Errorf("look for a test config in %s: %w", e.kuikNamespace, err)
+	}
+	for _, cm := range cms.Items {
+		for _, key := range configAnnotations {
+			if _, ok := cm.Annotations[key]; ok {
+				return fmt.Errorf("%s holds a test config (%s) but is not %s: run cleanup with the --release of that run",
+					describe(&cm), key, e.configMapKey().Name)
+			}
+		}
+	}
+	return nil
+}
+
+func (e *env) deleteOwned(ctx context.Context) error {
 	left, err := e.owned(ctx)
 	if err != nil {
 		return err
@@ -503,6 +547,138 @@ func (e *env) deleteAndWait(ctx context.Context, objs []client.Object) []error {
 		}
 	}
 	return errs
+}
+
+// The config command writes 2 objects it did not create, and only these fields of them: the key
+// config.yaml and the annotations below of the ConfigMap <fullname>-config in the kuik namespace,
+// and spec.suspend of the Flux HelmRelease that ConfigMap's labels name. writeConfig and
+// suspendRelease are the only writes of either, and build their patch from nothing else.
+const (
+	configKey = "config.yaml"
+	// originalAnnotation holds the config.yaml of before the first change of a run, put back by
+	// --restore; it lives on the ConfigMap so an interrupted run can still restore it.
+	originalAnnotation = "kuik.enix.io/acceptance-original-config"
+	// originalAbsentAnnotation records that the ConfigMap held no config.yaml before the first
+	// change: --restore removes the key rather than writing it empty.
+	originalAbsentAnnotation = "kuik.enix.io/acceptance-original-config-absent"
+	// suspendedAnnotation records that the program suspended the HelmRelease, so --restore resumes
+	// only what it suspended. It is written before the suspension and removed after the resume.
+	suspendedAnnotation = "kuik.enix.io/acceptance-suspended-release"
+	fluxNameLabel       = "helm.toolkit.fluxcd.io/name"
+	fluxNamespaceLabel  = "helm.toolkit.fluxcd.io/namespace"
+	// fieldOwner names the program in the managedFields of what it patches: the time of its entry
+	// is when the API server took the write.
+	fieldOwner = "kuik-acceptance"
+)
+
+var helmReleaseGVK = schema.GroupVersionKind{Group: "helm.toolkit.fluxcd.io", Version: "v2", Kind: "HelmRelease"}
+
+// configMapKey is the one ConfigMap config writes: the global config file of the release.
+func (e *env) configMapKey() client.ObjectKey {
+	return client.ObjectKey{Namespace: e.kuikNamespace, Name: e.fullname() + "-config"}
+}
+
+// fluxRelease is the HelmRelease the Flux labels of cm name, if any: the one object besides cm
+// config may write.
+func fluxRelease(cm *corev1.ConfigMap) (client.ObjectKey, bool) {
+	name, namespace := cm.Labels[fluxNameLabel], cm.Labels[fluxNamespaceLabel]
+	if name == "" || namespace == "" {
+		return client.ObjectKey{}, false
+	}
+	return client.ObjectKey{Namespace: namespace, Name: name}, true
+}
+
+// configAnnotations are the only annotations config writes.
+var configAnnotations = []string{originalAnnotation, originalAbsentAnnotation, suspendedAnnotation}
+
+// writeConfig writes data (config.yaml only: a value sets it, nil removes it; a nil map leaves
+// data alone) and the annotations given (nil removes one) on cm, in one merge patch holding
+// nothing else and the resourceVersion cm was read at: a change made in between fails it rather
+// than being overwritten. cm is updated to what the API server returned. It returns when the API
+// server took the write.
+func (e *env) writeConfig(ctx context.Context, cm *corev1.ConfigMap, data, annotations map[string]*string) (
+	time.Time, error) {
+	if client.ObjectKeyFromObject(cm) != e.configMapKey() {
+		return time.Time{}, fmt.Errorf("%s: config writes only ConfigMap %s", describe(cm), e.configMapKey())
+	}
+	for key := range data {
+		if key != configKey {
+			return time.Time{}, fmt.Errorf("%s: config writes no data key %s", describe(cm), key)
+		}
+	}
+	for key := range annotations {
+		if !slices.Contains(configAnnotations, key) {
+			return time.Time{}, fmt.Errorf("%s: config writes no annotation %s", describe(cm), key)
+		}
+	}
+	metadata := map[string]any{"resourceVersion": cm.ResourceVersion}
+	// Each left out when empty: a null annotations or data would remove all of them.
+	if len(annotations) > 0 {
+		metadata["annotations"] = annotations
+	}
+	body := map[string]any{"metadata": metadata}
+	if len(data) > 0 {
+		body["data"] = data
+	}
+	patch, err := json.Marshal(body)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if err := e.mergePatch(ctx, cm, patch); err != nil {
+		return time.Time{}, fmt.Errorf("write %s: %w", describe(cm), err)
+	}
+	written := time.Now().UTC()
+	for _, entry := range cm.ManagedFields {
+		if entry.Manager == fieldOwner && entry.Time != nil {
+			written = entry.Time.UTC()
+		}
+	}
+	what := "annotations"
+	if len(data) > 0 {
+		what = configKey
+	}
+	fmt.Printf("wrote the %s of %s at %s\n", what, describe(cm), written.Format(time.RFC3339))
+	return written, nil
+}
+
+// suspendRelease sets spec.suspend of the HelmRelease cm's Flux labels name, and nothing else.
+func (e *env) suspendRelease(ctx context.Context, cm *corev1.ConfigMap, suspend bool) error {
+	key, ok := fluxRelease(cm)
+	if !ok {
+		return fmt.Errorf("%s carries no Flux labels: no HelmRelease to suspend", describe(cm))
+	}
+	release := &unstructured.Unstructured{}
+	release.SetGroupVersionKind(helmReleaseGVK)
+	release.SetNamespace(key.Namespace)
+	release.SetName(key.Name)
+	patch, err := json.Marshal(map[string]any{"spec": map[string]bool{"suspend": suspend}})
+	if err != nil {
+		return err
+	}
+	if err := e.mergePatch(ctx, release, patch); err != nil {
+		return fmt.Errorf("set spec.suspend of HelmRelease %s to %t: %w", key, suspend, err)
+	}
+	fmt.Printf("set spec.suspend of HelmRelease %s to %t\n", key, suspend)
+	return nil
+}
+
+// mergePatch sends patch as a JSON merge patch, the program named as its field owner.
+func (e *env) mergePatch(ctx context.Context, obj client.Object, patch []byte) error {
+	return e.client.Patch(ctx, obj, client.RawPatch(types.MergePatchType, patch), client.FieldOwner(fieldOwner))
+}
+
+// releaseSuspended reads spec.suspend of the HelmRelease key.
+func (e *env) releaseSuspended(ctx context.Context, key client.ObjectKey) (bool, error) {
+	release := &unstructured.Unstructured{}
+	release.SetGroupVersionKind(helmReleaseGVK)
+	if err := e.client.Get(ctx, key, release); err != nil {
+		return false, fmt.Errorf("read HelmRelease %s: %w", key, err)
+	}
+	suspended, _, err := unstructured.NestedBool(release.Object, "spec", "suspend")
+	if err != nil {
+		return false, fmt.Errorf("HelmRelease %s: spec.suspend: %w", key, err)
+	}
+	return suspended, nil
 }
 
 func describe(obj client.Object) string {

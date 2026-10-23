@@ -232,8 +232,9 @@ tasks:
   # The acceptance of a release, on a cluster where kuik is installed, possibly a shared one: see
   # test/acceptance/README.md. Each task runs one subcommand, whose flags parser refuses any other
   # subcommand or unknown flag: check and inspect stay read-only whatever CLI_ARGS holds, setup,
-  # apply and delete write test objects only, validate reaches no cluster. All run without asking,
-  # but cleanup.
+  # apply and delete write test objects only, config writes the config.yaml key of kuik's global
+  # config ConfigMap and spec.suspend of its Flux HelmRelease only, validate reaches no cluster.
+  # All run without asking, but cleanup.
   acceptance-check:
     desc: Print the state of the installed kuik, reads only (-- --kubeconfig PATH --context NAME [--kuik-version V])
     cmds:
@@ -269,8 +270,13 @@ tasks:
     cmds:
       - go run ./test/acceptance delete {{.CLI_ARGS}}
 
+  acceptance-config:
+    desc: Merge a config fixture into kuik's global config ConfigMap, suspending its Flux HelmRelease first, or put the original back with --restore; waits for every running kuik pod to reload (-- --kubeconfig PATH --context NAME --file test/acceptance/fixtures/F.config.yaml [--kuik-version V] | --restore [--timeout D])
+    cmds:
+      - go run ./test/acceptance config {{.CLI_ARGS}}
+
   acceptance-cleanup:
-    desc: Delete every test object on the cluster (-- --kubeconfig PATH --context NAME)
+    desc: Restore the global config if a test config is in place, then delete every test object on the cluster (-- --kubeconfig PATH --context NAME)
     cmds:
       - go run ./test/acceptance cleanup {{.CLI_ARGS}}
 
