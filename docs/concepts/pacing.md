@@ -71,6 +71,11 @@ Copies drain a queue rather than turn a ring: each `ImageMirror` queues the imag
 from a host, and the mirrors sharing that host take its copy windows in turn. An image whose copy
 fails is retried on a later turn and never holds back the images queued behind it.
 
+A re-copy, an image whose manifest disappeared from the destination, goes first: it takes the next
+copy window of its source host, ahead of the initial copies and of the other mirrors' turns. It goes
+ahead once; when that copy fails, it is retried in turn with the others. A tag written back over a
+manifest still at the destination is no re-copy and waits for its turn.
+
 `copy.timeout: 0`, the default, lets a copy take as long as it needs: a copy that outlasts its
 `copy.interval` already shows as copy windows going unused while images are pending.
 
