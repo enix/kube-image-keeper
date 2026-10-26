@@ -350,6 +350,9 @@ func main() {
 			setupLog.Error(err, "Failed to create webhook", "webhook", "Pod")
 			os.Exit(1)
 		}
+		// A new replica stays out of the Service until it can route: before its first index
+		// build it would admit every pod unchanged.
+		readyChecks["routing-index"] = podWebhook.RoutingIndexReady
 		onConfigChange = append(onConfigChange, podWebhook.SetConfig)
 		secrets, err := newSecretCache(mgr, clusterResourceNamespace)
 		if err != nil {

@@ -255,3 +255,26 @@ cycles raw, record and indented JSON.
 [`log-hl.yaml`](https://github.com/derailed/k9s/blob/master/plugins/log-hl.yaml) follows the
 logs of a pod or a container through hl: add its entries to `~/.config/k9s/plugins.yaml`, then
 press `Shift-L`.
+
+## Readiness
+
+Each process serves `/readyz` on its health probe port. Until every check passes, the replica
+stays out of its Service. `/readyz?verbose` lists the checks with their state. Besides the
+`readyz` ping, the webhook has 3 checks:
+
+| Check | Passes once |
+| ----- | ----------- |
+| `cluster-id` | the webhook has read the [cluster ID](./configuration.md#cluster-id) the reconciler stores |
+| `registry-tls` | the CA Secrets of the [registry TLS](./configuration.md#registry-tls) entries are read. The reconciler has this check too |
+| `routing-index` | the webhook has listed the `ImageAlternative`, `ImageMirror` and `ImageMonitor` objects of the cluster, none included, and built the index it routes with |
+
+Readiness keeps the Service's traffic away from a replica; it does not change what a request
+that still reaches it gets. Before its cluster ID is read or its routing index first built, the
+replica admits the pod unchanged; with only `registry-tls` failing, it routes as usual. A replica
+that stays unready logs why:
+
+- `cluster-id`: `Waiting for ConfigMap` until the reconciler creates it
+- `routing-index`: when the webhook may not list one of the 3 kinds, the client-go line
+  `failed to list ... forbidden`, repeated, and the replica stays unready until its RBAC is
+  fixed. When one of the 3 CRDs is missing, the webhook does not start: `Failed to run manager`,
+  and the pod restarts in a loop
