@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"slices"
 	"strings"
 	"sync"
@@ -162,6 +163,11 @@ func (d *PodDefaulter) RegistryClient() *registry.Client {
 // ImageMonitors whose status reports the originals and the alternatives failing.
 func (d *PodDefaulter) SetResources(alternatives []kuikv1alpha1.ImageAlternative, mirrors []kuikv1alpha1.ImageMirror, monitors ...kuikv1alpha1.ImageMonitor) {
 	d.index.Store(routing.NewIndex(alternatives, mirrors, monitors...))
+}
+
+// RoutingIndexReady is a healthz.Checker failing until the routing index is first built.
+func (d *PodDefaulter) RoutingIndexReady(*http.Request) error {
+	return errors.New("not implemented")
 }
 
 // pass is one pass of the webhook over a pod.

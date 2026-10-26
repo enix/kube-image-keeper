@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"context"
 	"net/http"
 	"sync"
 	"time"
@@ -11,6 +12,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
@@ -54,6 +58,49 @@ var _ = Describe("Pod webhook", func() {
 			}, nil)
 			pod := newPod(namespace, ref(origin))
 			Expect(admit(unread, namespace, pod)).To(Equal(pod))
+			Expect(manifestHeads(origin) + manifestHeads(alt)).To(BeZero())
+		})
+	})
+
+	Context("readiness", func() {
+		It("reports not ready until its routing index is first built, then ready", func() {
+			fresh := newDefaulter(testConfig())
+			Expect(fresh.RoutingIndexReady(nil)).NotTo(Succeed())
+			fresh.SetResources(nil, nil)
+			Expect(fresh.RoutingIndexReady(nil)).To(Succeed())
+		})
+		It("becomes ready when the cluster holds no ImageAlternative, ImageMirror or ImageMonitor", func() {
+			// A label no object carries makes the cache see an empty cluster, whatever the
+			// other specs created.
+			empty, err := cache.New(cfg, cache.Options{
+				Scheme:               scheme.Scheme,
+				DefaultLabelSelector: labels.SelectorFromSet(labels.Set{"kuik.enix.io/test-empty-cluster": "true"}),
+			})
+			Expect(err).NotTo(HaveOccurred())
+			watchCtx, stop := context.WithCancel(ctx)
+			DeferCleanup(stop)
+			go func() {
+				defer GinkgoRecover()
+				Expect(empty.Start(watchCtx)).To(Succeed())
+			}()
+			Expect(empty.WaitForCacheSync(watchCtx)).To(BeTrue())
+
+			fresh := newDefaulter(testConfig())
+			Expect(fresh.RoutingIndexReady(nil)).NotTo(Succeed())
+			go func() {
+				defer GinkgoRecover()
+				// A wait for an informer cut short by the end of the spec returns an error.
+				if err := (&resourceWatch{cache: empty, defaulter: fresh}).Start(watchCtx); watchCtx.Err() == nil {
+					Expect(err).NotTo(HaveOccurred())
+				}
+			}()
+			// The watch waits for 3 informers to sync, each polled every 100ms: over a second.
+			Eventually(func() error { return fresh.RoutingIndexReady(nil) }).WithTimeout(10 * time.Second).Should(Succeed())
+		})
+		It("admits a pod unchanged before its routing index is first built: no rewrite, no annotation, no pull secret", func() {
+			fail(origin)
+			pod := newPod(namespace, ref(origin))
+			Expect(admit(newDefaulter(testConfig()), namespace, pod)).To(Equal(pod))
 			Expect(manifestHeads(origin) + manifestHeads(alt)).To(BeZero())
 		})
 	})
