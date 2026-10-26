@@ -5,6 +5,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/onsi/gomega/types"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -108,6 +109,26 @@ var _ = Describe("Needed namespaces", func() {
 
 			Expect(r.Needed(teamA, []*corev1.Pod{pod})).To(BeEmpty())
 		})
+
+		DescribeTable("applies the namespaceSelector before reading the pods",
+			func(selector *metav1.LabelSelector, ns *corev1.Namespace, want types.GomegaMatcher) {
+				cr := alternative(onFailure, group(quayGroup, nil), group(ghcrGroup, secretRef(ghcrSecret)))
+				cr.Spec.NamespaceSelector = selector
+				pod := rewrittenPod("ImageAlternative/"+crName, "ghcr.io/acme/foo:1", "ghcr.io/acme/foo:1")
+				pod.Namespace = ns.Name
+
+				Expect(FromImageAlternative(cr).Needed(ns, []*corev1.Pod{pod})).To(want)
+			},
+			Entry("needs a namespace it selects, for the entries its pods' standing rewrites used",
+				&metav1.LabelSelector{MatchLabels: map[string]string{teamLabel: "a"}}, teamA,
+				ConsistOf(Credential{Path: ghcrGroup, SecretRef: ghcrSecret})),
+			Entry("needs no namespace it does not select, whatever its pods record",
+				&metav1.LabelSelector{MatchLabels: map[string]string{teamLabel: "a"}}, teamB,
+				BeEmpty()),
+			Entry("needs no namespace when the namespaceSelector does not parse, whatever its pods record",
+				&metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{Key: teamLabel, Operator: "Bogus"}}}, teamA,
+				BeEmpty()),
+		)
 	})
 
 	It("needs no namespace for an ImageMirror under rewritePolicy None", func() {
