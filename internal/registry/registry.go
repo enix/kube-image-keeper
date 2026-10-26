@@ -24,6 +24,11 @@ var RequestsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		"(Ok, or the reason that request produced: ManifestNotFound, Unauthorized, QuotaExceeded, Unreachable)",
 }, []string{"registry", "operation", "result"})
 
+// RegisterMetrics registers RequestsTotal on registerer.
+func RegisterMetrics(registerer prometheus.Registerer) error {
+	return errors.New("not implemented")
+}
+
 const resultOk = "Ok"
 
 // retryStatusCodes overrides go-containerregistry's defaults, which retry 429 since

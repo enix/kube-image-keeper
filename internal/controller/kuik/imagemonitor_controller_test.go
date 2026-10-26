@@ -1001,6 +1001,18 @@ var _ = Describe("ImageMonitor", func() {
 			}
 		})
 
+		It("exports kuik_registry_requests_total, counting its checks of a source registry", func() {
+			src := source("acme/app")
+			newMonitor(name)
+			runningPod(selectedNamespace(), []container{running(appContainer, image(src, "acme/app"))})
+			reconcileIt()
+			window()
+			verdicts(1)
+			Expect(counter(registry, "kuik_registry_requests_total", map[string]string{
+				labelRegistry: src.Host(), labelOperation: "Check", "result": "Ok",
+			})).To(BeNumerically(">=", 1))
+		})
+
 		It("exports one kuik_image_origin_unavailable series per failing origin, deleted once it answers", func() {
 			src := source()
 			newMonitor(name)

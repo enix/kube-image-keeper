@@ -633,6 +633,21 @@ var _ = Describe("Pod webhook", func() {
 			Expect(testutil.ToFloat64(mirrorCounter)).To(Equal(mirrorBefore + 1))
 		})
 
+		It("exports kuik_registry_requests_total on the metrics endpoint of the process, counting the checks of its probes", func() {
+			fail(origin)
+			admit(d, namespace, newPod(namespace, ref(origin)))
+			Expect(requestsServed(origin.Host(), "Check")).To(BeNumerically(">=", 1))
+		})
+
+		It("leaves its probes of a mirror destination out of kuik_registry_requests_total", func() {
+			destination := newRegistry()
+			mirrorRef := mirrored(destination, origin)
+			d.SetResources(nil, []kuikv1alpha1.ImageMirror{imageMirror("prod-mirror", always, destination)})
+			admitted := admit(d, namespace, newPod(namespace, ref(origin)))
+			Expect(admitted.Spec.Containers[0].Image).To(Equal(mirrorRef))
+			Expect(requestsServed(destination.Host(), "")).To(BeZero())
+		})
+
 		It("counts nothing again on a reinvocation", func() {
 			fail(origin)
 			origin.Push("library/redis:8", image)
