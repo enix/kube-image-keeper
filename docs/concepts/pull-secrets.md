@@ -19,11 +19,14 @@ every namespace.
 | `rewritePolicy` | The Secret is written | It holds |
 | --------------- | --------------------- | -------- |
 | `Always` | in every namespace the `namespaceSelector` selects, before any pod exists | every entry of the resource whose `auth` injects |
-| `OnFailure` | in a namespace once a pod there has been rewritten by the resource | the entries that served the rewrites of its live pods |
+| `OnFailure` | in a namespace the `namespaceSelector` selects, once a pod there has been rewritten by the resource | the entries that served the rewrites of its live pods |
 
 Under `Always`, `podSelector` does not narrow where the Secret lands: an absent or empty
 `namespaceSelector` puts it in every namespace of the cluster. Set a `namespaceSelector` to
 bound it. A resource none of whose entries injects writes no Secret at all.
+
+Under `OnFailure`, a namespace the `namespaceSelector` does not select gets no credential,
+whatever the rewrite records its pods carry.
 
 Under `OnFailure`, the first rewritten pod of a namespace may start before its Secret exists.
 The kubelet retries the pull and reads the Secret again on each attempt, so the pod starts a few
@@ -85,17 +88,27 @@ Secrets from the backup to avoid them.
 
 ## When a credential is no longer needed
 
-Under `OnFailure`, an entry that no live pod uses any more stays 15 minutes before it is
+Under `OnFailure`, an entry that no live pod uses any more stays for a grace period
+([`secretSyncer.onFailureGrace`](../configuration.md), 15 minutes by default) before it is
 removed: the pods of a rollout or a scale-up during an outage come back and find it. The Secret
 itself is never deleted by the syncer. With no entry left, it holds `{"auths":{}}`. A namespace
-that leaves the scope of an `Always` resource gets the same empty Secret.
+that leaves the scope of an `Always` resource gets the same empty Secret; one that leaves the
+scope of an `OnFailure` resource gets it once that grace period has passed, its pods still
+running.
 
 The syncer keeps which Secrets it wrote in memory. After a restart, it does not know a Secret
 nothing needs any more, so such a Secret keeps its last content:
 
 - under `OnFailure`, when the pods of its namespace all went away while the syncer was stopped,
   until a new rewrite lands in that namespace;
+- under `OnFailure`, when its namespace left the scope while the syncer was stopped, or before
+  the grace period had passed, until the namespace is back in scope with a rewritten pod;
 - under `Always`, when its namespace left the scope while the syncer was stopped, until the
   namespace comes back into scope.
 
-Deleting the resource deletes those Secrets in both cases.
+Deleting the resource deletes those Secrets in every case.
+
+The 3.0.0 alphas could write the Secret of an `OnFailure` resource in a namespace its
+`namespaceSelector` does not select. kuik does not empty these Secrets after an upgrade: it
+never reads them, and a restarted syncer only writes the Secrets something needs. Delete them by
+hand.
