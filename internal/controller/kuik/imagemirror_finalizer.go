@@ -7,7 +7,9 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -90,13 +92,25 @@ func (r *ImageMirrorReconciler) finalize(ctx context.Context, im *kuikv1alpha1.I
 			return ctrl.Result{RequeueAfter: r.state(im.Name).holdAgain()}, nil
 		}
 	}
+	original := im.DeepCopy()
 	controllerutil.RemoveFinalizer(im, mirrorFinalizer)
-	if err := r.Update(ctx, im); err != nil {
+	if err := r.patchFinalizers(ctx, im, original); err != nil {
+		if apierrors.IsConflict(err) {
+			return ctrl.Result{RequeueAfter: conflictWait}, nil
+		}
 		return ctrl.Result{}, err
 	}
 	r.forget(resource)
 	logf.FromContext(ctx).Info("Released deleted ImageMirror")
 	return ctrl.Result{}, nil
+}
+
+// patchFinalizers writes the finalizers of im, changed from original, and nothing else. An
+// Update would send the spec back as Go serialises it (a defaulted retention of 168h becomes
+// 168h0m0s), bump the generation and show GitOps tools a drift. The resourceVersion guards
+// the list a merge patch replaces whole against a finalizer added meanwhile.
+func (r *ImageMirrorReconciler) patchFinalizers(ctx context.Context, im, original *kuikv1alpha1.ImageMirror) error {
+	return r.Patch(ctx, im, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{}))
 }
 
 // runsCopies reports whether a live pod runs an image under the destination of im.
