@@ -103,6 +103,8 @@ func (r *ImageMirrorReconciler) selfCheck(ctx context.Context, im *kuikv1alpha1.
 	st.copied = map[string]bool{}
 	maps.Copy(st.digests, digests)
 	st.recopy = recopy
+	// A re-copy the destination no longer misses is done failing: lost again, it goes first.
+	maps.DeleteFunc(st.lapped, func(key string, _ bool) bool { return !recopy[key] })
 	st.writeBack = writeBack
 	st.lastPass = now
 	return now, nil
