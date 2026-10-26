@@ -254,8 +254,9 @@ func sameCandidates(a, b []routing.Candidate) bool {
 }
 
 // copySources lists, for every desired reference of im, the candidates it may be read from:
-// the origin, then each ImageAlternative entry covering it, ordered as at admission. A
-// reference a pod declares is read in the scope of that pod.
+// the origin, then each ImageAlternative entry covering it, in their order at admission. An
+// origin matching an entry marked unavailable goes last, as at admission. A reference a pod
+// declares is read in the scope of that pod.
 func (r *ImageMirrorReconciler) copySources(ctx context.Context, desired []imagepath.Reference, pods []*corev1.Pod) (map[string]*copySource, error) {
 	var alternatives kuikv1alpha1.ImageAlternativeList
 	if err := r.List(ctx, &alternatives); err != nil {
@@ -288,6 +289,14 @@ func (r *ImageMirrorReconciler) copySources(ctx context.Context, desired []image
 		candidates := slices.DeleteFunc(index.Candidates(req, opts).Candidates, func(c routing.Candidate) bool {
 			return c.Resource != nil && marked(unavailable, c)
 		})
+		// At admission an Always alternative comes before the origin; a copy reads the
+		// origin first, unless an entry marked unavailable sent it last.
+		if !demoted(alternatives.Items, unavailable, ref, pod, req.NamespaceLabels) {
+			if i := slices.IndexFunc(candidates, func(c routing.Candidate) bool { return c.Resource == nil }); i > 0 {
+				origin := candidates[i]
+				candidates = slices.Insert(slices.Delete(candidates, i, i+1), 0, origin)
+			}
+		}
 		sources[ref.String()] = &copySource{origin: ref, candidates: candidates, pod: pod}
 	}
 	return sources, nil
@@ -309,6 +318,27 @@ func unavailableEntries(alternatives []kuikv1alpha1.ImageAlternative) *imagepath
 		}
 	}
 	return trie
+}
+
+// demoted reports whether origin matches an entry marked unavailable of an ImageAlternative
+// applying to pod, the rule that sends the origin last at admission. A reference no pod
+// declares is matched with no labels, as the candidate list is.
+func demoted(alternatives []kuikv1alpha1.ImageAlternative, unavailable *imagepath.Trie[string], origin imagepath.Reference, pod *corev1.Pod, namespaceLabels map[string]string) bool {
+	if pod == nil {
+		pod = &corev1.Pod{}
+	}
+	for _, m := range unavailable.Match(origin) {
+		for i := range alternatives {
+			if alternatives[i].Name != m.Value {
+				continue
+			}
+			// A selector that does not parse leaves an empty scope, which selects nothing.
+			if s, _ := newScope(&alternatives[i]); s.selects(pod, namespaceLabels) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // marked reports whether c is an alternative its own resource marks unavailable.

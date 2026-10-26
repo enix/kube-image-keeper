@@ -232,6 +232,8 @@ spec:
 
 The tag of every copy carries the operator's [cluster ID](./configuration.md#cluster-id) as a `_<clusterID>` suffix, so that several clusters can share one destination: the second cluster to need an image uploads nothing, and each cluster only ever creates, verifies and deletes its own tags. The `ImageMirror` object is identical on every cluster.
 
+A copy reads the origin first, whatever the `rewritePolicy` of the `ImageAlternative`s covering it. When the origin does not answer, it reads those alternatives in their candidate order, skipping the entries marked `unavailable`, on a copy window of each alternative's own host. An origin matching an `unavailable` entry is read last. The destination is derived from the origin whichever source the bytes came from.
+
 ### Excluding images
 
 Each `excludeImages` entry is a glob matched **whole** against the normalized reference. A `:` after the last `/` splits a tag part from a repository part; `*` matches inside one path segment, `**` across segments.
