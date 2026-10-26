@@ -146,6 +146,9 @@ func NewImageMirrorReconciler(c client.Client, scheme *runtime.Scheme, opts Imag
 	if err != nil {
 		return nil, err
 	}
+	if err := registry.RegisterMetrics(opts.Registerer); err != nil {
+		return nil, err
+	}
 	r := &ImageMirrorReconciler{
 		Client:    c,
 		Scheme:    scheme,
