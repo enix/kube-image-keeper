@@ -544,7 +544,42 @@ var _ = Describe("ImageMirror Controller", func() {
 			Eventually(h.copied(destinationTag(origin, "acme/app"))).Should(Succeed())
 			Expect(origin.Requests("", "/manifests/")).To(BeEmpty())
 		})
-		PIt("moves to the next source, on a window of its host, when a source answers the availability check but fails the copy", func() {})
+		It("moves to the next source, on a window of its host, when a source answers the availability check but fails the copy", func() {
+			origin, alternative := h.source(), h.source()
+			origin.Push("acme/app:v1", registrytest.Image())
+			origin.Intercept(registrytest.Status(http.MethodGet, "/blobs/", http.StatusTooManyRequests, nil))
+			alternative.Push("acme/app:v1", registrytest.Image())
+			h.alternativeTo(appEntry(origin), appEntry(alternative))
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: origin.Host() + "/acme/app:v1"})
+			h.mirror()
+
+			h.fallBackWithin(alternative, 15*time.Second)
+			Expect(origin.Requests(http.MethodGet, "/blobs/")).NotTo(BeEmpty())
+			h.window()
+			Eventually(h.copied(destinationTag(origin, "acme/app"))).Should(Succeed())
+		})
+
+		It("keeps the source, and reads it again on its next window, when the destination fails the copy", func() {
+			origin, alternative := h.source(), h.source()
+			origin.Push("acme/app:v1", registrytest.Image())
+			alternative.Push("acme/app:v1", registrytest.Image())
+			alternative.Reset()
+			h.alternativeTo(appEntry(origin), appEntry(alternative))
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: origin.Host() + "/acme/app:v1"})
+			rejectPushes(h.destination)
+			h.mirror()
+			h.reconcile()
+			h.window()
+			Eventually(func() []kuikv1alpha1.FailedImageCopy {
+				h.reconcile()
+				return h.status().FailedImageCopies
+			}).Should(ConsistOf(HaveField("Reason", kuikv1alpha1.CopyPushRejected)))
+
+			acceptPushes(h.destination)
+			h.window()
+			Eventually(h.copied(destinationTag(origin, "acme/app"))).Should(Succeed())
+			Expect(alternative.Requests("", "/manifests/")).To(BeEmpty())
+		})
 		It("reads an ImageAlternative covering the image when the origin does not answer, for a first copy and a re-copy alike, and writes to the destination derived from the origin", func() {
 			origin, alternative := h.source(), h.source()
 			alternative.Push("acme/app:v1", registrytest.Image())
@@ -705,6 +740,23 @@ var _ = Describe("ImageMirror Controller", func() {
 				labelRegistry: origin.Host(), labelReason: string(kuikv1alpha1.CopySourceUnreachable),
 			})
 			Expect(ok).To(BeTrue())
+			Expect(h.recorder.withReason("ImageUnrecoverable")).To(BeEmpty())
+		})
+
+		It("records the reason of a source that answered the availability check then failed the copy, once every source was tried, and counts no missingSource when the last source lacks the manifest", func() {
+			origin, lacking := h.source(), h.source()
+			origin.Push("acme/app:v1", registrytest.Image())
+			origin.Intercept(registrytest.Status(http.MethodGet, "/blobs/", http.StatusTooManyRequests, nil))
+			h.alternativeTo(appEntry(origin), appEntry(lacking))
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: origin.Host() + "/acme/app:v1"})
+			h.mirror()
+
+			h.fallBackWithin(lacking, 15*time.Second)
+			Expect(failures()).To(BeEmpty())
+
+			h.window()
+			Eventually(failures).Should(ConsistOf(HaveField("Reason", kuikv1alpha1.CopyQuotaExceeded)))
+			Expect(h.status().Images.Copy.MissingSource).To(BeZero())
 			Expect(h.recorder.withReason("ImageUnrecoverable")).To(BeEmpty())
 		})
 
