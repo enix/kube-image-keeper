@@ -24,8 +24,6 @@ import (
 var fixtures embed.FS
 
 const (
-	// mirrorPrefixFixtures marks the fixtures of test 14, applied only with --mirror-prefix.
-	mirrorPrefixFixtures = "14-"
 	// privateAlternative is the fixture after which setup waits for the pull Secret of test 11.
 	privateAlternative = "11-private-alternative.yaml"
 	privateInjected    = "kuik-inject-imagealternative-kuik-test-private"
@@ -39,6 +37,9 @@ const sincePrefix = "# since: "
 // privatePrefixes mark the fixtures of tests 11 and 13, applied only with --private-repo and
 // --pull-auth.
 var privatePrefixes = []string{"11-", "13-"}
+
+// mirrorPrefixes mark the fixtures of tests 14 and 22, applied only with --mirror-prefix.
+var mirrorPrefixes = []string{"14-", "22-"}
 
 // handPrefixes mark the fixtures setup never applies, applied by hand with apply when their
 // scenario says: test 16 recreates a pod once the monitors have reported, and the API server
@@ -137,7 +138,8 @@ func (e *env) setup(ctx context.Context, f *setupFlags) error {
 			fmt.Printf("\n== %s: skipped, applied by hand when its scenario says\n", base)
 			continue
 		}
-		if strings.HasPrefix(base, mirrorPrefixFixtures) && e.mirrorPrefix == "" {
+		if slices.ContainsFunc(mirrorPrefixes, func(p string) bool { return strings.HasPrefix(base, p) }) &&
+			e.mirrorPrefix == "" {
 			fmt.Printf("\n== %s: skipped, no --mirror-prefix\n", base)
 			continue
 		}
