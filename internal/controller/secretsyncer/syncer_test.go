@@ -64,6 +64,40 @@ var _ = Describe("Secret syncer", func() {
 			Eventually(users(ns, cr)).WithTimeout(timeout).Should(Equal(map[string]string{ghcrGroup: robot}))
 		})
 
+		It("creates no Secret in a namespace an OnFailure resource does not select, whatever its pods record", func() {
+			createSource(source, robot, "ghcr.io")
+			ns := createNamespace("")
+			cr := createAlternative(onFailure, scope, group(quayGroup, nil), group(ghcrGroup, injectedAuth(source)))
+			start(startOptions{})
+
+			createRewrittenPod(ns, cr, "ghcr.io/acme/foo:1")
+
+			Consistently(users(ns, cr)).WithTimeout(3 * time.Second).Should(BeNil())
+		})
+
+		DescribeTable("rebuilds the Secret from the standing records of a namespace coming back into the scope of an OnFailure resource, with no new rewrite",
+			func(enter func(ns string, cr *kuikv1alpha1.ImageAlternative)) {
+				createSource(source, robot, "ghcr.io")
+				ns := createNamespace("")
+				cr := createAlternative(onFailure, scope, group(quayGroup, nil), group(ghcrGroup, injectedAuth(source)))
+				start(startOptions{})
+				createRewrittenPod(ns, cr, "ghcr.io/acme/foo:1")
+				Consistently(users(ns, cr)).WithTimeout(2 * time.Second).Should(BeNil())
+
+				enter(ns, cr)
+
+				Eventually(users(ns, cr)).WithTimeout(timeout).Should(Equal(map[string]string{ghcrGroup: robot}))
+			},
+			Entry("when the namespace is relabelled into the scope", func(ns string, _ *kuikv1alpha1.ImageAlternative) {
+				setScope(ns, scope)
+			}),
+			Entry("when the resource's namespaceSelector is widened to it", func(_ string, cr *kuikv1alpha1.ImageAlternative) {
+				updateAlternative(cr, func(cr *kuikv1alpha1.ImageAlternative) {
+					cr.Spec.NamespaceSelector = &metav1.LabelSelector{}
+				})
+			}),
+		)
+
 		It("takes over the managed fields of a Secret already present under the reserved name", func() {
 			createSource(source, robot, "quay.io")
 			ns := createNamespace(scope)
@@ -407,6 +441,34 @@ var _ = Describe("Secret syncer", func() {
 
 			Eventually(users(ns, cr)).WithTimeout(timeout).Should(Equal(map[string]string{}))
 		})
+
+		DescribeTable("keeps the entries of a namespace leaving the scope of an OnFailure resource for the grace period, then empties its Secret, its pods still running",
+			func(leave func(ns string, cr *kuikv1alpha1.ImageAlternative)) {
+				createSource(source, robot, "ghcr.io")
+				ns := createNamespace(scope)
+				cr := createAlternative(onFailure, scope, group(quayGroup, nil), group(ghcrGroup, injectedAuth(source)))
+				start(startOptions{clock: now})
+				createRewrittenPod(ns, cr, "ghcr.io/acme/foo:1")
+				Eventually(users(ns, cr)).WithTimeout(timeout).Should(HaveLen(1))
+
+				leave(ns, cr)
+				Consistently(users(ns, cr)).WithTimeout(2*time.Second).Should(HaveLen(1), "within the grace")
+
+				now.Advance(pullsecret.GraceDuration)
+				// Any event of the pair reconciles it again.
+				createRewrittenPod(ns, cr, "ghcr.io/acme/bar:1")
+
+				Eventually(users(ns, cr)).WithTimeout(timeout).Should(Equal(map[string]string{}))
+			},
+			Entry("when the namespace is relabelled out of the scope", func(ns string, _ *kuikv1alpha1.ImageAlternative) {
+				setScope(ns, "")
+			}),
+			Entry("when the resource's namespaceSelector is narrowed away from it", func(_ string, cr *kuikv1alpha1.ImageAlternative) {
+				updateAlternative(cr, func(cr *kuikv1alpha1.ImageAlternative) {
+					cr.Spec.NamespaceSelector = &metav1.LabelSelector{MatchLabels: map[string]string{scopeLabel: unique("elsewhere")}}
+				})
+			}),
+		)
 
 		It("empties the Secrets of a resource that stops injecting or moves from Always to OnFailure", func() {
 			createSource(source, robot, "quay.io")
