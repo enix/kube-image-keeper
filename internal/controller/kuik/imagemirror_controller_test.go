@@ -465,6 +465,28 @@ var _ = Describe("ImageMirror Controller", func() {
 				}).Should(BeNumerically(">", bbb))
 				Expect(h.copied(destinationTag(src, "acme/app"))()).NotTo(Succeed())
 			})
+
+			It("gives a re-copy no more priority once a lap over its sources on several hosts failed", func() {
+				origin, lacking := h.source(), h.source()
+				h.alternativeTo(appEntry(origin), appEntry(lacking))
+				startQueue(origin, origin)
+				h.deleteManifest(destinationTag(origin, "acme/app"))
+				origin.Intercept(registrytest.Status("", "/acme/app/manifests/", http.StatusTooManyRequests, nil))
+				h.pass()
+				failing(origin.Host() + "/acme/aaa:v1")
+
+				// The first lap: the origin refuses the re-copy, the alternative lacks it.
+				h.fallBack(lacking)
+				h.window()
+				failing(origin.Host() + "/acme/app:v1")
+				app := reads(origin, "app")()
+				initial := func() int { return reads(origin, "aaa")() + reads(origin, "bbb")() }
+				before := initial()
+
+				h.window()
+				Eventually(initial).Should(BeNumerically(">", before))
+				Expect(reads(origin, "app")()).To(Equal(app))
+			})
 		})
 		It("emits ImageCopied on the first copy of an image", func() {
 			src := h.source()
