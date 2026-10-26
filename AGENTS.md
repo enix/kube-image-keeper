@@ -148,7 +148,7 @@ build are in [`.claude/rules/docs.md`](./.claude/rules/docs.md).
 
 - `settings.json`: no AI attribution on commits and PRs
   ([CONTRIBUTING](./CONTRIBUTING.md#use-of-ai-tools)), an allowlist of the read-only and
-  build commands plus `task acceptance-check|inspect|setup|apply|delete` (read-only, or writes guarded by the program), `ask` rules that back the outbound
+  build commands plus `task acceptance-check|inspect|get|setup|apply|delete` (read-only, or writes guarded by the program), `ask` rules that back the outbound
   hook up, `deny` rules on the
   project's secret files (`.env`, keys; `Read` only, a Bash `cat` is not covered) and on
   edits of the acceptance approval (an `Edit` rule covers every file-editing tool, the hook
@@ -162,7 +162,8 @@ build are in [`.claude/rules/docs.md`](./.claude/rules/docs.md).
   (`sed -i`, `>`) is not covered.
 - `hooks/confirm-outbound-actions.sh` asks the user before any command that leaves the
   working copy (`git push`, `gh pr|issue` writes, `docker push`, releases, `task deploy`
-  or `run`, the e2e tasks, `task acceptance-cleanup` and any `go run|build` of `test/acceptance`,
+  or `run`, the e2e tasks, `task acceptance-cleanup`, `task acceptance-config` (an `ask` rule:
+  it changes kuik's own configuration) and any `go run|build` of `test/acceptance`,
   any other acceptance task when anything but the acceptance fixtures, Markdown files and tooling (`.claude/`, `.github/`, `.coderabbit.yaml`) differs from `origin/main` and the user has not approved that change with `task acceptance-approve`, or when git could not compare against the real `origin/main`, `task acceptance-approve` itself,
   a `task` with `--taskfile`, `--dir` or `--global` (except a leading `-d` to the top of a
   worktree under `.claude/worktrees/`, checked as the plain task run there),

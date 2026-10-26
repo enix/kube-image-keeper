@@ -280,9 +280,10 @@ New files:
 ${untracked:-none}"
 fi
 
-# The acceptance tasks reach a cluster without asking: check, inspect and validate because they
-# only read, setup, apply and delete because the guard of test/acceptance keeps them on test
-# objects. Both hold for the reviewed code only. Almost anything in
+# The acceptance tasks reach a cluster without asking: check, inspect, get and validate because
+# they only read, setup, apply and delete because the guard of test/acceptance keeps them on test
+# objects. config changes kuik's own configuration: the same checks apply, and an ask rule of
+# settings.json still asks at every call. All hold for the reviewed code only. Almost anything in
 # the repository can change what runs (the program, the API types it decodes into, go.mod, a
 # go.work, another Taskfile), so they pass only as one plain `task acceptance-X -- <args>` in a
 # working copy equal to origin/main but for the fixtures, Markdown files and tooling (.claude/,
@@ -293,13 +294,13 @@ fi
 # `task acceptance-approve` recorded in this worktree's git directory: one question for a whole
 # run, asked again as soon as the code moves. Anything else, or a git error, asks. origin/main is
 # the local ref: moving it takes a git command that asks on its own.
-if printf '%s' "$cmd" | grep -Eq "(task|make)[[:space:]]+${opts}acceptance-(check|inspect|validate|setup|apply|delete)([[:space:]]|\$)"; then
+if printf '%s' "$cmd" | grep -Eq "(task|make)[[:space:]]+${opts}acceptance-(check|inspect|get|validate|setup|apply|delete|config)([[:space:]]|\$)"; then
   reason="This acceptance task reaches a cluster from code that differs from origin/main, or in a form the hook cannot check: the user confirms it explicitly."
   case "$cmd" in *'
 '* | *"$(printf '\r')"*) ask "$reason" ;; esac
   # An argument is plain characters, or single-quoted pieces the shell reads literally (a regex
   # for --grep): only a single quote ends one, and none may appear inside.
-  printf '%s' "$cmd" | grep -Eq "^task[[:space:]]+acceptance-(check|inspect|validate|setup|apply|delete)([[:space:]]+--([[:space:]]+([A-Za-z0-9=,./:_@+-]|'[^']*')+)*)?[[:space:]]*\$" || ask "$reason"
+  printf '%s' "$cmd" | grep -Eq "^task[[:space:]]+acceptance-(check|inspect|get|validate|setup|apply|delete|config)([[:space:]]+--([[:space:]]+([A-Za-z0-9=,./:_@+-]|'[^']*')+)*)?[[:space:]]*\$" || ask "$reason"
   top=$(git -C "${cwd:-.}" rev-parse --show-toplevel 2>/dev/null) || ask "$reason"
   # Task picks its Taskfile from the current directory: only the top level is the one checked.
   [ "$(cd "${cwd:-.}" 2>/dev/null && pwd -P)" = "$(cd "$top" && pwd -P)" ] || ask "$reason"

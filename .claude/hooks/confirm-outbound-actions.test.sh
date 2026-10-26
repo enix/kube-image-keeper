@@ -143,8 +143,15 @@ check ask "task acceptance-inspect -- --kubeconfig k --context c --grep 'a' ; rm
 check ask "task acceptance-inspect -- --kubeconfig k --context c --grep 'a'|sh"
 check ask "task acceptance-inspect -- --kubeconfig k --context c --grep 'a' 2>&1 | grep -v x | cut -c1-9"
 check ask "task acceptance-inspect -- --kubeconfig k --context c --grep \"\$(id)\""
+# get and config go through the same checks: they pass the hook as on origin/main (config still
+# asks through its ask rule in settings.json), and ask once the program changed.
+check pass "task acceptance-get -- --kubeconfig k --context c -n ns --jsonpath '{.items[*].metadata.name}' imagemirror"
+check pass "task acceptance-config -- --kubeconfig k --context c --file test/acceptance/fixtures/f.config.yaml"
+check ask "task acceptance-get -- --kubeconfig k --context c pod/p; git push"
 echo changed >"$repo/test/acceptance/guard.go"
 check ask "task acceptance-apply -- --kubeconfig k --context c --file f.yaml"
+check ask "task acceptance-get -- --kubeconfig k --context c pod/p"
+check ask "task acceptance-config -- --kubeconfig k --context c --restore"
 git -C "$repo" checkout -q -- test/acceptance/guard.go
 echo new >"$repo/test/acceptance/new.go"
 check ask "task acceptance-delete -- --kubeconfig k --context c pod/p"

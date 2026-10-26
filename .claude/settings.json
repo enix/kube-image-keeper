@@ -60,6 +60,7 @@
       "Bash(helm template *)",
       "Bash(task acceptance-check *)",
       "Bash(task acceptance-inspect *)",
+      "Bash(task acceptance-get *)",
       "Bash(task acceptance-validate)",
       "Bash(task acceptance-validate *)",
       "Bash(task acceptance-setup *)",
@@ -73,7 +74,8 @@
       "Bash(task *test-e2e*)",
       "Bash(task run*)",
       "Bash(task * run*)",
-      "Bash(task acceptance-cleanup*)"
+      "Bash(task acceptance-cleanup*)",
+      "Bash(task acceptance-config*)"
     ],
     "deny": [
       "Read(**/.env)",
