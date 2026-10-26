@@ -232,7 +232,7 @@ spec:
 
 The tag of every copy carries the operator's [cluster ID](./configuration.md#cluster-id) as a `_<clusterID>` suffix, so that several clusters can share one destination: the second cluster to need an image uploads nothing, and each cluster only ever creates, verifies and deletes its own tags. The `ImageMirror` object is identical on every cluster.
 
-A copy reads the origin first, whatever the `rewritePolicy` of the `ImageAlternative`s covering it. When the origin does not answer, it reads those alternatives in their candidate order, skipping the entries marked `unavailable`, on a copy window of each alternative's own host. An origin matching an `unavailable` entry is read last. The destination is derived from the origin whichever source the bytes came from.
+A copy reads the origin first, whatever the `rewritePolicy` of the `ImageAlternative`s covering it. When the origin does not answer, it reads those alternatives in their candidate order, skipping the entries marked `unavailable`, on a copy window of each alternative's own host. A source that answers but fails the copy on its side, a `429` on a blob for instance, gives way to the next one the same way rather than being read again on its next window; a failure on the destination side keeps the source and enters `status.failedImageCopies` at once. A source failure enters it once every source was tried: with the reason of the last source that failed for another reason than lacking the image (`QuotaExceeded` for an origin answering `429` then an alternative lacking the image), or `SourceNotFound` when every one lacked it. An origin matching an `unavailable` entry is read last. The destination is derived from the origin whichever source the bytes came from.
 
 ### Excluding images
 

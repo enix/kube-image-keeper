@@ -416,25 +416,7 @@ func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
 		log.V(1).Info("Skipped copy source", "candidate", candidate.Reference, "reason", reason, "error", err.Error())
 		st.mu.Lock()
 		defer st.mu.Unlock()
-		// A lap over the candidates starts again from the first one, after a success too.
-		if source.next == 0 {
-			source.unanswered = nil
-		}
-		if reason != kuikv1alpha1.CopySourceNotFound {
-			source.unanswered = &copyFailure{reason: reason, registry: c.host}
-		}
-		source.next++
-		if source.next == len(source.candidates) {
-			// SourceNotFound only when every candidate answered that it lacks the manifest: a
-			// source that failed to answer may still hold it.
-			failure := copyFailure{reason: kuikv1alpha1.CopySourceNotFound, registry: source.origin.Host}
-			if source.unanswered != nil {
-				failure = *source.unanswered
-			}
-			failure.at = r.clock.Now()
-			source.next, source.unanswered = 0, nil
-			st.fail(ref, failure)
-		}
+		r.giveWay(st, ref, candidate, reason, c.host)
 		return nil
 	}
 
@@ -456,22 +438,29 @@ func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	if err != nil {
-		reason, failedRef := kuikv1alpha1.CopyDestinationUnreachable, destination
-		if copyErr, ok := errors.AsType[*registry.CopyError](err); ok {
+		reason := kuikv1alpha1.CopyDestinationUnreachable
+		copyErr, ok := errors.AsType[*registry.CopyError](err)
+		if ok {
 			reason = copyErr.Reason
-			if !copyErr.Destination {
-				failedRef = sourceEndpoint.Reference
-			}
 		}
-		host, _, _ := strings.Cut(failedRef, "/")
+		log.V(1).Info("Failed to copy image", "candidate", candidate.Reference, "reason", reason, "error", err.Error())
+		if ok && !copyErr.Destination {
+			// The source answered its check but failed the copy: like a source that does not
+			// answer, it gives way to the next one rather than being read again next window.
+			r.giveWay(st, ref, candidate, reason, c.host)
+			return nil
+		}
+		host, _, _ := strings.Cut(destination, "/")
 		st.fail(ref, copyFailure{reason: reason, registry: host, at: r.clock.Now()})
-		log.V(1).Info("Failed to copy image", "reason", reason, "error", err.Error())
 		return nil
 	}
 	delete(st.failed, ref)
 	st.copied[ref] = true
 	st.digests[ref] = digest.String()
-	source.next = 0
+	// The sources a reconcile set during the copy, not the one it started from.
+	if current, ok := st.sources[ref]; ok {
+		current.next, current.unanswered = 0, nil
+	}
 	observe := r.config.Load().Metrics.CopyDuration
 	switch {
 	case st.writeBack[ref]:
@@ -493,6 +482,37 @@ func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
 	delete(st.resync, ref)
 	delete(st.drifted, ref)
 	return nil
+}
+
+// giveWay hands ref to the candidate after the one on host that failed with reason, whose
+// own host's window reads it. Once every candidate failed, the lap is recorded as one
+// failure: SourceNotFound when each one lacked the manifest, the reason of the last one that
+// failed otherwise, since a source that failed may still hold it. st.mu is held.
+func (r *ImageMirrorReconciler) giveWay(st *mirrorState, ref string, tried routing.Candidate, reason kuikv1alpha1.CopyFailureReason, host string) {
+	// A reconcile during the attempt replaced the sources: the current one is moved on, unless
+	// its candidates changed meanwhile and it no longer stands on the one tried.
+	source, ok := st.sources[ref]
+	if !ok || source.candidates[source.next].Reference != tried.Reference {
+		return
+	}
+	// A lap over the candidates starts again from the first one, after a success too.
+	if source.next == 0 {
+		source.unanswered = nil
+	}
+	if reason != kuikv1alpha1.CopySourceNotFound {
+		source.unanswered = &copyFailure{reason: reason, registry: host}
+	}
+	source.next++
+	if source.next < len(source.candidates) {
+		return
+	}
+	failure := copyFailure{reason: kuikv1alpha1.CopySourceNotFound, registry: source.origin.Host}
+	if source.unanswered != nil {
+		failure = *source.unanswered
+	}
+	failure.at = r.clock.Now()
+	source.next, source.unanswered = 0, nil
+	st.fail(ref, failure)
 }
 
 // sourceFailureReason maps the failure to read a copy source to a copy reason: SourceNotFound
