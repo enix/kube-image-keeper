@@ -1773,6 +1773,17 @@ var _ = Describe("ImageMirror Controller", func() {
 			Expect(copies("Initial")()).To(Equal(1.0))
 		})
 
+		It("exports kuik_registry_requests_total, counting its copies from a source registry", func() {
+			src := h.source()
+			src.Push("acme/app:v1", registrytest.Image())
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+			h.mirror()
+			h.copyAll(1)
+			Expect(counter(h.metrics, "kuik_registry_requests_total", map[string]string{
+				labelRegistry: src.Host(), labelOperation: "Copy", "result": "Ok",
+			})).To(BeNumerically(">=", 1))
+		})
+
 		It("counts kuik_mirror_tags_deleted_total by Unused and Orphan", func() {
 			src := h.source()
 			src.Push("acme/job:v1", registrytest.Image())

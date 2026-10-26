@@ -21,6 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
@@ -151,6 +152,30 @@ func mirrored(destination, origin *registrytest.Registry) string {
 	path := "mirror/" + strings.Replace(origin.Host(), ":", "_", 1) + "/" + repository + "_" + clusterID
 	destination.Push(path, image)
 	return destination.Host() + "/" + path
+}
+
+// requestsServed sums the kuik_registry_requests_total series of host on the metrics registry
+// the process serves, for operation, or every operation when it is empty.
+func requestsServed(host, operation string) float64 {
+	GinkgoHelper()
+	families, err := ctrlmetrics.Registry.Gather()
+	Expect(err).NotTo(HaveOccurred())
+	var total float64
+	for _, family := range families {
+		if family.GetName() != "kuik_registry_requests_total" {
+			continue
+		}
+		for _, m := range family.GetMetric() {
+			labels := map[string]string{}
+			for _, l := range m.GetLabel() {
+				labels[l.GetName()] = l.GetValue()
+			}
+			if labels["registry"] == host && (operation == "" || labels["operation"] == operation) {
+				total += m.GetCounter().GetValue()
+			}
+		}
+	}
+	return total
 }
 
 func secretAuth(name string) *kuikv1alpha1.Auth {
