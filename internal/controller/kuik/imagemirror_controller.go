@@ -218,8 +218,8 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if !im.DeletionTimestamp.IsZero() {
 		return r.finalize(ctx, &im, resource)
 	}
-	if controllerutil.AddFinalizer(&im, mirrorFinalizer) {
-		if err := r.Update(ctx, &im); err != nil {
+	if original := im.DeepCopy(); controllerutil.AddFinalizer(&im, mirrorFinalizer) {
+		if err := r.patchFinalizers(ctx, &im, original); err != nil {
 			if apierrors.IsConflict(err) {
 				return ctrl.Result{RequeueAfter: conflictWait}, nil
 			}
