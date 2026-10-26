@@ -7,6 +7,12 @@ concurrency:
   group: release-${{ github.workflow }}-${{ github.ref_name }}
   cancel-in-progress: false
 
+# Writes go through their own secrets (RELEASE_GITHUB_TOKEN for the release,
+# GH_TOKEN_PUBLISH_HELM_CHART for the chart in build.yaml): the workflow token only reads this
+# repository, in these jobs and in the workflows they call.
+permissions:
+  contents: read
+
 env:
   COMMIT_NAME: Monkeynator
   COMMIT_EMAIL: monkeynator@enix.io
