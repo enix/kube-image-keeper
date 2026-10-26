@@ -24,9 +24,6 @@ func ParseCABundle(bundle []byte) ([]*x509.Certificate, error) {
 		var block *pem.Block
 		block, rest = pem.Decode(rest)
 		if block == nil {
-			if bytes.Contains(rest, []byte("-----BEGIN")) {
-				return nil, fmt.Errorf("%w: a block is truncated", errNoCertificate)
-			}
 			break
 		}
 		if block.Type != "CERTIFICATE" {
@@ -37,6 +34,11 @@ func ParseCABundle(bundle []byte) ([]*x509.Certificate, error) {
 			return nil, fmt.Errorf("%w: %w", errNoCertificate, err)
 		}
 		certs = append(certs, cert)
+	}
+	// pem.Decode skips a truncated block when a complete one follows it: count the blocks the
+	// bundle opens rather than look for a leftover one.
+	if opened := bytes.Count(bundle, []byte("-----BEGIN")); opened != len(certs) {
+		return nil, fmt.Errorf("%w: truncated PEM block, %d of %d blocks decoded", errNoCertificate, len(certs), opened)
 	}
 	if len(certs) == 0 {
 		return nil, errNoCertificate
