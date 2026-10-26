@@ -373,7 +373,99 @@ var _ = Describe("ImageMirror Controller", func() {
 			Eventually(h.copied(destinationTag(src, "acme/zzz"))).Should(Succeed())
 			Expect(h.copied(destinationTag(src, "acme/aaa"))()).NotTo(Succeed())
 		})
-		PIt("performs a re-copy at the next copy window, ahead of the initial copies the queue already started on", func() {})
+		Context("with initial copies the queue already started on", func() {
+			// reads counts the manifest requests reg received for acme/<repository>.
+			reads := func(reg *registrytest.Registry, repository string) func() int {
+				return func() int { return len(reg.Requests("", "/acme/"+repository+"/manifests/")) }
+			}
+			// failing waits until the copy of ref failed, reported in the status.
+			failing := func(ref string) {
+				GinkgoHelper()
+				Eventually(func() []kuikv1alpha1.FailedImageCopy {
+					h.reconcile()
+					return h.status().FailedImageCopies
+				}).Should(ContainElement(HaveField("Ref", ref)))
+			}
+			// startQueue copies src's acme/app:v1, then queues acme/aaa:v1 and acme/bbb:v1 from
+			// pool, which lacks them so that they stay owed, and returns the namespace.
+			startQueue := func(src, pool *registrytest.Registry) {
+				GinkgoHelper()
+				src.Push("acme/app:v1", registrytest.Image())
+				ns := h.namespace()
+				createPod(ns, unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+				h.mirror()
+				h.reconcile()
+				h.window()
+				Eventually(h.copied(destinationTag(src, "acme/app"))).Should(Succeed())
+				h.reconcile()
+				createPod(ns, unique("pod"),
+					container{name: "aaa", image: pool.Host() + "/acme/aaa:v1"},
+					container{name: "bbb", image: pool.Host() + "/acme/bbb:v1"},
+				)
+				h.reconcile()
+			}
+
+			It("performs a re-copy at the next copy window, ahead of the initial copies the queue already started on, and emits ImageRecopied", func() {
+				src := h.source()
+				startQueue(src, src)
+				h.deleteManifest(destinationTag(src, "acme/app"))
+				// The pass opens a window too: it starts the queue on aaa.
+				h.pass()
+				failing(src.Host() + "/acme/aaa:v1")
+				aaa, bbb := reads(src, "aaa")(), reads(src, "bbb")()
+
+				Eventually(func() error {
+					h.window()
+					return h.copied(destinationTag(src, "acme/app"))()
+				}).Should(Succeed())
+				Expect(reads(src, "aaa")()).To(Equal(aaa))
+				Expect(reads(src, "bbb")()).To(Equal(bbb))
+				Eventually(func() []recordedEvent { return h.recorder.withReason("ImageRecopied") }).Should(HaveLen(1))
+			})
+
+			It("keeps the priority of a re-copy that falls back to an alternative, in the queue of that alternative's host", func() {
+				origin, alternative := h.source(), h.source()
+				alternative.Push("acme/app:v1", registrytest.Image())
+				h.alternativeTo(appEntry(origin), appEntry(alternative))
+				startQueue(origin, alternative)
+				h.deleteManifest(destinationTag(origin, "acme/app"))
+				origin.Close()
+				h.pass()
+				failing(alternative.Host() + "/acme/aaa:v1")
+
+				// The origin fails to answer the re-copy, while the alternative's queue moves
+				// on to bbb. The origin's queue goes once the re-copy left it.
+				h.window()
+				Eventually(func() bool {
+					h.reconcile()
+					return h.queued(origin)
+				}).Should(BeFalse())
+				failing(alternative.Host() + "/acme/bbb:v1")
+				aaa, bbb := reads(alternative, "aaa")(), reads(alternative, "bbb")()
+
+				Eventually(func() error {
+					h.window()
+					return h.copied(destinationTag(origin, "acme/app"))()
+				}).Should(Succeed())
+				Expect(reads(alternative, "aaa")()).To(Equal(aaa))
+				Expect(reads(alternative, "bbb")()).To(Equal(bbb))
+			})
+
+			It("gives no priority to writing back a tag of this cluster over a manifest still present", func() {
+				src := h.source()
+				startQueue(src, src)
+				h.deleteTag(destinationTag(src, "acme/app"))
+				h.pass()
+				failing(src.Host() + "/acme/aaa:v1")
+				bbb := reads(src, "bbb")()
+
+				Eventually(func() int {
+					h.window()
+					return reads(src, "bbb")()
+				}).Should(BeNumerically(">", bbb))
+				Expect(h.copied(destinationTag(src, "acme/app"))()).NotTo(Succeed())
+			})
+		})
 		It("emits ImageCopied on the first copy of an image", func() {
 			src := h.source()
 			src.Push("acme/app:v1", registrytest.Image())

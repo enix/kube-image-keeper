@@ -602,8 +602,8 @@ func (s *Scheduler) RegistryChecks(owner Owner) []kuikv1alpha1.RegistryCheck {
 }
 
 // SetCopyQueue sets the references owner still owes from host, copied by c in that order.
-// An empty refs drops the queue.
-func (s *Scheduler) SetCopyQueue(owner Owner, host string, refs []string, c Copier) {
+// An empty refs drops the queue. first are not used yet.
+func (s *Scheduler) SetCopyQueue(owner Owner, host string, refs []string, c Copier, first ...string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	defer s.notify()
