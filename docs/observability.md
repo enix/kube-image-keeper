@@ -175,6 +175,17 @@ reconciler exports these series.
 Alert on a lap against its best case rather than on a literal: see
 [Watching the pace](./concepts/pacing.md#watching-the-pace).
 
+### Registry requests
+
+The reconciler and the webhook export this counter, each for the requests it sent.
+
+| Metric | Type | Value |
+| ------ | ---- | ----- |
+| `kuik_registry_requests_total{registry, operation, result}` | counter | Requests kuik sent to a source registry, by `operation` (`Check`, `Copy`) and outcome: `Ok`, `ManifestNotFound`, `Unauthorized`, `QuotaExceeded`, `Unreachable`. A mirror destination is not counted |
+
+A rising `QuotaExceeded` on one `registry` says that host rate-limits kuik; `operation` says
+whether the checks or the copies are refused.
+
 ### Pull secrets
 
 The secret syncer exports this counter, see [Injected pull secrets](./concepts/pull-secrets.md).

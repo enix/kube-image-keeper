@@ -16,17 +16,21 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// RequestsTotal counts the requests kuik sent to a source registry. The process that reads
-// source registries registers it.
+// RequestsTotal counts the requests kuik sent to a source registry. Every reader of a
+// process registers it with RegisterMetrics.
 var RequestsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 	Name: "kuik_registry_requests_total",
 	Help: "Requests kuik sent to a source registry, by operation (Check, Copy) and outcome " +
 		"(Ok, or the reason that request produced: ManifestNotFound, Unauthorized, QuotaExceeded, Unreachable)",
 }, []string{"registry", "operation", "result"})
 
-// RegisterMetrics registers RequestsTotal on registerer.
+// RegisterMetrics registers RequestsTotal on registerer. Several readers of one process share
+// the counter, so a registration already done is no error.
 func RegisterMetrics(registerer prometheus.Registerer) error {
-	return errors.New("not implemented")
+	if err := registerer.Register(RequestsTotal); err != nil && !errors.As(err, &prometheus.AlreadyRegisteredError{}) {
+		return err
+	}
+	return nil
 }
 
 const resultOk = "Ok"

@@ -167,6 +167,9 @@ func NewImageMonitorReconciler(c client.Client, scheme *runtime.Scheme, opts Ima
 	if err != nil {
 		return nil, err
 	}
+	if err := registry.RegisterMetrics(opts.Registerer); err != nil {
+		return nil, err
+	}
 	var capacity []capped.Option
 	if opts.ListCapacity > 0 {
 		capacity = append(capacity, capped.WithCapacity(opts.ListCapacity))

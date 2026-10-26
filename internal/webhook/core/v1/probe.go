@@ -113,7 +113,13 @@ func (d *PodDefaulter) available(ctx context.Context, pod *corev1.Pod, c routing
 		// The check serves every caller of this key: no single admission may cancel it.
 		probeCtx, cancel := registry.WithTimeout(context.WithoutCancel(ctx), timeout)
 		defer cancel()
-		result, err := d.registry.Check(probeCtx, registry.Endpoint{
+		// A mirror destination is the operator's own: kuik_registry_requests_total counts the
+		// source registries only.
+		check := d.registry.Check
+		if c.Resource != nil && c.Resource.Kind == routing.KindImageMirror {
+			check = d.registry.CheckDestination
+		}
+		result, err := check(probeCtx, registry.Endpoint{
 			Reference: c.Reference,
 			Insecure:  c.Config.Insecure,
 			Auth:      auths,
