@@ -132,6 +132,8 @@ type PodDefaulter struct {
 	clusterID  func() (string, bool)
 	config     atomic.Pointer[config.Config]
 	index      atomic.Pointer[routing.Index]
+	// indexBuilt is false until SetResources first replaces the empty initial index.
+	indexBuilt atomic.Bool
 }
 
 // NewPodDefaulter returns a webhook reading with d.
@@ -160,14 +162,25 @@ func (d *PodDefaulter) RegistryClient() *registry.Client {
 }
 
 // SetResources replaces the routing resources the webhook matches pods against, and the
-// ImageMonitors whose status reports the originals and the alternatives failing.
+// ImageMonitors whose status reports the originals and the alternatives failing. The first call
+// makes RoutingIndexReady pass: the watch calls it once it has listed the three kinds from the
+// synced cache, empty lists included.
 func (d *PodDefaulter) SetResources(alternatives []kuikv1alpha1.ImageAlternative, mirrors []kuikv1alpha1.ImageMirror, monitors ...kuikv1alpha1.ImageMonitor) {
 	d.index.Store(routing.NewIndex(alternatives, mirrors, monitors...))
+	d.indexBuilt.Store(true)
 }
 
-// RoutingIndexReady is a healthz.Checker failing until the routing index is first built.
+// errIndexNotBuilt is what RoutingIndexReady reports until the routing index is first built.
+var errIndexNotBuilt = errors.New("routing index not built yet from the ImageAlternatives, ImageMirrors and ImageMonitors")
+
+// RoutingIndexReady is a healthz.Checker failing until the routing index is first built, so
+// that a new replica receives no admission before it can route. A request reaching it earlier
+// is still admitted, unchanged.
 func (d *PodDefaulter) RoutingIndexReady(*http.Request) error {
-	return errors.New("not implemented")
+	if !d.indexBuilt.Load() {
+		return errIndexNotBuilt
+	}
+	return nil
 }
 
 // pass is one pass of the webhook over a pod.
