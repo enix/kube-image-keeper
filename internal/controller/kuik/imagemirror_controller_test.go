@@ -19,9 +19,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -1306,6 +1308,63 @@ var _ = Describe("ImageMirror Controller", func() {
 			h.reconcile()
 			Expect(h.status().PendingDeletion).To(BeEmpty())
 			Expect(h.destination.Requests(http.MethodDelete, "")).To(BeEmpty())
+		})
+	})
+
+	Describe("its finalizer", func() {
+		// stored reads the mirror as the API server stores it: a typed read would parse
+		// retention and hide how it is written.
+		stored := func() *unstructured.Unstructured {
+			GinkgoHelper()
+			obj := &unstructured.Unstructured{}
+			obj.SetGroupVersionKind(kuikv1alpha1.GroupVersion.WithKind(routing.KindImageMirror))
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: h.name}, obj)).To(Succeed())
+			return obj
+		}
+		retention := func(obj *unstructured.Unstructured) string {
+			GinkgoHelper()
+			value, found, err := unstructured.NestedString(obj.Object, "spec", "cleanup", "retention")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(found).To(BeTrue())
+			return value
+		}
+
+		It("adds its finalizer without rewriting the spec: generation and cleanup.retention stay as written", func() {
+			h.mirror()
+			before := stored()
+			Expect(retention(before)).To(Equal("168h"))
+
+			h.reconcile()
+			after := stored()
+			Expect(after.GetFinalizers()).To(ContainElement(mirrorFinalizer))
+			Expect(after.GetGeneration()).To(Equal(before.GetGeneration()))
+			Expect(retention(after)).To(Equal("168h"))
+		})
+
+		It("releases its finalizer without rewriting the spec: generation and cleanup.retention stay as written", func() {
+			const hold = "test.kuik.enix.io/hold"
+			h.mirror()
+			h.reconcile()
+			// A second finalizer keeps the mirror readable once kuik releases its own.
+			held := stored()
+			original := held.DeepCopy()
+			held.SetFinalizers(append(held.GetFinalizers(), hold))
+			Expect(k8sClient.Patch(ctx, held, client.MergeFrom(original))).To(Succeed())
+			DeferCleanup(func() {
+				obj := stored()
+				original := obj.DeepCopy()
+				obj.SetFinalizers(nil)
+				Expect(k8sClient.Patch(ctx, obj, client.MergeFrom(original))).To(Succeed())
+			})
+			Expect(k8sClient.Delete(ctx, &kuikv1alpha1.ImageMirror{ObjectMeta: metav1.ObjectMeta{Name: h.name}})).To(Succeed())
+			before := stored()
+			Expect(before.GetFinalizers()).To(ContainElement(mirrorFinalizer))
+
+			h.reconcile()
+			after := stored()
+			Expect(after.GetFinalizers()).To(ConsistOf(hold))
+			Expect(after.GetGeneration()).To(Equal(before.GetGeneration()))
+			Expect(retention(after)).To(Equal("168h"))
 		})
 	})
 
