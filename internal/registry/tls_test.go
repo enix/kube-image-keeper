@@ -302,6 +302,11 @@ var _ = Describe("Client TLS", func() {
 			Entry("holds a block that is not a certificate", func(ca *registrytest.CA) []byte {
 				return append(append([]byte{}, ca.PEM()...), "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n"...)
 			}),
+			Entry("holds a truncated block followed by a complete one", func(ca *registrytest.CA) []byte {
+				// Cut on a line boundary: the BEGIN line and 2 base64 lines of another certificate.
+				lines := strings.SplitAfter(string(registrytest.NewCA().PEM()), "\n")
+				return append([]byte(strings.Join(lines[:3], "")), ca.PEM()...)
+			}),
 		)
 
 		DescribeTable("accepts a bundle with text outside its blocks",
