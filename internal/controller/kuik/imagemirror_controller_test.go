@@ -373,6 +373,7 @@ var _ = Describe("ImageMirror Controller", func() {
 			Eventually(h.copied(destinationTag(src, "acme/zzz"))).Should(Succeed())
 			Expect(h.copied(destinationTag(src, "acme/aaa"))()).NotTo(Succeed())
 		})
+		PIt("performs a re-copy at the next copy window, ahead of the initial copies the queue already started on", func() {})
 		It("emits ImageCopied on the first copy of an image", func() {
 			src := h.source()
 			src.Push("acme/app:v1", registrytest.Image())
@@ -389,6 +390,69 @@ var _ = Describe("ImageMirror Controller", func() {
 	})
 
 	Describe("choosing the source", func() {
+		It("reads the origin first, before an ImageAlternative with rewritePolicy Always covering the image", func() {
+			origin, alternative := h.source(), h.source()
+			origin.Push("acme/app:v1", registrytest.Image())
+			alternative.Push("acme/app:v1", registrytest.Image())
+			alternative.Reset()
+			h.alwaysAlternativeTo(appEntry(origin), appEntry(alternative))
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: origin.Host() + "/acme/app:v1"})
+			h.mirror()
+			h.reconcile()
+			h.window()
+
+			Eventually(h.copied(destinationTag(origin, "acme/app"))).Should(Succeed())
+			Expect(alternative.Requests("", "/manifests/")).To(BeEmpty())
+		})
+
+		It("reads the alternatives after the origin in the order the ImageAlternative declares them, skipping the ones marked unavailable", func() {
+			origin, first, dead, second := h.source(), h.source(), h.source(), h.source()
+			dead.Push("acme/app:v1", registrytest.Image())
+			dead.Reset()
+			second.Push("acme/app:v1", registrytest.Image())
+			second.Reset()
+			marked := appEntry(dead)
+			marked.Unavailable = true
+			h.alwaysAlternativeTo(appEntry(origin), appEntry(first), marked, appEntry(second))
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: origin.Host() + "/acme/app:v1"})
+			h.mirror()
+			read := func(reg *registrytest.Registry) func() []registrytest.Request {
+				return func() []registrytest.Request { return reg.Requests("", "/manifests/") }
+			}
+
+			h.fallBack(first)
+			Expect(read(origin)()).NotTo(BeEmpty())
+			Expect(read(first)()).To(BeEmpty())
+			Expect(read(second)()).To(BeEmpty())
+
+			h.fallBack(second)
+			Expect(read(first)()).NotTo(BeEmpty())
+			Expect(read(second)()).To(BeEmpty())
+
+			h.window()
+			Eventually(h.copied(destinationTag(origin, "acme/app"))).Should(Succeed())
+			Expect(read(dead)()).To(BeEmpty())
+		})
+
+		It("tries last an origin matching an alternative marked unavailable, after an ImageAlternative with rewritePolicy Always", func() {
+			origin, alive := h.source(), h.source()
+			origin.Push("acme/app:v1", registrytest.Image())
+			origin.Reset()
+			alive.Push("acme/app:v1", registrytest.Image())
+			marked := appEntry(origin)
+			marked.Unavailable = true
+			h.alwaysAlternativeTo(marked, appEntry(alive))
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: origin.Host() + "/acme/app:v1"})
+			h.mirror()
+
+			for range 2 {
+				h.reconcile()
+				h.window()
+			}
+			Eventually(h.copied(destinationTag(origin, "acme/app"))).Should(Succeed())
+			Expect(origin.Requests("", "/manifests/")).To(BeEmpty())
+		})
+		PIt("moves to the next source, on a window of its host, when a source answers the availability check but fails the copy", func() {})
 		It("reads an ImageAlternative covering the image when the origin does not answer, for a first copy and a re-copy alike, and writes to the destination derived from the origin", func() {
 			origin, alternative := h.source(), h.source()
 			alternative.Push("acme/app:v1", registrytest.Image())

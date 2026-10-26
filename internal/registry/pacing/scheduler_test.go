@@ -610,6 +610,10 @@ var _ = Describe("Scheduler", func() {
 			Expect(other.visits()).To(HaveLen(2))
 		})
 
+		PIt("takes an image a mirror copies first at the next window, ahead of its position in the queue", func() {})
+		PIt("takes an image a mirror copies first once ahead of the others, then in turn with them", func() {})
+		PIt("gives a copy window of a host to a mirror with an image to copy first, ahead of the round-robin", func() {})
+
 		It("stops copying an image once it leaves the queue", func() {
 			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA, imageB, imageC}, c)
 			windows(1)

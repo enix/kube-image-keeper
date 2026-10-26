@@ -511,10 +511,21 @@ func createCredentials(host, user, password string) string {
 // alternativeTo creates an ImageAlternative selecting the namespaces of the mirror under
 // test, whose entries are the repository acme/app on each registry, in order.
 func (h *mirrorHarness) alternativeTo(entries ...kuikv1alpha1.Alternative) {
+	h.alternativeWithPolicy("", entries...)
+}
+
+// alwaysAlternativeTo is alternativeTo with rewritePolicy Always: at admission its
+// candidates come before the origin.
+func (h *mirrorHarness) alwaysAlternativeTo(entries ...kuikv1alpha1.Alternative) {
+	h.alternativeWithPolicy(kuikv1alpha1.RewritePolicyAlways, entries...)
+}
+
+func (h *mirrorHarness) alternativeWithPolicy(policy kuikv1alpha1.RewritePolicy, entries ...kuikv1alpha1.Alternative) {
 	Expect(k8sClient.Create(ctx, &kuikv1alpha1.ImageAlternative{
 		ObjectMeta: metav1.ObjectMeta{Name: unique("ia")},
 		Spec: kuikv1alpha1.ImageAlternativeSpec{
 			NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{testLabel: h.name}},
+			RewritePolicy:     policy,
 			Alternatives:      entries,
 		},
 	})).To(Succeed())
