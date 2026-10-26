@@ -115,11 +115,37 @@ type queue struct {
 	// next is the reference the next attempt takes, the one after the last attempted: a
 	// failing image does not hold back the others.
 	next string
+	// first are the references to copy ahead of next, in order, each one once; taken are
+	// those of them already taken, which then wait for their turn like the others.
+	first []string
+	taken map[string]bool
 }
 
-// take returns the next reference, or the first one when there is none, and moves next to
-// the one after it.
+// prioritize sets the references of q to copy first. One already taken since it was first
+// is not taken ahead again: a copy that keeps failing would hold back the others.
+func (q *queue) prioritize(first []string) {
+	taken := map[string]bool{}
+	q.first = nil
+	for _, ref := range first {
+		switch {
+		case q.taken[ref]:
+			taken[ref] = true
+		case slices.Contains(q.refs, ref):
+			q.first = append(q.first, ref)
+		}
+	}
+	q.taken = taken
+}
+
+// take returns the first reference to copy first, leaving next as it is, or else the next
+// reference, or the first one when there is none, and moves next to the one after it.
 func (q *queue) take() string {
+	if len(q.first) > 0 {
+		ref := q.first[0]
+		q.first = q.first[1:]
+		q.taken[ref] = true
+		return ref
+	}
 	i := max(slices.Index(q.refs, q.next), 0)
 	q.next = q.refs[(i+1)%len(q.refs)]
 	return q.refs[i]
@@ -300,14 +326,25 @@ func (s *Scheduler) open(now time.Time) time.Time {
 	return next
 }
 
-// openCopy hands a copy window of h to the next queue, in round-robin. The window is lost
-// when every queue is empty or the previous copy still transfers. s.mu is held.
+// openCopy hands a copy window of h to the next queue, in round-robin, unless a queue holds
+// a reference to copy first: that one goes ahead, without taking the turn of the next
+// queue. The window is lost when every queue is empty or the previous copy still
+// transfers. s.mu is held.
 func (s *Scheduler) openCopy(h *host) {
 	if h.copy.busy || len(h.queues) == 0 {
 		return
 	}
-	q := h.queues[h.copyTurn%len(h.queues)]
-	h.copyTurn = (h.copyTurn + 1) % len(h.queues)
+	var q *queue
+	for k := range len(h.queues) {
+		if candidate := h.queues[(h.copyTurn+k)%len(h.queues)]; len(candidate.first) > 0 {
+			q = candidate
+			break
+		}
+	}
+	if q == nil {
+		q = h.queues[h.copyTurn%len(h.queues)]
+		h.copyTurn = (h.copyTurn + 1) % len(h.queues)
+	}
 	ref := q.take()
 	h.copy.busy = true
 	s.running++
@@ -602,7 +639,9 @@ func (s *Scheduler) RegistryChecks(owner Owner) []kuikv1alpha1.RegistryCheck {
 }
 
 // SetCopyQueue sets the references owner still owes from host, copied by c in that order.
-// An empty refs drops the queue. first are not used yet.
+// first are references of refs to copy first: each is taken once at the next window of host,
+// ahead of the position of the queue and of the other owners' turns, then waits for its turn
+// like the others. An empty refs drops the queue.
 func (s *Scheduler) SetCopyQueue(owner Owner, host string, refs []string, c Copier, first ...string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -621,9 +660,12 @@ func (s *Scheduler) SetCopyQueue(owner Owner, host string, refs []string, c Copi
 	case len(refs) == 0:
 	case i >= 0:
 		h.queues[i].replace(refs)
+		h.queues[i].prioritize(first)
 		h.queues[i].copier = c
 	default:
-		h.queues = append(h.queues, &queue{owner: owner, refs: slices.Clone(refs), copier: c})
+		q := &queue{owner: owner, refs: slices.Clone(refs), copier: c}
+		q.prioritize(first)
+		h.queues = append(h.queues, q)
 	}
 }
 

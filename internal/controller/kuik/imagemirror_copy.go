@@ -232,7 +232,8 @@ func (r *ImageMirrorReconciler) owe(im *kuikv1alpha1.ImageMirror, st *mirrorStat
 
 	for host, refs := range queues {
 		// A lost copy is an availability hole pods may be routed to right now; an initial
-		// copy is background work.
+		// copy is background work. A tag written back over a manifest still there is not
+		// lost: it waits for its turn.
 		slices.SortFunc(refs, func(a, b string) int {
 			if recopy[a] != recopy[b] {
 				if recopy[a] {
@@ -242,7 +243,8 @@ func (r *ImageMirrorReconciler) owe(im *kuikv1alpha1.ImageMirror, st *mirrorStat
 			}
 			return strings.Compare(a, b)
 		})
-		r.scheduler.SetCopyQueue(owner, host, refs, mirrorCopier{r: r, name: im.Name, host: host})
+		first := slices.DeleteFunc(slices.Clone(refs), func(ref string) bool { return !recopy[ref] })
+		r.scheduler.SetCopyQueue(owner, host, refs, mirrorCopier{r: r, name: im.Name, host: host}, first...)
 	}
 	for _, host := range gone {
 		r.scheduler.SetCopyQueue(owner, host, nil, mirrorCopier{r: r, name: im.Name, host: host})
