@@ -63,6 +63,9 @@ type mirrorState struct {
 	// there but whose tag of this cluster is gone.
 	recopy    map[string]bool
 	writeBack map[string]bool
+	// lapped are the re-copies whose copy failed over a whole lap of their sources: they wait
+	// for their turn like an initial copy, until they succeed or the destination holds them.
+	lapped map[string]bool
 
 	// policy is the driftPolicy the last reconcile read; rings are the hosts this mirror
 	// turns a drift ring on.
@@ -172,6 +175,7 @@ func newMirrorState() *mirrorState {
 		digests:   map[string]string{},
 		recopy:    map[string]bool{},
 		writeBack: map[string]bool{},
+		lapped:    map[string]bool{},
 		rings:     map[string]bool{},
 		drifted:   map[string]driftEntry{},
 		resync:    map[string]bool{},
@@ -227,7 +231,7 @@ func (r *ImageMirrorReconciler) owe(im *kuikv1alpha1.ImageMirror, st *mirrorStat
 	for host := range queues {
 		st.queues[host] = true
 	}
-	recopy := maps.Clone(st.recopy)
+	recopy, lapped := maps.Clone(st.recopy), maps.Clone(st.lapped)
 	st.mu.Unlock()
 
 	for host, refs := range queues {
@@ -243,7 +247,7 @@ func (r *ImageMirrorReconciler) owe(im *kuikv1alpha1.ImageMirror, st *mirrorStat
 			}
 			return strings.Compare(a, b)
 		})
-		first := slices.DeleteFunc(slices.Clone(refs), func(ref string) bool { return !recopy[ref] })
+		first := slices.DeleteFunc(slices.Clone(refs), func(ref string) bool { return !recopy[ref] || lapped[ref] })
 		r.scheduler.SetCopyQueue(owner, host, refs, mirrorCopier{r: r, name: im.Name, host: host}, first...)
 	}
 	for _, host := range gone {
@@ -452,6 +456,7 @@ func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
 		}
 		host, _, _ := strings.Cut(destination, "/")
 		st.fail(ref, copyFailure{reason: reason, registry: host, at: r.clock.Now()})
+		st.lapped[ref] = true
 		return nil
 	}
 	delete(st.failed, ref)
@@ -478,6 +483,7 @@ func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
 		r.metrics.copied(routing.KindImageMirror, c.name, copyInitial, took, observe)
 	}
 	delete(st.recopy, ref)
+	delete(st.lapped, ref)
 	delete(st.writeBack, ref)
 	delete(st.resync, ref)
 	delete(st.drifted, ref)
@@ -513,6 +519,7 @@ func (r *ImageMirrorReconciler) giveWay(st *mirrorState, ref string, tried routi
 	failure.at = r.clock.Now()
 	source.next, source.unanswered = 0, nil
 	st.fail(ref, failure)
+	st.lapped[ref] = true
 }
 
 // sourceFailureReason maps the failure to read a copy source to a copy reason: SourceNotFound
