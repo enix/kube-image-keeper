@@ -28,6 +28,8 @@ const (
 var (
 	monitor = Owner{Kind: "ImageMonitor", Name: "cluster-images"}
 	mirror  = Owner{Kind: "ImageMirror", Name: "upstream"}
+	// otherMirror pulls from the same hosts as mirror.
+	otherMirror = Owner{Kind: "ImageMirror", Name: "other"}
 )
 
 var _ = Describe("Scheduler", func() {
@@ -600,7 +602,7 @@ var _ = Describe("Scheduler", func() {
 		It("shares the copy windows of a source host between mirrors in round-robin", func() {
 			other := newCopier(h)
 			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA, imageB, imageC}, c)
-			h.s.SetCopyQueue(Owner{Kind: "ImageMirror", Name: "other"}, dockerHub, []string{imageX, imageY}, other)
+			h.s.SetCopyQueue(otherMirror, dockerHub, []string{imageX, imageY}, other)
 
 			for range 4 {
 				h.advance(3 * time.Minute)
@@ -610,9 +612,42 @@ var _ = Describe("Scheduler", func() {
 			Expect(other.visits()).To(HaveLen(2))
 		})
 
-		PIt("takes an image a mirror copies first at the next window, ahead of its position in the queue", func() {})
-		PIt("takes an image a mirror copies first once ahead of the others, then in turn with them", func() {})
-		PIt("gives a copy window of a host to a mirror with an image to copy first, ahead of the round-robin", func() {})
+		It("takes an image a mirror copies first at the next window, ahead of its position in the queue", func() {
+			c.fail(imageA)
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA, imageB, imageC}, c)
+			windows(1)
+
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageX, imageA, imageB, imageC}, c, imageX)
+			windows(1)
+			Expect(c.refs()).To(Equal([]string{imageA, imageX}))
+		})
+
+		It("takes an image a mirror copies first once ahead of the others, then in turn with them", func() {
+			c.fail(imageA)
+			c.fail(imageX)
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA, imageB, imageC}, c)
+			windows(1)
+
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageX, imageA, imageB, imageC}, c, imageX)
+			windows(1)
+			// The mirror owes it first still: its copy failed.
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageX, imageA, imageB, imageC}, c, imageX)
+			windows(3)
+			Expect(c.refs()).To(Equal([]string{imageA, imageX, imageB, imageC, imageX}))
+		})
+
+		It("gives a copy window of a host to a mirror with an image to copy first, ahead of the round-robin", func() {
+			other := newCopier(h)
+			c.fail(imageA)
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA, imageB}, c)
+			h.s.SetCopyQueue(otherMirror, dockerHub, []string{imageX, imageY}, other)
+			windows(1)
+
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageC, imageA, imageB}, c, imageC)
+			windows(2)
+			Expect(c.refs()).To(Equal([]string{imageA, imageC}))
+			Expect(other.refs()).To(Equal([]string{imageX}))
+		})
 
 		It("stops copying an image once it leaves the queue", func() {
 			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA, imageB, imageC}, c)
@@ -864,7 +899,7 @@ var _ = Describe("Scheduler", func() {
 		})
 
 		It("keeps the Scan series of a destination host while another mirror still scans it", func() {
-			other := Owner{Kind: mirror.Kind, Name: "other"}
+			other := otherMirror
 			h.s.SetDestinationScan(mirror, destinationHost)
 			h.s.SetDestinationScan(other, destinationHost)
 			h.s.RemoveDestinationScan(mirror)
