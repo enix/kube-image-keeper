@@ -28,6 +28,15 @@
         "successComment": false,
         "failComment": false
       }
+    ],
+    [
+      "semantic-release-slack-bot",
+      {
+        "packageName": "kube-image-keeper",
+        "notifyOnSuccess": true,
+        "notifyOnFail": false,
+        "markdownReleaseNotes": true
+      }
     ]
   ],
   "branches": [
