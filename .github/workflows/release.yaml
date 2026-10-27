@@ -33,8 +33,10 @@ jobs:
           dry_run: true
           extra_plugins: |
             conventional-changelog-conventionalcommits@^9.0.0
+            semantic-release-slack-bot@^4.0.2
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
 
       - name: Inspect semantic-release (dry-run) outcome
         shell: python
@@ -125,8 +127,10 @@ jobs:
         with:
           extra_plugins: |
             conventional-changelog-conventionalcommits@^9.0.0
+            semantic-release-slack-bot@^4.0.2
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
           GIT_COMMITTER_NAME: ${{ env.COMMIT_NAME }}
           GIT_COMMITTER_EMAIL: ${{ env.COMMIT_EMAIL }}
           GIT_AUTHOR_NAME: ${{ env.COMMIT_NAME }}
