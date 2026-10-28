@@ -175,7 +175,7 @@ build are in [`.claude/rules/docs.md`](./.claude/rules/docs.md).
   alone (`grep`, `rg`, `sed -n '<range>p'`, `cat`, `head`, `tail`, `wc`) is never taken for
   the commands its text names. Not forbidden: the
   user decides, the agent never does it on its own
-  ([0003](./notes/0003-agent-orchestration.md)). To let a session drive its own pull
+  ([0017](./notes/0017-a-session-drives-its-pull-request-to-the-merge.md)). To let a session drive its own pull
   request, the hook itself allows 7 single commands, with no prompt: `git push origin <current feature branch>`
   (`-u` and `--force-with-lease` included; a bare `git push` still asks, it may follow an
   upstream on `main`; never a plain `--force`, `main`, a maintenance or release branch or a
