@@ -77,13 +77,14 @@ func canonical(image string) (imagepath.Reference, bool) {
 	return ref, err == nil
 }
 
-// readPods finds the pods that run a container v2 rewrote or reference a v2 pull secret.
-func readPods(ctx context.Context, r client.Reader, inv *Inventory) ([]Pod, error) {
+// readPods finds the pods that run a container v2 rewrote or reference a v2 pull secret, under
+// the mirror paths of the v2 resources of inv and of saved.
+func readPods(ctx context.Context, r client.Reader, inv *Inventory, saved []Resource) ([]Pod, error) {
 	var list corev1.PodList
 	if err := r.List(ctx, &list); err != nil {
 		return nil, fmt.Errorf("listing Pods: %w", err)
 	}
-	paths := newMirrorPaths(inv.V2Resources)
+	paths := newMirrorPaths(append(slices.Clone(saved), inv.V2Resources...))
 	secrets := map[types.NamespacedName]bool{}
 	for _, s := range inv.PullSecrets {
 		secrets[types.NamespacedName{Namespace: s.Namespace, Name: s.Name}] = true

@@ -16,6 +16,10 @@ import (
 type Options struct {
 	// Namespace is the namespace kuik v3 is installed in.
 	Namespace string
+	// MirrorResources are v2 resources read on an earlier run, the state file's: the mirror
+	// paths of a ClusterImageSetMirror or ImageSetMirror deleted since still tell which pods
+	// v2 rewrote.
+	MirrorResources []Resource
 }
 
 // Inventory is what Read found of kuik v2 and v3.
@@ -204,7 +208,7 @@ func Read(ctx context.Context, r client.Reader, opts Options) (*Inventory, error
 	if err := readV3(ctx, r, &inv.V3, crds, deployments.Items, webhooks.Items); err != nil {
 		return nil, err
 	}
-	if inv.Pods, err = readPods(ctx, r, inv); err != nil {
+	if inv.Pods, err = readPods(ctx, r, inv, opts.MirrorResources); err != nil {
 		return nil, err
 	}
 	return inv, nil

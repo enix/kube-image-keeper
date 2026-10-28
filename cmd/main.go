@@ -58,6 +58,10 @@ func main() {
 		os.Exit(2)
 	}
 
+	if os.Args[1] == migrateCommand {
+		os.Exit(runMigrate(os.Args[0], os.Args[2:]))
+	}
+
 	proc, err := parseProcess(os.Args[1])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s\n\n%s", err, usage(os.Args[0]))
