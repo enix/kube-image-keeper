@@ -34,7 +34,11 @@ second one, so it keeps its context.
 - One component at a time, in the order given: a `test(<scope>): ...` commit with the full
   bodies of its specs (they fail there, `task lint-fix` passes), then the `feat(<scope>): ...`
   commit that turns exactly those specs green. A `feat` commit touches no `*_test.go` file
-  and no test helper package.
+  and no test helper package. A bug fix is the same pair, `test` then `fix(<scope>): ...`,
+  whatever found the bug; the `fix` commit ends its body with `Introduced-by: #<PR>`, the pull
+  request that introduced the bug. When you cannot find it with `git log`, `git blame` or
+  `gh`, ask the owning session, which asks the user; write `Introduced-by: unknown` only on
+  its answer.
 - Run the specs of the component focused, then its package; `task lint-fix` before each
   commit. Small separate commands.
 - When a hook refuses or asks about a command, stop and report it to the owning session.
@@ -67,9 +71,11 @@ Stop, report and wait to be resumed only in these cases:
 - the outline, when you write it: the `PIt` / `PEntry` tree, shown with
   `task test-outline`. The session has `spec-reviewer` check it, reports it to the
   maintainer and resumes you at once, without waiting for an approval;
-- the specs of a `test` commit already pass before any `feat`: the component is cut wrong.
-  Report it before committing. The one exception is a regression spec for a bug in code
-  already on `main`, committed after its fix ([`tests.md`](../rules/tests.md));
+- the specs of a `test` commit already pass before its `feat` or `fix`: the component is cut
+  wrong, or the bug is not reproduced. Report it before committing. There is no exception
+  but the e2e specs: running the specs at the `test` commit is the red check
+  (`task check-commits` repeats it), so no need to run them against older code, which the
+  guard refuses anyway (`git stash`, `git checkout <rev> -- <file>`);
 - a spec rewritten or relaxed after its `test` commit in a way that opens a gap with
   `docs/v3/`: leave it uncommitted and report the diff and the gap;
 - a fix that belongs in a shared package (`internal/registry/*`, `internal/status/*`,

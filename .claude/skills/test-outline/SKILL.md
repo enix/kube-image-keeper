@@ -38,6 +38,9 @@ only.
   or field; in a unit suite, one `Entry` per distinct input of a mapping or a parser.
 - Add the stubs the outline needs to compile (a type, a function returning its zero value),
   nothing more.
+- Include the PR's e2e cases, as empty `PIt` specs under `test/e2e/`: `spec-reviewer` checks
+  them with the rest. Their bodies come in one last `test` commit once the PR is ready
+  ([`e2e-spec`](../e2e-spec/SKILL.md)): the suite is slow and runs once.
 
 ```go
 var _ = Describe("ImageMirror", func() {
@@ -121,16 +124,18 @@ Cut the outline into components by the code each `feat` commit changes, not by t
 each component names the files its `feat` commit modifies. A spec that needs no code of its
 own (an earlier component already makes it pass) goes in the `test` commit of the component
 whose `feat` turns it green, never in a `test` commit of its own, which would be green from
-the start. e2e specs are the exception: they come in one last `test` commit, once the pull
-request is ready ([`e2e-spec`](../e2e-spec/SKILL.md)).
+the start. e2e specs are the exception: their cases are in the outline from step 2, and
+their bodies come in one last `test` commit, once the pull request is ready
+([`e2e-spec`](../e2e-spec/SKILL.md)).
 
 Work one component at a time, in 2 commits:
 
 1. `test(<scope>): ...`: turn `PIt` into `It` (`PEntry` into `Entry`) and write the full
    bodies against the stubs. The specs fail at this commit, as expected; `task lint-fix`
    passes.
-2. `feat(<scope>): ...`: the implementation that turns exactly those specs green. It
-   touches no `*_test.go` file and no test helper package.
+2. `feat(<scope>): ...` (or `fix(<scope>): ...` for a bug, with its `Introduced-by:` line,
+   see [`tests.md`](../../rules/tests.md)): the implementation that turns exactly those specs
+   green. It touches no `*_test.go` file and no test helper package.
 
 Then the next component. `git log --stat` must show every test file added by a `test`
 commit and left alone by the `feat` commits: the reviewer checks it.
@@ -144,13 +149,10 @@ commit and left alone by the `feat` commits: the reviewer checks it.
   that component, and the fix a `fixup!` of its `feat` commit: the history keeps `test`
   (red) then `feat` (green). Neither waits for approval
   ([`tests.md`](../../rules/tests.md)).
-- Exception: a bug in code no commit of the branch owns. The fix comes first and its
-  regression spec in its own `test` commit after it. Subject
-  `test(<scope>): add regression specs for <what>`; a 2 or 3 line body names the review that
-  found the bug, the component or commit subject that carries the fix (never a sha: the
-  branch is rebased before merge, only hashes on `main` are stable), and says the specs pin
-  the fix. Whoever reads `git log` then knows why this test commit follows its
-  implementation.
+- A bug in code no commit of the branch owns is still test first: a regression pair on top
+  of the branch, `test(<scope>): add regression specs for <what>` (red; a 2 or 3 line body
+  names the review that found the bug) then the `fix(<scope>)` commit that turns it green.
+  A bug-fix pull request is the same pair.
 - Run the case alone, then the package:
 
   ```sh
