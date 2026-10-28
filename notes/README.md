@@ -82,7 +82,8 @@ Rationale in [0005](./0005-decision-log-filter.md).
   generated role to that process's ServiceAccount, and `secret-reader` per `secretAccess`.
 - [0010 — The spec is implemented as written until an alpha runs](./0010-spec-as-is-until-the-alpha-runs.md):
   the 3.0 alphas follow `docs/v3/` literally, spec questions are recorded and deferred
-  instead of blocking, and `auth.provider` waits for the end of 3.0 or 3.1.
+  instead of blocking, and `auth.provider` waits for the end of 3.0 or 3.1. The period
+  extends to 3.0 GA since [0020](./0020-spec-as-is-until-3-0-ga.md).
 - [0011 — envtest suites skip themselves in short mode](./0011-envtest-suites-skip-in-short-mode.md):
   every envtest suite, the webhook one included, skips itself under `testing.Short()`;
   `task test-short` runs `go test -short`, which `go test` caches.
@@ -118,3 +119,6 @@ Rationale in [0005](./0005-decision-log-filter.md).
 - [0019 — A fix commit names the pull request that introduced the bug](./0019-introduced-by-on-fix-commits.md):
   every `fix` commit ends with `Introduced-by: #<PR>` (or `unknown` after asking the user),
   checked in CI, so the release notes leave out fixes of unreleased work.
+- [0020 — The spec stays as written until 3.0 GA](./0020-spec-as-is-until-3-0-ga.md):
+  `docs/v3/` is not edited before GA; doubts and divergences go to the amendments list per
+  release and are folded into the spec after GA.

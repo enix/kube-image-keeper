@@ -19,8 +19,9 @@ mirroring and monitoring, rebuilt from a clean tree. The branch holds:
 
 Code, chart and tooling are re-added epic by epic
 ([0002](./notes/0002-development-pipeline.md)), implementing the spec as written: a doubt
-about the spec is recorded and deferred, never a reason to edit `docs/v3/` or to stall
-([0010](./notes/0010-spec-as-is-until-the-alpha-runs.md)). v2 lives on the `2.3.x` maintenance
+about the spec is recorded and deferred, never a reason to edit `docs/v3/` or to stall, until
+3.0 GA ([0010](./notes/0010-spec-as-is-until-the-alpha-runs.md),
+[0020](./notes/0020-spec-as-is-until-3-0-ga.md)). v2 lives on the `2.3.x` maintenance
 branch: read it with `git show 2.3.x:<path>` and lift on purpose, never copy by reflex.
 [0001](./notes/0001-v2-reuse-analysis.md) lists what is worth lifting: `internal/registry`
 and its availability statuses, the config merge, `internal/info`, the envtest suite
@@ -133,7 +134,7 @@ digests, timeouts), do the same or the closest possible, so kuik feels transpare
 what the kubelet does, cite it, and recommend it first. Follow it when the reasons are the
 same: the finalizer backoff of an ImageMirror keeps its 30-minute cap, since it waits for
 pods, not for a pull. Where `docs/v3/` decides otherwise, the spec stands
-([0010](./notes/0010-spec-as-is-until-the-alpha-runs.md)): recommend the kubelet behaviour
+([0020](./notes/0020-spec-as-is-until-3-0-ga.md)): recommend the kubelet behaviour
 to the maintainers, never edit the spec to get it.
 
 ## Docs

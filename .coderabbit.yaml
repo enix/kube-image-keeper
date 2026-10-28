@@ -119,9 +119,9 @@ reviews:
   path_instructions:
     - path: "**"
       instructions: |
-        docs/v3 is frozen until the alpha runs (notes/0010); deviations
-        are tracked as amendments outside the repository. Never ask to
-        edit docs/v3 to match the code.
+        docs/v3 is frozen until 3.0 GA (notes/0020); deviations are
+        tracked as amendments outside the repository and folded into
+        docs/v3 after GA. Never ask to edit docs/v3 to match the code.
 
     - path: "internal/webhook/**/*.go"
       instructions: |

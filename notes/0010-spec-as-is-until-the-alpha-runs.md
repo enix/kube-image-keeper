@@ -1,6 +1,6 @@
 # 0010 — The spec is implemented as written until an alpha runs
 
-**Date:** 2026-09-28 · **Edited:** 2026-10-09 (references to private pages removed, decision unchanged) · **Status:** decided
+**Date:** 2026-09-28 · **Edited:** 2026-10-09 (references to private pages removed, decision unchanged) · **Status:** decided; how long the spec stays as written superseded by [0020](./0020-spec-as-is-until-3-0-ga.md)
 
 **Decision:** the 3.0 alphas implement `docs/v3/` as it is written, defaults included. The
 spec is not reworked before an alpha runs end to end. A point that needs an arbitration or
