@@ -56,7 +56,7 @@ If you encounter any issues with kube-image-keeper or have ideas for new feature
 We welcome contributions through pull requests. For your pull request to be accepted, it requires to:
 
 - Pass all tests (run `task test` locally before pushing).
-- Include tests covering any new behavior or bug fix, committed before the code: a `test` commit whose new specs fail, then the `feat` or `fix` commit that makes them pass (e2e specs aside, written last).
+- Include tests covering any new behavior or bug fix, committed before the code: a `test` commit whose new specs fail, then the `feat` or `fix` commit that makes them pass (e2e specs aside, written last). `task check-commits` runs the specs each `test` commit adds or changes and fails when they already pass there.
 - End the body of every `fix` commit with `Introduced-by: #<PR>`, the pull request that introduced the bug, found with `git log`, `git blame` or the pull request history (`Introduced-by: unknown` only when nobody can tell). The release notes read it: a bug of a released version is reported with the version that introduced it, a bug of a feature never released is left out. The `Conform` check and `task check-commits` reject a `fix` commit without it; Dependabot's `fix(deps)` commits, which fix no bug, are exempt.
 - Follow the [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/#summary) specification (enforced on every pull request).
 - Contain no merge commits (the `Conform` check rejects them). To bring your branch up to date with `main`, rebase it (`git rebase origin/main`) instead of merging `main` into it.
