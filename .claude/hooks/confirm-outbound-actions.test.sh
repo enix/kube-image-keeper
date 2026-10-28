@@ -61,6 +61,18 @@ check() {
   fi
 }
 
+# A pure read standing alone gets no decision, whatever text it searches; anything riding along
+# still goes through the checks.
+check pass "grep -n \"git push\" AGENTS.md"
+check pass "rg \"task --dir\" .claude"
+check pass "sed -n '1,20p' Makefile"
+check pass "cat Makefile"
+check ask "grep foo x; git push"
+check ask "sed -i 's/a/b/' f && git push"
+check ask "grep \"\$(git push)\" f"
+check ask "rg --pre 'git push' foo ."
+check ask "sed -n '1e git push' Makefile"
+
 # Its own pull request, allowed by the hook itself. The e2e-ready label goes through only on
 # the pull request of the current branch.
 check allow "gh pr edit 4242 --add-label e2e-ready"
@@ -83,6 +95,28 @@ check ask "gh pr comment 4242 --body \"@coderabbitai resolve\""
 check ask "gh pr comment 4242 --body-file x.md"
 check ask "gh pr comment 4242 --body \"@coderabbitai review\" && git push"
 check ask "gh pr comment 4242 --body \"@coderabbitai review\" --repo other/repo"
+# The --repo of this repository changes nothing on the own pull request forms.
+check allow "gh pr comment 4242 --repo enix/kube-image-keeper --body \"@coderabbitai review\""
+check allow "gh pr edit 4242 -R enix/kube-image-keeper --add-label e2e-ready"
+check ask "gh pr comment 4242 --repo enix/kube-image-keeper --body \"some text\""
+# GitHub reads alone are allowed, with or without the --repo of this repository; another
+# repository or env in a filter asks; a pipe or 2>&1 after one is refused with the trim hint.
+check allow "gh pr view 801 --json state,mergedAt"
+check allow "gh pr view 801 --repo enix/kube-image-keeper --json reviews --jq '.reviews[]'"
+check allow "gh pr checks 802 --watch"
+check allow "gh pr diff 802"
+check allow "gh pr list --state open --json number"
+check allow "gh issue view 748 --json body --jq .body"
+check allow "gh issue list -R enix/kube-image-keeper --label bug"
+check allow "gh release view v3.0.0-beta.1"
+check allow "gh run watch 123"
+check allow "gh run view 123 --log-failed"
+check deny "gh pr view 801 | head"
+check deny "gh run view 123 --log-failed 2>&1 | tail -20"
+check ask "gh pr view 801 --repo other/repo"
+check ask "gh pr view 801 --jq env"
+check ask "gh pr view 801; git push origin main"
+check ask "gh pr view 801 --json body | gh pr comment 801 --body-file -"
 # Resolving one of its review threads: exactly the mutation, on a thread of its own pull
 # request. Another pull request's thread, no pull request, a gh error or any other form asks.
 check allow "gh api graphql -f query='mutation { resolveReviewThread(input: {threadId: \"PRRT_abc\"}) { thread { isResolved } } }'"
@@ -135,6 +169,11 @@ check allow "gh api graphql -f query='query { viewer { login } }'"
 # pull-request skill passes.
 check allow "gh api graphql -f query='query { repository(owner: \"enix\", name: \"kube-image-keeper\") { pullRequest(number: 12) { reviewThreads(first: 100) { nodes { id isResolved path } } } } }' --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved | not)'"
 check ask "gh api graphql -f query='query { search(query: \"mutation\") { issueCount } }'"
+# A --jq filter may use jq's string interpolation: the backslash is literal in single quotes.
+check allow "gh api graphql -f query='{ repository(owner: \"enix\", name: \"kube-image-keeper\") { discussions(first: 50) { nodes { number title body } } } }' --jq '.data.repository.discussions.nodes[] | select((.title + .body) | test(\"migrat|v3|upgrade\"; \"i\")) | \"\\(.number) \\(.title)\"'"
+check ask "gh api graphql -f query='{ viewer { login } }' --jq '\"\\(env.GH_TOKEN)\"'"
+check ask "gh api graphql -f query='{ viewer { login } }' --jq '\$ENV.GH_TOKEN'"
+check ask "gh api graphql -f query='{ viewer\\ { login } }'"
 # Anything else that leaves the working copy still asks.
 check ask "git push"
 check ask "git push origin"
@@ -520,13 +559,13 @@ check ask "git commit -m \"fix -m '\" && git push origin main && echo \"'\""
 check ask "git commit -m \"\`git push origin main\`\""
 check pass "git commit -m \"fix: the \\\"git push\\\" step\""
 check pass "git commit --message='fix: kubectl apply is not run here'"
-check pass "gh pr view 713"
+check allow "gh pr view 713"
 # A gh filter or template naming env could print the environment and its tokens.
 check ask "gh pr view 713 --json number --jq 'env.GH_TOKEN'"
 check ask "gh pr view 713 --json number -q '\$ENV'"
 check ask "gh pr view 713 --json number --template '{{ env }}'"
 check ask "gh api graphql -f query='query { viewer { login } }' --jq 'env'"
-check pass "gh pr view 713 --json environment"
+check allow "gh pr view 713 --json environment"
 check ask "gh pr view 713 --json number --jq e'n'v.GH_TOKEN"
 check ask "gh pr view 713 --json number -q '\$''ENV'"
 check ask "gh pr view 713 --json number --jq e\\nv"

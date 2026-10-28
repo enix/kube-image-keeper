@@ -169,7 +169,9 @@ build are in [`.claude/rules/docs.md`](./.claude/rules/docs.md).
   a `task` with `--taskfile`, `--dir` or `--global` (except a leading `-d` to the top of a
   worktree under `.claude/worktrees/`, checked as the plain task run there),
   `helm install`, `kubectl apply|label`...), in every permission
-  mode, even when several tasks share one call (`task build deploy`). Not forbidden: the
+  mode, even when several tasks share one call (`task build deploy`); a pure read standing
+  alone (`grep`, `rg`, `sed -n '<range>p'`, `cat`, `head`, `tail`, `wc`) is never taken for
+  the commands its text names. Not forbidden: the
   user decides, the agent never does it on its own
   ([0003](./notes/0003-agent-orchestration.md)). To let a session drive its own pull
   request, the hook itself allows 7 single commands, with no prompt: `git push origin <current feature branch>`
@@ -188,7 +190,9 @@ build are in [`.claude/rules/docs.md`](./.claude/rules/docs.md).
   request) on the pull request of the current branch, and a read written
   `gh api graphql -f query='...' [--jq '...']`, with no single quote, backslash, `$` or
   backtick inside the query (double quotes are fine), no `$` in the filter and no `mutation`
-  (any other form asks). Each form must match the
+  (any other form asks), and the reads `gh pr view|list|checks|diff`, `gh release view`,
+  `gh run view|watch|list`, `gh issue view|list`. Every gh form accepts
+  `--repo enix/kube-image-keeper` (or `-R`); another repository asks. Each form must match the
   whole command, so no quoting can hide a second command: run them alone. A read followed by
   a pipe or `2>&1` is refused with the way to trim it (`--jq`, GraphQL `first:`); any other
   addition asks. Any other `gh pr merge` (a direct merge, unpinned) still asks.

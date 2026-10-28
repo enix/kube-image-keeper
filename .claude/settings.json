@@ -55,6 +55,7 @@
       "Bash(git grep *)",
       "Bash(git log *)",
       "Bash(git diff *)",
+      "Bash(git merge-base *)",
       "Bash(git status *)",
       "Bash(helm lint *)",
       "Bash(helm template *)",

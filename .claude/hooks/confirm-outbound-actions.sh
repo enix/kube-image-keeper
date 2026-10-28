@@ -2,9 +2,9 @@
 # PreToolUse hook (Bash): commands that leave the working copy (push, pull requests,
 # releases, deployments) ask the user first, whatever the permission mode. They are not
 # forbidden: notes/0003 says the agent never does them on its own. A session drives its own
-# pull request without asking for 5 single commands: pushing its feature branch, adding the
-# e2e-ready label, disabling auto-merge, asking CodeRabbit for a review, and a GraphQL read.
-# Merging, and enabling auto-merge, still ask.
+# pull request without asking: the hook allows pushing its feature branch, the e2e-ready
+# label, disabling and enabling (pinned) auto-merge, a CodeRabbit review request, resolving a
+# review thread, GraphQL and gh reads. A direct merge still asks.
 set -eu
 
 command -v jq >/dev/null 2>&1 || {
@@ -15,6 +15,25 @@ input=$(cat)
 cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // empty')
 cwd=$(printf '%s' "$input" | jq -r '.cwd // empty')
 [ -n "$cmd" ] || exit 0
+
+# A pure read standing alone leaves nothing to check: the text it searches may say "git push"
+# or "task --dir", which the scan below would take for commands. grep, rg (without --pre, which
+# runs a program), cat, head, tail and wc, and sed -n with one line-range print script, with no
+# shell operator, redirection, substitution or second line, get no decision here: the rest of
+# the configuration applies.
+case "$cmd" in
+  *[\;\&\|\<\>\`\$]* | *'
+'* | *"$(printf '\r')"*) ;;
+  *)
+    if printf '%s' "$cmd" | grep -Eq '^(grep|rg|cat|head|tail|wc)([[:space:]]|$)' &&
+      ! printf '%s' "$cmd" | grep -Eq '^rg([[:space:]].*)?[[:space:]]--pre'; then
+      exit 0
+    fi
+    if printf '%s' "$cmd" | grep -Eq "^sed[[:space:]]+-n[[:space:]]+('[0-9]+(,[0-9]+)?p'|[0-9]+(,[0-9]+)?p)([[:space:]]+[^-[:space:]][^[:space:]]*)+[[:space:]]*\$"; then
+      exit 0
+    fi
+    ;;
+esac
 
 # worktree_top prints the physical path of dir, read from cwd, when it is the top level of a
 # worktree of this repository, listed by git worktree list, under the main worktree's
@@ -88,6 +107,9 @@ allowed() {
     *'
 '* | *"$(printf '\r')"*) return 1 ;;
   esac
+  # The gh forms below read the command without the --repo of this repository, which agents
+  # add by habit: it names the repository they run on anyway. Any other --repo asks above.
+  gcmd=$(printf '%s' "$cmd" | sed -E 's/[[:space:]]+(--repo|-R)([[:space:]]+|=)enix\/kube-image-keeper([[:space:]]|$)/\3/g')
   # Its own feature branch, named, to the remote branch of the same name: never main, a
   # maintenance or release branch, never a plain --force, a tag or a refspec. A bare
   # `git push` or `git push origin` goes where push.default and the upstream say, which may
@@ -118,23 +140,23 @@ allowed() {
       ;;
   esac
   # The e2e-ready label, on the pull request of the current branch only.
-  if printf '%s' "$cmd" | grep -Eq '^gh[[:space:]]+pr[[:space:]]+edit[[:space:]]+[0-9]+[[:space:]]+--add-label[[:space:]]+e2e-ready[[:space:]]*$'; then
-    n=$(printf '%s' "$cmd" | sed 's/^gh[[:space:]]*pr[[:space:]]*edit[[:space:]]*\([0-9]*\).*/\1/')
+  if printf '%s' "$gcmd" | grep -Eq '^gh[[:space:]]+pr[[:space:]]+edit[[:space:]]+[0-9]+[[:space:]]+--add-label[[:space:]]+e2e-ready[[:space:]]*$'; then
+    n=$(printf '%s' "$gcmd" | sed 's/^gh[[:space:]]*pr[[:space:]]*edit[[:space:]]*\([0-9]*\).*/\1/')
     own=$(cd "${cwd:-.}" 2>/dev/null && gh pr view --json number --jq .number 2>/dev/null || true)
     [ -n "$own" ] && [ "$n" = "$own" ] && return 0
   fi
   # Disabling auto-merge on the pull request of the current branch: it only lowers the risk.
-  if printf '%s' "$cmd" | grep -Eq '^gh[[:space:]]+pr[[:space:]]+merge[[:space:]]+[0-9]+[[:space:]]+--disable-auto[[:space:]]*$'; then
-    n=$(printf '%s' "$cmd" | sed 's/^gh[[:space:]]*pr[[:space:]]*merge[[:space:]]*\([0-9]*\).*/\1/')
+  if printf '%s' "$gcmd" | grep -Eq '^gh[[:space:]]+pr[[:space:]]+merge[[:space:]]+[0-9]+[[:space:]]+--disable-auto[[:space:]]*$'; then
+    n=$(printf '%s' "$gcmd" | sed 's/^gh[[:space:]]*pr[[:space:]]*merge[[:space:]]*\([0-9]*\).*/\1/')
     own=$(cd "${cwd:-.}" 2>/dev/null && gh pr view --json number --jq .number 2>/dev/null || true)
     [ -n "$own" ] && [ "$n" = "$own" ] && return 0
   fi
   # Auto-merge by rebase on the pull request of the current branch, pinned to the commit
   # checked out here: a later push cannot be merged on it. Starting the work on a pull request
   # is the go to merge it once CodeRabbit and the required checks pass.
-  if printf '%s' "$cmd" | grep -Eq '^gh[[:space:]]+pr[[:space:]]+merge[[:space:]]+[0-9]+[[:space:]]+--auto[[:space:]]+--rebase[[:space:]]+--match-head-commit[[:space:]]+[0-9a-f]{40}[[:space:]]*$'; then
-    n=$(printf '%s' "$cmd" | sed 's/^gh[[:space:]]*pr[[:space:]]*merge[[:space:]]*\([0-9]*\).*/\1/')
-    sha=$(printf '%s' "$cmd" | sed -E 's/.*--match-head-commit[[:space:]]+([0-9a-f]{40}).*/\1/')
+  if printf '%s' "$gcmd" | grep -Eq '^gh[[:space:]]+pr[[:space:]]+merge[[:space:]]+[0-9]+[[:space:]]+--auto[[:space:]]+--rebase[[:space:]]+--match-head-commit[[:space:]]+[0-9a-f]{40}[[:space:]]*$'; then
+    n=$(printf '%s' "$gcmd" | sed 's/^gh[[:space:]]*pr[[:space:]]*merge[[:space:]]*\([0-9]*\).*/\1/')
+    sha=$(printf '%s' "$gcmd" | sed -E 's/.*--match-head-commit[[:space:]]+([0-9a-f]{40}).*/\1/')
     head=$(git -C "${cwd:-.}" rev-parse HEAD 2>/dev/null || true)
     own=$(cd "${cwd:-.}" 2>/dev/null && gh pr view --json number --jq .number 2>/dev/null || true)
     [ -n "$own" ] && [ "$n" = "$own" ] && [ "$sha" = "$head" ] && return 0
@@ -142,8 +164,8 @@ allowed() {
   # A CodeRabbit review request, on the pull request of the current branch only, with
   # exactly that body.
   review="(\"@coderabbitai (full )?review\"|'@coderabbitai (full )?review')"
-  if printf '%s' "$cmd" | grep -Eq "^gh[[:space:]]+pr[[:space:]]+comment[[:space:]]+[0-9]+[[:space:]]+(--body|-b)[[:space:]]+${review}[[:space:]]*\$"; then
-    n=$(printf '%s' "$cmd" | sed 's/^gh[[:space:]]*pr[[:space:]]*comment[[:space:]]*\([0-9]*\).*/\1/')
+  if printf '%s' "$gcmd" | grep -Eq "^gh[[:space:]]+pr[[:space:]]+comment[[:space:]]+[0-9]+[[:space:]]+(--body|-b)[[:space:]]+${review}[[:space:]]*\$"; then
+    n=$(printf '%s' "$gcmd" | sed 's/^gh[[:space:]]*pr[[:space:]]*comment[[:space:]]*\([0-9]*\).*/\1/')
     own=$(cd "${cwd:-.}" 2>/dev/null && gh pr view --json number --jq .number 2>/dev/null || true)
     [ -n "$own" ] && [ "$n" = "$own" ] && return 0
   fi
@@ -161,14 +183,26 @@ allowed() {
   if printf '%s' "$cmd" | grep -Eq "${graphql_read}[[:space:]]*\$" && ! printf '%s' "$cmd" | grep -iq 'mutation'; then
     return 0
   fi
+  # A GitHub read of a pull request, an issue, a release or a workflow run.
+  if printf '%s' "$gcmd" | grep -Eq "${gh_read}[[:space:]]*\$"; then
+    return 0
+  fi
   return 1
 }
 
 # A GraphQL read: one query in single quotes, with no single quote, backslash, $ or backtick
 # inside (double quotes are literal there), so the shell passes it as written and "mutation"
-# cannot be split or built; optionally a --jq filter written the same way.
+# cannot be split or built; optionally a --jq filter in single quotes too, where a backslash
+# is allowed for jq's string interpolation "\(.x)": the shell reads it literally, and a filter
+# that reads env still asks below. A $ stays out ($ENV reads the environment too).
 sq="[^'\\\$\`]*"
-graphql_read="^gh[[:space:]]+api[[:space:]]+graphql[[:space:]]+-f[[:space:]]+query='${sq}'([[:space:]]+--jq[[:space:]]+'${sq}')?"
+jq_sq="[^'\$\`]*"
+graphql_read="^gh[[:space:]]+api[[:space:]]+graphql[[:space:]]+-f[[:space:]]+query='${sq}'([[:space:]]+--jq[[:space:]]+'${jq_sq}')?"
+# A gh read: pr view|list|checks|diff, release view, run view|watch|list, issue view|list,
+# each argument plain characters or one quoted piece with no $, backtick or backslash (a
+# --jq filter in single quotes may hold a backslash, as for the GraphQL read).
+gh_arg="[[:space:]]+([A-Za-z0-9=,./:_@+%#-]+|'${jq_sq}'|\"[^\"\$\`\\\\]*\")"
+gh_read="^gh[[:space:]]+(pr[[:space:]]+(view|list|checks|diff)|release[[:space:]]+view|run[[:space:]]+(view|watch|list)|issue[[:space:]]+(view|list))(${gh_arg})*"
 resolve_thread="^gh api graphql -f query='mutation \{ resolveReviewThread\(input: \{threadId: \"PRRT_[A-Za-z0-9_-]+\"\}\) \{ thread \{ (id |isResolved )+\} \} \}'\$"
 # gh's --jq and --template can read the environment (env.GH_TOKEN): a gh command naming env
 # asks, even a read the allow rules or the forms above let through.
@@ -180,6 +214,20 @@ if printf '%s' "$cmd" | grep -Eq '(^|[;&|(`[:space:]"'"'"'])gh[[:space:]]' &&
       hookEventName: "PreToolUse",
       permissionDecision: "ask",
       permissionDecisionReason: "This gh command names env, which a --jq or --template filter can use to print the environment and its tokens: the user confirms it explicitly."
+    }
+  }'
+  exit 0
+fi
+
+# A gh command aimed at another repository asks: the forms below hold for this one only.
+if printf '%s' "$cmd" | grep -Eq '(^|[;&|(`[:space:]"'"'"'])gh[[:space:]]' &&
+  printf '%s' "$cmd" | grep -Eq '[[:space:]](--repo|-R)([[:space:]]+|=)' &&
+  printf '%s' "$cmd" | sed -E 's/[[:space:]](--repo|-R)([[:space:]]+|=)enix\/kube-image-keeper([[:space:]]|$)/\3/g' | grep -Eq '[[:space:]](--repo|-R)([[:space:]]+|=)'; then
+  jq -n '{
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "ask",
+      permissionDecisionReason: "This gh command names a repository other than enix/kube-image-keeper: the user confirms it explicitly."
     }
   }'
   exit 0
@@ -198,13 +246,15 @@ if allowed; then
   exit 0
 fi
 
-# An allowed GraphQL read followed by a pipe or 2>&1 is refused with the way to run it alone:
+# An allowed GraphQL or gh read followed by a pipe or 2>&1 is refused with the way to run it alone:
 # the agent corrects it without prompting the user. A chain (; &&) or a pipe into gh asks.
 case "$cmd" in
   *'
 '* | *"$(printf '\r')"*) ;;
   *)
-    if printf '%s' "$cmd" | grep -Eq "${graphql_read}([[:space:]]+2>&1)?[[:space:]]*(\\||\$)" &&
+    rcmd=$(printf '%s' "$cmd" | sed -E 's/[[:space:]]+(--repo|-R)([[:space:]]+|=)enix\/kube-image-keeper([[:space:]]|$)/\3/g')
+    if { printf '%s' "$cmd" | grep -Eq "${graphql_read}([[:space:]]+2>&1)?[[:space:]]*(\\||\$)" ||
+      printf '%s' "$rcmd" | grep -Eq "${gh_read}([[:space:]]+2>&1)?[[:space:]]*(\\||\$)"; } &&
       ! printf '%s' "$cmd" | grep -iq 'mutation' &&
       ! printf '%s' "$cmd" | grep -Eq '(;|&&|\|\|)' &&
       ! printf '%s' "$cmd" | grep -Eq '\|[[:space:]]*([^[:space:]|]*/)?gh([[:space:]]|$)'; then
