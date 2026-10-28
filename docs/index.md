@@ -32,14 +32,14 @@ hero:
 It relies on three core mechanisms:
 
 - **Image routing**: rewrites Pod image paths on the fly during their creation to redirect them to a functional registry.
-- **Image copy**: mirror images **used by the local cluster** accross registries, building a virtual, highly available registry.
+- **Image copy**: mirror images **used by the local cluster** across registries, building a virtual, highly available registry.
 - **Image monitoring**: continuously tracks the availability of Pod images **used within the local cluster** across various registries.
 
 Its background reads are **quota-friendly by design**: they are paced per registry, and a single request serves every resource tracking the same image, so kuik never adds to the rate limit it protects you from. See [Registry pacing](./concepts/pacing.md).
 
-Note : image routing is performed at Pod creation by a lightweight `MutatingWebhook` that automatically rewrites the image path whenever the source registry becomes unavailable.
+Note: image routing is performed at Pod creation by a lightweight `MutatingWebhook` that automatically rewrites the image path whenever the source registry becomes unavailable.
 
-Developed by Enix, kube-image-keeper is a battle-tested solution currently running in production across multiple Kubernetes clusters.
+Developed by Enix, kube-image-keeper has run in production across many Kubernetes clusters since its first versions. v3, a rewrite, is in beta: every feature planned for 3.0 is in, but it is not stable yet, so try it on a test or staging cluster rather than in production, and [tell us how it goes](https://github.com/enix/kube-image-keeper/issues).
 
 ## Explore the docs
 
