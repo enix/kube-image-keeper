@@ -6,7 +6,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
+	"syscall"
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -46,6 +49,17 @@ var retryStatusCodes = []int{
 	http.StatusGatewayTimeout,
 	499, // nginx-specific, client closed request
 	522, // Cloudflare-specific, connection timeout
+}
+
+// retryPredicate is go-containerregistry's default retry predicate.
+func retryPredicate(err error) bool {
+	// retry.IsTemporary, internal to go-containerregistry.
+	temporary, ok := err.(interface{ Temporary() bool })
+	if ok && temporary.Temporary() && !errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	return errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) || errors.Is(err, syscall.EPIPE) ||
+		errors.Is(err, syscall.ECONNRESET) || errors.Is(err, net.ErrClosed)
 }
 
 // Endpoint is one reference kuik reads or writes, with what it takes to reach it.

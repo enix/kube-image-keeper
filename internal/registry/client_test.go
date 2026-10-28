@@ -2,10 +2,12 @@ package registry
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"sync"
 	"time"
 
+	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -159,3 +161,21 @@ var _ = Describe("Client", func() {
 		})
 	})
 })
+
+var _ = DescribeTable("retryPredicate",
+	func(err error, retried bool) {
+		Expect(retryPredicate(err)).To(Equal(retried))
+	},
+	Entry("does not retry a bare 429", &transport.Error{StatusCode: http.StatusTooManyRequests}, false),
+	Entry("does not retry a 429 with a TOOMANYREQUESTS diagnostic", &transport.Error{
+		StatusCode: http.StatusTooManyRequests,
+		Errors:     []transport.Diagnostic{{Code: transport.TooManyRequestsErrorCode}},
+	}, false),
+	Entry("retries a bare 503", &transport.Error{StatusCode: http.StatusServiceUnavailable}, true),
+	Entry("retries a 503 with a TOOMANYREQUESTS diagnostic", &transport.Error{
+		StatusCode: http.StatusServiceUnavailable,
+		Errors:     []transport.Diagnostic{{Code: transport.TooManyRequestsErrorCode}},
+	}, true),
+	Entry("retries an unexpected EOF", io.ErrUnexpectedEOF, true),
+	Entry("does not retry an exceeded deadline", context.DeadlineExceeded, false),
+)
