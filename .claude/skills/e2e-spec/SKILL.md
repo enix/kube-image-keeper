@@ -27,7 +27,9 @@ the call through the chart's RBAC: envtest's admin client hides a missing grant.
 
 On a PR, the suite runs only under the `e2e-ready` label
 ([0013](../../../notes/0013-e2e-ready-label.md)): once the PR is reviewed, its e2e specs are
-pushed and its `fixup!` commits are autosquashed, ask the user to add it. The required `E2E`
+pushed and its `fixup!` commits are autosquashed, add it yourself (`gh pr edit <n>
+--add-label e2e-ready`, which the outbound hook allows on the pull request of the current
+branch; step 5 of the [`pull-request`](../pull-request/SKILL.md) skill). The required `E2E`
 check fails until then, unless the PR changes no path the suite depends on.
 
 ## Workflow
@@ -120,10 +122,15 @@ the others. A top-level `AfterEach` dumps logs, events and pod descriptions on f
   - `scaleWebhook`, `webhookPods`, `webhookRestarts`, `deploymentAvailable`: the webhook
     Deployment and its pods; `webhookRestarts` is what a "without a restart" spec compares.
   - `kubectlStdin`: kubectl with a manifest on stdin.
-- [`mirror_test.go`](../../../test/e2e/mirror_test.go): the `Image mirroring` container. A
-  distribution v3 registry in `kuik-e2e-registry` (htpasswd, tag deletion on), addressed by
-  its DNS name so that `destination.insecure` matters, and pods in `kuik-e2e-mirror`.
-  `registryTags` reads the tags of a repository from the registry's storage.
+- [`mirror_test.go`](../../../test/e2e/mirror_test.go): the `Image mirroring` container,
+  pods in `kuik-e2e-mirror`. A `destinationRegistry` is a distribution v3 registry in
+  `kuik-e2e-registry` (htpasswd), addressed by its DNS name so that `destination.insecure`
+  matters; `host()`, `manifest()` and `tags(repository)` (read from its storage). Two of them:
+  `deletingRegistry` (`registry`, secret `e2e-mirror-manage`) deletes tags;
+  `refusingRegistry` (`registry-nodelete`, secret `e2e-mirror-manage-nodelete`) sits behind an
+  nginx (`refusingProxyConfig`) that answers 400 UNSUPPORTED to every DELETE, as Harbor does.
+  A distribution registry deletes a tag even with `REGISTRY_STORAGE_DELETE_ENABLED=false`,
+  hence the proxy; its registry listens on 5002, since 5001 is the registry's debug server.
 - [`test/utils`](../../../test/utils/utils.go): `Run` (runs a command from the project
   directory), `LoadImageToKindClusterWithName`, `GetNonEmptyLines`, the cert-manager install
   helpers.
