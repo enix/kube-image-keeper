@@ -5,6 +5,7 @@ package e2e
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -72,7 +73,15 @@ const (
 	httpMirror = "e2e-mirror-http"
 	// refusedMirror copies to refusingRegistry
 	refusedMirror = "e2e-mirror-refused"
+	// routedMirror routes the pods of mirrorNamespace to its copies on deletingRegistry
+	routedMirror = "e2e-mirror-routed"
+	// downMirror routes the pods of mirrorNamespace labelled downPodLabel to a destination that
+	// does not resolve
+	downMirror = "e2e-mirror-down"
 )
+
+// downPodLabel is the pod label downMirror selects: the running pause pod lacks it
+const downPodLabel = "kuik.enix.io/e2e-mirror-down"
 
 // manifest is the Deployment and the Service of the registry, its password file written by an
 // init container
@@ -157,12 +166,50 @@ spec:
 `, name, mirrorLabel, destination.host(), repository, insecure, destination.secret)
 }
 
+// alwaysMirrorManifest is an ImageMirror routing the pods of mirrorNamespace to its copies under
+// path, over plain HTTP, reading the destination with secret for the pushes and the webhook's
+// checks alike. It injects no pull Secret and cleans nothing up: no node can pull from the
+// destination anyway, and the registry goes with its namespace. A podLabel restricts it to the
+// pods carrying `<podLabel>: "true"`; empty, it applies to every pod of the namespace.
+func alwaysMirrorManifest(name, path, secret, podLabel string) string {
+	return fmt.Sprintf(`
+apiVersion: kuik.enix.io/v1alpha1
+kind: ImageMirror
+metadata:
+  name: %[1]s
+spec:
+  rewritePolicy: Always
+  namespaceSelector:
+    matchLabels:
+      %[2]s: "true"
+  podSelector:
+    matchLabels: {%[5]s}
+  cleanup:
+    enabled: false
+  destination:
+    path: %[3]s
+    insecure: true
+    manage:
+      auth:
+        secretRef:
+          name: %[4]s
+    pull:
+      auth:
+        secretRef:
+          name: %[4]s
+        injectPullSecret: false
+`, name, mirrorLabel, path, secret, trueLabel(podLabel))
+}
+
 var _ = Describe("Image mirroring", Ordered, func() {
-	var clusterID, mirroredImage string
+	var clusterID, pauseDigest, mirroredImage string
 
 	BeforeAll(func() {
-		By("waiting for the reconciler Deployment to become available")
+		startAPIProxy()
+
+		By("waiting for the reconciler and webhook Deployments to become available")
 		Eventually(deploymentAvailable).WithArguments("reconciler").Should(Succeed())
+		Eventually(deploymentAvailable).WithArguments("webhook").Should(Succeed())
 
 		By("reading the cluster ID the reconciler generated")
 		var err error
@@ -206,7 +253,8 @@ var _ = Describe("Image mirroring", Ordered, func() {
 		arch, err := kubectl("get", "nodes", "-o", "jsonpath={.items[0].status.nodeInfo.architecture}")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(pauseManifests).To(HaveKey(arch), "no pinned pause manifest for this node architecture")
-		mirroredImage = availableImage + "@" + pauseManifests[arch]
+		pauseDigest = pauseManifests[arch]
+		mirroredImage = availableImage + "@" + pauseDigest
 		Expect(kubectlStdin(mirrorPodManifest("pause", mirroredImage), "create", "-f", "-")).
 			Error().NotTo(HaveOccurred())
 		Eventually(kubectl).WithArguments("get", "pod", "pause", "-n", mirrorNamespace,
@@ -218,9 +266,11 @@ var _ = Describe("Image mirroring", Ordered, func() {
 		// registry still answers, then drop what holds it, or the CRD uninstall of the suite
 		// would wait on it. The deletion spec is what checks the finalizer.
 		// refusedMirror is gone unless its spec failed, and its destination never lets it go.
-		_, _ = kubectl("delete", "imagemirrors", copyMirror, httpMirror, refusedMirror, "--ignore-not-found", "--wait=false")
+		// The routing specs delete their mirrors themselves, unless they failed.
+		_, _ = kubectl("delete", "imagemirrors", copyMirror, httpMirror, refusedMirror, routedMirror, downMirror,
+			"--ignore-not-found", "--wait=false")
 		_, _ = kubectl("wait", "--for=delete", "imagemirror/"+copyMirror, "imagemirror/"+httpMirror, "--timeout=50s")
-		for _, name := range []string{copyMirror, httpMirror, refusedMirror} {
+		for _, name := range []string{copyMirror, httpMirror, refusedMirror, routedMirror, downMirror} {
 			_, _ = kubectl("patch", "imagemirror", name, "--type=merge", "-p", `{"metadata":{"finalizers":null}}`)
 		}
 		_, _ = kubectl("delete", "ns", mirrorNamespace, registryNamespace, "--wait=false")
@@ -309,17 +359,97 @@ var _ = Describe("Image mirroring", Ordered, func() {
 				Expect(refusingRegistry.tags("refused/registry.k8s.io/pause")).To(ContainElement(pauseTag + "_" + clusterID))
 			})
 	})
+
+	// No node pulls from the in-cluster destination: these specs check what the webhook admits,
+	// never that the pod starts.
+	Context("with an Always ImageMirror", func() {
+		It("routes a new pod to its copy once the copy exists, recording the rewrite in kuik.enix.io/rewrites", func() {
+			routed := alwaysMirrorManifest(routedMirror, deletingRegistry.host()+"/routed/", deletingRegistry.secret, "")
+			Expect(kubectlStdin(routed, "apply", "-f", "-")).Error().NotTo(HaveOccurred())
+			DeferCleanup(kubectl, "delete", "imagemirror", routedMirror, "--ignore-not-found")
+
+			By("waiting for the copy of the running pod's image")
+			Eventually(deletingRegistry.tags, "4m").WithArguments("routed/registry.k8s.io/pause").
+				Should(ContainElement(pauseTag + "_" + clusterID))
+
+			copied := deletingRegistry.host() + "/routed/registry.k8s.io/pause:" + pauseTag + "_" + clusterID + "@" + pauseDigest
+			By("waiting until every webhook replica routes to the copy")
+			Eventually(mirrorReplicaPatches).WithArguments(mirroredImage).Should(everyReplica(ContainSubstring(copied)))
+
+			Expect(kubectlStdin(mirrorPodManifest("routed", mirroredImage), "create", "-f", "-")).
+				Error().NotTo(HaveOccurred())
+			// Deleted before the mirror, which a pod running its copy would hold.
+			DeferCleanup(kubectl, "delete", "pod", "routed", "-n", mirrorNamespace, "--ignore-not-found")
+
+			Expect(kubectl("get", "pod", "routed", "-n", mirrorNamespace,
+				"-o", "jsonpath={.spec.containers[0].image}")).To(Equal(copied))
+			Expect(kuikAnnotationsIn(mirrorNamespace, "routed")).To(HaveKeyWithValue("kuik.enix.io/rewrites",
+				MatchJSON(fmt.Sprintf(`{"pause":{"by":"ImageMirror/%s","origin":%q,"rewrittenTo":%q,"policy":"Always"}}`,
+					routedMirror, mirroredImage, copied))))
+		})
+
+		// After the spec above, which shows the webhook routing to an Always mirror.
+		It("leaves a new pod on its origin, with no kuik annotation, while its destination does not answer", func() {
+			// Its podSelector leaves the running pause pod out: no copy fails before the pod is admitted,
+			// so the webhook judges the destination by its own check, never by failedImageCopies.
+			down := alwaysMirrorManifest(downMirror, "kuik-e2e-mirror-down.invalid/routed/", deletingRegistry.secret,
+				downPodLabel)
+			Expect(kubectlStdin(down, "apply", "-f", "-")).Error().NotTo(HaveOccurred())
+			DeferCleanup(kubectl, "delete", "imagemirror", downMirror, "--ignore-not-found")
+
+			By("waiting until every webhook replica offers the mirror")
+			// An origin that does not answer either: the replica names the mirror among the resources
+			// whose candidates all failed, which tells it holds the mirror.
+			Eventually(mirrorReplicaPatches).WithArguments("e2e-mirror-down-origin.invalid/pause:" + pauseTag).
+				Should(everyReplica(ContainSubstring("ImageMirror/" + downMirror)))
+
+			By("waiting until every webhook replica leaves the pod on its origin")
+			// The first probe of a cold host (TLS, token, redirect) can exceed the webhook timeout.
+			Eventually(mirrorReplicaPatches).WithTimeout(30 * time.Second).WithArguments(mirroredImage).
+				Should(everyReplica(BeEmpty()))
+
+			Expect(kubectlStdin(labelledMirrorPodManifest("down", mirroredImage, downPodLabel), "create", "-f", "-")).
+				Error().NotTo(HaveOccurred())
+			DeferCleanup(kubectl, "delete", "pod", "down", "-n", mirrorNamespace, "--ignore-not-found")
+
+			Expect(kubectl("get", "pod", "down", "-n", mirrorNamespace,
+				"-o", "jsonpath={.spec.containers[0].image}")).To(Equal(mirroredImage))
+			Expect(kuikAnnotationsIn(mirrorNamespace, "down")).To(BeEmpty())
+		})
+	})
 })
+
+// mirrorReplicaPatches returns, for each webhook pod, the JSON patch it answers for a pod of
+// mirrorNamespace running image and labelled downPodLabel, asked directly through the API
+// server's proxy. No pod is created.
+func mirrorReplicaPatches(image string) (map[string]string, error) {
+	responses, err := replicaResponses(mirrorNamespace, labelledMirrorPodManifest("replica-probe", image, downPodLabel))
+	if err != nil {
+		return nil, err
+	}
+	patches := map[string]string{}
+	for pod, response := range responses {
+		patches[pod] = string(response.Patch)
+	}
+	return patches, nil
+}
 
 // mirrorPodManifest is a pod of the mirror namespace running image in one container named
 // pause, admissible under the restricted security policy.
 func mirrorPodManifest(name, image string) string {
+	return labelledMirrorPodManifest(name, image, "")
+}
+
+// labelledMirrorPodManifest is mirrorPodManifest with the label `<label>: "true"`, none when
+// label is empty.
+func labelledMirrorPodManifest(name, image, label string) string {
 	return fmt.Sprintf(`
 apiVersion: v1
 kind: Pod
 metadata:
   name: %s
   namespace: %s
+  labels: {%s}
 spec:
   containers:
     - name: pause
@@ -332,7 +462,15 @@ spec:
         runAsUser: 65535
         seccompProfile:
           type: RuntimeDefault
-`, name, mirrorNamespace, image)
+`, name, mirrorNamespace, trueLabel(label), image)
+}
+
+// trueLabel is the YAML flow mapping entry `<label>: "true"`, empty when label is.
+func trueLabel(label string) string {
+	if label == "" {
+		return ""
+	}
+	return fmt.Sprintf("%q: \"true\"", label)
 }
 
 // tags lists the tags the registry holds in repository, read from its storage: an empty list
