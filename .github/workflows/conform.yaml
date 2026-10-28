@@ -29,3 +29,19 @@ jobs:
 
       - name: Lint commits
         run: task conform BASE_BRANCH=origin/${{ github.event.pull_request.base.ref }}
+
+      # The rules conform cannot express: no feat or fix in the tooling scopes, and the
+      # Introduced-by line of every fix commit (the release notes read it).
+      # The script comes from the base branch: a PR cannot edit the check that judges it, and
+      # a branch cut before the script landed (Dependabot, forks) is still checked. A base
+      # without the script skips the check.
+      - name: Check the commit rules
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          script="$RUNNER_TEMP/check-commit-rules.sh"
+          if ! git show "origin/$BASE_REF:hack/check-commit-rules.sh" > "$script"; then
+            echo "::notice::origin/$BASE_REF has no hack/check-commit-rules.sh; skipping the commit rules check."
+            exit 0
+          fi
+          sh "$script" "origin/$BASE_REF"
