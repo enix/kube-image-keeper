@@ -310,7 +310,7 @@ tasks:
         {{.LOCALBIN}}/conform enforce {{if .COMMIT_MSG_FILE}}--commit-msg-file={{.COMMIT_MSG_FILE}}{{else}}--base-branch={{.BASE_BRANCH}}{{end}}
 
   check-commits:
-    desc: Check each commit since BASE_BRANCH (after an autosquash) - no feat or fix in the claude and e2e scopes, an Introduced-by line on every fix commit, feat commits pass task test (no e2e), the others build and vet
+    desc: Check each commit since BASE_BRANCH (after an autosquash) - no feat or fix in the claude and e2e scopes, an Introduced-by line on every fix commit, feat commits pass task test (no e2e), the others build and vet, and the specs a test commit adds or changes fail there
     cmds:
       # A scratch detached worktree, removed even on failure: the branch is never rebased nor
       # checked out. The envtest binaries stay in ENVTEST_BIN_DIR, outside of it.
@@ -319,6 +319,8 @@ tasks:
         # Checked first, it takes no build: no feat or fix in the tooling scopes, and the
         # Introduced-by line of every fix commit. The Conform workflow runs the same script.
         sh hack/check-commit-rules.sh '{{.BASE_BRANCH}}'
+        task setup-envtest >/dev/null
+        assets=$({{.LOCALBIN}}/setup-envtest use {{.ENVTEST_K8S_VERSION}} --bin-dir "{{.ENVTEST_BIN_DIR}}" -p path)
         commits=$(git rev-list --reverse '{{.BASE_BRANCH}}..HEAD')
         dir=$(mktemp -d)
         trap 'git worktree remove --force "$dir" || rm -rf "$dir"; git worktree prune' EXIT
@@ -331,6 +333,18 @@ tasks:
           case "$subject" in
             feat*) task -d "$dir" test ;;
             *) (cd "$dir" && go build ./... && go vet -tags e2e ./...) ;;
+          esac
+          # A test commit is red: the specs it adds or changes fail until the feat or fix after
+          # it. e2e specs come last and run on Kind only; the tooling scopes test no product code.
+          case "$subject" in
+            test\(claude\)* | test\(e2e\)*) ;;
+            test\(* | test:*)
+              pkgs=$(git diff-tree --no-commit-id --name-only -r --diff-filter=AM "$c" -- '*_test.go' ':!test/e2e/**' | xargs -r -n1 dirname | sort -u | sed 's#^#./#')
+              if [ -n "$pkgs" ] && (cd "$dir" && KUBEBUILDER_ASSETS="$assets" go test $pkgs >/dev/null 2>&1); then
+                echo "The specs of this test commit already pass: a test commit is red until the feat or fix after it ($pkgs)" >&2
+                exit 1
+              fi
+              ;;
           esac
         done
 
