@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -36,6 +37,9 @@ const unverifiedHost = "unverified." + tlsRegistryNamespace + ".svc.cluster.loca
 
 // tlsCASecret holds the CA of the registry, in the install namespace
 const tlsCASecret = "e2e-tls-ca"
+
+// tlsMonitor checks the images of the pods of tlsNamespace
+const tlsMonitor = "e2e-tls-monitor"
 
 // tlsMirror copies the pod of tlsNamespace to the HTTPS registry, under mirroredRepository
 const tlsMirror = "e2e-tls-mirror"
@@ -302,7 +306,95 @@ var _ = Describe("Registry TLS", Ordered, func() {
 				Should(everyReplica(Equal(rewritten(skipAlternative, origin, candidate))))
 		})
 	})
+
+	Context("with a caSecretRef entry whose Secret holds no usable CA", func() {
+		It("reports the host Unreachable to an ImageMonitor while its CA Secret is invalid or missing, "+
+			"with every process ready, and checks it again without a restart once the Secret is fixed", func() {
+			// The copy of the first spec: on the registry, under the CA of the Secret.
+			copied := tlsRegistryHost + "/" + mirroredRepository + "@" + digest
+			unavailable := fmt.Sprintf(`jsonpath={.status.unavailableImages[?(@.ref==%q)].reason}`, copied)
+			webhookBefore, reconcilerBefore := webhookRestarts(), processRestarts("reconciler")
+			encoded, err := kubectl("get", "secret", tlsCASecret, "-n", namespace, "-o", `jsonpath={.data.ca\.crt}`)
+			Expect(err).NotTo(HaveOccurred())
+			ca, err := base64.StdEncoding.DecodeString(encoded)
+			Expect(err).NotTo(HaveOccurred())
+			fixed := secretManifest(namespace, tlsCASecret, "Opaque", map[string][]byte{"ca.crt": ca})
+			// A pod turns unready some 30s after its first failed readiness probe (every 10s, 3
+			// failures): every pod of both processes is watched longer, from the change of the Secret.
+			staysReady := func() {
+				GinkgoHelper()
+				Consistently(kuikReadiness).WithTimeout(40*time.Second).Should(And(HaveLen(2),
+					HaveEach(And(Not(BeEmpty()), HaveEach("True")))), "a webhook or reconciler pod turned unready")
+			}
+
+			By("checking the copy, which the kubelet cannot pull, with an ImageMonitor")
+			Expect(kubectlStdin(tlsMonitorManifest, "apply", "-f", "-")).Error().NotTo(HaveOccurred())
+			DeferCleanup(kubectl, "delete", "imagemonitor", tlsMonitor, "--ignore-not-found")
+			Expect(kubectlStdin(tlsPodManifest("monitored", copied), "create", "-f", "-")).
+				Error().NotTo(HaveOccurred())
+			DeferCleanup(kubectl, "delete", "pod", "monitored", "-n", tlsNamespace, "--ignore-not-found")
+			// The pause pod of the namespace and the copy, checked on the reconciler's own windows, 10s
+			// apart on the e2e release.
+			Eventually(kubectl).WithTimeout(4*time.Minute).WithArguments("get", "imagemonitor", tlsMonitor,
+				"-o", "jsonpath={.status.images.origin.available}").Should(Equal("2"))
+
+			By("reporting it Unreachable once the Secret holds no certificate")
+			_, err = kubectl("patch", "secret", tlsCASecret, "-n", namespace, "--type=merge",
+				"-p", `{"stringData":{"ca.crt":"not a certificate"}}`)
+			Expect(err).NotTo(HaveOccurred())
+			staysReady()
+			Eventually(kubectl).WithArguments("get", "imagemonitor", tlsMonitor, "-o", unavailable).
+				Should(Equal("Unreachable"))
+
+			By("reporting it available again once the Secret holds the registry's CA")
+			Expect(kubectlStdin(fixed, "apply", "-f", "-")).Error().NotTo(HaveOccurred())
+			Eventually(kubectl).WithArguments("get", "imagemonitor", tlsMonitor, "-o", unavailable).
+				Should(BeEmpty())
+
+			By("reporting it Unreachable once the Secret is deleted")
+			_, err = kubectl("delete", "secret", tlsCASecret, "-n", namespace)
+			Expect(err).NotTo(HaveOccurred())
+			staysReady()
+			Eventually(kubectl).WithArguments("get", "imagemonitor", tlsMonitor, "-o", unavailable).
+				Should(Equal("Unreachable"))
+
+			By("reporting it available again once the Secret is created back")
+			Expect(kubectlStdin(fixed, "apply", "-f", "-")).Error().NotTo(HaveOccurred())
+			Eventually(kubectl).WithArguments("get", "imagemonitor", tlsMonitor, "-o", unavailable).
+				Should(BeEmpty())
+
+			Expect(webhookRestarts()).To(Equal(webhookBefore))
+			Expect(processRestarts("reconciler")).To(Equal(reconcilerBefore))
+		})
+	})
 })
+
+// kuikReadiness maps the webhook and the reconciler to the status of the Ready condition of each
+// of their pods.
+func kuikReadiness() (map[string][]string, error) {
+	readiness := map[string][]string{}
+	for _, process := range []string{"webhook", "reconciler"} {
+		output, err := kubectl("get", "pods", "-l", processSelector(process), "-n", namespace,
+			"-o", `jsonpath={.items[*].status.conditions[?(@.type=="Ready")].status}`)
+		if err != nil {
+			return nil, err
+		}
+		readiness[process] = strings.Fields(output)
+	}
+	return readiness, nil
+}
+
+// tlsMonitorManifest is an ImageMonitor checking the images of the pods of tlsNamespace
+var tlsMonitorManifest = fmt.Sprintf(`
+apiVersion: kuik.enix.io/v1alpha1
+kind: ImageMonitor
+metadata:
+  name: %s
+spec:
+  namespaceSelector:
+    matchLabels:
+      %s: "true"
+`, tlsMonitor, tlsLabel)
 
 // rewritten is a pod of the container pause rewritten from origin to candidate by the
 // ImageAlternative alternative, under its default policy.

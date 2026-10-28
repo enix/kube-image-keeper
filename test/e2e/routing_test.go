@@ -569,7 +569,14 @@ func webhookPods() ([]string, error) {
 // or restarted changes the map.
 func webhookRestarts() map[string]string {
 	GinkgoHelper()
-	output, err := kubectl("get", "pods", "-l", processSelector("webhook"), "-n", namespace,
+	return processRestarts("webhook")
+}
+
+// processRestarts maps each pod of process to the restart count of its container: a pod
+// replaced or restarted changes the map.
+func processRestarts(process string) map[string]string {
+	GinkgoHelper()
+	output, err := kubectl("get", "pods", "-l", processSelector(process), "-n", namespace,
 		"-o", `go-template={{ range .items }}{{ .metadata.name }} {{ range .status.containerStatuses }}`+
 			`{{ .restartCount }}{{ end }}{{ "\n" }}{{ end }}`)
 	Expect(err).NotTo(HaveOccurred())
