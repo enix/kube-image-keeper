@@ -1,6 +1,6 @@
 # 0012 — e2e specs are written last in a PR
 
-**Date:** 2026-09-30 · **Status:** decided
+**Date:** 2026-09-30 · **Status:** decided; the outline of the e2e cases superseded by [0018](./0018-every-test-commit-is-red.md)
 
 **Decision:** a PR adds its e2e specs in a final `test` commit, once it is otherwise ready
 (automated review addressed, unit and envtest specs green, the feature believed to work).

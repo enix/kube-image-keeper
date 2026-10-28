@@ -88,7 +88,8 @@ Rationale in [0005](./0005-decision-log-filter.md).
   `task test-short` runs `go test -short`, which `go test` caches.
 - [0012 — e2e specs are written last in a PR](./0012-e2e-specs-last-in-a-pr.md): a final
   `test` commit adds them once the PR is otherwise ready, fixed by `fixup!` commits; unit and
-  envtest specs still come before each `feat` commit.
+  envtest specs still come before each `feat` commit. Their cases join the outline from the
+  start since [0018](./0018-every-test-commit-is-red.md).
 - [0013 — The e2e-ready label gates the E2E check](./0013-e2e-ready-label.md): E2E runs on
   pull requests as one required check; it fails without the `e2e-ready` label or while
   `fixup!` commits remain, passes without running when no path the suite depends on
@@ -111,3 +112,6 @@ Rationale in [0005](./0005-decision-log-filter.md).
   starting the work on a pull request is the go to merge it; its session pushes, labels,
   resolves threads and enables auto-merge pinned on the head sha with no prompt, on its own
   pull request only.
+- [0018 — Every test commit is red, a bug fix included](./0018-every-test-commit-is-red.md):
+  a regression spec comes before its fix in every case, `task check-commits` fails on a
+  `test` commit whose specs already pass, and the e2e cases are outlined from the start.
