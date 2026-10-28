@@ -4,7 +4,10 @@ package inventory
 
 import (
 	"context"
+	"fmt"
 
+	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
+	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -40,7 +43,7 @@ type V2Installation struct {
 }
 
 // Running reports whether the v2 manager Deployment is there.
-func (v V2Installation) Running() bool { return false }
+func (v V2Installation) Running() bool { return v.Deployment != "" }
 
 // CRD is a v2 CustomResourceDefinition left on the cluster.
 type CRD struct {
@@ -136,6 +139,16 @@ type V3Installation struct {
 
 // Combined reports whether one Deployment runs several modes.
 func (v V3Installation) Combined() bool {
+	seen := map[string]bool{}
+	for _, m := range []Mode{v.Webhook, v.Reconciler, v.SecretSyncer} {
+		if m.Deployment == "" {
+			continue
+		}
+		if seen[m.Deployment] {
+			return true
+		}
+		seen[m.Deployment] = true
+	}
 	return false
 }
 
@@ -158,7 +171,41 @@ type V3Resource struct {
 	MissingImages bool `json:"missingImages,omitempty"`
 }
 
-// Read reads the cluster through r.
+// Read reads the cluster through r. It never writes, lists Secrets by their metadata only, and
+// contacts no registry.
 func Read(ctx context.Context, r client.Reader, opts Options) (*Inventory, error) {
-	return &Inventory{}, nil
+	inv := &Inventory{V3: V3Installation{Namespace: opts.Namespace}}
+
+	crds, err := readCRDs(ctx, r)
+	if err != nil {
+		return nil, err
+	}
+	var deployments appsv1.DeploymentList
+	if err := r.List(ctx, &deployments); err != nil {
+		return nil, fmt.Errorf("listing Deployments: %w", err)
+	}
+	var webhooks admissionregistrationv1.MutatingWebhookConfigurationList
+	if err := r.List(ctx, &webhooks); err != nil {
+		return nil, fmt.Errorf("listing MutatingWebhookConfigurations: %w", err)
+	}
+
+	inv.V2 = readV2Installation(deployments.Items, webhooks.Items)
+	for _, c := range crds {
+		if c.v2 {
+			inv.V2CRDs = append(inv.V2CRDs, c.CRD)
+		}
+	}
+	if inv.V2Resources, err = readV2Resources(ctx, r, crds); err != nil {
+		return nil, err
+	}
+	if inv.PullSecrets, err = readPullSecrets(ctx, r); err != nil {
+		return nil, err
+	}
+	if err := readV3(ctx, r, &inv.V3, crds, deployments.Items, webhooks.Items); err != nil {
+		return nil, err
+	}
+	if inv.Pods, err = readPods(ctx, r, inv); err != nil {
+		return nil, err
+	}
+	return inv, nil
 }
