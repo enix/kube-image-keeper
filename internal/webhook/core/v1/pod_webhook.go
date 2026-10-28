@@ -14,6 +14,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
 	toolscache "k8s.io/client-go/tools/cache"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -110,6 +111,22 @@ func SetupPodWebhookWithManager(mgr ctrl.Manager, cfg *config.Config, clusterRes
 	return d, ctrl.NewWebhookManagedBy(mgr, &corev1.Pod{}).
 		WithDefaulter(d).
 		Complete()
+}
+
+// admissionLog builds the logger of an admission request as controller-runtime's builder
+// does by default.
+func admissionLog(base logr.Logger, req *admission.Request) logr.Logger {
+	log := base.WithValues("webhookGroup", "", "webhookKind", "Pod")
+	if req == nil {
+		return log
+	}
+	return log.WithValues(
+		"Pod", klog.KRef(req.Namespace, req.Name),
+		"namespace", req.Namespace, "name", req.Name,
+		"resource", req.Resource,
+		"user", req.UserInfo.Username,
+		"requestID", req.UID,
+	)
 }
 
 // The three settings below are prescribed by docs/v3/architecture.md, "The admission path":

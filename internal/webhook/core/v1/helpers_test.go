@@ -41,6 +41,8 @@ const (
 	registryUser     = "kuik"
 	registryPassword = "secret"
 
+	// namedPod is the name of the log specs' pods that are not created from generateName.
+	namedPod = "web"
 	// appContainer is the name of the first container of newPod.
 	appContainer = "app"
 	// injected is an image another mutating webhook writes over kuik's.
@@ -356,26 +358,88 @@ const requestUID types.UID = "3f2a9c1e-request"
 // logs up to V(1), each decoded from its JSON form.
 func admitLogged(d *PodDefaulter, namespace string, pod *corev1.Pod) (*corev1.Pod, []map[string]any) {
 	GinkgoHelper()
-	var out bytes.Buffer
-	log := zap.New(zap.WriteTo(&out), zap.Level(zapcore.DebugLevel), zap.JSONEncoder())
-	mutated := pod.DeepCopy()
-	req := admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
-		UID:       requestUID,
-		Namespace: namespace,
-		Operation: admissionv1.Create,
-	}}
-	Expect(d.Default(logf.IntoContext(admission.NewContextWithRequest(ctx, req), log), mutated)).To(Succeed())
-
-	var lines []map[string]any
-	for line := range strings.SplitSeq(strings.TrimSpace(out.String()), "\n") {
-		if line == "" {
-			continue
-		}
+	mutated, raw := admitLoggedRaw(d, namespace, pod)
+	lines := make([]map[string]any, 0, len(raw))
+	for _, line := range raw {
 		var entry map[string]any
 		Expect(json.Unmarshal([]byte(line), &entry)).To(Succeed(), "line %q", line)
 		lines = append(lines, entry)
 	}
 	return mutated, lines
+}
+
+// admitLoggedRaw runs admit with request UID requestUID on a logger built by the log
+// constructor the webhook registers, as controller-runtime builds the logger of an admission
+// request, and returns every JSON line the admission logs up to V(1), as written.
+func admitLoggedRaw(d *PodDefaulter, namespace string, pod *corev1.Pod) (*corev1.Pod, []string) {
+	GinkgoHelper()
+	var out bytes.Buffer
+	base := zap.New(zap.WriteTo(&out), zap.Level(zapcore.DebugLevel), zap.JSONEncoder())
+	mutated := pod.DeepCopy()
+	req := admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
+		UID:       requestUID,
+		Namespace: namespace,
+		Name:      pod.Name,
+		Operation: admissionv1.Create,
+		Resource:  metav1.GroupVersionResource{Version: "v1", Resource: "pods"},
+	}}
+	log := admissionLog(base, &req)
+	Expect(d.Default(logf.IntoContext(admission.NewContextWithRequest(ctx, req), log), mutated)).To(Succeed())
+
+	var lines []string
+	for line := range strings.SplitSeq(strings.TrimSpace(out.String()), "\n") {
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return mutated, lines
+}
+
+// servedRewriteLines returns, as written, every line servedLog holds of the last admission
+// the served webhook rewrote a container of in namespace: the lines of its request ID.
+func servedRewriteLines(namespace string) []string {
+	GinkgoHelper()
+	var raw []string
+	var requestID any
+	for line := range strings.SplitSeq(strings.TrimSpace(string(servedLog.Contents())), "\n") {
+		var entry map[string]any
+		if json.Unmarshal([]byte(line), &entry) != nil {
+			continue
+		}
+		if entry["msg"] == msgRewrote && entry["namespace"] == namespace {
+			requestID = entry["requestID"]
+		}
+		raw = append(raw, line)
+	}
+	Expect(requestID).NotTo(BeNil(), "no rewrite logged in namespace %q", namespace)
+	var lines []string
+	for _, line := range raw {
+		var entry map[string]any
+		Expect(json.Unmarshal([]byte(line), &entry)).To(Succeed())
+		if entry["requestID"] == requestID {
+			lines = append(lines, line)
+		}
+	}
+	return lines
+}
+
+// keyCounts counts how many times each top-level key appears in the JSON object line: a
+// decoded map keeps only the last of duplicated keys.
+func keyCounts(line string) map[string]int {
+	GinkgoHelper()
+	dec := json.NewDecoder(strings.NewReader(line))
+	tok, err := dec.Token()
+	Expect(err).NotTo(HaveOccurred(), "line %q", line)
+	Expect(tok).To(Equal(json.Delim('{')), "line %q", line)
+	counts := map[string]int{}
+	for dec.More() {
+		key, err := dec.Token()
+		Expect(err).NotTo(HaveOccurred(), "line %q", line)
+		counts[key.(string)]++
+		var value json.RawMessage
+		Expect(dec.Decode(&value)).To(Succeed(), "line %q", line)
+	}
+	return counts
 }
 
 // decisions are the lines of lines that log a routing decision.

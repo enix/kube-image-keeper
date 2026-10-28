@@ -11,7 +11,10 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/onsi/gomega/gbytes"
 
+	uberzap "go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -40,6 +43,8 @@ var (
 
 	// served is the webhook the API server calls, for the specs that go through it.
 	served *PodDefaulter
+	// servedLog holds every line the suite's processes log, served webhook included, as JSON.
+	servedLog *gbytes.Buffer
 )
 
 func TestAPIs(t *testing.T) {
@@ -52,7 +57,11 @@ func TestAPIs(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
+	// The suite's lines also go, as JSON, to servedLog for the specs that read them.
+	servedLog = gbytes.NewBuffer()
+	jsonCore := zapcore.NewCore(zapcore.NewJSONEncoder(uberzap.NewProductionEncoderConfig()), zapcore.AddSync(servedLog), zapcore.DebugLevel)
+	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true),
+		zap.RawZapOpts(uberzap.WrapCore(func(core zapcore.Core) zapcore.Core { return zapcore.NewTee(core, jsonCore) }))))
 
 	ctx, cancel = context.WithCancel(context.TODO())
 
