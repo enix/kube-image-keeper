@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -28,18 +29,19 @@ const registryNamespace = "kuik-e2e-registry"
 type destinationRegistry struct {
 	// name is the name of its Deployment and its Service
 	name string
-	// deleteEnabled accepts tag deletion; without it, the registry answers 405 UNSUPPORTED
-	deleteEnabled bool
+	// refuseDeletes puts a proxy in front of the registry that answers 400 UNSUPPORTED to every
+	// DELETE: distribution deletes a tag even with storage deletion disabled
+	refuseDeletes bool
 	// secret is its write credential, in the install namespace
 	secret string
 }
 
 var (
 	// deletingRegistry accepts tag deletion
-	deletingRegistry = destinationRegistry{name: "registry", deleteEnabled: true, secret: "e2e-mirror-manage"}
-	// refusingRegistry refuses tag deletion as unsupported
+	deletingRegistry = destinationRegistry{name: "registry", secret: "e2e-mirror-manage"}
+	// refusingRegistry refuses tag deletion as unsupported, as Harbor does
 	refusingRegistry = destinationRegistry{
-		name: "registry-nodelete", deleteEnabled: false, secret: "e2e-mirror-manage-nodelete",
+		name: "registry-nodelete", refuseDeletes: true, secret: "e2e-mirror-manage-nodelete",
 	}
 )
 
@@ -83,9 +85,72 @@ const (
 // downPodLabel is the pod label downMirror selects: the running pause pod lacks it
 const downPodLabel = "kuik.enix.io/e2e-mirror-down"
 
+// refusingProxyConfig is the nginx in front of a registry that refuses deletion: every DELETE
+// gets 400 UNSUPPORTED, as Harbor answers a tag deletion (goharbor/harbor#24213), and any other
+// request reaches the registry unchanged, Host and port included, so that the upload locations
+// and the Basic challenge it returns name the proxy. Bodies stream both ways, unbounded.
+const refusingProxyConfig = `
+events {}
+http {
+  server {
+    listen 5000;
+    client_max_body_size 0;
+    proxy_request_buffering off;
+    proxy_buffering off;
+    default_type application/json;
+    location / {
+      if ($request_method = DELETE) {
+        return 400 '{"errors":[{"code":"UNSUPPORTED","message":"the e2e proxy refuses deletion"}]}';
+      }
+      proxy_pass http://127.0.0.1:5002;
+      proxy_http_version 1.1;
+      proxy_set_header Host $http_host;
+      proxy_read_timeout 900s;
+      proxy_send_timeout 900s;
+    }
+  }
+}
+`
+
+// refusingProxyImage is the nginx of refusingProxyConfig, pulled from Docker Hub like the registry
+const refusingProxyImage = "nginx:1.27.4-alpine"
+
 // manifest is the Deployment and the Service of the registry, its password file written by an
-// init container
+// init container. A registry that refuses deletes listens on loopback behind an nginx serving
+// refusingProxyConfig on the port of the Service.
 func (r destinationRegistry) manifest() string {
+	var registryAddress, proxyContainer, proxyVolume, proxyConfigMap string
+	registryPort := 5000
+	if r.refuseDeletes {
+		// Not 5001: the debug server of the registry image listens there.
+		registryPort = 5002
+		registryAddress = `
+            - name: REGISTRY_HTTP_ADDR
+              value: 127.0.0.1:5002`
+		proxyContainer = fmt.Sprintf(`
+        - name: proxy
+          image: %s
+          ports:
+            - containerPort: 5000
+          volumeMounts:
+            - name: proxy
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf`, refusingProxyImage)
+		proxyVolume = fmt.Sprintf(`
+        - name: proxy
+          configMap:
+            name: %s-proxy`, r.name)
+		config, _ := json.Marshal(refusingProxyConfig)
+		proxyConfigMap = fmt.Sprintf(`
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: %s-proxy
+  namespace: %s
+data:
+  nginx.conf: %s`, r.name, registryNamespace, config)
+	}
 	return fmt.Sprintf(`
 apiVersion: apps/v1
 kind: Deployment
@@ -113,21 +178,21 @@ spec:
           image: registry:3.0.0
           env:
             - name: REGISTRY_STORAGE_DELETE_ENABLED
-              value: "%[5]t"
+              value: "true"
             - name: REGISTRY_AUTH
               value: htpasswd
             - name: REGISTRY_AUTH_HTPASSWD_REALM
               value: e2e
             - name: REGISTRY_AUTH_HTPASSWD_PATH
-              value: /auth/htpasswd
+              value: /auth/htpasswd%[5]s
           ports:
-            - containerPort: 5000
+            - containerPort: %[6]d
           volumeMounts:
             - name: auth
-              mountPath: /auth
+              mountPath: /auth%[7]s
       volumes:
         - name: auth
-          emptyDir: {}
+          emptyDir: {}%[8]s%[9]s
 ---
 apiVersion: v1
 kind: Service
@@ -139,7 +204,8 @@ spec:
     app: %[4]s
   ports:
     - port: 5000
-`, registryNamespace, registryUser, registryPassword, r.name, r.deleteEnabled)
+`, registryNamespace, registryUser, registryPassword, r.name, registryAddress, registryPort,
+		proxyContainer, proxyVolume, proxyConfigMap)
 }
 
 // mirrorManifest is an ImageMirror copying the pods of mirrorNamespace to repository under
