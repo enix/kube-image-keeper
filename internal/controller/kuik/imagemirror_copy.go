@@ -741,7 +741,9 @@ func (r *ImageMirrorReconciler) reportFailures(im *kuikv1alpha1.ImageMirror, st 
 			delete(st.failed, ref)
 			continue
 		}
-		at := metav1.NewTime(failure.at)
+		// Status times are written to the second: a finer one would differ from its own
+		// read-back and rewrite the status on every reconcile.
+		at := metav1.NewTime(failure.at).Rfc3339Copy()
 		entry := kuikv1alpha1.FailedImageCopy{Ref: ref, Reason: failure.reason, Since: at, LastAttempt: &at}
 		if p, ok := previous[ref]; ok {
 			entry.Since = p.Since
