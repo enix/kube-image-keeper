@@ -47,6 +47,22 @@ pattern="${start}((${git_rewrite}|${git_amend}|${helm_write}|${task_outbound}|${
 # argument otherwise (grep 'kubectl' docs/).
 quoted="(^|[;&|({!]|\\\$\\()[[:space:]]*[\"'\`]([^[:space:];&|()]*/)?(git|gh|kubectl|kind|docker|podman|skopeo|crane|oras|helm|task|make|go)[\"'\`]"
 
+# Reading the issue or the pull request it works on: gh issue view and gh pr view pass alone, on
+# one line, each argument plain or one quoted piece with no $, backtick or backslash, with the
+# --repo of this repository at most, and no env a --jq filter could print the token with.
+case "$cmd" in
+  *'
+'* | *"$(printf '\r')"*) ;;
+  *)
+    gcmd=$(printf '%s' "$cmd" | sed -E 's/[[:space:]]+(--repo|-R)([[:space:]]+|=)enix\/kube-image-keeper([[:space:]]|$)/\3/g')
+    if printf '%s' "$gcmd" | grep -Eq "^gh[[:space:]]+(issue|pr)[[:space:]]+view([[:space:]]+([A-Za-z0-9=,./:_@+%#-]+|'[^'\$\`\\\\]*'|\"[^\"\$\`\\\\]*\"))*[[:space:]]*\$" &&
+      ! printf '%s' "$gcmd" | grep -Eq '[[:space:]](--repo|-R)([[:space:]]|=)' &&
+      ! printf '%s' "$gcmd" | tr -d "\"'" | grep -Eq '(^|[^A-Za-z0-9_])env([^A-Za-z0-9_]|$)'; then
+      exit 0
+    fi
+    ;;
+esac
+
 # acceptance-validate decodes the fixtures and reaches no cluster: it passes alone, on one line,
 # with plain arguments after `--` only, so nothing can ride along with it: no second task, no
 # task option (grep matches line by line).
