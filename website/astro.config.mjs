@@ -110,6 +110,7 @@ export default defineConfig({
           label: 'Configuration',
           items: [
             'installation',
+            'getting-started',
             'crds',
             'configuration',
             'observability',
