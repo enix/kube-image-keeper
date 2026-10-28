@@ -40,7 +40,8 @@ const resultOk = "Ok"
 
 // retryStatusCodes overrides go-containerregistry's defaults, which retry 429 since
 // v0.21.9. A rate limit must surface at once as QuotaExceeded: a transport-level retry
-// would only spend more of an exhausted quota.
+// would only spend more of an exhausted quota. The retries above the transport (a layer
+// upload during a copy) are kept off a rate limit by retryPredicate.
 var retryStatusCodes = []int{
 	http.StatusRequestTimeout,
 	http.StatusInternalServerError,
@@ -51,8 +52,14 @@ var retryStatusCodes = []int{
 	522, // Cloudflare-specific, connection timeout
 }
 
-// retryPredicate is go-containerregistry's default retry predicate.
+// retryPredicate is go-containerregistry's default retry predicate, which retries whole
+// operations such as a layer upload, except that a 429 is never retried: on a source blob
+// read during the upload it would read that blob again. A 429 is what the reasons call
+// QuotaExceeded; any other status keeps its retries, whatever its diagnostics say.
 func retryPredicate(err error) bool {
+	if TransportStatusCode(err) == http.StatusTooManyRequests {
+		return false
+	}
 	// retry.IsTemporary, internal to go-containerregistry.
 	temporary, ok := err.(interface{ Temporary() bool })
 	if ok && temporary.Temporary() && !errors.Is(err, context.DeadlineExceeded) {
@@ -147,6 +154,7 @@ func (c *Client) tryUntilStopped(ctx context.Context, base http.RoundTripper, au
 				remote.WithAuth(auth),
 				remote.WithTransport(headers),
 				remote.WithRetryStatusCodes(retryStatusCodes...),
+				remote.WithRetryPredicate(retryPredicate),
 			},
 		})
 		if err == nil {
