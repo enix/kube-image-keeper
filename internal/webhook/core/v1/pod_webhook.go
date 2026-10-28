@@ -110,20 +110,22 @@ func SetupPodWebhookWithManager(mgr ctrl.Manager, cfg *config.Config, clusterRes
 	}
 	return d, ctrl.NewWebhookManagedBy(mgr, &corev1.Pod{}).
 		WithDefaulter(d).
+		WithLogConstructor(admissionLog).
 		Complete()
 }
 
-// admissionLog builds the logger of an admission request as controller-runtime's builder
-// does by default.
+// admissionLog builds the logger of an admission request: controller-runtime's builder
+// default, with 2 departures on purpose. It drops the "resource" key: always v1/pods here,
+// and the webhook's lines use "resource" for the ImageAlternative or ImageMirror they name.
+// It names the pod under its lowercase kind, "pod", as every kuik line names an object.
 func admissionLog(base logr.Logger, req *admission.Request) logr.Logger {
 	log := base.WithValues("webhookGroup", "", "webhookKind", "Pod")
 	if req == nil {
 		return log
 	}
 	return log.WithValues(
-		"Pod", klog.KRef(req.Namespace, req.Name),
+		"pod", klog.KRef(req.Namespace, req.Name),
 		"namespace", req.Namespace, "name", req.Name,
-		"resource", req.Resource,
 		"user", req.UserInfo.Username,
 		"requestID", req.UID,
 	)
@@ -233,14 +235,13 @@ func (d *PodDefaulter) Default(ctx context.Context, pod *corev1.Pod) error {
 	}
 	a.probed = &probed
 
-	// Every line of the admission names it; a pod created from generateName has no name yet.
-	log := logf.FromContext(ctx).WithValues("requestID", req.UID, "namespace", probed.Namespace)
-	if pod.Name != "" {
-		log = log.WithValues("pod", pod.Name)
-	} else {
+	// admissionLog already names the request on every line (requestID, pod, namespace, name);
+	// a pod created from generateName has no name yet, so its lines add the generateName.
+	log := logf.FromContext(ctx)
+	if pod.Name == "" {
 		log = log.WithValues("generateName", pod.GenerateName)
+		ctx = logf.IntoContext(ctx, log)
 	}
-	ctx = logf.IntoContext(ctx, log)
 
 	// A mirror candidate needs the cluster ID; the readiness check keeps the webhook out of
 	// the Service until it is read, so this only covers a request arriving earlier.
