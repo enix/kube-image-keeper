@@ -82,7 +82,9 @@ Stop, report and wait to be resumed only in these cases:
   `internal/auth/*`, `internal/routing/*`, `internal/imagepath`, `internal/config`): it lands
   first in its own pull request, before the feature goes on;
 - anything outside the worktree: a push, a pull request, a GitHub write, a cluster, the e2e
-  suite, a history rewrite. The hook refuses them; do not try another way.
+  suite, a history rewrite. The hook refuses them; do not try another way. Reading the issue
+  or the pull request you work on is fine: `gh issue view` and `gh pr view`, alone, with no
+  pipe (filter with `--jq`).
 
 A test is never edited to make an implementation pass.
 

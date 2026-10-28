@@ -15,8 +15,7 @@ hooks:
     - matcher: "Bash"
       hooks:
         - type: command
-          command: |-
-            jq -e '.tool_input.command | test("^(git (diff|show|log)|task test-outline)( |$)") and (test("[;&|<>`$\\n\\\\]|--output|--no-index") | not)' >/dev/null || { echo "spec-reviewer is read-only: Bash runs only git diff, git show, git log and task test-outline inside the repository, without shell operators, --output or --no-index" >&2; exit 2; }
+          command: '"$CLAUDE_PROJECT_DIR"/.claude/hooks/review-guard.sh --outline || exit 2'
 ---
 
 # Spec conformance reviewer
@@ -91,8 +90,9 @@ No code fixes beyond the `recommendation:` line, no praise, no summary of the di
 
 ## Hard limits
 
-- Read-only. Your Bash runs only `git diff`, `git show`, `git log` and `task test-outline`; a
-  hook refuses anything else. Never try to work around it.
+- Read-only. Your Bash runs only `git diff`, `git show`, `git log`, `git grep` (with
+  `-C <worktree under .claude/worktrees/>` when the tree is another worktree) and
+  `task test-outline`; a hook refuses anything else. Never try to work around it.
 - Read `docs/v3/` from the checked-out tree only, never from another branch or ref, unless the
   caller asks.
 - Stay inside the repository: never read a sibling directory, or a file that may hold a secret.

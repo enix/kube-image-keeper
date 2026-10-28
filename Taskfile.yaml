@@ -136,10 +136,11 @@ tasks:
       - '{{.LOCALBIN}}/golangci-lint run --fix'
 
   lint-hooks:
-    desc: Check the outbound and implementer Claude Code hooks on their tables of commands, the CodeRabbit slot ledger and the commit rules script (needs jq and git)
+    desc: Check the outbound, implementer and review Claude Code hooks on their tables of commands, the CodeRabbit slot ledger and the commit rules script (needs jq and git)
     cmds:
       - sh .claude/hooks/confirm-outbound-actions.test.sh
       - sh .claude/hooks/implementer-guard.test.sh
+      - sh .claude/hooks/review-guard.test.sh
       - sh hack/coderabbit-slot.test.sh
       - sh hack/check-commit-rules.test.sh
 
