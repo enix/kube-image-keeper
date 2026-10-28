@@ -59,9 +59,9 @@ Rationale in [0005](./0005-decision-log-filter.md).
 - [0002 — development pipeline and epics](./0002-development-pipeline.md): spec
   review, then architecture, then the build epic by epic; epics ordered by
   dependency, API types first, e2e last.
-- [0003 — how the work is driven](./0003-agent-orchestration.md): Paul drives every task
-  with an agent in front of him; nothing runs unattended, he alone commits, opens and
-  merges.
+- [0003 — how the work is driven](./0003-agent-orchestration.md): superseded by
+  [0017](./0017-a-session-drives-its-pull-request-to-the-merge.md); Paul drove every task
+  with an agent in front of him, and alone committed, opened and merged.
 - [0004 — Ginkgo everywhere as the single test framework](./0004-test-framework.md):
   Ginkgo/Gomega is the only test framework, `DescribeTable` for tables, no
   `[]struct{}` + `t.Run`. Section "Fast feedback" superseded by
@@ -107,3 +107,7 @@ Rationale in [0005](./0005-decision-log-filter.md).
   the acceptance scenarios are the use cases of `docs/use-cases/`, played end to end on a real
   cluster with real registries; every precise behaviour, a bug fix's included, goes to the Kind
   e2e suite or envtest.
+- [0017 — A session drives its own pull request to the merge](./0017-a-session-drives-its-pull-request-to-the-merge.md):
+  starting the work on a pull request is the go to merge it; its session pushes, labels,
+  resolves threads and enables auto-merge pinned on the head sha with no prompt, on its own
+  pull request only.
