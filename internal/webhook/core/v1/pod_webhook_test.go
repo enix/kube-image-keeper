@@ -666,13 +666,13 @@ var _ = Describe("Pod webhook", func() {
 		It("tags every line of an admission with its request UID, namespace and pod name", func() {
 			fail(origin)
 			pod := newPod(namespace, ref(origin))
-			pod.Name = "web"
+			pod.Name = namedPod
 			_, lines := admitLogged(d, namespace, pod)
 			Expect(lines).NotTo(BeEmpty())
 			for _, line := range lines {
 				Expect(line).To(HaveKeyWithValue("requestID", string(requestUID)))
 				Expect(line).To(HaveKeyWithValue("namespace", namespace))
-				Expect(line).To(HaveKeyWithValue("pod", "web"))
+				Expect(line).To(HaveKeyWithValue("pod", map[string]any{"name": namedPod, "namespace": namespace}))
 			}
 		})
 
@@ -682,9 +682,26 @@ var _ = Describe("Pod webhook", func() {
 			Expect(lines).NotTo(BeEmpty())
 			for _, line := range lines {
 				Expect(line).To(HaveKeyWithValue("generateName", "routed-"))
-				Expect(line).NotTo(HaveKey("pod"))
+				Expect(line).To(HaveKeyWithValue("pod", map[string]any{"name": "", "namespace": namespace}))
 			}
 		})
+
+		DescribeTable("writes each key once on every line of an admission",
+			func(name string) {
+				fail(origin)
+				pod := newPod(namespace, ref(origin))
+				pod.Name = name
+				_, lines := admitLoggedRaw(d, namespace, pod)
+				Expect(lines).NotTo(BeEmpty())
+				for _, line := range lines {
+					for key, count := range keyCounts(line) {
+						Expect(count).To(Equal(1), "key %q in line %q", key, line)
+					}
+				}
+			},
+			Entry("of a named pod", namedPod),
+			Entry("of a pod created from generateName", ""),
+		)
 
 		It("tags the lines about one container with the container name and its image", func() {
 			fail(origin)
@@ -971,6 +988,21 @@ var _ = Describe("Pod webhook", func() {
 			apply(&cr)
 			Eventually(routedImage(routed)).Should(Equal(ref(alt)))
 			Expect(routedImage(namespace)()).To(Equal(ref(origin)))
+		})
+
+		It("writes each key once on every line of an admission it serves", func() {
+			fail(origin)
+			cr := alternative("served-library", onFailure, group(origin), group(alt))
+			apply(&cr)
+			Eventually(routedImage(namespace)).Should(Equal(ref(alt)))
+
+			lines := servedRewriteLines(namespace)
+			Expect(lines).NotTo(BeEmpty())
+			for _, line := range lines {
+				for key, count := range keyCounts(line) {
+					Expect(count).To(Equal(1), "key %q in line %q", key, line)
+				}
+			}
 		})
 
 		It("never rewrites a pod on update", func() {
