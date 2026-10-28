@@ -73,7 +73,7 @@ Scopes in commit messages are optional, but when used they must belong to the li
 
 | Category | Scopes | Purpose |
 | --- | --- | --- |
-| Feature | `mirroring`, `routing`, `monitoring` | Describe *what* the change affects functionally (e.g. `feat(routing): ...`). |
+| Feature | `mirroring`, `routing`, `monitoring`, `migration` | Describe *what* the change affects functionally (e.g. `feat(routing): ...`); `migration` is the `migrate` subcommand that guides a cluster from v2 to v3. |
 | Component | `auth`, `metrics`, `registry`, `helm`, `config`, `secret-syncer`, `pacing` | A distinct code area with its own concerns: credentials and secrets handling, the metrics surface, `internal/registry/`, `helm/kube-image-keeper/`, the global config file (`internal/config/`, its ConfigMap, `docs/configuration.md`), the secret syncer process and the pull secrets it materialises and renews, the pace of the reads kuik makes from registries (`registries.<host>.check` and `copy` in the global config). |
 | Origin | `deps` | Dependency updates (e.g. `build(deps): ...`). |
 | Tooling | `e2e`, `claude` | Project tooling, not kuik itself: the end-to-end suite under `test/e2e/` with its CI job and label, the shared Claude Code configuration under `.claude/` (skills, agents, rules, hooks). |
