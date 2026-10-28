@@ -2,9 +2,9 @@
 # PreToolUse hook (Bash): commands that leave the working copy (push, pull requests,
 # releases, deployments) ask the user first, whatever the permission mode. They are not
 # forbidden: notes/0003 says the agent never does them on its own. A session drives its own
-# pull request without asking for 5 single commands: pushing its feature branch, adding the
-# e2e-ready label, disabling auto-merge, asking CodeRabbit for a review, and a GraphQL read.
-# Merging, and enabling auto-merge, still ask.
+# pull request without asking: the hook allows pushing its feature branch, the e2e-ready
+# label, disabling and enabling (pinned) auto-merge, a CodeRabbit review request, resolving a
+# review thread, GraphQL and gh reads. A direct merge still asks.
 set -eu
 
 command -v jq >/dev/null 2>&1 || {
@@ -15,6 +15,27 @@ input=$(cat)
 cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // empty')
 cwd=$(printf '%s' "$input" | jq -r '.cwd // empty')
 [ -n "$cmd" ] || exit 0
+
+# A pure read standing alone leaves nothing to check: the text it searches may say "git push"
+# or "task --dir", which the scan below would take for commands. grep, rg (without --pre, which
+# runs a program), cat, head, tail and wc, and sed -n with one line-range print script, with no
+# shell operator, redirection, substitution or second line, get no decision here: the rest of
+# the configuration applies.
+case "$cmd" in
+  *[\;\&\|\<\>\`\$]* | *'
+'* | *"$(printf '\r')"*) ;;
+  *)
+    # The shell drops quotes and backslashes before rg reads its arguments: '--pre' is --pre.
+    if printf '%s' "$cmd" | grep -Eq '^(grep|rg|cat|head|tail|wc)([[:space:]]|$)' &&
+      ! printf '%s' "$cmd" | tr -d "\"'\\\\" | grep -Eq '^rg([[:space:]].*)?[[:space:]]--(pre|hostname-bin)'; then
+      exit 0
+    fi
+    # Each operand of sed is plain: no quote or backslash, which could hide an option or a script.
+    if printf '%s' "$cmd" | grep -Eq "^sed[[:space:]]+-n[[:space:]]+('[0-9]+(,[0-9]+)?p'|[0-9]+(,[0-9]+)?p)([[:space:]]+[^-[:space:]'\"\\\\][^[:space:]'\"\\\\]*)+[[:space:]]*\$"; then
+      exit 0
+    fi
+    ;;
+esac
 
 # worktree_top prints the physical path of dir, read from cwd, when it is the top level of a
 # worktree of this repository, listed by git worktree list, under the main worktree's
@@ -57,11 +78,12 @@ case "$cmd" in
 esac
 
 # automerge_off holds when the pull request of the current branch has no auto-merge enabled,
-# or when the branch has no pull request yet. With auto-merge enabled, GitHub would merge a
+# or when the branch has no open pull request (gh shows the latest one, which may be merged
+# and still carry the autoMergeRequest that merged it). With auto-merge enabled, GitHub would merge a
 # push as soon as the checks pass, before anyone reviews it: the push asks. Any other answer
 # of gh (network, auth) asks too.
 automerge_off() {
-  out=$(cd "${cwd:-.}" 2>/dev/null && gh pr view --json autoMergeRequest --jq '.autoMergeRequest == null' 2>&1) && [ "$out" = true ] && return 0
+  out=$(cd "${cwd:-.}" 2>/dev/null && gh pr view --json state,autoMergeRequest --jq '.state != "OPEN" or .autoMergeRequest == null' 2>&1) && [ "$out" = true ] && return 0
   case "$out" in *'no pull requests found'*) return 0 ;; esac
   # Known to be enabled: refuse, and say how to go on; any other answer asks below.
   if [ "$out" = false ]; then
@@ -87,6 +109,9 @@ allowed() {
     *'
 '* | *"$(printf '\r')"*) return 1 ;;
   esac
+  # The gh forms below read the command without the --repo of this repository, which agents
+  # add by habit: it names the repository they run on anyway. Any other --repo asks above.
+  gcmd=$(printf '%s' "$cmd" | sed -E 's/[[:space:]]+(--repo|-R)([[:space:]]+|=)enix\/kube-image-keeper([[:space:]]|$)/\3/g')
   # Its own feature branch, named, to the remote branch of the same name: never main, a
   # maintenance or release branch, never a plain --force, a tag or a refspec. A bare
   # `git push` or `git push origin` goes where push.default and the upstream say, which may
@@ -117,36 +142,71 @@ allowed() {
       ;;
   esac
   # The e2e-ready label, on the pull request of the current branch only.
-  if printf '%s' "$cmd" | grep -Eq '^gh[[:space:]]+pr[[:space:]]+edit[[:space:]]+[0-9]+[[:space:]]+--add-label[[:space:]]+e2e-ready[[:space:]]*$'; then
-    n=$(printf '%s' "$cmd" | sed 's/^gh[[:space:]]*pr[[:space:]]*edit[[:space:]]*\([0-9]*\).*/\1/')
+  if printf '%s' "$gcmd" | grep -Eq '^gh[[:space:]]+pr[[:space:]]+edit[[:space:]]+[0-9]+[[:space:]]+--add-label[[:space:]]+e2e-ready[[:space:]]*$'; then
+    n=$(printf '%s' "$gcmd" | sed 's/^gh[[:space:]]*pr[[:space:]]*edit[[:space:]]*\([0-9]*\).*/\1/')
     own=$(cd "${cwd:-.}" 2>/dev/null && gh pr view --json number --jq .number 2>/dev/null || true)
     [ -n "$own" ] && [ "$n" = "$own" ] && return 0
   fi
   # Disabling auto-merge on the pull request of the current branch: it only lowers the risk.
-  if printf '%s' "$cmd" | grep -Eq '^gh[[:space:]]+pr[[:space:]]+merge[[:space:]]+[0-9]+[[:space:]]+--disable-auto[[:space:]]*$'; then
-    n=$(printf '%s' "$cmd" | sed 's/^gh[[:space:]]*pr[[:space:]]*merge[[:space:]]*\([0-9]*\).*/\1/')
+  if printf '%s' "$gcmd" | grep -Eq '^gh[[:space:]]+pr[[:space:]]+merge[[:space:]]+[0-9]+[[:space:]]+--disable-auto[[:space:]]*$'; then
+    n=$(printf '%s' "$gcmd" | sed 's/^gh[[:space:]]*pr[[:space:]]*merge[[:space:]]*\([0-9]*\).*/\1/')
     own=$(cd "${cwd:-.}" 2>/dev/null && gh pr view --json number --jq .number 2>/dev/null || true)
     [ -n "$own" ] && [ "$n" = "$own" ] && return 0
+  fi
+  # Auto-merge by rebase on the pull request of the current branch, armed for the commit
+  # checked out here: GitHub checks the sha when auto-merge is enabled, and a session push is
+  # refused while auto-merge is on. A push by another writer is not stopped here. Starting the
+  # work on a pull request is the go to merge it once CodeRabbit and the required checks pass.
+  if printf '%s' "$gcmd" | grep -Eq '^gh[[:space:]]+pr[[:space:]]+merge[[:space:]]+[0-9]+[[:space:]]+--auto[[:space:]]+--rebase[[:space:]]+--match-head-commit[[:space:]]+[0-9a-f]{40}[[:space:]]*$'; then
+    n=$(printf '%s' "$gcmd" | sed 's/^gh[[:space:]]*pr[[:space:]]*merge[[:space:]]*\([0-9]*\).*/\1/')
+    sha=$(printf '%s' "$gcmd" | sed -E 's/.*--match-head-commit[[:space:]]+([0-9a-f]{40}).*/\1/')
+    head=$(git -C "${cwd:-.}" rev-parse HEAD 2>/dev/null || true)
+    own=$(cd "${cwd:-.}" 2>/dev/null && gh pr view --json number --jq .number 2>/dev/null || true)
+    [ -n "$own" ] && [ "$n" = "$own" ] && [ "$sha" = "$head" ] && return 0
   fi
   # A CodeRabbit review request, on the pull request of the current branch only, with
   # exactly that body.
   review="(\"@coderabbitai (full )?review\"|'@coderabbitai (full )?review')"
-  if printf '%s' "$cmd" | grep -Eq "^gh[[:space:]]+pr[[:space:]]+comment[[:space:]]+[0-9]+[[:space:]]+(--body|-b)[[:space:]]+${review}[[:space:]]*\$"; then
-    n=$(printf '%s' "$cmd" | sed 's/^gh[[:space:]]*pr[[:space:]]*comment[[:space:]]*\([0-9]*\).*/\1/')
+  if printf '%s' "$gcmd" | grep -Eq "^gh[[:space:]]+pr[[:space:]]+comment[[:space:]]+[0-9]+[[:space:]]+(--body|-b)[[:space:]]+${review}[[:space:]]*\$"; then
+    n=$(printf '%s' "$gcmd" | sed 's/^gh[[:space:]]*pr[[:space:]]*comment[[:space:]]*\([0-9]*\).*/\1/')
     own=$(cd "${cwd:-.}" 2>/dev/null && gh pr view --json number --jq .number 2>/dev/null || true)
     [ -n "$own" ] && [ "$n" = "$own" ] && return 0
   fi
-  # A GraphQL read: one query in single quotes, with no single quote, backslash, $ or
-  # backtick inside (double quotes are literal there), so the shell passes it as written and
-  # "mutation" cannot be split or built;
-  # optionally a --jq filter written the same way.
-  sq="[^'\\\$\`]*"
-  graphql="^gh[[:space:]]+api[[:space:]]+graphql[[:space:]]+-f[[:space:]]+query='${sq}'([[:space:]]+--jq[[:space:]]+'${sq}')?[[:space:]]*\$"
-  if printf '%s' "$cmd" | grep -Eq "$graphql" && ! printf '%s' "$cmd" | grep -iq 'mutation'; then
+  # Resolving one review thread of the pull request of the current branch: exactly this
+  # mutation, one field, no alias, no variable, no --jq, and a thread id that a read of that
+  # pull request's threads lists. Any gh error, no pull request or another one's thread asks.
+  if printf '%s' "$cmd" | grep -Eq "$resolve_thread"; then
+    id=$(printf '%s' "$cmd" | sed -E 's/.*threadId: "(PRRT_[A-Za-z0-9_-]+)".*/\1/')
+    own=$(cd "${cwd:-.}" 2>/dev/null && gh pr view --json number --jq .number 2>/dev/null || true)
+    case "$own" in '' | *[!0-9]*) return 1 ;; esac
+    threads=$(cd "${cwd:-.}" 2>/dev/null && gh api graphql -F number="$own" -f query='query($number: Int!) { repository(owner: "enix", name: "kube-image-keeper") { pullRequest(number: $number) { reviewThreads(first: 100) { nodes { id } } } } }' --jq '.data.repository.pullRequest.reviewThreads.nodes[].id' 2>/dev/null) || return 1
+    printf '%s\n' "$threads" | grep -qxF -- "$id" && return 0
+    return 1
+  fi
+  if printf '%s' "$cmd" | grep -Eq "${graphql_read}[[:space:]]*\$" && ! printf '%s' "$cmd" | grep -iq 'mutation'; then
+    return 0
+  fi
+  # A GitHub read of a pull request, an issue, a release or a workflow run.
+  if printf '%s' "$gcmd" | grep -Eq "${gh_read}[[:space:]]*\$"; then
     return 0
   fi
   return 1
 }
+
+# A GraphQL read: one query in single quotes, with no single quote, backslash, $ or backtick
+# inside (double quotes are literal there), so the shell passes it as written and "mutation"
+# cannot be split or built; optionally a --jq filter in single quotes too, where a backslash
+# is allowed for jq's string interpolation "\(.x)": the shell reads it literally, and a filter
+# that reads env still asks below. A $ stays out ($ENV reads the environment too).
+sq="[^'\\\$\`]*"
+jq_sq="[^'\$\`]*"
+graphql_read="^gh[[:space:]]+api[[:space:]]+graphql[[:space:]]+-f[[:space:]]+query='${sq}'([[:space:]]+--jq[[:space:]]+'${jq_sq}')?"
+# A gh read: pr view|list|checks|diff, release view, run view|watch|list, issue view|list,
+# each argument plain characters or one quoted piece with no $, backtick or backslash (a
+# --jq filter in single quotes may hold a backslash, as for the GraphQL read).
+gh_arg="[[:space:]]+([A-Za-z0-9=,./:_@+%#-]+|'${jq_sq}'|\"[^\"\$\`\\\\]*\")"
+gh_read="^gh[[:space:]]+(pr[[:space:]]+(view|list|checks|diff)|release[[:space:]]+view|run[[:space:]]+(view|watch|list)|issue[[:space:]]+(view|list))(${gh_arg})*"
+resolve_thread="^gh api graphql -f query='mutation \{ resolveReviewThread\(input: \{threadId: \"PRRT_[A-Za-z0-9_-]+\"\}\) \{ thread \{ (id |isResolved )+\} \} \}'\$"
 # gh's --jq and --template can read the environment (env.GH_TOKEN): a gh command naming env
 # asks, even a read the allow rules or the forms above let through.
 # Quotes and backslashes are dropped first, so e'n'v or $''ENV still match.
@@ -162,7 +222,74 @@ if printf '%s' "$cmd" | grep -Eq '(^|[;&|(`[:space:]"'"'"'])gh[[:space:]]' &&
   exit 0
 fi
 
-allowed && exit 0
+# A gh command aimed at another repository asks: the forms below hold for this one only. The
+# repository is named by --repo or -R, or by the URL of a pull request or an issue.
+if printf '%s' "$cmd" | grep -Eq '(^|[;&|(`[:space:]"'"'"'])gh[[:space:]]' && {
+  printf '%s' "$cmd" | tr -d "\"'\\\\" | sed -E 's/[[:space:]](--repo|-R)([[:space:]]+|=)enix\/kube-image-keeper([[:space:]]|$)/\3/g' | grep -Eq '[[:space:]](--repo([[:space:]]+|=)|-R)' ||
+    printf '%s' "$cmd" | sed -E 's#github\.com/enix/kube-image-keeper(/|[[:space:]]|$)#\1#gI' | grep -iq 'github\.com'
+}; then
+  jq -n '{
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "ask",
+      permissionDecisionReason: "This gh command names a repository other than enix/kube-image-keeper: the user confirms it explicitly."
+    }
+  }'
+  exit 0
+fi
+
+# A form checked above runs on the session's own pull request: the hook allows it itself, so
+# no prompt stops a session driving its pull request, whatever the allow rules say.
+if allowed; then
+  jq -n '{
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "allow",
+      permissionDecisionReason: "A step of the pull request of the current branch."
+    }
+  }'
+  exit 0
+fi
+
+# An allowed GraphQL or gh read followed by a pipe or 2>&1 is refused with the way to run it alone:
+# the agent corrects it without prompting the user. A chain (; &&) or a pipe into gh asks.
+case "$cmd" in
+  *'
+'* | *"$(printf '\r')"*) ;;
+  *)
+    rcmd=$(printf '%s' "$cmd" | sed -E 's/[[:space:]]+(--repo|-R)([[:space:]]+|=)enix\/kube-image-keeper([[:space:]]|$)/\3/g')
+    if { printf '%s' "$cmd" | grep -Eq "${graphql_read}([[:space:]]+2>&1)?[[:space:]]*(\\||\$)" ||
+      printf '%s' "$rcmd" | grep -Eq "${gh_read}([[:space:]]+2>&1)?[[:space:]]*(\\||\$)"; } &&
+      ! printf '%s' "$cmd" | grep -iq 'mutation' &&
+      ! printf '%s' "$cmd" | grep -Eq '(;|&&|\|\|)' &&
+      ! printf '%s' "$cmd" | grep -Eq '\|[[:space:]]*([^[:space:]|]*/)?gh([[:space:]]|$)'; then
+      jq -n '{
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason: "Run the read alone, with no pipe or 2>&1: trim with --jq ('.[0:40]', select) or GraphQL first:."
+        }
+      }'
+      exit 0
+    fi
+    ;;
+esac
+
+# Code downloaded and run on the fly: npx, pipx run, uvx, and go run or go install of a
+# module@version. The repository runs its pinned tools through its tasks only, so no direct
+# form is an exception here; the user decides each one (the auto mode classifier answered
+# such commands both ways).
+fetched='(^|[;&|({`[:space:]]|\$\()((/[^[:space:];&|]*/)?(npx|uvx)|pipx[[:space:]]+run|go[[:space:]]+(run|install)[[:space:]]+([^;&|]*[[:space:]])?[^[:space:];&|@]+@[^[:space:];&|]+)([[:space:]]|$)'
+if printf '%s' "$cmd" | grep -Eq "$fetched"; then
+  jq -n '{
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "ask",
+      permissionDecisionReason: "This command downloads code and runs it (npx, uvx, pipx run, go run or go install of a module@version): the user confirms it explicitly."
+    }
+  }'
+  exit 0
+fi
 
 # "opts" lets global options, or for task and make other task names, sit between the
 # executable and its subcommand (helm --namespace ns install, kubectl -n ns apply,
@@ -176,9 +303,9 @@ gh_outbound="gh[[:space:]]+${opts}(pr[[:space:]]+(create|merge|close|reopen|read
 # gh api writes with an explicit method, or implicitly (POST) as soon as it sends fields.
 gh_api="gh[[:space:]]+${opts}api[[:space:]][^;&|]*(-X|--method)[[:space:]=]*(POST|PATCH|PUT|DELETE)|gh[[:space:]]+${opts}api[[:space:]][^;&|]*(-f|-F|--field|--raw-field|--input)"
 # The Makefile forwards to task. run and its run:* subtasks use the current kubeconfig;
-# the e2e tasks create and delete a Kind cluster; acceptance-cleanup ends a release acceptance
-# (the other acceptance tasks only read, or write test objects through the program's guard).
-task_outbound="(task|make)[[:space:]]+${opts}(deploy|kind-deploy|undeploy|install|uninstall|docker-push|docker-buildx|run(:[a-z-]+)?|setup-test-e2e|test-e2e|cleanup-test-e2e|acceptance-cleanup)"
+# the e2e tasks create and delete a Kind cluster (the acceptance tasks only read, or write test
+# objects through the program's guard: they are checked below).
+task_outbound="(task|make)[[:space:]]+${opts}(deploy|kind-deploy|undeploy|install|uninstall|docker-push|docker-buildx|run(:[a-z-]+)?|setup-test-e2e|test-e2e|cleanup-test-e2e)"
 # The acceptance program run or built directly, around the tasks and the code they pin.
 go_acceptance="go[[:space:]]+(run|build)[[:space:]][^;&|]*test/acceptance"
 docker_push="docker[[:space:]]+${opts}((image|manifest)[[:space:]]+)?push|docker[[:space:]][^;&|]*--push(=[^[:space:]]*)?"
@@ -281,8 +408,9 @@ ${untracked:-none}"
 fi
 
 # The acceptance tasks reach a cluster without asking: check, inspect, get and validate because
-# they only read, setup, apply and delete because the guard of test/acceptance keeps them on test
-# objects. config changes kuik's own configuration: the same checks apply, and an ask rule of
+# they only read, setup, apply, delete and cleanup because the guard of test/acceptance keeps them
+# on test objects (cleanup also puts back the global config a test replaced, and the release
+# acceptance runs it on its own once every scenario passed). config changes kuik's own configuration: the same checks apply, and an ask rule of
 # settings.json still asks at every call. All hold for the reviewed code only. Almost anything in
 # the repository can change what runs (the program, the API types it decodes into, go.mod, a
 # go.work, another Taskfile), so they pass only as one plain `task acceptance-X -- <args>` in a
@@ -294,13 +422,13 @@ fi
 # `task acceptance-approve` recorded in this worktree's git directory: one question for a whole
 # run, asked again as soon as the code moves. Anything else, or a git error, asks. origin/main is
 # the local ref: moving it takes a git command that asks on its own.
-if printf '%s' "$cmd" | grep -Eq "(task|make)[[:space:]]+${opts}acceptance-(check|inspect|get|validate|setup|apply|delete|config)([[:space:]]|\$)"; then
+if printf '%s' "$cmd" | grep -Eq "(task|make)[[:space:]]+${opts}acceptance-(check|inspect|get|validate|setup|apply|delete|cleanup|config)([[:space:]]|\$)"; then
   reason="This acceptance task reaches a cluster from code that differs from origin/main, or in a form the hook cannot check: the user confirms it explicitly."
   case "$cmd" in *'
 '* | *"$(printf '\r')"*) ask "$reason" ;; esac
   # An argument is plain characters, or single-quoted pieces the shell reads literally (a regex
   # for --grep): only a single quote ends one, and none may appear inside.
-  printf '%s' "$cmd" | grep -Eq "^task[[:space:]]+acceptance-(check|inspect|get|validate|setup|apply|delete|config)([[:space:]]+--([[:space:]]+([A-Za-z0-9=,./:_@+-]|'[^']*')+)*)?[[:space:]]*\$" || ask "$reason"
+  printf '%s' "$cmd" | grep -Eq "^task[[:space:]]+acceptance-(check|inspect|get|validate|setup|apply|delete|cleanup|config)([[:space:]]+--([[:space:]]+([A-Za-z0-9=,./:_@+-]|'[^']*')+)*)?[[:space:]]*\$" || ask "$reason"
   top=$(git -C "${cwd:-.}" rev-parse --show-toplevel 2>/dev/null) || ask "$reason"
   # Task picks its Taskfile from the current directory: only the top level is the one checked.
   [ "$(cd "${cwd:-.}" 2>/dev/null && pwd -P)" = "$(cd "$top" && pwd -P)" ] || ask "$reason"

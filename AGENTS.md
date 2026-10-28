@@ -149,13 +149,14 @@ build are in [`.claude/rules/docs.md`](./.claude/rules/docs.md).
 
 - `settings.json`: no AI attribution on commits and PRs
   ([CONTRIBUTING](./CONTRIBUTING.md#use-of-ai-tools)), an allowlist of the read-only and
-  build commands plus `task acceptance-check|inspect|get|setup|apply|delete` (read-only, or writes guarded by the program), `ask` rules that back the outbound
+  build commands plus `task acceptance-check|inspect|get|setup|apply|delete|cleanup` (read-only, or writes guarded by the program), `ask` rules that back the outbound
   hook up, `deny` rules on the
   project's secret files (`.env`, keys; `Read` only, a Bash `cat` is not covered) and on
   edits of the acceptance approval (an `Edit` rule covers every file-editing tool, the hook
   covers Bash), and the hooks below. A new local task (reads nothing outside the machine,
-  writes only in the working copy) gets its allow rule `task <task> *` in the same PR, and its
-  name in the local task list of the outbound hook,
+  writes only in the working copy) never gets an allow rule by default: the session asks the
+  maintainer whether it may run without confirmation, and only on his yes does the PR add its
+  allow rule `task <task> *` and its name in the local task list of the outbound hook,
   which allows it itself after a leading `-d` to a worktree (an allow rule cannot pin the value
   of `-d`).
 - `hooks/guard-generated-files.sh` refuses Edit and Write on the generated files of
@@ -163,31 +164,40 @@ build are in [`.claude/rules/docs.md`](./.claude/rules/docs.md).
   (`sed -i`, `>`) is not covered.
 - `hooks/confirm-outbound-actions.sh` asks the user before any command that leaves the
   working copy (`git push`, `gh pr|issue` writes, `docker push`, releases, `task deploy`
-  or `run`, the e2e tasks, `task acceptance-cleanup`, `task acceptance-config` (an `ask` rule:
+  or `run`, the e2e tasks, `task acceptance-config` (an `ask` rule:
   it changes kuik's own configuration) and any `go run|build` of `test/acceptance`,
   any other acceptance task when anything but the acceptance fixtures, Markdown files and tooling (`.claude/`, `.github/`, `.coderabbit.yaml`) differs from `origin/main` and the user has not approved that change with `task acceptance-approve`, or when git could not compare against the real `origin/main`, `task acceptance-approve` itself,
   a `task` with `--taskfile`, `--dir` or `--global` (except a leading `-d` to the top of a
   worktree under `.claude/worktrees/`, checked as the plain task run there),
-  `helm install`, `kubectl apply|label`...), in every permission
-  mode, even when several tasks share one call (`task build deploy`). Not forbidden: the
+  `helm install`, `kubectl apply|label`, code downloaded and run on the fly: `npx`, `uvx`,
+  `pipx run`, `go run|install <module>@<version>`, which the tasks alone run pinned...), in every permission
+  mode, even when several tasks share one call (`task build deploy`); a pure read standing
+  alone (`grep`, `rg`, `sed -n '<range>p'`, `cat`, `head`, `tail`, `wc`) is never taken for
+  the commands its text names. Not forbidden: the
   user decides, the agent never does it on its own
   ([0003](./notes/0003-agent-orchestration.md)). To let a session drive its own pull
-  request, 5 single commands go through: `git push origin <current feature branch>`
+  request, the hook itself allows 7 single commands, with no prompt: `git push origin <current feature branch>`
   (`-u` and `--force-with-lease` included; a bare `git push` still asks, it may follow an
   upstream on `main`; never a plain `--force`, `main`, a maintenance or release branch or a
   tag; the branch name starts with a letter or a digit, and `origin` is this repository with
   no push refmap, URL rewrite or `push.followTags`; it is refused while auto-merge is
   enabled on the branch's pull request, which would merge the push unreviewed: disable it
   first),
-  `gh pr edit <n> --add-label e2e-ready`, `gh pr merge <n> --disable-auto` and
-  `gh pr comment <n> --body "@coderabbitai review"` (or `full review`) on the pull request
-  of the current branch, and a read written
+  `gh pr edit <n> --add-label e2e-ready`, `gh pr merge <n> --disable-auto`,
+  `gh pr merge <n> --auto --rebase --match-head-commit <full sha of the commit checked out>`
+  (starting the work on a pull request is the go to merge it),
+  `gh pr comment <n> --body "@coderabbitai review"` (or `full review`) and
+  `gh api graphql -f query='mutation { resolveReviewThread(input: {threadId: "PRRT_..."}) { thread { isResolved } } }'`
+  (one thread, no alias, variable or `--jq`; the hook checks the thread belongs to the pull
+  request) on the pull request of the current branch, and a read written
   `gh api graphql -f query='...' [--jq '...']`, with no single quote, backslash, `$` or
-  backtick inside the single quotes (double quotes are fine) and no `mutation` (any other
-  form asks). Each form must match the
-  whole command, so no quoting can hide a second command: run them alone, with no
-  `2>&1 | grep` or `| tail` after (their output is short), or the hook asks. `gh pr merge`
-  still asks.
+  backtick inside the query (double quotes are fine), no `$` in the filter and no `mutation`
+  (any other form asks), and the reads `gh pr view|list|checks|diff`, `gh release view`,
+  `gh run view|watch|list`, `gh issue view|list`. Every gh form accepts
+  `--repo enix/kube-image-keeper` (or `-R`); another repository asks. Each form must match the
+  whole command, so no quoting can hide a second command: run them alone. A read followed by
+  a pipe or `2>&1` is refused with the way to trim it (`--jq`, GraphQL `first:`); any other
+  addition asks. Any other `gh pr merge` (a direct merge, unpinned) still asks.
   `confirm-outbound-actions.test.sh` checks it on a table of commands in a throwaway
   repository: `task lint-hooks`, run by the Lint workflow.
 - `rules/`: the path-scoped conventions above.
