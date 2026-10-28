@@ -723,6 +723,27 @@ var _ = Describe("ImageMirror Controller", func() {
 			Expect(first.Ref).To(Equal(src.Host() + "/acme/app:v1"))
 		})
 
+		DescribeTable("skips the status write of a reconcile that observed nothing new while a copy keeps failing",
+			func(fail func(), reason kuikv1alpha1.CopyFailureReason) {
+				var writes atomic.Int32
+				h.withStatusWrites(&writes)
+				fail()
+				Eventually(failures).Should(ConsistOf(HaveField("Reason", reason)))
+
+				writes.Store(0)
+				h.reconcile()
+				Expect(writes.Load()).To(BeZero())
+			},
+			Entry("on the destination side", func() { failingCopy() }, kuikv1alpha1.CopyPushRejected),
+			Entry("on the source side, once every candidate failed", func() {
+				gone := h.source()
+				createPod(h.namespace(), unique("pod"), container{name: appContainer, image: gone.Host() + "/acme/gone:v1"})
+				h.mirror()
+				h.reconcile()
+				h.window()
+			}, kuikv1alpha1.CopySourceNotFound),
+		)
+
 		It("records SourceNotFound when no source answers, and emits ImageUnrecoverable", func() {
 			gone := h.source()
 			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: gone.Host() + "/acme/gone:v1"})

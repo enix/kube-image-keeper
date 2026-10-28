@@ -463,7 +463,7 @@ var _ = Describe("ImageMonitor", func() {
 			Expect(err).NotTo(HaveOccurred())
 			c := interceptor.NewClient(watching, interceptor.Funcs{
 				SubResourceUpdate: func(ctx context.Context, c client.Client, subResource string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
-					if _, ok := obj.(*kuikv1alpha1.ImageMonitor); ok && subResource == "status" && conflict.CompareAndSwap(true, false) {
+					if _, ok := obj.(*kuikv1alpha1.ImageMonitor); ok && subResource == statusSubResource && conflict.CompareAndSwap(true, false) {
 						return apierrors.NewConflict(kuikv1alpha1.GroupVersion.WithResource("imagemonitors").GroupResource(), obj.GetName(), errors.New("injected"))
 					}
 					return c.SubResource(subResource).Update(ctx, obj, opts...)

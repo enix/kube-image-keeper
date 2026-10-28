@@ -39,6 +39,8 @@ const (
 	labelReason     = "reason"
 	labelImage      = "image"
 	labelOperation  = "operation"
+	// statusSubResource is the subresource a status write goes to.
+	statusSubResource = "status"
 )
 
 // mirrorHarness runs an ImageMirrorReconciler against an in-memory destination registry, its
@@ -159,17 +161,43 @@ func (h *mirrorHarness) restart() {
 // series go to a new registry.
 func (h *mirrorHarness) withStatusConflict(conflict *atomic.Bool) {
 	GinkgoHelper()
-	h.metrics = prometheus.NewRegistry()
 	watching, err := client.NewWithWatch(cfg, client.Options{Scheme: k8sClient.Scheme()})
 	Expect(err).NotTo(HaveOccurred())
 	c := interceptor.NewClient(watching, interceptor.Funcs{
 		SubResourceUpdate: func(ctx context.Context, c client.Client, subResource string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
-			if _, ok := obj.(*kuikv1alpha1.ImageMirror); ok && subResource == "status" && conflict.CompareAndSwap(true, false) {
+			if _, ok := obj.(*kuikv1alpha1.ImageMirror); ok && subResource == statusSubResource && conflict.CompareAndSwap(true, false) {
 				return apierrors.NewConflict(kuikv1alpha1.GroupVersion.WithResource("imagemirrors").GroupResource(), obj.GetName(), errors.New("injected"))
 			}
 			return c.SubResource(subResource).Update(ctx, obj, opts...)
 		},
 	})
+	h.rebuildOn(c)
+}
+
+// withStatusWrites builds the reconciler again on a client that counts its status writes of an
+// ImageMirror in writes, no-op ones included: the API server keeps the resourceVersion of a
+// write that changes nothing once stored. Its series go to a new registry.
+func (h *mirrorHarness) withStatusWrites(writes *atomic.Int32) {
+	GinkgoHelper()
+	watching, err := client.NewWithWatch(cfg, client.Options{Scheme: k8sClient.Scheme()})
+	Expect(err).NotTo(HaveOccurred())
+	c := interceptor.NewClient(watching, interceptor.Funcs{
+		SubResourceUpdate: func(ctx context.Context, c client.Client, subResource string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+			if _, ok := obj.(*kuikv1alpha1.ImageMirror); ok && subResource == statusSubResource {
+				writes.Add(1)
+			}
+			return c.SubResource(subResource).Update(ctx, obj, opts...)
+		},
+	})
+	h.rebuildOn(c)
+}
+
+// rebuildOn builds the reconciler again on c, holding the lease. Its series go to a new
+// registry.
+func (h *mirrorHarness) rebuildOn(c client.Client) {
+	GinkgoHelper()
+	h.metrics = prometheus.NewRegistry()
+	var err error
 	h.reconciler, err = NewImageMirrorReconciler(c, k8sClient.Scheme(), ImageMirrorOptions{
 		APIReader:                k8sClient,
 		ClusterResourceNamespace: installNamespace,
