@@ -1,6 +1,6 @@
 # 0003 — how the work is driven
 
-**Date:** 2026-08-21 · **Amended:** 2026-09-17 · **Edited:** 2026-10-09 (reference to a private page removed, decision unchanged) · **Status:** decided
+**Date:** 2026-08-21 · **Amended:** 2026-09-17 · **Edited:** 2026-10-09 (reference to a private page removed, decision unchanged) · **Status:** superseded by [0017](./0017-a-session-drives-its-pull-request-to-the-merge.md)
 
 Paul drives the v3 build himself, one task at a time, with an AI coding agent working in
 front of him. Nothing runs unattended.
