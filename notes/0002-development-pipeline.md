@@ -1,6 +1,6 @@
 # 0002 — development pipeline and epics
 
-**Date:** 2026-08-21 · **Amended:** 2026-09-17, 2026-10-09 (milestones renamed epics; reference to a private page removed) · **Status:** active
+**Date:** 2026-08-21 · **Amended:** 2026-09-17, 2026-10-09 (milestones renamed epics; reference to a private page removed), 2026-10-28 · **Status:** active
 
 How the v3 build is organised. Amendments are marked inline and dated.
 
@@ -20,11 +20,15 @@ How the v3 build is organised. Amendments are marked inline and dated.
 - **Phase 3 — the build.** *(Amended 2026-09-17:)* epic by epic, one task at a
   time, driven by Paul with an agent in front of him: what to do, what to commit, when to
   open and merge a pull request. See
-  [0003](./0003-agent-orchestration.md). Tests are written as natural-language cases,
+  [0003](./0003-agent-orchestration.md), superseded by
+  [0017](./0017-a-session-drives-its-pull-request-to-the-merge.md). Tests are written as natural-language cases,
   one per behaviour, and those cases are the `It` and `Entry` strings of the Ginkgo
   specs ([0004](./0004-test-framework.md)), so the reviewed English lands in git next to
   the assertion it describes. The tree of cases is written and reviewed first, with
   `task test-outline` (`DIFF=<ref>` shows only what changed), and the bodies come after.
+  *(Amended 2026-10-28:)* each pull request is written by one `implementer` and checked by
+  fresh reviewers ([0014](./0014-implementer-and-reviewer-agents.md)); its session pushes,
+  labels and auto-merges it ([0017](./0017-a-session-drives-its-pull-request-to-the-merge.md)).
 
 ## Epics
 
@@ -59,7 +63,9 @@ Order follows the dependency graph, not thematic grouping:
 
 - Conventional commits, enforced by conform (unchanged from v2).
 - Every behaviour change ships with tests and docs in the same PR (unchanged).
-- Decisions land here as numbered notes before the code that implements them. A note is
+- *(Amended 2026-10-28:)* a decision's rationale lives in the commit body that implements
+  it; it becomes a numbered note only when it passes the filter of
+  [0005](./0005-decision-log-filter.md). A note is
   amended in place while its status is `active`, with the amendment marked inline and
   dated (see [`README.md`](./README.md) for the status semantics); only a `decided` note
   is frozen and requires a superseding note.
