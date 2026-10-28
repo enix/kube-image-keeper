@@ -280,6 +280,36 @@ var _ = Describe("Copy", func() {
 			Expect(copyReason(err)).To(Equal(kuikv1alpha1.CopySourceUnreachable))
 			Expect(counted(src.Host(), "Copy", string(kuikv1alpha1.CheckUnreachable))).To(Equal(1.0))
 		})
+
+		It("reports QuotaExceeded on a 429 for a blob without requesting that blob again", func() {
+			img := registrytest.Image()
+			layers, err := img.Layers()
+			Expect(err).NotTo(HaveOccurred())
+			layer, err := layers[0].Digest()
+			Expect(err).NotTo(HaveOccurred())
+			src.Push("app:v1", img)
+			src.Intercept(registrytest.Status(http.MethodGet, "/blobs/"+layer.String(), http.StatusTooManyRequests, nil))
+
+			_, err = client.Copy(ctx, endpoint(src, "app:v1"), endpoint(dst, "mirror/app"), []string{copyTag})
+
+			Expect(copyReason(err)).To(Equal(kuikv1alpha1.CopyQuotaExceeded))
+			Expect(src.Requests(http.MethodGet, "/blobs/"+layer.String())).To(HaveLen(1))
+		})
+	})
+
+	Context("when the destination rate-limits a write", func() {
+		It("reports QuotaExceeded on a 429 for a destination manifest PUT without sending it again", func() {
+			src.Push("app:v1", registrytest.Image())
+			dst.Intercept(registrytest.Status(http.MethodPut, "/manifests/", http.StatusTooManyRequests, nil))
+
+			_, err := client.Copy(ctx, endpoint(src, "app:v1"), endpoint(dst, "mirror/app"), []string{copyTag})
+
+			copyErr, ok := errors.AsType[*CopyError](err)
+			Expect(ok).To(BeTrue())
+			Expect(copyErr.Reason).To(Equal(kuikv1alpha1.CopyQuotaExceeded))
+			Expect(copyErr.Destination).To(BeTrue())
+			Expect(dst.Requests(http.MethodPut, "/manifests/")).To(HaveLen(1))
+		})
 	})
 
 	Context("kuik_registry_requests_total", func() {
