@@ -7,7 +7,9 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -21,6 +23,7 @@ import (
 	"github.com/enix/kube-image-keeper/internal/registry/pacing"
 	"github.com/enix/kube-image-keeper/internal/routing"
 	"github.com/enix/kube-image-keeper/internal/status/attribution"
+	"github.com/enix/kube-image-keeper/internal/status/condition"
 )
 
 // mirrorFinalizer holds a deleted ImageMirror until its tags are gone: status.repositories,
@@ -84,9 +87,27 @@ func (r *ImageMirrorReconciler) finalize(ctx context.Context, im *kuikv1alpha1.I
 		return ctrl.Result{RequeueAfter: r.state(im.Name).holdAgain()}, nil
 	}
 	if im.Spec.Cleanup.IsEnabled() {
-		done, err := r.deleteTags(ctx, im)
+		done, refused, err := r.deleteTags(ctx, im)
 		if err != nil {
 			return ctrl.Result{}, err
+		}
+		if refused {
+			enabled, err := r.reportRefused(ctx, im.Name, resource)
+			if err != nil {
+				if apierrors.IsConflict(err) {
+					return ctrl.Result{RequeueAfter: conflictWait}, nil
+				}
+				// Its finalizer was removed meanwhile: the mirror is gone, as if released.
+				if apierrors.IsNotFound(err) {
+					r.forget(resource)
+					return ctrl.Result{}, nil
+				}
+				return ctrl.Result{}, err
+			}
+			if !enabled {
+				// Cleanup was disabled meanwhile: the next try releases the mirror at once.
+				return ctrl.Result{RequeueAfter: conflictWait}, nil
+			}
 		}
 		if !done {
 			return ctrl.Result{RequeueAfter: r.state(im.Name).holdAgain()}, nil
@@ -113,6 +134,36 @@ func (r *ImageMirrorReconciler) patchFinalizers(ctx context.Context, im, origina
 	return r.Patch(ctx, im, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{}))
 }
 
+// refusedCleanup is why a deleted mirror whose destination refuses tag deletion is not ready:
+// only an operator can release it.
+var refusedCleanup = condition.NotReady{
+	Reason:  kuikv1alpha1.ReasonRegistryDeleteUnsupported,
+	Message: "the destination refuses tag deletion: cleanup cannot make progress; set cleanup.enabled: false to release the ImageMirror and leave its tags in place",
+}
+
+// reportRefused sets Ready False with reason RegistryDeleteUnsupported on a deleted mirror its
+// destination holds, and writes the status only when that changed it: a held mirror is tried
+// again for good. It reads the mirror again first, since deleting the tags took registry round
+// trips, and reports false, writing nothing, when cleanup was disabled meanwhile: the next try
+// releases it.
+func (r *ImageMirrorReconciler) reportRefused(ctx context.Context, name string, resource routing.Resource) (bool, error) {
+	var im kuikv1alpha1.ImageMirror
+	if err := r.Get(ctx, types.NamespacedName{Name: name}, &im); err != nil {
+		return false, err
+	}
+	if !im.Spec.Cleanup.IsEnabled() {
+		return false, nil
+	}
+	next := im.Status.DeepCopy()
+	notReady := refusedCleanup
+	r.readiness.Set(&im, resource.Kind, resource.Name, &next.Conditions, im.Generation, &notReady)
+	if equality.Semantic.DeepEqual(im.Status, *next) {
+		return true, nil
+	}
+	im.Status = *next
+	return true, r.Status().Update(ctx, &im)
+}
+
 // runsCopies reports whether a live pod runs an image under the destination of im.
 func (r *ImageMirrorReconciler) runsCopies(ctx context.Context, im *kuikv1alpha1.ImageMirror) (bool, error) {
 	var pods corev1.PodList
@@ -134,12 +185,13 @@ func (r *ImageMirrorReconciler) runsCopies(ctx context.Context, im *kuikv1alpha1
 }
 
 // deleteTags deletes by tag every tag of this cluster in the repositories of im, and reports
-// whether it got through. A manage credential that cannot be read or a destination refusing tag
-// deletion holds the mirror: released, it would take with it status.repositories, the only
-// inventory of the tags left behind.
-func (r *ImageMirrorReconciler) deleteTags(ctx context.Context, im *kuikv1alpha1.ImageMirror) (bool, error) {
+// whether it got through, and whether the destination refused a deletion as unsupported. A
+// manage credential that cannot be read or a destination refusing tag deletion holds the
+// mirror: released, it would take with it status.repositories, the only inventory of the tags
+// left behind.
+func (r *ImageMirrorReconciler) deleteTags(ctx context.Context, im *kuikv1alpha1.ImageMirror) (bool, bool, error) {
 	if len(im.Status.Repositories) == 0 {
-		return true, nil
+		return true, false, nil
 	}
 	log := logf.FromContext(ctx)
 	manage, err := r.manageAuth(ctx, im)
@@ -147,17 +199,17 @@ func (r *ImageMirrorReconciler) deleteTags(ctx context.Context, im *kuikv1alpha1
 	var malformed *auth.ErrSecretMalformed
 	if errors.As(err, &notFound) || errors.As(err, &malformed) {
 		log.Info("Held a deleted ImageMirror: its manage credential cannot be read", "error", err.Error())
-		return false, nil
+		return false, false, nil
 	}
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	suffix := "_" + r.clusterID
 	for _, repository := range im.Status.Repositories {
 		endpoint := registry.Endpoint{Reference: repository, Insecure: im.Spec.Destination.Insecure, Auth: manage(repository)}
 		tags, err := r.registry.ListTags(ctx, endpoint)
 		if err != nil {
-			return false, err
+			return false, false, err
 		}
 		for _, tag := range tags {
 			if !strings.HasSuffix(tag, suffix) {
@@ -167,15 +219,16 @@ func (r *ImageMirrorReconciler) deleteTags(ctx context.Context, im *kuikv1alpha1
 			err := r.registry.DeleteTag(ctx, endpoint)
 			if errors.Is(err, registry.ErrDeleteUnsupported) {
 				log.Info("Held a deleted ImageMirror: its destination refuses tag deletion", "image", endpoint.Reference, "error", err.Error())
-				return false, nil
+				r.recorder.Eventf(im, nil, corev1.EventTypeWarning, "ImageDeletionFailed", "Delete", "Failed to delete %s: %v", endpoint.Reference, err)
+				return false, true, nil
 			}
 			if err != nil {
-				return false, err
+				return false, false, err
 			}
 			log.Info("Deleted the tag of a deleted ImageMirror", "image", endpoint.Reference)
 		}
 	}
-	return true, nil
+	return true, false, nil
 }
 
 // drop forgets everything a process holds for the mirror name: its copy queues, its drift

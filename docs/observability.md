@@ -69,7 +69,7 @@ the upstream digest, emits nothing either.
 | `ImageUnrecoverable` | Warning | No source can supply an image any more (`SourceNotFound` on the origin and every alternative). Pods still running it do so from a node cache. Once, when the copy starts failing that way |
 | `OrphanTagFound` | Warning | The sweep found a tag of this cluster no tracked image accounts for. It is deleted once its retention elapsed. Once per tag |
 | `ImageDeleted` | Normal | A tag was deleted after its retention elapsed |
-| `ImageDeletionFailed` | Warning | The destination refused a tag deletion |
+| `ImageDeletionFailed` | Warning | The destination refused a tag deletion, by the sweep or by the cleanup of a deleted `ImageMirror`. A destination that does not support tag deletion also sets `Ready` `False` with reason `RegistryDeleteUnsupported` |
 
 ## Metrics
 

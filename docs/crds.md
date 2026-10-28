@@ -262,7 +262,7 @@ A deleted `ImageMirror` stops routing new pods and copying images at once, then 
 1. While a live pod runs an image under `destination.path`, it waits: a node rescheduling that pod would find the copy gone. Roll those workloads onto their origin to release it.
 2. With `cleanup.enabled`, it then deletes every tag of this cluster in `status.repositories`, whatever their retention. It keeps waiting while the `manage` credential cannot be read, or while the destination refuses tag deletion: released, it would take with it the only inventory of the tags left behind.
 
-It retries after 10 seconds, doubling up to 30 minutes, and sooner when a pod goes. A destination that never accepts tag deletion holds the mirror for good: set `cleanup.enabled: false` before deleting it to leave the tags in place.
+It retries after 10 seconds, doubling up to 30 minutes, and sooner when a pod goes. A destination that never accepts tag deletion holds the mirror for good: each try emits `ImageDeletionFailed`, and `Ready` goes `False` with reason `RegistryDeleteUnsupported`. Set `cleanup.enabled: false`, before deleting it or while it is held, to release it and leave the tags in place.
 
 ### Status
 

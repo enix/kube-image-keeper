@@ -181,6 +181,7 @@ func (r *ImageMirrorReconciler) sweep(ctx context.Context, im *kuikv1alpha1.Imag
 			st.mu.Lock()
 			st.deleteUnsupported = true
 			st.mu.Unlock()
+			r.recorder.Eventf(im, nil, corev1.EventTypeWarning, "ImageDeletionFailed", "Delete", "Failed to delete %s: %v", ref, err)
 		default:
 			log.Info("Failed to delete ImageMirror tag", "image", ref, "error", err.Error())
 			r.recorder.Eventf(im, nil, corev1.EventTypeWarning, "ImageDeletionFailed", "Delete", "Failed to delete %s: %v", ref, err)
