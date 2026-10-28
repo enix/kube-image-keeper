@@ -1,7 +1,7 @@
 # 0001 — v2 reuse analysis and rewrite decision
 
 **Date:** 2026-08-21 · **Status:** active
-**Amended:** 2026-09-27
+**Amended:** 2026-09-27, 2026-10-28
 
 ## Decision
 
@@ -18,6 +18,9 @@ Concretely:
   and `parallel.FirstSuccessful` are not lifted, see [Other keeps](#other-keeps);
 - all infrastructure (Makefile, lefthook, CI workflows, Dockerfile, Helm skeleton,
   website pipeline, envtest/e2e harness, semantic-release setup) transfers as-is.
+  *(Amended 2026-10-28:)* the Makefile became a shim over `Taskfile.yaml`
+  ([0006](./0006-taskfile.md)) and the kustomize overlays were dropped
+  ([0007](./0007-helm-only.md)).
 
 Basis: full read of the v3 spec ([PR #629](https://github.com/enix/kube-image-keeper/pull/629):
 `spec.md`, `status.md`, the three walkthroughs, `open-questions.md`) against an inventory
@@ -170,6 +173,7 @@ returns (`architecture.md`), and the secret syncer injects pull secrets. The
   "v2 enters maintenance".
 - Makefile, lefthook, CI workflows, Dockerfile, Helm chart skeleton, envtest/e2e harness
   transfer identically — hundreds of lines and weeks of tuning we do not replay.
+  *(Amended 2026-10-28:)* the Makefile then became a shim over Task (0006).
 
 A fresh Kubebuilder scaffold in a new repo would throw all of that away for the comfort
 of a blank page.
