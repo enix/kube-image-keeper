@@ -270,6 +270,22 @@ case "$cmd" in
     ;;
 esac
 
+# Code downloaded and run on the fly: npx, pipx run, uvx, and go run or go install of a
+# module@version. The repository runs its pinned tools through its tasks only, so no direct
+# form is an exception here; the user decides each one (the auto mode classifier answered
+# such commands both ways).
+fetched='(^|[;&|({`[:space:]]|\$\()(npx|uvx|pipx[[:space:]]+run|go[[:space:]]+(run|install)[[:space:]]+([^;&|]*[[:space:]])?[^[:space:];&|@]+@[^[:space:];&|]+)([[:space:]]|$)'
+if printf '%s' "$cmd" | grep -Eq "$fetched"; then
+  jq -n '{
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "ask",
+      permissionDecisionReason: "This command downloads code and runs it (npx, uvx, pipx run, go run or go install of a module@version): the user confirms it explicitly."
+    }
+  }'
+  exit 0
+fi
+
 # "opts" lets global options, or for task and make other task names, sit between the
 # executable and its subcommand (helm --namespace ns install, kubectl -n ns apply,
 # gh -R repo pr create, task build deploy). For git, the subcommand is the first word that

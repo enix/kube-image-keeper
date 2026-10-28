@@ -169,6 +169,17 @@ check allow "gh api graphql -f query='query { viewer { login } }'"
 # pull-request skill passes.
 check allow "gh api graphql -f query='query { repository(owner: \"enix\", name: \"kube-image-keeper\") { pullRequest(number: 12) { reviewThreads(first: 100) { nodes { id isResolved path } } } } }' --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved | not)'"
 check ask "gh api graphql -f query='query { search(query: \"mutation\") { issueCount } }'"
+# Code downloaded and run on the fly asks; the repository's own pinned tools run through tasks.
+check ask "npx -y -p typescript@5.6.3 tsc"
+check ask "go run golang.org/x/vuln/cmd/govulncheck@latest ./..."
+check ask "go install github.com/go-task/task/v3/cmd/task@v3.53.1"
+check ask "GOBIN=/tmp go install golang.org/x/tools/cmd/stringer@v0.30.0"
+check ask "uvx ruff check"
+check ask "pipx run black ."
+check ask "echo ok && npx prettier --check ."
+check pass "go run ./hack/testoutline -diff origin/main"
+check pass "go test ./internal/..."
+check pass "task lint-markdown"
 # A --jq filter may use jq's string interpolation: the backslash is literal in single quotes.
 check allow "gh api graphql -f query='{ repository(owner: \"enix\", name: \"kube-image-keeper\") { discussions(first: 50) { nodes { number title body } } } }' --jq '.data.repository.discussions.nodes[] | select((.title + .body) | test(\"migrat|v3|upgrade\"; \"i\")) | \"\\(.number) \\(.title)\"'"
 check ask "gh api graphql -f query='{ viewer { login } }' --jq '\"\\(env.GH_TOKEN)\"'"

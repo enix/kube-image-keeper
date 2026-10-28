@@ -169,7 +169,8 @@ build are in [`.claude/rules/docs.md`](./.claude/rules/docs.md).
   any other acceptance task when anything but the acceptance fixtures, Markdown files and tooling (`.claude/`, `.github/`, `.coderabbit.yaml`) differs from `origin/main` and the user has not approved that change with `task acceptance-approve`, or when git could not compare against the real `origin/main`, `task acceptance-approve` itself,
   a `task` with `--taskfile`, `--dir` or `--global` (except a leading `-d` to the top of a
   worktree under `.claude/worktrees/`, checked as the plain task run there),
-  `helm install`, `kubectl apply|label`...), in every permission
+  `helm install`, `kubectl apply|label`, code downloaded and run on the fly: `npx`, `uvx`,
+  `pipx run`, `go run|install <module>@<version>`, which the tasks alone run pinned...), in every permission
   mode, even when several tasks share one call (`task build deploy`); a pure read standing
   alone (`grep`, `rg`, `sed -n '<range>p'`, `cat`, `head`, `tail`, `wc`) is never taken for
   the commands its text names. Not forbidden: the
