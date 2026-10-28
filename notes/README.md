@@ -115,3 +115,6 @@ Rationale in [0005](./0005-decision-log-filter.md).
 - [0018 — Every test commit is red, a bug fix included](./0018-every-test-commit-is-red.md):
   a regression spec comes before its fix in every case, `task check-commits` fails on a
   `test` commit whose specs already pass, and the e2e cases are outlined from the start.
+- [0019 — A fix commit names the pull request that introduced the bug](./0019-introduced-by-on-fix-commits.md):
+  every `fix` commit ends with `Introduced-by: #<PR>` (or `unknown` after asking the user),
+  checked in CI, so the release notes leave out fixes of unreleased work.
