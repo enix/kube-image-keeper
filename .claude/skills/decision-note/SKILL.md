@@ -62,7 +62,7 @@ How a note changes depends on its status ([0002](../../../notes/0002-development
 working agreements):
 
 - `draft`: edit freely, no trace needed.
-- `active`: amend in place, the way 0002 and 0003 were:
+- `active`: amend in place, the way 0002 and 0014 were:
   1. Set `**Amended:** YYYY-MM-DD` between Date and Status (add it, or update it to today).
   2. Open each changed passage with `*(Amended YYYY-MM-DD:)*`. When it reverses what the
      note first said, say so: `*(amendment vs the original plan, which ...)*`.

@@ -58,7 +58,10 @@ the [`test-outline`](../test-outline/SKILL.md) skill.
 Write for a reviewer who has 2 minutes. The shape:
 
 ```markdown
-<1 to 3 sentences: what the PR does and why, in plain words.>
+<1 to 3 sentences: what the PR does and why, in plain words. Closes #N>
+
+<A short paragraph on what the change concretely does: the behaviour a reader needs to
+understand it at a glance.>
 
 What to look at:
 
@@ -67,15 +70,21 @@ What to look at:
 ```
 
 - The introduction says what the PR brings, not how the diff is organised.
-- The list names the topics worth a reviewer's attention (a mechanism, a trade-off, a
-  risky file), one line each, 3 to 7 entries. It never restates the commits or the diff.
+- The second paragraph, a bit longer but still short, explains what the change does, the
+  way a user would see it (for a retry: when it comes back, how the wait grows, up to what,
+  what happens meanwhile). Without it the reader has to rebuild the behaviour from the
+  bullets.
+- The list names only what a reviewer should weigh (a mechanism, a trade-off, a risky
+  file), one line each, 3 to 7 entries. It never repeats the explaining paragraph, the
+  commits or the diff.
 - Add a line only when it has something to say: no empty or "None" section. A known limit
   (what the PR deliberately leaves out) goes in the list, or in one sentence after it.
 - When the PR answers an issue, end the introduction with `Closes #N` (or `Part of #N`):
   GitHub closes it on merge and the reader gets the context from the link.
-- When the PR changes what users see on upgrade (a chart value renamed or removed, a CRD
-  field, a default, a behaviour), add `Upgrade notes:` after the list, 1 to 3 lines. It is
-  what the release notes are written from.
+- Add `Upgrade notes:` after the list, 1 to 3 lines, only when a user upgrading must act or
+  would be surprised by something the description does not already say: a chart value
+  renamed or removed, a CRD field, a default. A behaviour change the introduction or the
+  paragraph already describes gets none; the release notes work from them.
 - When the PR decided a spec reading (where `docs/v3/` is silent or ambiguous) or a
   behaviour choice, add `Decisions:` after the list, one line each with the link to the spec
   heading: the reviewer weighs in there.
