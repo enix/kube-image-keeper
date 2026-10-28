@@ -101,5 +101,9 @@ Rationale in [0005](./0005-decision-log-filter.md).
 - [0015 — Release acceptance: the tooling acts, the agent judges](./0015-acceptance-tooling-acts-the-agent-judges.md):
   `test/acceptance/` applies YAML fixtures, changes and prints test objects through one guard,
   and never asserts; the agent of the `release-acceptance` skill runs the user stories of
-  `scenarios.md`, explores and judges, and cleanup waits for the user; the
-  `acceptance-scenarios` skill drafts new stories per release, the user validates them.
+  `scenarios.md`, explores and judges, and cleanup waits for the user; which stories exist is
+  superseded by [0016](./0016-acceptance-plays-the-use-cases.md).
+- [0016 — Release acceptance plays the documented use cases](./0016-acceptance-plays-the-use-cases.md):
+  the acceptance scenarios are the use cases of `docs/use-cases/`, played end to end on a real
+  cluster with real registries; every precise behaviour, a bug fix's included, goes to the Kind
+  e2e suite or envtest.
