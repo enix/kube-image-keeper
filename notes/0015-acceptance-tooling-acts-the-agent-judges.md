@@ -1,6 +1,6 @@
 # 0015 — Release acceptance: the tooling acts, the agent judges
 
-**Date:** 2026-10-12 · **Status:** decided
+**Date:** 2026-10-12 · **Status:** decided; scenario drafting superseded by [0016](./0016-acceptance-plays-the-use-cases.md)
 
 **Decision:** An agent (the `release-acceptance` skill) accepts a release on a cluster where kuik runs. It runs the user stories of `test/acceptance/scenarios.md`, drafted per release by the `acceptance-scenarios` skill and validated by the user. The program under `test/acceptance/` only acts and collects: `setup` applies the YAML fixtures, `apply` and `delete` change test objects, `check` and `inspect` print what the cluster holds, `cleanup` removes everything. It asserts nothing: the agent explores and judges against `docs/v3/`. One guard in code checks every write, so the tasks run without asking; only cleanup asks, once the user has accepted the results.
 
