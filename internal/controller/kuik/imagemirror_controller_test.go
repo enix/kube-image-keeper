@@ -1289,6 +1289,27 @@ var _ = Describe("ImageMirror Controller", func() {
 			Expect(h.status().PendingDeletion).To(ConsistOf(HaveField("Ref", h.destination.Host()+"/"+ref)))
 		})
 
+		DescribeTable("emits ImageDeletionFailed and sets Ready False with reason RegistryDeleteUnsupported when the destination refuses a tag deletion as unsupported",
+			func(code int) {
+				h.mirror(withRetention(0))
+				ref := h.orphan("old", own)
+				h.destination.Intercept(registrytest.Status(http.MethodDelete, "/manifests/", code, nil))
+				h.reconcile()
+
+				h.pass()
+				h.reconcile()
+				events := h.recorder.withReason("ImageDeletionFailed")
+				Expect(events).To(HaveLen(1))
+				Expect(events[0].eventType).To(Equal(corev1.EventTypeWarning))
+				Expect(events[0].note).To(ContainSubstring(h.destination.Host() + "/" + ref))
+				ready := h.condition(kuikv1alpha1.ConditionReady)
+				Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+				Expect(ready.Reason).To(Equal(kuikv1alpha1.ReasonRegistryDeleteUnsupported))
+			},
+			Entry("400 Bad Request", http.StatusBadRequest),
+			Entry("405 Method Not Allowed", http.StatusMethodNotAllowed),
+		)
+
 		It("deletes nothing and holds nothing in pendingDeletion when cleanup is disabled", func() {
 			src := h.source()
 			src.Push("acme/job:v1", registrytest.Image())
@@ -1496,14 +1517,57 @@ var _ = Describe("ImageMirror Controller", func() {
 			Expect(h.copied(destinationTag(src, "acme/app"))()).To(Succeed())
 		})
 
-		It("holds its finalizer while the destination refuses tag deletion", func() {
+		DescribeTable("emits ImageDeletionFailed and sets Ready False with reason RegistryDeleteUnsupported, once in its status, while the destination refuses its tag deletion as unsupported",
+			func(code int) {
+				pod := routedToCopy()
+				Expect(k8sClient.Delete(ctx, pod)).To(Succeed())
+				h.destination.Intercept(registrytest.Status(http.MethodDelete, "/manifests/", code, nil))
+				deleteMirror()
+
+				h.reconcile()
+				Expect(gone()).To(BeFalse())
+				Expect(h.copied(destinationTag(src, "acme/app"))()).To(Succeed())
+				events := h.recorder.withReason("ImageDeletionFailed")
+				Expect(events).To(HaveLen(1))
+				Expect(events[0].eventType).To(Equal(corev1.EventTypeWarning))
+				Expect(events[0].note).To(ContainSubstring(mirrored))
+				ready := h.condition(kuikv1alpha1.ConditionReady)
+				Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+				Expect(ready.Reason).To(Equal(kuikv1alpha1.ReasonRegistryDeleteUnsupported))
+				Expect(ready.Message).To(ContainSubstring("cleanup.enabled: false"))
+				Expect(h.recorder.withReason(condition.EventResourceNotReady)).To(HaveLen(1))
+				v, ok := notReadyGauge(kuikv1alpha1.ReasonRegistryDeleteUnsupported)
+				Expect(ok).To(BeTrue())
+				Expect(v).To(Equal(1.0))
+
+				var held kuikv1alpha1.ImageMirror
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: h.name}, &held)).To(Succeed())
+				h.reconcile()
+				Expect(gone()).To(BeFalse())
+				var again kuikv1alpha1.ImageMirror
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: h.name}, &again)).To(Succeed())
+				Expect(again.ResourceVersion).To(Equal(held.ResourceVersion))
+				Expect(h.recorder.withReason(condition.EventResourceNotReady)).To(HaveLen(1))
+			},
+			Entry("400 Bad Request", http.StatusBadRequest),
+			Entry("405 Method Not Allowed", http.StatusMethodNotAllowed),
+		)
+
+		It("releases its finalizer, leaving its tags, once cleanup.enabled is set to false while the destination refuses tag deletion", func() {
 			pod := routedToCopy()
 			Expect(k8sClient.Delete(ctx, pod)).To(Succeed())
-			h.destination.Intercept(registrytest.Status(http.MethodDelete, "/manifests/", http.StatusMethodNotAllowed, nil))
+			h.destination.Intercept(registrytest.Status(http.MethodDelete, "/manifests/", http.StatusBadRequest, nil))
 			deleteMirror()
-
 			h.reconcile()
 			Expect(gone()).To(BeFalse())
+
+			var im kuikv1alpha1.ImageMirror
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: h.name}, &im)).To(Succeed())
+			disabled := false
+			im.Spec.Cleanup = &kuikv1alpha1.Cleanup{Enabled: &disabled}
+			Expect(k8sClient.Update(ctx, &im)).To(Succeed())
+			h.reconcile()
+			Expect(gone()).To(BeTrue())
 			Expect(h.copied(destinationTag(src, "acme/app"))()).To(Succeed())
 		})
 
