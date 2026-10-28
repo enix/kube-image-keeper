@@ -3661,6 +3661,29 @@ var _ = Describe("ImageMonitor", func() {
 			Expect(monitorStatusOf(name).UnavailableAlternatives[0].Since.Time).To(BeTemporally("==", since.Time))
 		})
 
+		It("keeps the since of an alternative a previous version listed in short form, and announces it no more", func() {
+			// A previous version rewrote an origin through the bare docker.io group without the
+			// library segment, and listed it Unauthorized so. No window opens: nothing reads docker.io.
+			host := unique("hub") + ".example.com"
+			app := unique("app")
+			origin := host + "/" + app + ":v1"
+			im := newMonitor(name, monitoring)
+			ia := offer([]kuikv1alpha1.Alternative{{RepositoryGroup: host}, {RepositoryGroup: "docker.io"}})
+			since := metav1.NewTime(clock.Now().Add(-time.Hour)).Rfc3339Copy()
+			im.Status.UnavailableAlternatives = []kuikv1alpha1.UnavailableAlternative{{
+				Ref: "docker.io/" + app + ":v1", DerivedFrom: origin, Via: routing.KindImageAlternative + "/" + ia,
+				Reason: kuikv1alpha1.CheckUnauthorized, Since: since,
+			}}
+			Expect(k8sClient.Status().Update(ctx, im)).To(Succeed())
+			runningPod(selectedNamespace(), []container{running(appContainer, origin)})
+			reconcileIt()
+			listed := monitorStatusOf(name).UnavailableAlternatives
+			Expect(listed).To(HaveLen(1))
+			Expect(listed[0].Ref).To(Equal("docker.io/library/" + app + ":v1"))
+			Expect(listed[0].Since.Time).To(BeTemporally("==", since.Time))
+			Expect(recorder.withReason("AlternativeUnusable")).To(BeEmpty())
+		})
+
 		It("caps unavailableAlternatives, keeping the oldest entries and recording the rest in truncated, while its count and series cover every failing alternative", func() {
 			// The cap holds whatever its value: a small one is exceeded by a handful of alternatives.
 			const capacity, over = 5, 6
