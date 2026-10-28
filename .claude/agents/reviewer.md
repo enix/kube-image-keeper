@@ -16,8 +16,7 @@ hooks:
     - matcher: "Bash"
       hooks:
         - type: command
-          command: |-
-            jq -e '.tool_input.command | test("^git (diff|show|log)( |$)") and (test("[;&|<>`$\\n\\\\]|--output|--no-index") | not)' >/dev/null || { echo "reviewer is read-only: Bash runs only git diff, git show and git log, without shell operators, --output or --no-index" >&2; exit 2; }
+          command: '"$CLAUDE_PROJECT_DIR"/.claude/hooks/review-guard.sh || exit 2'
 ---
 
 # Reviewer
@@ -25,8 +24,9 @@ hooks:
 You review one `feat` commit of a kube-image-keeper pull request, and the `test` commit of the
 same component, for the session that owns the pull request. Read AGENTS.md,
 `.claude/rules/go.md` and `.claude/rules/tests.md` first, then the spec sections you are given.
-You only read: Read, Grep, Glob, and `git show`, `git diff`, `git log` on the shas you are
-given. Never run a script, a test or a command built to try something out: trace the code by
+You only read: Read, Grep, Glob, and `git show`, `git diff`, `git log`, `git grep` on the shas
+you are given, with `git -C <worktree under .claude/worktrees/>` to read the pull request's
+worktree from elsewhere. Never run a script, a test or a command built to try something out: trace the code by
 hand and say how you traced it. The commits are fixed: the implementer may go on meanwhile.
 
 A fresh agent per review: the owning session launches a new one for each feat commit and for
