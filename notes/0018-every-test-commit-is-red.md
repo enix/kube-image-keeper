@@ -11,9 +11,8 @@ specs, checked by `spec-reviewer`; their bodies still come in one last `test` co
 
 **Why:**
 
-- The rules allowed "fix first, regression spec after" for a bug a review finds in code the
-  pull request does not own; it was read as covering bug-fix pull requests, and several
-  were briefed and written that way.
+- The rules allowed "fix first, spec after" for a bug a review finds in code the pull request
+  does not own; it was read as covering bug-fix pull requests, which were written that way.
 - A spec written after its fix was never seen failing: nothing shows it would catch the bug.
 - Outlining the e2e cases first decides what the end-to-end run must prove before the code,
   without paying for a Kind run on every change.
@@ -22,5 +21,4 @@ specs, checked by `spec-reviewer`; their bodies still come in one last `test` co
 
 - Keeping the fix-first exception for bugs found in code already on `main`: nothing stops
   writing the spec first there too.
-- Writing the e2e bodies from the start: the suite runs once at the end anyway, and early
-  bodies only add `fixup!` commits and conflicts.
+- Writing the e2e bodies from the start: the suite runs once at the end anyway.

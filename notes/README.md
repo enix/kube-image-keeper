@@ -99,7 +99,8 @@ Rationale in [0005](./0005-decision-log-filter.md).
   one resumed `implementer` writes the pull request, a fresh `reviewer` checks each `feat`
   commit and then the whole branch; the outline, review findings and spec readings need no
   approval, only a gap with `docs/v3/`, a shared-package fix or anything outside the worktree
-  stops the work.
+  stops the work; hooks keep the implementer off pushes, GitHub writes and clusters, and the
+  reviewers on git reads.
 - [0015 — Release acceptance: the tooling acts, the agent judges](./0015-acceptance-tooling-acts-the-agent-judges.md):
   `test/acceptance/` applies YAML fixtures, changes and prints test objects through one guard,
   and never asserts; the agent of the `release-acceptance` skill runs the user stories of
