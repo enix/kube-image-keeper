@@ -40,6 +40,9 @@ const routingNamespace = "kuik-e2e-routing"
 // routingLabel is the namespace label the ImageAlternatives of the routing specs select
 const routingLabel = "kuik.enix.io/e2e"
 
+// unselectedNamespace lacks routingLabel: no ImageAlternative of the routing specs selects it
+const unselectedNamespace = "kuik-e2e-unselected"
+
 // pauseTag is the tag of every image the routing specs run: small, non-root, and served by
 // registry.k8s.io
 const pauseTag = "3.10"
@@ -233,6 +236,20 @@ var _ = Describe("Pod routing", Ordered, func() {
 
 			Expect(podImage("fallback")).To(Equal(availableImage))
 			Eventually(podPhase).WithArguments("fallback").Should(Equal("Running"))
+		})
+
+		// After the spec above, which shows the webhook rewriting this origin.
+		It("leaves a pod of a namespace its namespaceSelector does not select untouched, with no kuik annotation", func() {
+			_, err := kubectl("create", "ns", unselectedNamespace)
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(kubectl, "delete", "ns", unselectedNamespace, "--wait=false")
+
+			Expect(kubectlStdin(pausePodManifest(unselectedNamespace, "unselected", unreachableOrigin), "create", "-f", "-")).
+				Error().NotTo(HaveOccurred())
+
+			Expect(kubectl("get", "pod", "unselected", "-n", unselectedNamespace,
+				"-o", "jsonpath={.spec.containers[0].image}")).To(Equal(unreachableOrigin))
+			Expect(kuikAnnotationsIn(unselectedNamespace, "unselected")).To(BeEmpty())
 		})
 	})
 
@@ -501,7 +518,12 @@ func podPhase(name string) (string, error) {
 
 // kuikAnnotations are the annotations of a pod of the routing namespace the webhook wrote.
 func kuikAnnotations(name string) (map[string]string, error) {
-	output, err := kubectl("get", "pod", name, "-n", routingNamespace, "-o", "jsonpath={.metadata.annotations}")
+	return kuikAnnotationsIn(routingNamespace, name)
+}
+
+// kuikAnnotationsIn are the annotations of a pod of podNamespace the webhook wrote.
+func kuikAnnotationsIn(podNamespace, name string) (map[string]string, error) {
+	output, err := kubectl("get", "pod", name, "-n", podNamespace, "-o", "jsonpath={.metadata.annotations}")
 	if err != nil {
 		return nil, err
 	}
