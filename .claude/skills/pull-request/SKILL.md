@@ -24,18 +24,23 @@ the [`test-outline`](../test-outline/SKILL.md) skill.
   commit that makes them green ([`tests.md`](../../rules/tests.md)). The `feat` commit
   carries the docs and the line in any index (`AGENTS.md`, a README), and touches no
   `*_test.go` file or test helper package. A component without specs (a skill, a task) is
-  one complete commit.
+  one complete commit. A bug fix follows the same order: `test(<scope>)` (red) then
+  `fix(<scope>)` (green), never the fix first.
+- Every `fix` commit ends its body with `Introduced-by: #<PR>`, the pull request that
+  introduced the bug (`git log`, `git blame`, `gh`). When you cannot find it, ask the user;
+  if they do not know either, write `Introduced-by: unknown` and tell them. The release notes
+  read it to leave out the fixes of a feature never released. `task check-commits` and the
+  Conform check reject a `fix` commit without it.
 - Check `git log --stat origin/main..HEAD`: every test file comes from a `test` commit and
   no `feat` commit touches one. The reviewer checks the same thing.
 - No commit that only indexes or fixes the previous ones: before the PR opens, fold a fix
   into its commit with `git commit --fixup=<sha>`, then autosquash in place as in step 5.
   Once it is open, fixes stay `fixup!` commits until the review is over (step 5), and so does
   the regression spec of a bug in the branch's own code: a `fixup!` of the `test` commit of
-  its component. The exception is a bug in code no commit of the branch owns: the fix is
-  its own commit, and its regression spec its own `test` commit after it, subject
-  `test(<scope>): add regression specs for <what>`, body naming the review, the component
-  or commit subject of the fix (never a sha: hashes change on rebase) and that the specs pin
-  the fix ([`tests.md`](../../rules/tests.md)). The description names it in one line. A
+  its component. The exception is a bug in code no commit of the branch owns: a regression
+  pair on top of the branch, `test(<scope>): add regression specs for <what>` (red, body
+  naming the review) then the `fix(<scope>)` commit that turns it green
+  ([`tests.md`](../../rules/tests.md)). The description names it in one line. A
   late batch of review fixes is the other exception (step 5). Review fixes need no
   approval; a fix in a shared package (`internal/registry/*`, `internal/status/*`,
   `internal/auth/*`, `internal/routing/*`, `internal/imagepath`, `internal/config`) lands

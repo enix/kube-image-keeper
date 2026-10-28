@@ -13,9 +13,11 @@ kubelet, the chart as deployed. Everything else belongs to a unit or envtest spe
 
 ## When
 
-e2e specs come last in a PR ([0012](../../../notes/0012-e2e-specs-last-in-a-pr.md)): once the
-PR is otherwise ready (automated review addressed, unit and envtest specs green, the feature
-believed to work), one final `test` commit adds them. A failure is fixed by `fixup!`
+e2e cases are decided first, their bodies written last
+([0012](../../../notes/0012-e2e-specs-last-in-a-pr.md)). The PR's outline holds them from the
+start, as empty `PIt` specs checked by `spec-reviewer` with the rest. Once the PR is otherwise
+ready (automated review addressed, unit and envtest specs green, the feature believed to
+work), one final `test` commit writes their bodies. A failure is fixed by `fixup!`
 commits, autosquashed once like review fixes. This is the one exception to "a `test` commit
 before each `feat` commit" of [`tests.md`](../../rules/tests.md); unit and envtest specs keep
 that order. The reason: a Kind run takes minutes.
@@ -30,10 +32,11 @@ check fails until then, unless the PR changes no path the suite depends on.
 
 ## Workflow
 
-1. **Outline first.** **REQUIRED SUB-SKILL:** follow [`test-outline`](../test-outline/SKILL.md):
-   the `It` / `Entry` strings are drafted as `PIt` / `PEntry`, shown with
-   `task test-outline -- ./test/e2e/`, checked by `spec-reviewer` and reported before any
-   body.
+1. **Outline first**, with the rest of the PR's outline, before any code.
+   **REQUIRED SUB-SKILL:** follow [`test-outline`](../test-outline/SKILL.md): the `It` /
+   `Entry` strings are drafted as `PIt` / `PEntry`, shown with
+   `task test-outline -- ./test/e2e/`, checked by `spec-reviewer` and reported. The bodies
+   wait for the final `test` commit.
 2. **One spec per rule**, never one per verb, kind or field
    ([`tests.md`](../../rules/tests.md)). Drop a case a unit or envtest spec already proves.
 3. **Bodies**, with the patterns below, in the final `test` commit.
