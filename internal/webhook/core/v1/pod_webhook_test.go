@@ -108,8 +108,8 @@ var _ = Describe("Pod Webhook", func() {
 })
 
 var _ = Describe("ensureSecret", func() {
-	// Regression test for issue #604: the AlternativeImage is shared through
-	// alternativeCache across every pod and namespace. ensureSecret must never
+	// Regression test for issue #604: when reusing an AlternativeImage,
+	// ensureSecret must never
 	// overwrite its ImagePullSecret with a namespaced copy, otherwise the next
 	// namespace re-copies that copy and prepends another "kuik-" prefix, growing
 	// the secret name unboundedly (kuik-kuik-kuik-...).
