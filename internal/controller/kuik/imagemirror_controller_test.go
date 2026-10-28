@@ -577,7 +577,7 @@ var _ = Describe("ImageMirror Controller", func() {
 			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: origin.Host() + "/acme/app:v1"})
 			h.mirror()
 
-			h.fallBackWithin(alternative, 15*time.Second)
+			h.fallBack(alternative)
 			Expect(origin.Requests(http.MethodGet, "/blobs/")).NotTo(BeEmpty())
 			h.window()
 			Eventually(h.copied(destinationTag(origin, "acme/app"))).Should(Succeed())
@@ -796,7 +796,7 @@ var _ = Describe("ImageMirror Controller", func() {
 			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: origin.Host() + "/acme/app:v1"})
 			h.mirror()
 
-			h.fallBackWithin(lacking, 15*time.Second)
+			h.fallBack(lacking)
 			Expect(failures()).To(BeEmpty())
 
 			h.window()
