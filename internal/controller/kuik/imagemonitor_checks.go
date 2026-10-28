@@ -66,10 +66,12 @@ func (m *monitorMemory) seed(status *kuikv1alpha1.ImageMonitorStatus) {
 			m.persisted = &held
 		}
 	}
-	// An Unauthorized alternative the status holds was announced already.
+	// An Unauthorized alternative the status holds was announced already. A previous version
+	// wrote a rewrite through the bare docker.io group short, docker.io/nginx: key it as the
+	// checks do, in canonical form.
 	for _, e := range status.UnavailableAlternatives {
 		if e.Reason == kuikv1alpha1.CheckUnauthorized {
-			m.unusable[e.Ref] = true
+			m.unusable[canonicalRef(e.Ref)] = true
 		}
 	}
 	// A drift the status holds was announced already, its skew too when it lists several digests.
@@ -91,10 +93,20 @@ func (m *monitorMemory) seed(status *kuikv1alpha1.ImageMonitorStatus) {
 	}
 	// An alternative several origins stand for has one entry per origin, all from one verdict.
 	for _, e := range status.UnavailableAlternatives {
-		if _, ok := m.verdicts[e.Ref]; !ok {
-			m.verdicts[e.Ref] = verdict{reason: e.Reason, since: e.Since.Time}
+		ref := canonicalRef(e.Ref)
+		if _, ok := m.verdicts[ref]; !ok {
+			m.verdicts[ref] = verdict{reason: e.Reason, since: e.Since.Time}
 		}
 	}
+}
+
+// canonicalRef is the canonical form of ref, or ref itself when it does not parse.
+func canonicalRef(ref string) string {
+	parsed, err := imagepath.Parse(ref)
+	if err != nil {
+		return ref
+	}
+	return parsed.String()
 }
 
 // listUnavailableImages is the status field of the failing origins, a capped list.
