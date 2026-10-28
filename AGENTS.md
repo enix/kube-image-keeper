@@ -172,22 +172,26 @@ build are in [`.claude/rules/docs.md`](./.claude/rules/docs.md).
   mode, even when several tasks share one call (`task build deploy`). Not forbidden: the
   user decides, the agent never does it on its own
   ([0003](./notes/0003-agent-orchestration.md)). To let a session drive its own pull
-  request, 5 single commands go through: `git push origin <current feature branch>`
+  request, the hook itself allows 7 single commands, with no prompt: `git push origin <current feature branch>`
   (`-u` and `--force-with-lease` included; a bare `git push` still asks, it may follow an
   upstream on `main`; never a plain `--force`, `main`, a maintenance or release branch or a
   tag; the branch name starts with a letter or a digit, and `origin` is this repository with
   no push refmap, URL rewrite or `push.followTags`; it is refused while auto-merge is
   enabled on the branch's pull request, which would merge the push unreviewed: disable it
   first),
-  `gh pr edit <n> --add-label e2e-ready`, `gh pr merge <n> --disable-auto` and
-  `gh pr comment <n> --body "@coderabbitai review"` (or `full review`) on the pull request
-  of the current branch, and a read written
+  `gh pr edit <n> --add-label e2e-ready`, `gh pr merge <n> --disable-auto`,
+  `gh pr merge <n> --auto --rebase --match-head-commit <full sha of the commit checked out>`
+  (starting the work on a pull request is the go to merge it),
+  `gh pr comment <n> --body "@coderabbitai review"` (or `full review`) and
+  `gh api graphql -f query='mutation { resolveReviewThread(input: {threadId: "PRRT_..."}) { thread { isResolved } } }'`
+  (one thread, no alias, variable or `--jq`; the hook checks the thread belongs to the pull
+  request) on the pull request of the current branch, and a read written
   `gh api graphql -f query='...' [--jq '...']`, with no single quote, backslash, `$` or
-  backtick inside the single quotes (double quotes are fine) and no `mutation` (any other
-  form asks). Each form must match the
-  whole command, so no quoting can hide a second command: run them alone, with no
-  `2>&1 | grep` or `| tail` after (their output is short), or the hook asks. `gh pr merge`
-  still asks.
+  backtick inside the query (double quotes are fine), no `$` in the filter and no `mutation`
+  (any other form asks). Each form must match the
+  whole command, so no quoting can hide a second command: run them alone. A read followed by
+  a pipe or `2>&1` is refused with the way to trim it (`--jq`, GraphQL `first:`); any other
+  addition asks. Any other `gh pr merge` (a direct merge, unpinned) still asks.
   `confirm-outbound-actions.test.sh` checks it on a table of commands in a throwaway
   repository: `task lint-hooks`, run by the Lint workflow.
 - `rules/`: the path-scoped conventions above.

@@ -57,11 +57,12 @@ case "$cmd" in
 esac
 
 # automerge_off holds when the pull request of the current branch has no auto-merge enabled,
-# or when the branch has no pull request yet. With auto-merge enabled, GitHub would merge a
+# or when the branch has no open pull request (gh shows the latest one, which may be merged
+# and still carry the autoMergeRequest that merged it). With auto-merge enabled, GitHub would merge a
 # push as soon as the checks pass, before anyone reviews it: the push asks. Any other answer
 # of gh (network, auth) asks too.
 automerge_off() {
-  out=$(cd "${cwd:-.}" 2>/dev/null && gh pr view --json autoMergeRequest --jq '.autoMergeRequest == null' 2>&1) && [ "$out" = true ] && return 0
+  out=$(cd "${cwd:-.}" 2>/dev/null && gh pr view --json state,autoMergeRequest --jq '.state != "OPEN" or .autoMergeRequest == null' 2>&1) && [ "$out" = true ] && return 0
   case "$out" in *'no pull requests found'*) return 0 ;; esac
   # Known to be enabled: refuse, and say how to go on; any other answer asks below.
   if [ "$out" = false ]; then
@@ -128,6 +129,16 @@ allowed() {
     own=$(cd "${cwd:-.}" 2>/dev/null && gh pr view --json number --jq .number 2>/dev/null || true)
     [ -n "$own" ] && [ "$n" = "$own" ] && return 0
   fi
+  # Auto-merge by rebase on the pull request of the current branch, pinned to the commit
+  # checked out here: a later push cannot be merged on it. Starting the work on a pull request
+  # is the go to merge it once CodeRabbit and the required checks pass.
+  if printf '%s' "$cmd" | grep -Eq '^gh[[:space:]]+pr[[:space:]]+merge[[:space:]]+[0-9]+[[:space:]]+--auto[[:space:]]+--rebase[[:space:]]+--match-head-commit[[:space:]]+[0-9a-f]{40}[[:space:]]*$'; then
+    n=$(printf '%s' "$cmd" | sed 's/^gh[[:space:]]*pr[[:space:]]*merge[[:space:]]*\([0-9]*\).*/\1/')
+    sha=$(printf '%s' "$cmd" | sed -E 's/.*--match-head-commit[[:space:]]+([0-9a-f]{40}).*/\1/')
+    head=$(git -C "${cwd:-.}" rev-parse HEAD 2>/dev/null || true)
+    own=$(cd "${cwd:-.}" 2>/dev/null && gh pr view --json number --jq .number 2>/dev/null || true)
+    [ -n "$own" ] && [ "$n" = "$own" ] && [ "$sha" = "$head" ] && return 0
+  fi
   # A CodeRabbit review request, on the pull request of the current branch only, with
   # exactly that body.
   review="(\"@coderabbitai (full )?review\"|'@coderabbitai (full )?review')"
@@ -136,17 +147,29 @@ allowed() {
     own=$(cd "${cwd:-.}" 2>/dev/null && gh pr view --json number --jq .number 2>/dev/null || true)
     [ -n "$own" ] && [ "$n" = "$own" ] && return 0
   fi
-  # A GraphQL read: one query in single quotes, with no single quote, backslash, $ or
-  # backtick inside (double quotes are literal there), so the shell passes it as written and
-  # "mutation" cannot be split or built;
-  # optionally a --jq filter written the same way.
-  sq="[^'\\\$\`]*"
-  graphql="^gh[[:space:]]+api[[:space:]]+graphql[[:space:]]+-f[[:space:]]+query='${sq}'([[:space:]]+--jq[[:space:]]+'${sq}')?[[:space:]]*\$"
-  if printf '%s' "$cmd" | grep -Eq "$graphql" && ! printf '%s' "$cmd" | grep -iq 'mutation'; then
+  # Resolving one review thread of the pull request of the current branch: exactly this
+  # mutation, one field, no alias, no variable, no --jq, and a thread id that a read of that
+  # pull request's threads lists. Any gh error, no pull request or another one's thread asks.
+  if printf '%s' "$cmd" | grep -Eq "$resolve_thread"; then
+    id=$(printf '%s' "$cmd" | sed -E 's/.*threadId: "(PRRT_[A-Za-z0-9_-]+)".*/\1/')
+    own=$(cd "${cwd:-.}" 2>/dev/null && gh pr view --json number --jq .number 2>/dev/null || true)
+    case "$own" in '' | *[!0-9]*) return 1 ;; esac
+    threads=$(cd "${cwd:-.}" 2>/dev/null && gh api graphql -F number="$own" -f query='query($number: Int!) { repository(owner: "enix", name: "kube-image-keeper") { pullRequest(number: $number) { reviewThreads(first: 100) { nodes { id } } } } }' --jq '.data.repository.pullRequest.reviewThreads.nodes[].id' 2>/dev/null) || return 1
+    printf '%s\n' "$threads" | grep -qxF -- "$id" && return 0
+    return 1
+  fi
+  if printf '%s' "$cmd" | grep -Eq "${graphql_read}[[:space:]]*\$" && ! printf '%s' "$cmd" | grep -iq 'mutation'; then
     return 0
   fi
   return 1
 }
+
+# A GraphQL read: one query in single quotes, with no single quote, backslash, $ or backtick
+# inside (double quotes are literal there), so the shell passes it as written and "mutation"
+# cannot be split or built; optionally a --jq filter written the same way.
+sq="[^'\\\$\`]*"
+graphql_read="^gh[[:space:]]+api[[:space:]]+graphql[[:space:]]+-f[[:space:]]+query='${sq}'([[:space:]]+--jq[[:space:]]+'${sq}')?"
+resolve_thread="^gh api graphql -f query='mutation \{ resolveReviewThread\(input: \{threadId: \"PRRT_[A-Za-z0-9_-]+\"\}\) \{ thread \{ (id |isResolved )+\} \} \}'\$"
 # gh's --jq and --template can read the environment (env.GH_TOKEN): a gh command naming env
 # asks, even a read the allow rules or the forms above let through.
 # Quotes and backslashes are dropped first, so e'n'v or $''ENV still match.
@@ -162,7 +185,40 @@ if printf '%s' "$cmd" | grep -Eq '(^|[;&|(`[:space:]"'"'"'])gh[[:space:]]' &&
   exit 0
 fi
 
-allowed && exit 0
+# A form checked above runs on the session's own pull request: the hook allows it itself, so
+# no prompt stops a session driving its pull request, whatever the allow rules say.
+if allowed; then
+  jq -n '{
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "allow",
+      permissionDecisionReason: "A step of the pull request of the current branch."
+    }
+  }'
+  exit 0
+fi
+
+# An allowed GraphQL read followed by a pipe or 2>&1 is refused with the way to run it alone:
+# the agent corrects it without prompting the user. A chain (; &&) or a pipe into gh asks.
+case "$cmd" in
+  *'
+'* | *"$(printf '\r')"*) ;;
+  *)
+    if printf '%s' "$cmd" | grep -Eq "${graphql_read}([[:space:]]+2>&1)?[[:space:]]*(\\||\$)" &&
+      ! printf '%s' "$cmd" | grep -iq 'mutation' &&
+      ! printf '%s' "$cmd" | grep -Eq '(;|&&|\|\|)' &&
+      ! printf '%s' "$cmd" | grep -Eq '\|[[:space:]]*([^[:space:]|]*/)?gh([[:space:]]|$)'; then
+      jq -n '{
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason: "Run the read alone, with no pipe or 2>&1: trim with --jq ('.[0:40]', select) or GraphQL first:."
+        }
+      }'
+      exit 0
+    fi
+    ;;
+esac
 
 # "opts" lets global options, or for task and make other task names, sit between the
 # executable and its subcommand (helm --namespace ns install, kubectl -n ns apply,

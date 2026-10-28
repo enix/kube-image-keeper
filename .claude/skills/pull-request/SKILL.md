@@ -155,12 +155,14 @@ describes a dropped file misleads the reviewer and CodeRabbit alike.
   commits rewrite: regression pairs at the end of the branch instead
   ([`tests.md`](../../rules/tests.md)).
 - Resolve a thread once its fix is pushed. Reply only when resolving without a fix: one
-  sentence on why. Post the reply yourself: the outbound hook asks the user before every
-  write on GitHub. No thread is left open at
-  the merge: this lists the open ones, and must print nothing.
+  sentence on why, posted yourself (the outbound hook asks the user for that reply). Resolve
+  each thread with the mutation below, one per command and alone: the hook allows it with no
+  prompt once it checked the thread belongs to the pull request of the current branch. No
+  thread is left open at the merge: the read below must print nothing.
 
   ```sh
-  gh api graphql -f query='query { repository(owner: "enix", name: "kube-image-keeper") { pullRequest(number: <n>) { reviewThreads(first: 100) { nodes { id isResolved path } } } } }' --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved | not)'
+  gh api graphql -f query='query { repository(owner: "enix", name: "kube-image-keeper") { pullRequest(number: <n>) { reviewThreads(first: 100) { nodes { id isResolved isOutdated path line } } } } }' --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved | not)'
+  gh api graphql -f query='mutation { resolveReviewThread(input: {threadId: "<id>"}) { thread { isResolved } } }'
   ```
 
 - When the review is over, autosquash in place and force-push once (`--force-with-lease`).
@@ -194,7 +196,7 @@ describes a dropped file misleads the reviewer and CodeRabbit alike.
     progress" or "Review skipped" status is not a review. Only the user's explicit waiver,
     possibly relayed by the coordinating session, lifts this point.
 
-  - The open threads query above prints nothing.
+  - The open threads read above prints nothing.
 
   Add the label only once the `E2E` run of the last push has finished (it fails within
   seconds without the label: `gh pr checks <n>` shows it). Both runs share one concurrency
@@ -217,12 +219,11 @@ when the PR's own patch changed (the patch check of step 5): a rebase that only 
 
 Enable auto-merge at the moment the `e2e-ready` label goes on (step 5), under the same
 conditions: the review is over, checked as step 5 says. A PR that needs no label gets it
-once those conditions hold. The checks need not be green yet. Run it alone in its command:
-the outbound hook asks the user first, and their confirmation is the go to merge (they may
-want to test the PR before giving it). Pin the head the user saw, so a later push cannot be
-merged on the same go. When CodeRabbit's review was waived, say so in the message that
-precedes the command: the prompt itself does not. The sha is the full 40 characters, printed
-by `git rev-parse HEAD` in its own command: `gh` rejects a short one.
+once those conditions hold. The checks need not be green yet. Starting the work on a pull
+request is the go to merge it: the outbound hook allows this command with no prompt, run alone
+from the PR's worktree and pinned to the commit checked out there, so a later push cannot be
+merged on it. When CodeRabbit's review was waived, say so in your report. The sha is the full
+40 characters, printed by `git rev-parse HEAD` in its own command: `gh` rejects a short one.
 
 ```sh
 gh pr merge <n> --auto --rebase --match-head-commit <full HEAD sha>
@@ -237,14 +238,14 @@ with a sleep loop:
   autosquash, a rebase), disable it first, alone in its command:
   `gh pr merge <n> --disable-auto`. Otherwise GitHub merges as soon as the checks pass,
   before CodeRabbit sees the change. Then push, wait until CodeRabbit has reviewed the PR's
-  own changes as they stand (the patch check of step 5), and enable auto-merge again: the
-  outbound hook asks the user, as the first time.
+  own changes as they stand (the patch check of step 5), and enable auto-merge again, pinned
+  to the new head.
 - Auto-merge stalls: every required check is green and `mergeStateStatus` is `CLEAN`, yet
   10 minutes later the PR is still open. GitHub re-evaluates auto-merge only on an event of
   the pull request, and a check run cancelled by a concurrency group can make it miss the
-  last one. The user's go covers this merge, for the head they saw only: run
-  `gh pr merge <n> --rebase --match-head-commit <the full sha auto-merge was enabled on>`, and
-  tell the user auto-merge stalled.
+  last one. Run
+  `gh pr merge <n> --rebase --match-head-commit <the full sha auto-merge was enabled on>` (the
+  outbound hook asks the user for a direct merge), and tell the user auto-merge stalled.
 
 Confirm the merge with `gh pr view <n> --json state,mergedAt`. If that call is refused, ask
 the user to type `! gh pr view <n> --json state,mergedAt` in the Claude Code prompt (the

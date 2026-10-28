@@ -15,14 +15,34 @@ branch=feature/check
 git -C "$repo" init -q -b "$branch"
 git -C "$repo" remote add origin git@github.com:enix/kube-image-keeper.git
 # A stub gh answers that the current branch has pull request 4242, with no network, and
-# whether auto-merge is off on it: "true" unless AUTOMERGE_OFF says otherwise.
+# whether auto-merge is off on it: "true" unless AUTOMERGE_OFF says otherwise (true or false
+# runs the hook's jq filter on a pull request in state PR_STATE, OPEN by default). Its review
+# threads are PRRT_abc and PRRT_def; another pull request has none. GH_FAIL makes every call
+# fail, GH_NO_PR makes the branch have no pull request.
 mkdir "$repo/bin"
 cat >"$repo/bin/gh" <<'EOF'
 #!/bin/sh
-[ "$1 $2" = "pr view" ] || exit 1
-case "$*" in
-  *autoMergeRequest*) echo "${AUTOMERGE_OFF:-true}" ;;
-  *) echo 4242 ;;
+[ -z "${GH_FAIL:-}" ] || exit 1
+case "$1 $2" in
+  "pr view")
+    [ -z "${GH_NO_PR:-}" ] || { echo "no pull requests found for branch" >&2; exit 1; }
+    case "$*" in
+      *autoMergeRequest*)
+        case "${AUTOMERGE_OFF:-true}" in
+          true) am=null ;;
+          false) am='{"enabledAt": "2026-10-29T10:00:00Z"}' ;;
+          *) echo "$AUTOMERGE_OFF"; exit 0 ;;
+        esac
+        while [ "$1" != --jq ]; do shift; done
+        echo "{\"state\": \"${PR_STATE:-OPEN}\", \"autoMergeRequest\": $am}" | jq "$2"
+        ;;
+      *) echo 4242 ;;
+    esac
+    ;;
+  "api graphql")
+    case "$*" in *number=4242*) printf 'PRRT_abc\nPRRT_def\n' ;; esac
+    ;;
+  *) exit 1 ;;
 esac
 EOF
 chmod +x "$repo/bin/gh"
@@ -41,45 +61,79 @@ check() {
   fi
 }
 
-# Its own pull request, without asking. The e2e-ready label goes through only on the pull
-# request of the current branch.
-check pass "gh pr edit 4242 --add-label e2e-ready"
+# Its own pull request, allowed by the hook itself. The e2e-ready label goes through only on
+# the pull request of the current branch.
+check allow "gh pr edit 4242 --add-label e2e-ready"
 check ask "gh pr edit 4243 --add-label e2e-ready"
-# Disabling auto-merge on it lowers the risk; enabling it or merging still asks.
-check pass "gh pr merge 4242 --disable-auto"
+# Disabling auto-merge on it lowers the risk. Enabling it by rebase is allowed when pinned to
+# the commit checked out; unpinned, on another commit or another pull request, or a direct
+# merge, it asks.
+check allow "gh pr merge 4242 --disable-auto"
 check ask "gh pr merge 4243 --disable-auto"
 check ask "gh pr merge 4242 --auto --rebase"
 check ask "gh pr merge 4242 --disable-auto --rebase"
 check ask "gh pr merge 4242 --disable-auto && git push"
 # A CodeRabbit review request too, with exactly that body.
-check pass "gh pr comment 4242 --body \"@coderabbitai review\""
-check pass "gh pr comment 4242 --body '@coderabbitai full review'"
-check pass "gh pr comment 4242 -b \"@coderabbitai full review\""
+check allow "gh pr comment 4242 --body \"@coderabbitai review\""
+check allow "gh pr comment 4242 --body '@coderabbitai full review'"
+check allow "gh pr comment 4242 -b \"@coderabbitai full review\""
 check ask "gh pr comment 4243 --body \"@coderabbitai review\""
 check ask "gh pr comment 4242 --body \"@coderabbitai review please\""
 check ask "gh pr comment 4242 --body \"@coderabbitai resolve\""
 check ask "gh pr comment 4242 --body-file x.md"
 check ask "gh pr comment 4242 --body \"@coderabbitai review\" && git push"
 check ask "gh pr comment 4242 --body \"@coderabbitai review\" --repo other/repo"
-check pass "git push origin $branch"
-check pass "git push -u origin $branch"
-check pass "git push --force-with-lease=$branch:0123abc origin $branch"
+# Resolving one of its review threads: exactly the mutation, on a thread of its own pull
+# request. Another pull request's thread, no pull request, a gh error or any other form asks.
+check allow "gh api graphql -f query='mutation { resolveReviewThread(input: {threadId: \"PRRT_abc\"}) { thread { isResolved } } }'"
+check allow "gh api graphql -f query='mutation { resolveReviewThread(input: {threadId: \"PRRT_def\"}) { thread { id isResolved } } }'"
+check ask "gh api graphql -f query='mutation { resolveReviewThread(input: {threadId: \"PRRT_zzz\"}) { thread { isResolved } } }'"
+export GH_NO_PR=1
+check ask "gh api graphql -f query='mutation { resolveReviewThread(input: {threadId: \"PRRT_abc\"}) { thread { isResolved } } }'"
+unset GH_NO_PR
+export GH_FAIL=1
+check ask "gh api graphql -f query='mutation { resolveReviewThread(input: {threadId: \"PRRT_abc\"}) { thread { isResolved } } }'"
+unset GH_FAIL
+check ask "gh api graphql -f query='mutation { resolveReviewThread(input: {threadId: \"PRRT_abc\"}) { thread { isResolved } } resolveReviewThread(input: {threadId: \"PRRT_def\"}) { thread { isResolved } } }'"
+check ask "gh api graphql -f query='mutation { a: resolveReviewThread(input: {threadId: \"PRRT_abc\"}) { thread { isResolved } } }'"
+check ask "gh api graphql -f query='mutation { resolveReviewThread(input: {threadId: \"PRRT_abc\"}) { thread { isResolved } } unresolveReviewThread(input: {threadId: \"PRRT_def\"}) { thread { isResolved } } }'"
+check ask "gh api graphql -f query='mutation { resolveReviewThread(input: {threadId: \"PRRT_abc\"}) { thread { isResolved } } deletePullRequestReviewComment(input: {id: \"x\"}) { clientMutationId } }'"
+check ask "gh api graphql -f query='mutation { resolveReviewThread(input: {threadId: \"PRRT_abc\"}) { thread { isResolved } } }' --jq '.data'"
+check ask "gh api graphql -f query='mutation { resolveReviewThread(input: {threadId: \"PRRT_abc\"}) { thread { isResolved } } }' | head"
+check ask "gh api graphql -F threadId=PRRT_abc -f query='mutation(\$threadId: ID!) { resolveReviewThread(input: {threadId: \$threadId}) { thread { isResolved } } }'"
+check ask "gh api graphql -f query='mutation { resolveReviewThread(input: {threadId: \"PRRT_abc\"}) { thread { isResolved } } }' && git push"
+# An allowed read followed by a pipe or 2>&1 is refused with how to run it alone; a mutation,
+# env, a chain or a pipe into gh still asks.
+check deny "gh api graphql -f query='query { viewer { login } }' --jq '.data' | head -40"
+check deny "gh api graphql -f query='query { viewer { login } }' 2>&1 | tail -5"
+check deny "gh api graphql -f query='query { viewer { login } }' 2>&1"
+check deny "gh api graphql -f query='query { x }' | xargs git push"
+check ask "gh api graphql -f query='mutation { x }' | head"
+check ask "gh api graphql -f query='query { x }' --jq 'env' | head"
+check ask "gh api graphql -f query='query { x }'; git push origin main"
+check ask "echo q | gh api graphql -f query='query { x }'"
+check allow "git push origin $branch"
+check allow "git push -u origin $branch"
+check allow "git push --force-with-lease=$branch:0123abc origin $branch"
 # With auto-merge enabled on its pull request, the push is refused (disable it first); when gh
 # cannot tell, the push asks.
 export AUTOMERGE_OFF
 AUTOMERGE_OFF=false
 check deny "git push origin $branch"
 check deny "git push --force-with-lease origin $branch"
+# A merged or closed pull request keeps its autoMergeRequest: it no longer merges a push.
+PR_STATE=MERGED check allow "git push origin $branch"
+PR_STATE=CLOSED check allow "git push origin $branch"
 AUTOMERGE_OFF="error: could not connect"
 check ask "git push origin $branch"
 AUTOMERGE_OFF="no pull requests found for branch \"$branch\""
-check pass "git push -u origin $branch"
+check allow "git push -u origin $branch"
 AUTOMERGE_OFF=true
-check pass "gh api graphql -f query='query { viewer { login } }' --jq '.data | .viewer'"
-check pass "gh api graphql -f query='query { viewer { login } }'"
+check allow "gh api graphql -f query='query { viewer { login } }' --jq '.data | .viewer'"
+check allow "gh api graphql -f query='query { viewer { login } }'"
 # Double quotes are literal inside the single-quoted query: the open threads query of the
 # pull-request skill passes.
-check pass "gh api graphql -f query='query { repository(owner: \"enix\", name: \"kube-image-keeper\") { pullRequest(number: 12) { reviewThreads(first: 100) { nodes { id isResolved path } } } } }' --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved | not)'"
+check allow "gh api graphql -f query='query { repository(owner: \"enix\", name: \"kube-image-keeper\") { pullRequest(number: 12) { reviewThreads(first: 100) { nodes { id isResolved path } } } } }' --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved | not)'"
 check ask "gh api graphql -f query='query { search(query: \"mutation\") { issueCount } }'"
 # Anything else that leaves the working copy still asks.
 check ask "git push"
@@ -130,6 +184,14 @@ echo tasks >"$repo/Taskfile.yaml"
 git -C "$repo" add test Taskfile.yaml
 git -C "$repo" -c user.name=check -c user.email=check@example.com commit -q -m main
 git -C "$repo" update-ref refs/remotes/origin/main HEAD
+# Auto-merge by rebase on its own pull request passes when pinned to the commit checked out.
+head=$(git -C "$repo" rev-parse HEAD)
+check allow "gh pr merge 4242 --auto --rebase --match-head-commit $head"
+check ask "gh pr merge 4243 --auto --rebase --match-head-commit $head"
+check ask "gh pr merge 4242 --auto --rebase --match-head-commit 0123456789012345678901234567890123456789"
+check ask "gh pr merge 4242 --auto --squash --match-head-commit $head"
+check ask "gh pr merge 4242 --rebase --match-head-commit $head"
+check ask "gh pr merge 4242 --auto --rebase --match-head-commit $head && git push"
 check pass "task acceptance-setup -- --kubeconfig k --context c"
 check pass "task acceptance-apply -- --kubeconfig k --context c --file f.yaml"
 check pass "task acceptance-delete -- --kubeconfig k --context c pod/p"
@@ -411,7 +473,7 @@ git -C "$repo" checkout -q -- test/acceptance/guard.go
 check pass "go test -tags=e2e ./test/e2e/"
 # A git config that would send the allowed push elsewhere, or with the tags.
 git -C "$repo" config remote.origin.pushurl git@github.com:enix/kube-image-keeper.git
-check pass "git push origin $branch"
+check allow "git push origin $branch"
 git -C "$repo" config remote.origin.pushurl git@github.com:someone/else.git
 check ask "git push origin $branch"
 git -C "$repo" config --unset remote.origin.pushurl
@@ -433,7 +495,7 @@ for other in main 2.3.x release-3.0 v3 --mirror; do
   check ask "git push origin $other"
 done
 git -C "$repo" symbolic-ref HEAD "refs/heads/$branch"
-check pass "git push origin $branch"
+check allow "git push origin $branch"
 # Commands that never left the working copy are untouched.
 check pass "git status"
 check pass "git log --grep push"
