@@ -38,13 +38,12 @@ const sincePrefix = "# since: "
 // --pull-auth.
 var privatePrefixes = []string{"11-", "13-"}
 
-// mirrorPrefixes mark the fixtures of tests 14 and 22, applied only with --mirror-prefix.
-var mirrorPrefixes = []string{"14-", "22-"}
+// mirrorPrefixes mark the fixtures of test 14, applied only with --mirror-prefix.
+var mirrorPrefixes = []string{"14-"}
 
 // handPrefixes mark the fixtures setup never applies, applied by hand with apply when their
-// scenario says: test 16 recreates a pod once the monitors have reported, and the API server
-// must refuse the one of test 17.
-var handPrefixes = []string{"16-", "17-"}
+// scenario says: the API server must refuse the one of test 17.
+var handPrefixes = []string{"17-"}
 
 // privateFlags fill ${PRIVATE_REPO} and ${PULL_AUTH}, for setup and apply alike.
 type privateFlags struct {
