@@ -367,8 +367,7 @@ func (i *Index) knownFailure(origin string, c Candidate) (Resource, bool) {
 			return Resource{Kind: KindImageMonitor, Name: monitors[0]}, true
 		}
 	case c.Resource.Kind == KindImageAlternative:
-		// A rewrite may read short, docker.io/nginx for a docker.io group: the status lists
-		// it in canonical form once read back.
+		// A status may write the reference short, docker.io/nginx: compare canonical forms.
 		ref, ok := canonical(c.Reference)
 		if !ok {
 			break

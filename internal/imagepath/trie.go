@@ -100,11 +100,17 @@ func MostSpecificPerOwner[V any, K comparable](matches []Match[V], owner func(V)
 }
 
 // Rewrite renders the reference a match rewrites to under target: the target path, the
-// remainder below a group, and the original tag or digest.
+// remainder below a group, and the original tag or digest. The result is normalised as Parse
+// normalises a reference: a single-segment docker.io repository, rewritten through the bare
+// docker.io group, gets its `library` segment, the image the kubelet pulls.
 func Rewrite[V any](ref Reference, m Match[V], target Path) Reference {
+	segments := slices.Concat(target.Segments, m.Remainder)
+	if target.Host == dockerHub && len(segments) == 1 {
+		segments = []string{dockerHubLibrary, segments[0]}
+	}
 	return Reference{
 		Host:     target.Host,
-		Segments: slices.Concat(target.Segments, m.Remainder),
+		Segments: segments,
 		Tag:      ref.Tag,
 		Digest:   ref.Digest,
 	}
