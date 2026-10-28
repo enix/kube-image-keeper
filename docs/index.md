@@ -10,7 +10,7 @@ hero:
   tagline: kuik (pronounced /kwɪk/, like "quick") is the shortname of kube-image-keeper.
   actions:
     - text: Get started
-      link: /installation/
+      link: /getting-started/
       icon: right-arrow
       variant: primary
     - text: View on GitHub
@@ -43,6 +43,7 @@ Developed by Enix, kube-image-keeper has run in production across many Kubernete
 
 ## Explore the docs
 
+- A [getting started](./getting-started.md) tutorial, 10 minutes on a test cluster
 - A detailed explanation of all [Kuik Custom Resources](./crds.md)
 - A reference for the [operator configuration file](./configuration.md) (routing, monitoring, metrics)
 - A collection of documented [use cases](./use-cases/)
