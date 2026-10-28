@@ -40,7 +40,9 @@ Keep `feat`, `fix` and breaking changes; keep a `chore`, `docs` or `test` commit
 
 ### 3. What a user can observe
 
-For each change kept, write what a user does and sees on a cluster: a pod rewritten or not, a status field, a condition and its reason, an event, a metric, a log line, an injected Secret, a chart value. Drop what nothing on a cluster shows; the Kind e2e suite covers it.
+Acceptance scenarios are the user stories kuik is sold for: the documented use cases under [`docs/use-cases/`](../../../docs/use-cases/), each played end to end on a real cluster with real registries. Keep a change only when it adds or changes a documented use case, or when it depends on what Kind cannot reproduce: real registries and their quirks (Harbor, Docker Hub quotas, ECR, private registries, corporate CAs), the real install (GitOps, an upgrade from the previous release, several replicas, existing admission policies), coexistence with real workloads, operations (real metrics, logs, restarts).
+
+A precise behaviour (an event, a reason, an annotation, a counter), a bug fix's included, is no scenario: it gets an e2e spec or an envtest spec instead (the [`e2e-spec`](../e2e-spec/SKILL.md) skill). For each change kept, write what the user does and sees along the use case.
 
 Then read [`scenarios.md`](../../../test/acceptance/scenarios.md):
 
@@ -83,6 +85,7 @@ Commit a change to the program (`guard.go`, a skip rule of `setup.go`, a new fix
 | Writing the scenarios before the user agrees | Draft, ask, iterate; write only the agreed list |
 | A scenario per commit | One per behaviour a user can observe; a refactor or a test change has none |
 | A scenario only Kind can show | Drop it: the e2e suite covers it |
+| A scenario for a fixed behaviour Kind can check | An e2e or envtest spec instead; a scenario only for a use case or what Kind cannot reproduce |
 | Duplicating a scenario the release changes | Amend the existing one |
 | An expectation without its spec link | Every point of **They expect** links its `docs/v3/` section |
 | `${PRIVATE_REPO}` or `${PULL_AUTH}` in a fixture the skip rule of `setup.go` does not cover | Extend the skip rule to its own numbered fixture, after asking the user; never grow the `11-` files |
