@@ -22,9 +22,31 @@ const mirrorLabel = "kuik.enix.io/e2e-mirror"
 // its own images otherwise
 const registryNamespace = "kuik-e2e-registry"
 
-// registryHost is the destination registry, named through the cluster DNS: go-containerregistry
-// speaks plain HTTP to a private IP on its own, which would make destination.insecure moot
-const registryHost = "registry." + registryNamespace + ".svc.cluster.local:5000"
+// destinationRegistry is a distribution v3 registry of registryNamespace, behind htpasswd, that
+// the mirrors write to with the manage credential secret
+type destinationRegistry struct {
+	// name is the name of its Deployment and its Service
+	name string
+	// deleteEnabled accepts tag deletion; without it, the registry answers 405 UNSUPPORTED
+	deleteEnabled bool
+	// secret is its write credential, in the install namespace
+	secret string
+}
+
+var (
+	// deletingRegistry accepts tag deletion
+	deletingRegistry = destinationRegistry{name: "registry", deleteEnabled: true, secret: "e2e-mirror-manage"}
+	// refusingRegistry refuses tag deletion as unsupported
+	refusingRegistry = destinationRegistry{
+		name: "registry-nodelete", deleteEnabled: false, secret: "e2e-mirror-manage-nodelete",
+	}
+)
+
+// host names the registry through the cluster DNS: go-containerregistry speaks plain HTTP to a
+// private IP on its own, which would make destination.insecure moot
+func (r destinationRegistry) host() string {
+	return r.name + "." + registryNamespace + ".svc.cluster.local:5000"
+}
 
 // registryStorage is where the destination registry keeps its repositories
 const registryStorage = "/var/lib/registry/docker/registry/v2/repositories"
@@ -43,32 +65,32 @@ const (
 	registryPassword = "e2e-mirror"
 )
 
-// manageSecret is the write credential of the mirrors, in the install namespace
-const manageSecret = "e2e-mirror-manage"
-
 const (
 	// copyMirror reaches the destination over plain HTTP from the start
 	copyMirror = "e2e-mirror"
 	// httpMirror starts without destination.insecure
 	httpMirror = "e2e-mirror-http"
+	// refusedMirror copies to refusingRegistry
+	refusedMirror = "e2e-mirror-refused"
 )
 
-// registryManifest is a distribution v3 registry accepting tag deletion behind htpasswd, its
-// password file written by an init container
-var registryManifest = fmt.Sprintf(`
+// manifest is the Deployment and the Service of the registry, its password file written by an
+// init container
+func (r destinationRegistry) manifest() string {
+	return fmt.Sprintf(`
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: registry
+  name: %[4]s
   namespace: %[1]s
 spec:
   selector:
     matchLabels:
-      app: registry
+      app: %[4]s
   template:
     metadata:
       labels:
-        app: registry
+        app: %[4]s
     spec:
       initContainers:
         - name: htpasswd
@@ -82,7 +104,7 @@ spec:
           image: registry:3.0.0
           env:
             - name: REGISTRY_STORAGE_DELETE_ENABLED
-              value: "true"
+              value: "%[5]t"
             - name: REGISTRY_AUTH
               value: htpasswd
             - name: REGISTRY_AUTH_HTPASSWD_REALM
@@ -101,19 +123,20 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: registry
+  name: %[4]s
   namespace: %[1]s
 spec:
   selector:
-    app: registry
+    app: %[4]s
   ports:
     - port: 5000
-`, registryNamespace, registryUser, registryPassword)
+`, registryNamespace, registryUser, registryPassword, r.name, r.deleteEnabled)
+}
 
-// mirrorManifest is an ImageMirror copying the pods of mirrorNamespace to repository under the
-// destination registry. It never routes: the kubelet cannot pull from a plain HTTP registry the
-// node runtime does not know.
-func mirrorManifest(name, repository string, insecure bool) string {
+// mirrorManifest is an ImageMirror copying the pods of mirrorNamespace to repository under
+// destination, with its manage credential. It never routes: the kubelet cannot pull from a plain
+// HTTP registry the node runtime does not know.
+func mirrorManifest(name string, destination destinationRegistry, repository string, insecure bool) string {
 	return fmt.Sprintf(`
 apiVersion: kuik.enix.io/v1alpha1
 kind: ImageMirror
@@ -131,7 +154,7 @@ spec:
       auth:
         secretRef:
           name: %s
-`, name, mirrorLabel, registryHost, repository, insecure, manageSecret)
+`, name, mirrorLabel, destination.host(), repository, insecure, destination.secret)
 }
 
 var _ = Describe("Image mirroring", Ordered, func() {
@@ -157,17 +180,23 @@ var _ = Describe("Image mirroring", Ordered, func() {
 		DeferCleanup(setConfig, original)
 		setConfig(mergeConfig(original, "registries:\n  registry.k8s.io:\n    copy:\n      interval: 5s\n"))
 
-		By("deploying the destination registry")
+		By("deploying the destination registries, one refusing tag deletion")
 		_, err = kubectl("create", "ns", registryNamespace)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(kubectlStdin(registryManifest, "apply", "-f", "-")).Error().NotTo(HaveOccurred())
-		Eventually(kubectl).WithArguments("rollout", "status", "deployment/registry", "-n", registryNamespace,
-			"--timeout=30s").Should(ContainSubstring("successfully rolled out"))
+		for _, destination := range []destinationRegistry{deletingRegistry, refusingRegistry} {
+			Expect(kubectlStdin(destination.manifest(), "apply", "-f", "-")).Error().NotTo(HaveOccurred())
+		}
+		for _, destination := range []destinationRegistry{deletingRegistry, refusingRegistry} {
+			Eventually(kubectl).WithArguments("rollout", "status", "deployment/"+destination.name, "-n", registryNamespace,
+				"--timeout=30s").Should(ContainSubstring("successfully rolled out"))
+		}
 
-		By("creating the write credential in the install namespace")
-		_, err = kubectl("create", "secret", "docker-registry", manageSecret, "-n", namespace,
-			"--docker-server="+registryHost, "--docker-username="+registryUser, "--docker-password="+registryPassword)
-		Expect(err).NotTo(HaveOccurred())
+		By("creating the write credentials in the install namespace")
+		for _, destination := range []destinationRegistry{deletingRegistry, refusingRegistry} {
+			_, err = kubectl("create", "secret", "docker-registry", destination.secret, "-n", namespace,
+				"--docker-server="+destination.host(), "--docker-username="+registryUser, "--docker-password="+registryPassword)
+			Expect(err).NotTo(HaveOccurred())
+		}
 
 		By("running a pod in the namespace the mirrors select")
 		_, err = kubectl("create", "ns", mirrorNamespace)
@@ -188,45 +217,47 @@ var _ = Describe("Image mirroring", Ordered, func() {
 		// A mirror holds its deletion until its tags are gone: give it a minute while the
 		// registry still answers, then drop what holds it, or the CRD uninstall of the suite
 		// would wait on it. The deletion spec is what checks the finalizer.
-		_, _ = kubectl("delete", "imagemirrors", copyMirror, httpMirror, "--ignore-not-found", "--wait=false")
+		// refusedMirror is gone unless its spec failed, and its destination never lets it go.
+		_, _ = kubectl("delete", "imagemirrors", copyMirror, httpMirror, refusedMirror, "--ignore-not-found", "--wait=false")
 		_, _ = kubectl("wait", "--for=delete", "imagemirror/"+copyMirror, "imagemirror/"+httpMirror, "--timeout=50s")
-		for _, name := range []string{copyMirror, httpMirror} {
+		for _, name := range []string{copyMirror, httpMirror, refusedMirror} {
 			_, _ = kubectl("patch", "imagemirror", name, "--type=merge", "-p", `{"metadata":{"finalizers":null}}`)
 		}
 		_, _ = kubectl("delete", "ns", mirrorNamespace, registryNamespace, "--wait=false")
-		_, _ = kubectl("delete", "secret", manageSecret, "-n", namespace, "--ignore-not-found")
+		_, _ = kubectl("delete", "secret", deletingRegistry.secret, refusingRegistry.secret, "-n", namespace,
+			"--ignore-not-found")
 	})
 
 	Context("with a plain HTTP destination registry in the cluster", func() {
 		It("copies the image of a selected pod to the destination with its manage credential, under the tag of this cluster",
 			func() {
-				Expect(kubectlStdin(mirrorManifest(copyMirror, "copy", true), "apply", "-f", "-")).
+				Expect(kubectlStdin(mirrorManifest(copyMirror, deletingRegistry, "copy", true), "apply", "-f", "-")).
 					Error().NotTo(HaveOccurred())
 
 				// The registry refuses an anonymous push: a tag there was written with the credential.
-				Eventually(registryTags, "4m").WithArguments("copy/registry.k8s.io/pause").
+				Eventually(deletingRegistry.tags, "4m").WithArguments("copy/registry.k8s.io/pause").
 					Should(ContainElement(pauseTag + "_" + clusterID))
 			})
 
 		It("reaches the destination over plain HTTP only when destination.insecure is set", func() {
-			Expect(kubectlStdin(mirrorManifest(httpMirror, "http", false), "apply", "-f", "-")).
+			Expect(kubectlStdin(mirrorManifest(httpMirror, deletingRegistry, "http", false), "apply", "-f", "-")).
 				Error().NotTo(HaveOccurred())
 
 			By("failing the copy while the mirror speaks HTTPS to a plain HTTP registry")
 			Eventually(kubectl, "4m").WithArguments("get", "imagemirror", httpMirror,
 				"-o", "jsonpath={.status.failedImageCopies[*].ref}").Should(ContainSubstring(mirroredImage))
-			Expect(registryTags("http/registry.k8s.io/pause")).To(BeEmpty())
+			Expect(deletingRegistry.tags("http/registry.k8s.io/pause")).To(BeEmpty())
 
 			By("copying once destination.insecure is set")
 			_, err := kubectl("patch", "imagemirror", httpMirror, "--type=merge",
 				"-p", `{"spec":{"destination":{"insecure":true}}}`)
 			Expect(err).NotTo(HaveOccurred())
-			Eventually(registryTags).WithArguments("http/registry.k8s.io/pause").
+			Eventually(deletingRegistry.tags).WithArguments("http/registry.k8s.io/pause").
 				Should(ContainElement(pauseTag + "_" + clusterID))
 		})
 
 		It("deletes its tags from the destination before the deleted ImageMirror goes away", func() {
-			Expect(registryTags("copy/registry.k8s.io/pause")).NotTo(BeEmpty())
+			Expect(deletingRegistry.tags("copy/registry.k8s.io/pause")).NotTo(BeEmpty())
 
 			_, err := kubectl("delete", "imagemirror", copyMirror, "--wait=false")
 			Expect(err).NotTo(HaveOccurred())
@@ -236,8 +267,47 @@ var _ = Describe("Image mirroring", Ordered, func() {
 				output, err := kubectl("get", "imagemirrors", "-o", "name")
 				return utils.GetNonEmptyLines(output), err
 			}).ShouldNot(ContainElement("imagemirror.kuik.enix.io/" + copyMirror))
-			Expect(registryTags("copy/registry.k8s.io/pause")).To(BeEmpty())
+			Expect(deletingRegistry.tags("copy/registry.k8s.io/pause")).To(BeEmpty())
 		})
+	})
+
+	Context("with a destination registry refusing tag deletion", func() {
+		It("holds a deleted ImageMirror, reporting why, until cleanup.enabled is set to false, and leaves its tags in place",
+			func() {
+				Expect(kubectlStdin(mirrorManifest(refusedMirror, refusingRegistry, "refused", true), "apply", "-f", "-")).
+					Error().NotTo(HaveOccurred())
+				Eventually(refusingRegistry.tags, "4m").WithArguments("refused/registry.k8s.io/pause").
+					Should(ContainElement(pauseTag + "_" + clusterID))
+
+				_, err := kubectl("delete", "imagemirror", refusedMirror, "--wait=false")
+				Expect(err).NotTo(HaveOccurred())
+
+				By("holding the mirror with Ready False, reason RegistryDeleteUnsupported")
+				// The first try comes within StatusInterval of the deletion: no pod runs a copy, so
+				// nothing waits out a backoff.
+				Eventually(kubectl).WithArguments("get", "imagemirror", refusedMirror,
+					"-o", `jsonpath={.status.conditions[?(@.type=="Ready")].status} {.status.conditions[?(@.type=="Ready")].reason}`).
+					Should(Equal("False RegistryDeleteUnsupported"))
+				Expect(kubectl("get", "imagemirror", refusedMirror,
+					"-o", `jsonpath={.status.conditions[?(@.type=="Ready")].message}`)).
+					To(ContainSubstring("cleanup.enabled: false"))
+
+				By("emitting ImageDeletionFailed on the mirror, naming the refused tag")
+				// The mirror is cluster-scoped: its events land in the default namespace.
+				Eventually(kubectl).WithArguments("get", "events", "-A",
+					"--field-selector", "reason=ImageDeletionFailed,involvedObject.name="+refusedMirror,
+					"-o", "jsonpath={.items[*].message}").
+					Should(ContainSubstring("/refused/registry.k8s.io/pause:" + pauseTag + "_" + clusterID))
+				Expect(refusingRegistry.tags("refused/registry.k8s.io/pause")).To(ContainElement(pauseTag + "_" + clusterID))
+
+				By("releasing the mirror once cleanup.enabled is false")
+				_, err = kubectl("patch", "imagemirror", refusedMirror, "--type=merge",
+					"-p", `{"spec":{"cleanup":{"enabled":false}}}`)
+				Expect(err).NotTo(HaveOccurred())
+				Eventually(kubectl).WithArguments("get", "imagemirror", refusedMirror, "--ignore-not-found", "-o", "name").
+					Should(BeEmpty())
+				Expect(refusingRegistry.tags("refused/registry.k8s.io/pause")).To(ContainElement(pauseTag + "_" + clusterID))
+			})
 	})
 })
 
@@ -265,10 +335,10 @@ spec:
 `, name, mirrorNamespace, image)
 }
 
-// registryTags lists the tags the destination registry holds in repository, read from its
-// storage: an empty list when the repository or its tags are gone.
-func registryTags(repository string) ([]string, error) {
-	output, err := kubectl("exec", "-n", registryNamespace, "deploy/registry", "-c", "registry", "--",
+// tags lists the tags the registry holds in repository, read from its storage: an empty list
+// when the repository or its tags are gone.
+func (r destinationRegistry) tags(repository string) ([]string, error) {
+	output, err := kubectl("exec", "-n", registryNamespace, "deploy/"+r.name, "-c", "registry", "--",
 		"sh", "-c", fmt.Sprintf("ls %s/%s/_manifests/tags 2>/dev/null || true", registryStorage, repository))
 	if err != nil {
 		return nil, err
