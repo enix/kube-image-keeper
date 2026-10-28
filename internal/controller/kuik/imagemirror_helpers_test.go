@@ -426,19 +426,13 @@ func withDrift(policy kuikv1alpha1.DriftPolicy) func(*kuikv1alpha1.ImageMirror) 
 // fallBack runs the window of the origin host, which the origin fails to answer, then
 // reconciles until the reference waits in the copy queue of alternative.
 func (h *mirrorHarness) fallBack(alternative *registrytest.Registry) {
-	h.fallBackWithin(alternative, time.Second)
-}
-
-// fallBackWithin is fallBack for an origin whose copy fails only after timeout: a blob
-// download refused with a 429 takes a few seconds of retries to fail.
-func (h *mirrorHarness) fallBackWithin(alternative *registrytest.Registry, timeout time.Duration) {
 	GinkgoHelper()
 	h.reconcile()
 	h.window()
 	Eventually(func() bool {
 		h.reconcile()
 		return h.queued(alternative)
-	}).WithTimeout(timeout).Should(BeTrue())
+	}).WithTimeout(time.Second).Should(BeTrue())
 }
 
 // queued reports whether the scheduler holds a copy queue on the host of reg: it then
