@@ -7,7 +7,7 @@
 
 <div align="center">
 
-[![Release][release-img]][release] [![Lint][lint-img]][lint] [![Tests][tests-img]][tests] [![E2E][e2e-img]][e2e] [![Artifact Hub][artifacthub-img]][artifacthub] [![MIT license][license-img]][license] [![Brought to you by Enix][enix-img]][enix]
+[![Release][release-img]][release] [![Artifact Hub][artifacthub-img]][artifacthub] [![MIT license][license-img]][license] [![Brought to you by Enix][enix-img]][enix]
 
 </div>
 
@@ -19,12 +19,6 @@
 
 [release]: https://github.com/enix/kube-image-keeper/releases
 [release-img]: https://img.shields.io/github/v/release/enix/kube-image-keeper?sort=semver&display_name=tag&logo=github&label=Release&color=3a6ed7
-[lint]: https://github.com/enix/kube-image-keeper/actions/workflows/lint.yaml
-[lint-img]: https://github.com/enix/kube-image-keeper/actions/workflows/lint.yaml/badge.svg?branch=main
-[tests]: https://github.com/enix/kube-image-keeper/actions/workflows/test.yaml
-[tests-img]: https://github.com/enix/kube-image-keeper/actions/workflows/test.yaml/badge.svg?branch=main
-[e2e]: https://github.com/enix/kube-image-keeper/actions/workflows/e2e.yaml
-[e2e-img]: https://github.com/enix/kube-image-keeper/actions/workflows/e2e.yaml/badge.svg?branch=main
 [artifacthub]: https://artifacthub.io/packages/helm/enix/kube-image-keeper
 [artifacthub-img]: https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/enix
 [license]: https://opensource.org/licenses/MIT
