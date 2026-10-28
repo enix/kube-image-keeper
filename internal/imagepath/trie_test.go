@@ -114,6 +114,21 @@ var _ = Describe("Trie", func() {
 			To(Equal("docker.io/acme-org/foo@sha256:" + digestHex))
 	})
 
+	// A rewrite renders the reference the kubelet pulls, as Parse normalises it.
+	DescribeTable("a rewrite to a host-alone group",
+		func(image, target, rewrittenTo string) {
+			t := NewTrie[entry]()
+			t.Insert(mustPath("mirror.gcr.io", Group), Group, entry{name: "gcr"})
+			Expect(rewriteFirst(t, image, mustPath(target, Group))).To(Equal(rewrittenTo))
+		},
+		Entry("adds library to a single-segment repository under docker.io",
+			"mirror.gcr.io/nginx:1.27", "docker.io", "docker.io/library/nginx:1.27"),
+		Entry("keeps a multi-segment repository under docker.io as is",
+			"mirror.gcr.io/bitnami/redis:7", "docker.io", "docker.io/bitnami/redis:7"),
+		Entry("adds no library segment under another host",
+			"mirror.gcr.io/nginx:1.27", "quay.io", "quay.io/nginx:1.27"),
+	)
+
 	It("matches every repository of a host with a group declared on the host alone", func() {
 		t := NewTrie[entry]()
 		t.Insert(mustPath("docker.io", Group), Group, entry{name: nameHub})

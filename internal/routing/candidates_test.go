@@ -344,13 +344,14 @@ var _ = Describe("Candidates", func() {
 				To(Equal([]string{"quay.io/acme/foo:v1", "ghcr.io/acme/foo:v1", "docker.io/library/foo:v1"}))
 		})
 
-		It("demotes an alternative whose rewritten reference is not canonical", func() {
+		It("demotes an alternative rewritten through a bare docker.io group that a status writes in short form", func() {
 			// The docker.io group carries no library segment: the rewrite of ghcr.io/acme/nginx
-			// reads docker.io/nginx, which the monitor writes as is.
+			// gets it, while a status written before the library segment was added lists
+			// docker.io/nginx.
 			cr := alternative("acme", onFailure, group("ghcr.io/acme"), group("docker.io"), group("quay.io/acme"))
 			index := NewIndex(alternatives(cr), nil, unavailableAlternative(monitor(), "docker.io/nginx:1", "ghcr.io/acme/nginx:1", "acme"))
 			Expect(references(index.Candidates(request("ghcr.io/acme/nginx:1"), options))).
-				To(Equal([]string{"ghcr.io/acme/nginx:1", "quay.io/acme/nginx:1", "docker.io/nginx:1"}))
+				To(Equal([]string{"ghcr.io/acme/nginx:1", "quay.io/acme/nginx:1", "docker.io/library/nginx:1"}))
 		})
 
 		It("reports a demoted alternative with the monitor that lists it, the first by name", func() {
@@ -425,6 +426,14 @@ var _ = Describe("Candidates", func() {
 			result := NewIndex(alternatives(b, a), nil).Candidates(request(nginx), options)
 			Expect(references(result)).To(Equal([]string{dockerNginx, ecrNginx}))
 			Expect(candidate(result, ecrNginx).Resource).To(Equal(&Resource{Kind: KindImageAlternative, Name: "a"}))
+		})
+
+		It("offers once an image one resource rewrites through the bare docker.io group and another names in full", func() {
+			hub := alternative("hub", onFailure, group("mirror.gcr.io"), group(dockerIO))
+			nginxOnly := alternative("nginx", onFailure, repository("mirror.gcr.io/nginx"), repository("docker.io/library/nginx"))
+			index := NewIndex(alternatives(hub, nginxOnly), nil)
+			Expect(references(index.Candidates(request("mirror.gcr.io/nginx:1.27"), options))).
+				To(Equal([]string{"mirror.gcr.io/nginx:1.27", dockerNginx}))
 		})
 
 		It("keeps both occurrences of a reference offered with different configs", func() {
