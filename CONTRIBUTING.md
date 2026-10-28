@@ -56,7 +56,8 @@ If you encounter any issues with kube-image-keeper or have ideas for new feature
 We welcome contributions through pull requests. For your pull request to be accepted, it requires to:
 
 - Pass all tests (run `task test` locally before pushing).
-- Include tests covering any new behavior or bug fix.
+- Include tests covering any new behavior or bug fix, committed before the code: a `test` commit whose new specs fail, then the `feat` or `fix` commit that makes them pass (e2e specs aside, written last).
+- End the body of every `fix` commit with `Introduced-by: #<PR>`, the pull request that introduced the bug, found with `git log`, `git blame` or the pull request history (`Introduced-by: unknown` only when nobody can tell). The release notes read it: a bug of a released version is reported with the version that introduced it, a bug of a feature never released is left out. The `Conform` check and `task check-commits` reject a `fix` commit without it; Dependabot's `fix(deps)` commits, which fix no bug, are exempt.
 - Follow the [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/#summary) specification (enforced on every pull request).
 - Contain no merge commits (the `Conform` check rejects them). To bring your branch up to date with `main`, rebase it (`git rebase origin/main`) instead of merging `main` into it.
 - Hold only commits meant for `main`: pull requests are merged by rebase, so each commit lands as is. Fold review fixes into the commit they fix before the merge, the way you like: amend, interactive rebase, or `git commit --fixup` then `git rebase --autosquash`.
@@ -78,7 +79,7 @@ Scopes in commit messages are optional, but when used they must belong to the li
 | Origin | `deps` | Dependency updates (e.g. `build(deps): ...`). |
 | Tooling | `e2e`, `claude` | Project tooling, not kuik itself: the end-to-end suite under `test/e2e/` with its CI job and label, the shared Claude Code configuration under `.claude/` (skills, agents, rules, hooks). |
 
-**Tooling scopes and types.** The tooling scopes, `claude` and `e2e`, never take `feat` or `fix`: use `chore`, `docs` for a skill or rule whose change is text only, `ci` or `test` (for example `test(e2e): ...`, `chore(claude): ...`). semantic-release lists `feat` and `fix` commits in the release notes and bumps the version on them, and the tooling changes no product behaviour. `task check-commits` rejects them.
+**Tooling scopes and types.** The tooling scopes, `claude` and `e2e`, never take `feat` or `fix`: use `chore`, `docs` for a skill or rule whose change is text only, `ci` or `test` (for example `test(e2e): ...`, `chore(claude): ...`). semantic-release lists `feat` and `fix` commits in the release notes and bumps the version on them, and the tooling changes no product behaviour. The `Conform` check and `task check-commits` reject them.
 
 **Picking a scope.** Prefer a feature scope over an architectural one. `fix(routing): ...` is more informative than `fix(controller): ...` because the reader learns *what* changed, not where the code happens to live. If no scope fits cleanly, omit it; scopes are optional. If a change crosses feature boundaries, consider splitting it into several commits.
 

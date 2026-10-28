@@ -29,3 +29,10 @@ jobs:
 
       - name: Lint commits
         run: task conform BASE_BRANCH=origin/${{ github.event.pull_request.base.ref }}
+
+      # The rules conform cannot express: no feat or fix in the tooling scopes, and the
+      # Introduced-by line of every fix commit (the release notes read it).
+      - name: Check the commit rules
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: sh hack/check-commit-rules.sh "origin/$BASE_REF"
