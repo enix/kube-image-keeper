@@ -4,7 +4,7 @@ Thank you for considering contributing to kube-image-keeper! Before you start co
 
 ## Project status
 
-kube-image-keeper v2 has entered its **maintenance phase**: no new features will be added to v2, only bug fixes. v3 is being built on `main`, against the specification in [`docs/v3/`](./docs/v3/); it is not usable yet and its pre-releases are not production-ready.
+kube-image-keeper v2 has entered its **maintenance phase**: no new features will be added to v2, only bug fixes. v3 is being built on `main`, against the specification in [`docs/v3/`](./docs/v3/); it is in beta, feature complete for 3.0 but not production-ready yet.
 
 Pull requests targeting v2 must be opened against the `2.3.x` branch. Everything else targets `main`.
 
