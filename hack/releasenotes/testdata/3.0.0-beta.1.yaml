@@ -1,4 +1,5 @@
 version: 3.0.0-beta.1
+since: 2.3.1
 intro: >-
   kuik 3.0.0-beta.1 is the first beta of kuik v3, a rewrite of kuik from a clean tree. Every feature planned for 3.0 is in, except credentials from a cloud provider, but it is not stable yet: keep v2.3 for production.
 
@@ -22,70 +23,20 @@ highlights:
 breaking:
   - from: v2
     text: >-
-      v3 reads none of the v2 resources (`ImageSetMirror`, `ClusterImageSetMirror`, `ReplicatedImageSet`, `ClusterReplicatedImageSet`, `ClusterImageSetAvailability`) nor the v2 chart values. Install v3 on a cluster without v2; a migration guide is planned after 3.0.
+      kuik v3 reads none of the v2 resources (`ImageSetMirror`, `ClusterImageSetMirror`, `ReplicatedImageSet`, `ClusterReplicatedImageSet`, `ClusterImageSetAvailability`) nor the v2 chart values. Install v3 on a cluster without v2; a migration guide is planned after 3.0.
     refs: {pulls: [670]}
-  - from: 3.0.0-alpha.4
+  - from: v2
     text: >-
-      the chart requires Kubernetes 1.30 or later.
+      The chart requires Kubernetes 1.30 or later.
     refs: {pulls: [752]}
-  - from: 3.0.0-alpha.4
+  - from: v2
     text: >-
-      with `serviceAccount.create: false`, set `secretSyncer.serviceAccount.name` to an existing ServiceAccount other than `default`, or the chart refuses to render.
-    refs: {pulls: [752]}
-  - from: 3.0.0-alpha.5
-    text: >-
-      `config.clusterID` is removed, and a release that still sets it fails to render. To keep the tags your mirrors copied, create the ConfigMap `kuik-cluster-id` with the old value before upgrading, then remove `config.clusterID` (with `--reuse-values`, add `--set config.clusterID=null`), see [Upgrading from a configured clusterID in the configuration docs](https://kuik.enix.io/configuration/#upgrading-from-a-configured-clusterid).
-    refs: {pulls: [764], closes: [727]}
-  - from: 3.0.0-alpha.2
-    text: >-
-      the processes log JSON instead of console text, with no chart value to switch back.
+      The processes log JSON instead of console text, with no chart value to switch back.
     refs: {pulls: [703]}
-  - from: 3.0.0-alpha.2
+  - from: v2
     text: >-
-      the root `replicas` value defaults to 2.
+      The root `replicas` value defaults to 2.
     refs: {pulls: [701]}
-
-limits:
-  - area: Install
-    lead: Cloud credentials
-    text: >-
-      credentials from a cloud provider (`auth.provider`: `aws`, `gcp`, `azure`) are accepted but not used yet: kuik moves on to the next credential. Planned for 3.1.
-  - area: Install
-    lead: One install per cluster
-    text: >-
-      2 secret syncers would refuse each other's writes.
-  - area: Install
-    lead: Reconciler first
-    text: >-
-      the webhook admits pods unchanged until the reconciler has created `kuik-cluster-id`, so never run with `reconciler.replicas: 0`.
-  - area: Install
-    lead: Cluster ID
-    text: >-
-      deleting the ConfigMap `kuik-cluster-id`, or its namespace, generates a new cluster ID and orphans every tag already copied. Never copy it to another cluster that shares a destination: both would delete each other's tags. See the [Cluster ID section of the configuration docs](https://kuik.enix.io/configuration/#cluster-id).
-  - area: Install
-    lead: Backups
-    text: >-
-      a restore tool such as Velero is refused the pull Secrets kuik manages; the syncer recreates them, and the restore ends partially failed.
-  - area: Mirroring
-    lead: Tag deletion
-    text: >-
-      a destination that never accepts tag deletion holds a deleted `ImageMirror` for good: set `cleanup.enabled: false` before deleting it, see [Deleting an ImageMirror](https://kuik.enix.io/crds/#deleting-an-imagemirror).
-  - area: Mirroring
-    lead: Harbor
-    text: >-
-      Harbor refuses tag deletion through the registry API (any `DELETE` by tag answers 400), so `cleanup` deletes nothing on a Harbor destination, and a deleted `ImageMirror` with `cleanup.enabled: true` stays held by its finalizer. Set `cleanup.enabled: false` on a Harbor destination and use Harbor's tag retention rules; support for tag deletion is requested in [goharbor/harbor#24213](https://github.com/goharbor/harbor/issues/24213).
-  - area: Monitoring
-    lead: Drift digests
-    text: >-
-      drift compares the digest the container runtime reports with the registry's: a runtime that reports a platform or config digest shows a tag as drifted, and a preloaded image is never checked for drift, see the [ImageMonitor reference](https://kuik.enix.io/crds/#imagemonitor).
-  - area: Monitoring
-    lead: Retention after a restart
-    text: >-
-      an image whose last pod goes away while no reconciler runs (restart, leader change) is not retained by an `ImageMonitor`.
-  - area: Registries
-    lead: Node runtime
-    text: >-
-      the `tls` key and `insecure: true` configure kuik only: configure the nodes' container runtime for the same hosts, or pods fail to pull.
 
 features:
   - area: Routing
