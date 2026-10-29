@@ -175,6 +175,8 @@ for anonymous pulls, the account behind the credential otherwise.
 The reconciler exports each ring's lap, size and the pace of each host, listed in
 [Scheduling health](../observability.md#scheduling-health).
 
-`kuik_check_cycle_duration_seconds / (kuik_check_ring_images * on(registry) group_left
-kuik_registry_interval_seconds{operation="Check"})` is how much longer than its best case a lap
-takes: above 1, the ring shares its host or loses windows.
+The rings of a host take its check windows in turn: with `n` rings on the host, a ring of `i`
+images laps in `i × n × check.interval` at most, whatever the size of the others. That is its
+**shared lap**, which the [alerts](../observability.md#alerts) and the dashboard compare each lap
+with. The alert rules record the last lap over the shared lap as `kuik:check_lap_ratio`: up to 1,
+the ring keeps pace; above it, the ring lost windows to slow checks, failures or restarts.

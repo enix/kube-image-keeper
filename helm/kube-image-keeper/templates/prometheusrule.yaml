@@ -1,0 +1,144 @@
+{{- /*
+The PrometheusRule of the kuik alerts: files/prometheus-rules.yaml with monitoring.alerts applied.
+No capabilities check: the opt-in is explicit, a cluster without the CRD fails at apply time.
+*/ -}}
+{{- $alerts := .Values.monitoring.alerts }}
+{{- if $alerts.enabled }}
+{{- /* An empty list would render `without ()`. */}}
+{{- if not $alerts.targetLabels }}
+{{- fail "monitoring.alerts.targetLabels must name at least one label" }}
+{{- end }}
+{{- $file := .Files.Get "files/prometheus-rules.yaml" | fromYaml }}
+{{- if hasKey $file "Error" }}
+{{- fail (printf "files/prometheus-rules.yaml does not parse: %s" (index $file "Error")) }}
+{{- end }}
+{{- /* The target labels the file is written with, replaced by targetLabels in every expression. */}}
+{{- $defaultTarget := "without (instance, pod, endpoint, container, service" }}
+{{- $target := printf "without (%s" (join ", " $alerts.targetLabels) }}
+{{- /* The alerts whose final `> <number>` a threshold replaces. */}}
+{{- $thresholdOf := dict
+      "KuikManyOriginsUnavailable" "manyOriginsUnavailable"
+      "KuikMirrorOrphanTagsGrowing" "orphanTagsGrowing"
+      "KuikMirrorManyOrphanDeletions" "manyOrphanDeletions"
+      "KuikWebhookLatencyHigh" "webhookLatencyP99Seconds"
+      "KuikWorkqueueBacklog" "workqueueBacklogSeconds" }}
+{{- $thresholdPattern := "> *[0-9.eE+]+$" }}
+{{- /* The alerts whose `group_left <number> *` a threshold replaces: a multiple of an interval kuik exports. */}}
+{{- $multipleOf := dict
+      "KuikMirrorSelfCheckStale" "mirrorSelfCheckStaleIntervals" }}
+{{- $multiplePattern := "group_left [0-9.eE+]+ [*]" }}
+{{- /* Fail when the file and the values drift apart: a group without a key, a patched alert renamed. */}}
+{{- $names := list }}
+{{- range $file.groups }}
+{{- if not (hasKey $alerts.groups (trimPrefix "kuik." .name)) }}
+{{- fail (printf "files/prometheus-rules.yaml: group %s has no key in monitoring.alerts.groups" .name) }}
+{{- end }}
+{{- range .rules }}
+{{- if .alert }}
+{{- $names = append $names .alert }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- range $name, $_ := merge (dict) $thresholdOf $multipleOf }}
+{{- if not (has $name $names) }}
+{{- fail (printf "files/prometheus-rules.yaml: %s, which a threshold patches, is missing" $name) }}
+{{- end }}
+{{- end }}
+{{- /* customRules: a known alert, one of the three severities, a Prometheus duration. */}}
+{{- $severities := list "critical" "warning" "info" }}
+{{- range $name, $override := $alerts.customRules }}
+{{- if not (has $name $names) }}
+{{- fail (printf "monitoring.alerts.customRules: %s is not an alert of the chart" $name) }}
+{{- end }}
+{{- $override = default dict $override }}
+{{- if and $override.severity (not (has $override.severity $severities)) }}
+{{- fail (printf "monitoring.alerts.customRules.%s: severity %q is not one of %s" $name $override.severity (join ", " $severities)) }}
+{{- end }}
+{{- if and (not (kindIs "invalid" $override.for)) (not (regexMatch "^([0-9]+(ms|s|m|h|d|w|y))+$" (toString $override.for))) }}
+{{- fail (printf "monitoring.alerts.customRules.%s: for %q is not a Prometheus duration" $name (toString $override.for)) }}
+{{- end }}
+{{- end }}
+{{- range $name, $_ := $alerts.disabled }}
+{{- if not (has $name $names) }}
+{{- fail (printf "monitoring.alerts.disabled: %s is not an alert of the chart" $name) }}
+{{- end }}
+{{- end }}
+{{- /* Labels and annotations are map[string]string on the CRD: a value set as a number is stringified. */}}
+{{- $strings := dict }}
+{{- range $key, $map := dict "labels" $alerts.additionalRuleLabels "annotations" $alerts.additionalRuleAnnotations }}
+{{- $copy := dict }}
+{{- range $k, $v := default dict $map }}
+{{- $_ := set $copy $k (toString $v) }}
+{{- end }}
+{{- $_ := set $strings $key $copy }}
+{{- end }}
+{{- $groupLabels := dict }}
+{{- range $group, $map := default dict $alerts.additionalRuleGroupLabels }}
+{{- $copy := dict }}
+{{- range $k, $v := default dict $map }}
+{{- $_ := set $copy $k (toString $v) }}
+{{- end }}
+{{- $_ := set $groupLabels $group $copy }}
+{{- end }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "kube-image-keeper.fullname" . }}
+  namespace: {{ default .Release.Namespace $alerts.namespace }}
+  labels:
+    {{- include "kube-image-keeper.labels-with" (dict "ctx" . "labels" $alerts.labels) | nindent 4 }}
+  {{- with $alerts.annotations }}
+  annotations:
+    {{- range $key, $value := . }}
+    {{ $key }}: {{ toString $value | quote }}
+    {{- end }}
+  {{- end }}
+spec:
+  groups:
+  {{- range $file.groups }}
+  {{- $group := trimPrefix "kuik." .name }}
+  {{- if index $alerts.groups $group }}
+  {{- $groupRules := list }}
+  {{- range .rules }}
+  {{- $expr := replace $defaultTarget $target .expr }}
+  {{- if .record }}
+  {{- $groupRules = append $groupRules (dict "record" .record "expr" $expr) }}
+  {{- else if not (index $alerts.disabled .alert) }}
+  {{- $name := .alert }}
+  {{- with index $thresholdOf .alert }}
+  {{- if not (regexMatch $thresholdPattern $expr) }}
+  {{- fail (printf "files/prometheus-rules.yaml: the expression of %s must end with > <number>, which monitoring.alerts.thresholds.%s replaces" $name .) }}
+  {{- end }}
+  {{- $expr = regexReplaceAll $thresholdPattern $expr (printf "> %v" (index $alerts.thresholds .)) }}
+  {{- end }}
+  {{- with index $multipleOf .alert }}
+  {{- if ne (len (regexFindAll $multiplePattern $expr -1)) 1 }}
+  {{- fail (printf "files/prometheus-rules.yaml: the expression of %s must hold one group_left <number> *, which monitoring.alerts.thresholds.%s replaces" $name .) }}
+  {{- end }}
+  {{- $expr = regexReplaceAll $multiplePattern $expr (printf "group_left %v *" (index $alerts.thresholds .)) }}
+  {{- end }}
+  {{- $override := default dict (index $alerts.customRules .alert) }}
+  {{- /* Later maps win: the file, customRules.severity, additionalRuleLabels, then the group's. */}}
+  {{- $labels := mergeOverwrite (deepCopy (default dict .labels))
+        (dict "severity" (default .labels.severity $override.severity))
+        (deepCopy $strings.labels)
+        (deepCopy (default dict (index $groupLabels $group))) }}
+  {{- $annotations := mergeOverwrite (deepCopy (default dict .annotations))
+        (deepCopy $strings.annotations) }}
+  {{- $groupRules = append $groupRules (dict
+        "alert" .alert
+        "expr" $expr
+        "for" (toString (default .for $override.for))
+        "labels" $labels
+        "annotations" $annotations) }}
+  {{- end }}
+  {{- end }}
+  {{- /* A group left with no rule is left out; its record rules keep it, even with every alert disabled. */}}
+  {{- if $groupRules }}
+    - name: {{ .name }}
+      rules:
+        {{- toYaml $groupRules | nindent 8 }}
+  {{- end }}
+  {{- end }}
+  {{- end }}
+{{- end }}

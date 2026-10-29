@@ -1,0 +1,441 @@
+# The kuik alerts, a plain Prometheus rule file: use it as is with rule_files, or under the spec
+# of a PrometheusRule. Documented at https://kuik.enix.io/observability/#alerts
+#
+# The chart patches three shapes as text, keep them when editing: the target labels
+# `without (instance, pod, endpoint, container, service` (monitoring.alerts.targetLabels), the
+# final `> <number>` of an alert with a threshold, and the `group_left <number> *` of an alert
+# whose threshold is a multiple of an interval kuik exports (both monitoring.alerts.thresholds).
+#
+# Conventions:
+# - aggregate with without, never by, so the routing labels reach the alert;
+# - read a gauge through max without (target labels), so a pod replacement keeps the for timer;
+# - restrict controller-runtime series to kuik with `and on (cluster, instance) kuik_build_info`;
+# - summary is a fixed sentence, description carries the labels and the action
+#   (https://monitoring.mixins.dev/#guidelines-for-alert-names-labels-and-annotations).
+groups:
+  - name: kuik.process
+    rules:
+      - alert: KuikConfigReloadFailed
+        expr: >-
+          sum without (instance, pod, endpoint, container, service) (
+            increase(kuik_config_reload_errors_total[15m])
+          ) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: A kuik process refused its global config.
+          description: >-
+            {{ $labels.job }} refused the new global config and still runs the previous one. Its
+            logs give the validation error: fix the ConfigMap.
+      - alert: KuikResourceNotReady
+        expr: >-
+          max without (instance, pod, endpoint, container, service) (kuik_resource_not_ready) == 1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: A kuik resource is not Ready.
+          description: >-
+            {{ $labels.kind }}/{{ $labels.name }} is not Ready: {{ $labels.reason }}. kubectl
+            describe gives the message to fix.
+  - name: kuik.routing
+    rules:
+      - alert: KuikAlternativesExhausted
+        expr: >-
+          max without (instance, pod, endpoint, container, service) (kuik_alternatives_exhausted_pods) > 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: No candidate answered for an image at admission.
+          description: >-
+            Pods of {{ $labels.kind }}/{{ $labels.name }} were admitted with {{ $labels.image }}
+            while neither the origin nor any alternative answered: they start only from a node
+            cache. Check the registries and credentials, then roll the workloads: the alert clears
+            with the pods.
+      - alert: KuikRewriteConceded
+        expr: >-
+          max without (instance, pod, endpoint, container, service) (kuik_rewrite_conceded_pods) > 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: Another webhook overrides a kuik rewrite.
+          description: >-
+            Another mutating webhook replaced the rewrite of {{ $labels.image }} by
+            {{ $labels.kind }}/{{ $labels.name }}. Narrow the scope of one of the two.
+      - alert: KuikRewriteStale
+        expr: >-
+          max without (instance, pod, endpoint, container, service) (kuik_rewrite_stale_pods) > 0
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: Pods run an image edited after its kuik rewrite.
+          description: >-
+            Pods of {{ $labels.kind }}/{{ $labels.name }} run {{ $labels.image }}, edited after
+            admission: kuik no longer acts on it. Roll the workload.
+  - name: kuik.availability
+    rules:
+      - alert: KuikManyOriginsUnavailable
+        expr: >-
+          count without (image, reason) (
+            max without (instance, pod, endpoint, container, service) (kuik_image_origin_unavailable)
+          ) > 10
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: Many origin images are unavailable on one registry.
+          description: >-
+            {{ $value }} origins of {{ $labels.kind }}/{{ $labels.name }} fail on
+            {{ $labels.registry }}: suspect the host, its quota or the credentials.
+            status.unavailableImages gives the reason of each one.
+      - alert: KuikAlternativeUnauthorized
+        expr: >-
+          max without (instance, pod, endpoint, container, service) (
+            kuik_image_alternative_unavailable{reason="Unauthorized"}
+          ) == 1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: An alternative is refused as Unauthorized.
+          description: >-
+            {{ $labels.via }} cannot offer {{ $labels.image }} without a credential. Add one to the
+            auth of {{ $labels.via }} or to fallbackAuth.
+  - name: kuik.mirror
+    rules:
+      - alert: KuikImageUnrecoverable
+        expr: >-
+          max without (instance, pod, endpoint, container, service) (
+            kuik_image_copy_failed{reason="SourceNotFound"}
+          ) == 1
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: A mirrored image has no source left.
+          description: >-
+            {{ $labels.image }} of {{ $labels.kind }}/{{ $labels.name }} is missing from the
+            destination and from every source: pods running it depend on a node cache. Restore it
+            upstream or move the workloads to another tag.
+      - alert: KuikImageCopyFailing
+        expr: >-
+          max without (instance, pod, endpoint, container, service) (
+            kuik_image_copy_failed{reason!="SourceNotFound"}
+          ) == 1
+        for: 2h
+        labels:
+          severity: warning
+        annotations:
+          summary: A mirror copy keeps failing.
+          description: >-
+            The copy of {{ $labels.image }} by {{ $labels.kind }}/{{ $labels.name }} keeps failing
+            on {{ $labels.registry }}: {{ $labels.reason }}. Check that registry and the credentials
+            kuik holds for it.
+      - alert: KuikMirrorRecopying
+        expr: >-
+          sum without (instance, pod, endpoint, container, service) (
+            increase(kuik_mirror_copies_total{reason="Recopy"}[1h])
+          ) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Copies went missing at a mirror destination.
+          description: >-
+            {{ $labels.kind }}/{{ $labels.name }} copied images again: something deletes at its
+            destination outside kuik. Exclude the mirror's path from that retention policy or tool.
+      # Cannot fire once no mirror declares a destination scan (every mirror blocked, e.g. by a
+      # missing manage Secret): the Scan series goes away. KuikResourceNotReady covers that.
+      - alert: KuikMirrorSelfCheckStale
+        expr: >-
+          time() - max without (instance, pod, endpoint, container, service) (kuik_mirror_self_checked_timestamp_seconds)
+          > ignoring (kind, name) group_left 3 *
+          max without (instance, pod, endpoint, container, service, registry, operation) (
+            kuik_registry_interval_seconds{operation="Scan"}
+          )
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: A mirror destination is no longer verified.
+          description: >-
+            The destination of {{ $labels.kind }}/{{ $labels.name }} has not been verified for
+            {{ $value | humanizeDuration }}, well past mirror.destinationScan.interval: its copy
+            statuses are unverified. Check the reconciler logs for the destination registry.
+      - alert: KuikMirrorOrphanTagsGrowing
+        expr: >-
+          (
+            max without (instance, pod, endpoint, container, service) (kuik_mirror_tags_orphan)
+            and max without (instance, pod, endpoint, container, service) (delta(kuik_mirror_tags_orphan[6h])) > 0
+          ) > 50
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: Orphan tags keep growing at a mirror destination.
+          description: >-
+            {{ $labels.kind }}/{{ $labels.name }} holds {{ $value }} orphan tags and counting:
+            something writes to its repositories outside kuik, or clusterName changed. Find the
+            writer.
+      - alert: KuikMirrorManyOrphanDeletions
+        expr: >-
+          sum without (instance, pod, endpoint, container, service) (
+            increase(kuik_mirror_tags_deleted_total{reason="Orphan"}[1h])
+          ) > 20
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: A mirror deletes orphan tags in bulk.
+          description: >-
+            {{ $labels.kind }}/{{ $labels.name }} deleted {{ $value | printf "%.0f" }} orphan tags in an hour,
+            usually after a clusterName change. Check the mirror's events before more go.
+  - name: kuik.pacing
+    rules:
+      # The last lap of a ring over its shared lap. The rings of a host take its check windows in
+      # turn: with n rings, a ring of i images laps in i * n windows at most, whatever the size of
+      # the others. Above 1, the ring lost windows.
+      - record: kuik:check_lap_ratio
+        expr: >-
+          max without (instance, pod, endpoint, container, service) (kuik_check_cycle_duration_seconds)
+          / (
+            max without (instance, pod, endpoint, container, service) (kuik_check_ring_images)
+            * ignoring (kind, name) group_left
+            count without (instance, pod, endpoint, container, service, kind, name) (
+              max without (instance, pod, endpoint, container, service) (kuik_check_ring_images) > 0
+            )
+            * ignoring (kind, name, operation) group_left
+            max without (instance, pod, endpoint, container, service) (kuik_registry_interval_seconds{operation="Check"})
+          )
+      # The share of the copy windows of a source host used over the last hour. A successful copy
+      # window sends 2 Ok requests under Copy, the HEAD of the source check and the GET of the
+      # manifest: halved, it counts 1, a failed HEAD 0, a HEAD Ok then a failed GET 0.5. It
+      # underestimates, never a false positive.
+      - record: kuik:copy_budget_saturation
+        expr: >-
+          (
+            sum without (instance, pod, endpoint, container, service, job, result) (
+              rate(kuik_registry_requests_total{operation="Copy", result="Ok"}[1h])
+            )
+            * ignoring (operation) group_left
+            max without (instance, pod, endpoint, container, service, job) (kuik_registry_interval_seconds{operation="Copy"})
+          ) / 2
+      - alert: KuikCheckLapOverrunning
+        expr: >-
+          kuik:check_lap_ratio > 2
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: A check ring runs slower than configured.
+          description: >-
+            The ring of {{ $labels.kind }}/{{ $labels.name }} on {{ $labels.registry }} laps in
+            {{ $value | humanize }}x the time the windows of its host allow: windows are lost to
+            checks that outlast check.interval, to failures or to restarts. Check the reconciler
+            logs for the host, or lengthen its check.interval.
+      # The lap in progress against the same shared lap as kuik:check_lap_ratio.
+      - alert: KuikCheckLapStalled
+        expr: >-
+          (
+            time() - max without (instance, pod, endpoint, container, service) (kuik_check_cycle_started_timestamp_seconds)
+          ) > 3 * (
+            max without (instance, pod, endpoint, container, service) (kuik_check_ring_images)
+            * ignoring (kind, name) group_left
+            count without (instance, pod, endpoint, container, service, kind, name) (
+              max without (instance, pod, endpoint, container, service) (kuik_check_ring_images) > 0
+            )
+            * ignoring (kind, name, operation) group_left
+            max without (instance, pod, endpoint, container, service) (kuik_registry_interval_seconds{operation="Check"})
+          )
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: A check ring is stuck.
+          description: >-
+            The lap of {{ $labels.kind }}/{{ $labels.name }} on {{ $labels.registry }} has not
+            finished in {{ $value | humanizeDuration }}: its images are no longer checked. Check the
+            reconciler logs for the host.
+      - alert: KuikCopyBudgetSaturated
+        expr: >-
+          kuik:copy_budget_saturation > 0.95
+          and ignoring (registry, operation) (
+            sum without (instance, pod, endpoint, container, service, job, kind, name, reference, state) (
+              kuik_images_checked{kind="ImageMirror", state="unavailable"}
+            ) > 0
+          )
+        for: 2h
+        labels:
+          severity: warning
+        annotations:
+          summary: The copy windows of a registry cannot drain the mirror backlog.
+          description: >-
+            Every copy window of {{ $labels.registry }} is used while mirrors have a backlog. Shorten
+            copy.interval for the host.
+  - name: kuik.registry
+    rules:
+      - alert: KuikRegistryQuotaExceeded
+        expr: >-
+          sum without (instance, pod, endpoint, container, service, job) (
+            rate(kuik_registry_requests_total{result="QuotaExceeded"}[15m])
+          ) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: A registry rate-limits kuik.
+          description: >-
+            {{ $labels.registry }} rate-limits the {{ $labels.operation }} requests of kuik.
+            Lengthen the matching interval of the host, or authenticate for a larger quota.
+      - alert: KuikRegistryUnreachable
+        expr: >-
+          sum without (instance, pod, endpoint, container, service, job, operation, result) (
+            rate(kuik_registry_requests_total{result="Unreachable"}[10m])
+          )
+          /
+          sum without (instance, pod, endpoint, container, service, job, operation, result) (
+            rate(kuik_registry_requests_total[10m])
+          ) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: A registry does not answer kuik.
+          description: >-
+            {{ $labels.registry }} does not answer {{ $value | humanizePercentage }} of the requests
+            of kuik. kuik blocks no pod, and routing covers an origin that has an alternative: check
+            the network path from the kuik pods and the tls configuration of the host.
+      # The images every credential failed, not the requests: kuik tries the next credential
+      # after a 401, so a host whose images are all served still counts Unauthorized requests.
+      # The ImageMonitor origins only, each counted once whatever the monitors tracking it: an
+      # ImageMirror copy refused has KuikImageCopyFailing, an alternative KuikAlternativeUnauthorized.
+      - alert: KuikRegistryUnauthorized
+        expr: >-
+          count without (image) (
+            max without (instance, pod, endpoint, container, service, kind, name) (
+              kuik_image_origin_unavailable{reason="Unauthorized"}
+            )
+          ) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: A registry refuses images to kuik as Unauthorized.
+          description: >-
+            {{ $value }} images of {{ $labels.registry }} fail their check with every credential kuik
+            holds, the first refused, listed in status.unavailableImages of the ImageMonitors. Give
+            the pods an imagePullSecret for them or declare a fallbackAuth entry.
+  - name: kuik.status
+    rules:
+      - alert: KuikStatusListNearCapacity
+        expr: >-
+          max without (instance, pod, endpoint, container, service) (kuik_status_list_entries)
+          / max without (instance, pod, endpoint, container, service) (kuik_status_list_capacity) >= 0.8
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: A status list is nearly full.
+          description: >-
+            status.{{ $labels.list }} of {{ $labels.kind }}/{{ $labels.name }} is
+            {{ $value | humanizePercentage }} full and will soon leave entries out; the metrics stay
+            complete. Split the resource or fix what fills the list.
+      - alert: KuikStatusListDropping
+        expr: >-
+          sum without (instance, pod, endpoint, container, service) (
+            increase(kuik_status_list_dropped_total[1h])
+          ) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: A status list leaves entries out.
+          description: >-
+            status.{{ $labels.list }} of {{ $labels.kind }}/{{ $labels.name }} leaves entries out:
+            kubectl no longer shows every anomaly, the metrics do. Split the resource or fix what
+            fills the list.
+  - name: kuik.secrets
+    rules:
+      - alert: KuikSecretApplyFailing
+        expr: >-
+          sum without (instance, pod, endpoint, container, service) (
+            rate(kuik_secret_applies_total{result="Failed"}[15m])
+          ) > 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: The secret syncer fails to write pull Secrets.
+          description: >-
+            Pods of the affected namespaces will fail to pull. The PullSecretInjectionFailed event
+            on the resource gives the namespace and the reason. Check the RBAC of the secret syncer
+            and the admission policies of those namespaces.
+      - alert: KuikSecretApplyFlapping
+        expr: >-
+          sum without (instance, pod, endpoint, container, service, result) (
+            rate(kuik_secret_applies_total{result="Applied"}[1h])
+          )
+          /
+          sum without (instance, pod, endpoint, container, service, result) (
+            rate(kuik_secret_applies_total[1h])
+          ) > 0.5
+        for: 2h
+        labels:
+          severity: warning
+        annotations:
+          summary: Something undoes the pull Secrets kuik writes.
+          description: >-
+            {{ $value | humanizePercentage }} of the pull Secret applies change something: another
+            controller or a policy undoes what kuik writes. Find it and keep it off the injected
+            pull Secrets.
+  - name: kuik.controller
+    rules:
+      - alert: KuikWebhookLatencyHigh
+        expr: >-
+          histogram_quantile(0.99,
+            sum without (instance, pod, endpoint, container, service, webhook) (
+              rate(controller_runtime_webhook_latency_seconds_bucket[5m])
+              and on (cluster, instance) kuik_build_info
+            )
+          ) > 1
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: The kuik webhook is slow.
+          description: >-
+            The webhook answers in {{ $value | humanizeDuration }} at p99, and every pod creation
+            slows down with it. Lower webhook.availabilityCheck.timeout in the global config first.
+      - alert: KuikReconcileErrors
+        expr: >-
+          sum without (instance, pod, endpoint, container, service) (
+            rate(controller_runtime_reconcile_errors_total[15m])
+            and on (cluster, instance) kuik_build_info
+          ) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: A kuik controller returns errors.
+          description: >-
+            The {{ $labels.controller }} controller fails its reconciliations: the statuses of its
+            kind go stale. Read the Reconciler error lines of the logs.
+      - alert: KuikWorkqueueBacklog
+        expr: >-
+          max without (instance, pod, endpoint, container, service) (
+            workqueue_unfinished_work_seconds
+            and on (cluster, instance) kuik_build_info
+          ) > 300
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: A kuik reconciliation hangs.
+          description: >-
+            The {{ $labels.name }} workqueue has an item in progress for
+            {{ $value | humanizeDuration }}, usually on a registry that does not answer. Find the
+            resource in the reconciler logs and check the registries it reads.

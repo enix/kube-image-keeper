@@ -60,7 +60,8 @@ internal/status/*             Status building blocks shared by the reconcilers: 
                               condition, capped (bounded lists), routingstatus, imagemetrics
                               (the image series ImageMonitor and ImageMirror both export)
 config/                       controller-gen output (CRDs, rbac/role.yaml, webhook), read by envtest
-helm/kube-image-keeper/       The Helm chart, the only deployment path (crds/ and files/ generated)
+helm/kube-image-keeper/       The Helm chart, the only deployment path (crds/ and files/rbac.yaml generated;
+                              files/prometheus-rules.yaml is the hand-maintained alerts)
 test/e2e/                     End-to-end suite, runs on a Kind cluster
 test/acceptance/              Acceptance of a release on a shared cluster: user stories (scenarios.md),
                               YAML fixtures and a program that applies and prints test objects, never asserts
