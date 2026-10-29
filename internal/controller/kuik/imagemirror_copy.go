@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"slices"
 	"strings"
@@ -221,12 +222,6 @@ func (r *ImageMirrorReconciler) owe(im *kuikv1alpha1.ImageMirror, st *mirrorStat
 			delete(st.sources, key)
 		}
 	}
-	gone := []string{}
-	for host := range st.queues {
-		if _, ok := queues[host]; !ok {
-			gone = append(gone, host)
-		}
-	}
 	st.queues = map[string]bool{}
 	for host := range queues {
 		st.queues[host] = true
@@ -234,6 +229,7 @@ func (r *ImageMirrorReconciler) owe(im *kuikv1alpha1.ImageMirror, st *mirrorStat
 	recopy, lapped := maps.Clone(st.recopy), maps.Clone(st.lapped)
 	st.mu.Unlock()
 
+	set := make(map[string]pacing.CopyQueue, len(queues))
 	for host, refs := range queues {
 		// A lost copy is an availability hole pods may be routed to right now; an initial
 		// copy is background work. A tag written back over a manifest still there is not
@@ -248,11 +244,10 @@ func (r *ImageMirrorReconciler) owe(im *kuikv1alpha1.ImageMirror, st *mirrorStat
 			return strings.Compare(a, b)
 		})
 		first := slices.DeleteFunc(slices.Clone(refs), func(ref string) bool { return !recopy[ref] || lapped[ref] })
-		r.scheduler.SetCopyQueue(owner, host, refs, mirrorCopier{r: r, name: im.Name, host: host}, first...)
+		set[host] = pacing.CopyQueue{Refs: refs, First: first, Copier: mirrorCopier{r: r, name: im.Name, host: host}}
 	}
-	for _, host := range gone {
-		r.scheduler.SetCopyQueue(owner, host, nil, mirrorCopier{r: r, name: im.Name, host: host})
-	}
+	// All the queues at once: a reference moving to another host keeps its backoff.
+	r.scheduler.SetCopyQueues(owner, set)
 }
 
 func sameCandidates(a, b []routing.Candidate) bool {
@@ -383,6 +378,10 @@ type mirrorCopier struct {
 
 // Copy reads ref from the candidate its window is for and writes it to the destination. A
 // candidate that does not answer hands ref to the next one, whose own host's window reads it.
+// It returns an error when the attempt failed, so that the scheduler backs ref off: the
+// destination failed, every candidate failed over a lap, or the mirror could not be prepared
+// for the write. A hand-over to the next candidate, a copy, and a window with nothing to do
+// return nil.
 func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
 	r := c.r
 	log := logf.FromContext(ctx).WithValues("imagemirror", klog.KRef("", c.name), "image", ref)
@@ -403,7 +402,10 @@ func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
 
 	var im kuikv1alpha1.ImageMirror
 	if err := r.Get(ctx, types.NamespacedName{Name: c.name}, &im); err != nil {
-		return client.IgnoreNotFound(err)
+		if err = client.IgnoreNotFound(err); err != nil {
+			log.Info("Failed to read ImageMirror", "error", err.Error())
+		}
+		return err
 	}
 	// A deleted mirror copies nothing more: its finalizer deletes what it already wrote.
 	if !im.DeletionTimestamp.IsZero() {
@@ -420,18 +422,19 @@ func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
 		log.V(1).Info("Skipped copy source", "candidate", candidate.Reference, "reason", reason, "error", err.Error())
 		st.mu.Lock()
 		defer st.mu.Unlock()
-		r.giveWay(st, ref, candidate, reason, c.host)
-		return nil
+		return r.giveWay(st, ref, candidate, reason, c.host)
 	}
 
 	destination := destinationRepository(&im, source.origin, r.clusterID)
 	// The registry offers no way to list the repositories a client populated: the one that
 	// is not recorded before its first push is never swept.
 	if err := r.recordRepository(ctx, &im, destination); err != nil {
+		log.Info("Failed to record the destination repository of ImageMirror", "error", err.Error())
 		return err
 	}
 	manage, err := r.manageAuth(ctx, &im)
 	if err != nil {
+		log.Info("Failed to read the destination credentials of ImageMirror", "error", err.Error())
 		return err
 	}
 	destinationEndpoint := registry.Endpoint{Reference: destination, Insecure: im.Spec.Destination.Insecure, Auth: manage(destination)}
@@ -451,13 +454,12 @@ func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
 		if ok && !copyErr.Destination {
 			// The source answered its check but failed the copy: like a source that does not
 			// answer, it gives way to the next one rather than being read again next window.
-			r.giveWay(st, ref, candidate, reason, c.host)
-			return nil
+			return r.giveWay(st, ref, candidate, reason, c.host)
 		}
 		host, _, _ := strings.Cut(destination, "/")
 		st.fail(ref, copyFailure{reason: reason, registry: host, at: r.clock.Now()})
 		st.lapped[ref] = true
-		return nil
+		return err
 	}
 	delete(st.failed, ref)
 	st.copied[ref] = true
@@ -493,13 +495,14 @@ func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
 // giveWay hands ref to the candidate after the one on host that failed with reason, whose
 // own host's window reads it. Once every candidate failed, the lap is recorded as one
 // failure: SourceNotFound when each one lacked the manifest, the reason of the last one that
-// failed otherwise, since a source that failed may still hold it. st.mu is held.
-func (r *ImageMirrorReconciler) giveWay(st *mirrorState, ref string, tried routing.Candidate, reason kuikv1alpha1.CopyFailureReason, host string) {
+// failed otherwise, since a source that failed may still hold it. It returns that failure as
+// an error, nil while a candidate is left to try. st.mu is held.
+func (r *ImageMirrorReconciler) giveWay(st *mirrorState, ref string, tried routing.Candidate, reason kuikv1alpha1.CopyFailureReason, host string) error {
 	// A reconcile during the attempt replaced the sources: the current one is moved on, unless
 	// its candidates changed meanwhile and it no longer stands on the one tried.
 	source, ok := st.sources[ref]
 	if !ok || source.candidates[source.next].Reference != tried.Reference {
-		return
+		return nil
 	}
 	// A lap over the candidates starts again from the first one, after a success too.
 	if source.next == 0 {
@@ -510,7 +513,7 @@ func (r *ImageMirrorReconciler) giveWay(st *mirrorState, ref string, tried routi
 	}
 	source.next++
 	if source.next < len(source.candidates) {
-		return
+		return nil
 	}
 	failure := copyFailure{reason: kuikv1alpha1.CopySourceNotFound, registry: source.origin.Host}
 	if source.unanswered != nil {
@@ -520,6 +523,7 @@ func (r *ImageMirrorReconciler) giveWay(st *mirrorState, ref string, tried routi
 	source.next, source.unanswered = 0, nil
 	st.fail(ref, failure)
 	st.lapped[ref] = true
+	return fmt.Errorf("every source of the copy failed: %s", failure.reason)
 }
 
 // sourceFailureReason maps the failure to read a copy source to a copy reason: SourceNotFound
