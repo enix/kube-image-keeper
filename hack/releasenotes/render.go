@@ -6,8 +6,12 @@ import (
 	"strings"
 )
 
-// none is the line of a section with nothing to list.
+// none is the line of a Changelog list with nothing to list.
 const none = "None in this release.\n"
+
+// noBreaking follows the introduction of notes without breaking changes, as its own bold
+// paragraph: their section is left out, and a reader upgrading looks for this answer first.
+const noBreaking = "**No breaking change in this release.**"
 
 // groupAbove is the number of Known limits above which they are grouped under their areas.
 const groupAbove = 6
@@ -18,21 +22,23 @@ func render(n *Notes) string {
 	if n.Intro != "" {
 		b.WriteString(n.Intro + "\n\n")
 	}
+	if len(n.Breaking) == 0 {
+		b.WriteString(noBreaking + "\n\n")
+	}
 
 	b.WriteString("## ✨ Highlights\n\n")
 	for _, h := range n.Highlights {
 		fmt.Fprintf(&b, "- **%s**: %s\n", h.Lead, h.Text)
 	}
 
-	b.WriteString("\n## ⚠️ Breaking changes\n\n")
-	if len(n.Breaking) == 0 {
-		b.WriteString(none)
-	}
-	for _, c := range n.Breaking {
-		fmt.Fprintf(&b, "- **%s**: %s%s\n", from(c.From), c.Text, refs(c.Refs))
+	if len(n.Breaking) > 0 {
+		b.WriteString("\n## ⚠️ Breaking changes\n\n")
+		for _, c := range n.Breaking {
+			fmt.Fprintf(&b, "- **%s**: %s%s\n", from(c.From), c.Text, refs(c.Refs))
+		}
 	}
 
-	if len(n.Limits) > 0 {
+	if len(n.Limits) > 0 || n.LimitsUnchangedSince != "" {
 		b.WriteString("\n## 🚧 Known limits\n\n")
 		bullets := make([]areaBullet, len(n.Limits))
 		for i, l := range n.Limits {
@@ -44,6 +50,13 @@ func render(n *Notes) string {
 			for _, x := range bullets {
 				b.WriteString(x.line)
 			}
+		}
+		if since := n.LimitsUnchangedSince; since != "" {
+			// A paragraph, outside the areas: a blank line ends the list above it.
+			if len(bullets) > 0 {
+				b.WriteString("\n")
+			}
+			fmt.Fprintf(&b, "The other known limits are unchanged since [%s](%s/releases/tag/v%s).\n", since, repository, since)
 		}
 	}
 

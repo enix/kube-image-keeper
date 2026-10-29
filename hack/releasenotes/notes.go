@@ -20,8 +20,11 @@ type Notes struct {
 	Highlights []Highlight `json:"highlights"`
 	Breaking   []Breaking  `json:"breaking,omitempty"`
 	Limits     []Limit     `json:"limits,omitempty"`
-	Features   []Change    `json:"features,omitempty"`
-	Fixes      []Change    `json:"fixes,omitempty"`
+	// LimitsUnchangedSince is the previous release of the same channel, set when Limits holds
+	// only the limits new or changed since it: the other limits are read in its notes.
+	LimitsUnchangedSince string   `json:"limitsUnchangedSince,omitempty"`
+	Features             []Change `json:"features,omitempty"`
+	Fixes                []Change `json:"fixes,omitempty"`
 }
 
 // Highlight is a bullet of the Highlights section.
@@ -85,7 +88,7 @@ var areas = []string{
 }
 
 var (
-	versionPattern  = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$`)
+	versionPattern  = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z]+\.[0-9]+)?$`)
 	majorPattern    = regexp.MustCompile(`^v[0-9]+$`)
 	commitPattern   = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
 	externalPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*$`)
@@ -139,6 +142,13 @@ func (n *Notes) validate() []string {
 		}
 		checkText(b.Text, true, at)
 		checkRefs(b.Refs, true, at)
+	}
+	switch since := n.LimitsUnchangedSince; {
+	case since == "":
+	case !versionPattern.MatchString(since):
+		add("limitsUnchangedSince: %q is not a version such as 3.0.0-beta.1", since)
+	case since == n.Version:
+		add("limitsUnchangedSince: %s is the version of these notes, want the previous release of its channel", since)
 	}
 	checkAreas("limits", len(n.Limits), func(i int) string { return n.Limits[i].Area }, add)
 	for i, l := range n.Limits {
