@@ -7,7 +7,7 @@
 
 <div align="center">
 
-[![Release][release-img]][release] [![Artifact Hub][artifacthub-img]][artifacthub] [![MIT license][license-img]][license] [![Brought to you by Enix][enix-img]][enix]
+[![Release][release-img]][release] [![Documentation][docs-img]][docs] [![Kubernetes 1.30+][kubernetes-img]][kubernetes] [![Artifact Hub][artifacthub-img]][artifacthub] [![MIT license][license-img]][license] [![Brought to you by Enix][enix-img]][enix]
 
 </div>
 
@@ -19,6 +19,10 @@
 
 [release]: https://github.com/enix/kube-image-keeper/releases
 [release-img]: https://img.shields.io/github/v/release/enix/kube-image-keeper?sort=semver&display_name=tag&logo=github&label=Release&color=3a6ed7
+[docs]: https://kuik.enix.io
+[docs-img]: https://img.shields.io/badge/Docs-kuik.enix.io-3a6ed7
+[kubernetes]: https://kuik.enix.io/installation/
+[kubernetes-img]: https://img.shields.io/badge/Kubernetes-1.30%2B-326ce5?logo=kubernetes&logoColor=white
 [artifacthub]: https://artifacthub.io/packages/helm/enix/kube-image-keeper
 [artifacthub-img]: https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/enix
 [license]: https://opensource.org/licenses/MIT
