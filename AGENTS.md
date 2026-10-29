@@ -274,8 +274,9 @@ cycle: `CONTRIBUTING.md` only asks outside contributors for a branch that holds 
 meant for `main`.
 
 **PR descriptions** are written for the reviewer, the way a colleague would: 1 to 3
-sentences on what the PR does and why, then a short list of the topics worth reviewing (a
-mechanism, a choice to weigh in on, what is deliberately left out), one line each. Link the
+sentences on what the PR does and why, a short paragraph on what the change concretely
+does, then a short list of the topics worth reviewing (a mechanism, a choice to weigh in
+on, what is deliberately left out), one line each. Link the
 spec or the note instead of paraphrasing it. No dense block of prose, no headings or tables,
 nothing that restates the commits or the diff. The
 [`pull-request`](./.claude/skills/pull-request/SKILL.md) skill gives the shape.
