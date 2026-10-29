@@ -284,6 +284,88 @@ The `description` of each alert says what happened and what to do.
 | `KuikReconcileErrors` | `controller` | `warning` | |
 | `KuikWorkqueueBacklog` | `controller` | `warning` | `workqueueBacklogSeconds: 300` |
 
+## Dashboard
+
+The chart ships a Grafana dashboard, off by default: `monitoring.dashboard.enabled: true`
+creates a ConfigMap, `<fullname>-dashboard`, holding it under the key `kuik.json`, with the
+label `grafana_dashboard: "1"` the sidecar of kube-prometheus-stack watches. The dashboard is
+written in the schema v2 of Grafana (dynamic dashboards: tabs, auto grids, panels hidden when
+empty): it needs **Grafana 13**. An older Grafana refuses it with `dashboard appears to be in v2
+format`.
+
+| Value | Default | Role |
+| ----- | ------- | ---- |
+| `monitoring.dashboard.enabled` | `false` | Create the ConfigMap |
+| `monitoring.dashboard.namespace` | the release namespace | Where the ConfigMap lives, the namespace the sidecar watches |
+| `monitoring.dashboard.labels` | `{grafana_dashboard: "1"}` | Labels of the ConfigMap, added to the common labels of the chart. Labels set here replace the default rather than merge with it |
+| `monitoring.dashboard.annotations` | `{}` | Annotations of the ConfigMap, e.g. `grafana_folder: kuik` for the sidecar to file it in a folder |
+| `monitoring.dashboard.datasource` | `default` | Prometheus datasource the dashboard opens on, by name or uid; `default` is the default datasource of the Grafana organization |
+| `monitoring.dashboard.extraMatchers` | `""` | PromQL matchers appended to the cluster matcher of every query and variable |
+| `monitoring.dashboard.extraVariables` | `[]` | Variables inserted between `datasource` and `cluster`, to narrow the clusters offered |
+| `monitoring.dashboard.adhocFilters` | `false` | Add the `filters` variable, Grafana's ad hoc filters: a free filter on any label, applied to every query |
+
+The dashboard is one page of six tabs, general to specific, linked to this page, every panel
+carrying a description of what it shows and what it cannot:
+
+- **Overview**: the processes (replicas up, leader, config reloads, version), the health
+  figures of the resources, the images and the routing, every anomaly by family and in one
+  table grouped by family, the registries by host and result.
+- **Routing**: the share of the containers each resource selects by state and of its pods it
+  rewrote, its reach against its scope, the live pods of each exhausted candidate, active
+  fallback, conceded and stale rewrite, the rewrites by policy.
+- **Mirror**: what each `ImageMirror` holds at its destination against what it wants, the
+  failing and unrecoverable copies, then what it does to the destination: copies, recopies,
+  deletions, orphan tags, the copy duration histogram. An activity panel with no series is
+  hidden.
+- **Monitor**: the population of origins and alternatives, their verdicts over time, the
+  retention, the unavailable origins and alternatives.
+- **Pacing**: whether the configured pace of each registry keeps up, see
+  [Registry pacing](./concepts/pacing.md): one row per registry, unfolding into its rings, with
+  each ring's last lap and lap in progress against the longest the rings sharing its host allow;
+  its size and last lap side by side, the intervals each host is read at, the copy budget.
+- **Processes**: the webhook admission latency over the time range and codes, the reconcile
+  errors and workqueues, the secret syncer applies, the status lists, fullest first.
+
+The variables, in order: `datasource`, `cluster` (one cluster at a time; a single-cluster
+Prometheus without the label offers one empty value, which matches its series), `kind`,
+`name`, `registry`, `reason`, a free `filters` on any label when `adhocFilters` is on, and a
+hidden `job` that restricts the controller-runtime panels to the kuik targets.
+Every query carries the cluster matcher `cluster="$cluster"`, the resource-scoped ones `kind` and `name`, the
+registry-scoped ones `registry`. Graphs and stats aggregate with `without`, so a label a
+relabeling adds reaches the legends. Tables aggregate with `by` over the labels of their series,
+which leaves the value as it is and keeps an added label out of the columns.
+
+### Several teams or clusters
+
+A Prometheus that holds several clusters under labels of its own gets them as dropdowns.
+`extraVariables` inserts query variables before `cluster`; `extraMatchers` appends a matcher
+to every query and to the `label_values` of every variable after `cluster`, and the `cluster`
+variable itself becomes `label_values(kuik_build_info{<extraMatchers>}, cluster)`, so each
+dropdown offers the values of the team selected before it. The extra variables are never
+patched: write their query in full.
+
+```yaml
+monitoring:
+  dashboard:
+    enabled: true
+    extraVariables:
+      - name: team
+        label: Team
+        query: label_values(kuik_build_info, team)
+        multi: true
+        includeAll: true
+    extraMatchers: team=~"$team"
+```
+
+### Editing the dashboard
+
+`helm/kube-image-keeper/files/dashboard-kuik.json` is the source, in the form Grafana exports it
+("Export as code", JSON), with no template syntax inside: the chart patches it structurally at
+render time. To change it, import the file into a Grafana 13 (Dashboards, New, Import), edit
+it there, export it as code and replace the file. Keep the conventions above: the v2 wrapper,
+the cluster matcher in every query, `without` in graphs and `by` in tables, no `job` literal, the rate windows, a
+description on every panel, the variable order.
+
 ## Logs
 
 Deployed by the chart, each process writes one JSON object per line on its standard error:

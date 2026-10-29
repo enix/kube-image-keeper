@@ -1,0 +1,102 @@
+{{- /*
+The Grafana dashboard (schema v2, Grafana >= 13) as a ConfigMap the Grafana sidecar picks up.
+files/dashboard-kuik.json is the source, exported from Grafana as is, with no template syntax. It
+is always parsed and re-encoded compact with toJson: served pretty-printed, it would exceed the
+262144 bytes of the last-applied-configuration annotation a client-side apply writes. The values
+patch it in five steps:
+1. extraMatchers: the escaped JSON form of cluster="$cluster" is replaced, as text before parsing,
+   by cluster="$cluster", <extraMatchers>, which reaches every panel query and every label_values
+   of the variables after cluster, since all of them carry the cluster matcher;
+2. the query of the cluster variable itself becomes
+   label_values(kuik_build_info{<extraMatchers>}, cluster), so the clusters offered are narrowed;
+3. extraVariables are inserted between datasource and cluster as QueryVariable entries on
+   $datasource, never patched: a team variable whose query carried the matcher would reference
+   itself. The user writes their query in full;
+4. a datasource other than default becomes the current value of the datasource variable, as both
+   its text and its value: Grafana resolves either a name or a uid. The file carries default,
+   which Grafana reads as the default datasource of the organization;
+5. the ad hoc filters variable of the file is dropped unless adhocFilters is true. The file keeps
+   it, so a dashboard imported by hand has it.
+The ConfigMap carries the common labels of the chart and the labels of the values, or
+grafana_dashboard: "1" when those are empty: the default is what the sidecar watches, a user with
+another sidecar replaces it whole. Helm merges the maps of the values, so the default lives here.
+*/ -}}
+{{- $dashboard := .Values.monitoring.dashboard }}
+{{- if $dashboard.enabled }}
+{{- $json := .Files.Get "files/dashboard-kuik.json" }}
+{{- $matcher := "cluster=\\\"$cluster\\\"" }}
+{{- $datasource := default "default" $dashboard.datasource }}
+{{- if $dashboard.extraMatchers }}
+{{- /* The JSON encoder escapes the matcher as the file does, quotes, backslashes and control characters alike. */}}
+{{- $escaped := toJson $dashboard.extraMatchers | trimPrefix "\"" | trimSuffix "\"" }}
+{{- $json = replace $matcher (printf "%s, %s" $matcher $escaped) $json }}
+{{- end }}
+{{- $dash := fromJson $json }}
+{{- if hasKey $dash "Error" }}
+{{- fail (printf "files/dashboard-kuik.json does not parse: %s" (index $dash "Error")) }}
+{{- end }}
+{{- $shipped := list }}
+{{- range $dash.spec.variables }}
+{{- $shipped = append $shipped .spec.name }}
+{{- end }}
+{{- range $index, $extra := $dashboard.extraVariables }}
+{{- if not $extra.name }}
+{{- fail (printf "monitoring.dashboard.extraVariables[%d]: name is required" $index) }}
+{{- end }}
+{{- if not $extra.query }}
+{{- fail (printf "monitoring.dashboard.extraVariables[%d]: query is required" $index) }}
+{{- end }}
+{{- if has $extra.name $shipped }}
+{{- fail (printf "monitoring.dashboard.extraVariables[%d]: %s is a variable of the dashboard" $index $extra.name) }}
+{{- end }}
+{{- end }}
+{{- $variables := list }}
+{{- range $dash.spec.variables }}
+{{- if and (eq .kind "AdhocVariable") (not $dashboard.adhocFilters) }}
+{{- continue }}
+{{- end }}
+{{- if and $dashboard.extraMatchers (eq .spec.name "cluster") }}
+{{- $_ := set .spec.query.spec "query" (printf "label_values(kuik_build_info{%s}, cluster)" $dashboard.extraMatchers) }}
+{{- end }}
+{{- if eq .spec.name "datasource" }}
+{{- $_ := set .spec "current" (dict "text" $datasource "value" $datasource) }}
+{{- end }}
+{{- $variables = append $variables . }}
+{{- if eq .spec.name "datasource" }}
+{{- range $dashboard.extraVariables }}
+{{- $includeAll := default false .includeAll }}
+{{- $variables = append $variables (dict "kind" "QueryVariable" "spec" (dict
+      "name" .name
+      "label" (default .name .label)
+      "query" (dict "kind" "DataQuery" "group" "prometheus" "version" "v0"
+        "datasource" (dict "name" "$datasource")
+        "spec" (dict "qryType" 5 "query" .query "refId" .name))
+      "multi" (default false .multi)
+      "includeAll" $includeAll
+      "allValue" (ternary ".*" "" $includeAll)
+      "refresh" "onTimeRangeChanged"
+      "sort" "alphabeticalAsc"
+      "hide" (ternary "hideVariable" "dontHide" (default false .hide))
+      "current" (ternary (dict "text" (list "All") "value" (list "$__all")) (dict "text" "" "value" "") $includeAll)
+      "options" (list))) }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- $_ := set $dash.spec "variables" $variables }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kube-image-keeper.fullname" . }}-dashboard
+  namespace: {{ default .Release.Namespace $dashboard.namespace }}
+  labels:
+    {{- include "kube-image-keeper.labels-with" (dict "ctx" . "labels" (default (dict "grafana_dashboard" "1") $dashboard.labels)) | nindent 4 }}
+  {{- with $dashboard.annotations }}
+  annotations:
+    {{- range $key, $value := . }}
+    {{ $key }}: {{ toString $value | quote }}
+    {{- end }}
+  {{- end }}
+data:
+  kuik.json: |
+    {{- toJson $dash | nindent 4 }}
+{{- end }}
