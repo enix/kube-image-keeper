@@ -25,16 +25,24 @@ type link struct {
 
 // changes returns the artifacthub.io/changes YAML list: the breaking changes (changed), the
 // features (added) and the fixes (fixed). Artifact Hub shows descriptions as plain text, so a
-// Markdown link is reduced to its text. It returns nothing when there is no entry.
+// Markdown link is reduced to its text. It returns nothing when there is no entry. Artifact
+// Hub stacks the changes of every version in one view, so they must read as successive deltas:
+// with the changes since the version directly before, it lists those (its breaking changes, its
+// features and fixes) instead of the main lists, which would repeat what earlier versions listed.
 func changes(n *Notes) ([]byte, error) {
-	list := make([]change, 0, len(n.Breaking)+len(n.Features)+len(n.Fixes))
-	for _, b := range n.Breaking {
-		list = append(list, entry("changed", from(b.From)+": "+b.Text, b.Refs))
+	main, previous := n.breakingByReader()
+	breaking, features, fixes := main, n.Features, n.Fixes
+	if p := n.Previous; p != nil {
+		breaking, features, fixes = previous, p.Features, p.Fixes
 	}
-	for _, f := range n.Features {
+	list := make([]change, 0, len(breaking)+len(features)+len(fixes))
+	for _, b := range breaking {
+		list = append(list, entry("changed", b.Text, b.Refs))
+	}
+	for _, f := range features {
 		list = append(list, entry("added", f.Area+": "+f.Text, f.Refs))
 	}
-	for _, f := range n.Fixes {
+	for _, f := range fixes {
 		list = append(list, entry("fixed", f.Area+": "+f.Text, f.Refs))
 	}
 	if len(list) == 0 {

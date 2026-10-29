@@ -13,9 +13,6 @@ const none = "None in this release.\n"
 // paragraph: their section is left out, and a reader upgrading looks for this answer first.
 const noBreaking = "**No breaking change in this release.**"
 
-// groupAbove is the number of Known limits above which they are grouped under their areas.
-const groupAbove = 6
-
 // render returns the release body: the shape CONTRIBUTING.md ("Release notes") describes.
 func render(n *Notes) string {
 	var b strings.Builder
@@ -26,53 +23,59 @@ func render(n *Notes) string {
 		b.WriteString(noBreaking + "\n\n")
 	}
 
-	b.WriteString("## ✨ Highlights\n\n")
-	for _, h := range n.Highlights {
-		fmt.Fprintf(&b, "- **%s**: %s\n", h.Lead, h.Text)
+	// Each section ends with a line break; sep is the blank line before the next one, none
+	// at the start of the body.
+	sep := ""
+	if len(n.Highlights) > 0 {
+		b.WriteString("## ✨ Highlights\n\n")
+		for _, h := range n.Highlights {
+			fmt.Fprintf(&b, "- **%s**: %s\n", h.Lead, h.Text)
+		}
+		sep = "\n"
 	}
 
 	if len(n.Breaking) > 0 {
-		b.WriteString("\n## ⚠️ Breaking changes\n\n")
-		for _, c := range n.Breaking {
-			fmt.Fprintf(&b, "- **%s**: %s%s\n", from(c.From), c.Text, refs(c.Refs))
-		}
-	}
-
-	if len(n.Limits) > 0 || n.LimitsUnchangedSince != "" {
-		b.WriteString("\n## 🚧 Known limits\n\n")
-		bullets := make([]areaBullet, len(n.Limits))
-		for i, l := range n.Limits {
-			bullets[i] = areaBullet{area: l.Area, line: fmt.Sprintf("- **%s**: %s%s\n", l.Lead, l.Text, refs(l.Refs))}
-		}
-		if len(bullets) > groupAbove {
-			b.WriteString(grouped(bullets))
+		b.WriteString(sep + "## ⚠️ Breaking changes\n\n")
+		main, previous := n.breakingByReader()
+		if len(previous) == 0 {
+			// A single reader: the bullets need no lead.
+			b.WriteString(breakingList(n.Breaking))
 		} else {
-			for _, x := range bullets {
-				b.WriteString(x.line)
+			// Something breaks the version directly before: each reader finds what breaks the
+			// version it runs under its own heading, the main reader first. A change that breaks
+			// both is written once per reader. When nothing breaks the main reader, its heading
+			// says so rather than leave it to guess from a missing one.
+			fmt.Fprintf(&b, "### From %s\n\n", n.mainReader())
+			if len(main) == 0 {
+				fmt.Fprintf(&b, "Nothing breaks since %s.\n", n.Since)
+			} else {
+				b.WriteString(breakingList(main))
 			}
+			fmt.Fprintf(&b, "\n### From %s\n\n%s", n.Previous.Version, breakingList(previous))
 		}
-		if since := n.LimitsUnchangedSince; since != "" {
-			// A paragraph, outside the areas: a blank line ends the list above it.
-			if len(bullets) > 0 {
-				b.WriteString("\n")
-			}
-			fmt.Fprintf(&b, "The other known limits are unchanged since [%s](%s/releases/tag/v%s).\n", since, repository, since)
-		}
+		sep = "\n"
 	}
 
-	b.WriteString("\n## 📋 Changelog\n\n### Features\n\n")
+	// The known limits live in docs/known-limits.md, read in its latest state: the notes only
+	// say what changes, in the entries above and below. The Changelog makes one comparison,
+	// from since, which it always names; the changes since the version directly before are not
+	// repeated here: Artifact Hub and the release's CHANGELOG.md asset carry them.
+	b.WriteString(sep + "## 📋 Changelog\n\n")
+	fmt.Fprintf(&b, "Changes since [%s](%s/releases/tag/v%s).\n\n", n.Since, repository, n.Since)
+	b.WriteString("### Features\n\n")
 	b.WriteString(changelog(n.Features, "new feature", "new features"))
 	b.WriteString("\n### Fixes\n\n")
 	b.WriteString(changelog(n.Fixes, "fix", "fixes"))
 	return b.String()
 }
 
-// from is the bold lead of a breaking change.
-func from(f string) string {
-	if majorPattern.MatchString(f) {
-		return "From " + f
+// breakingList is the bullets of a list of breaking changes.
+func breakingList(list []Breaking) string {
+	var b strings.Builder
+	for _, c := range list {
+		fmt.Fprintf(&b, "- %s%s\n", c.Text, refs(c.Refs))
 	}
-	return "From `" + f + "` or earlier"
+	return b.String()
 }
 
 // refs is the trailing parenthesis of a bullet: pull requests, commits, closed issues, then
@@ -98,12 +101,26 @@ type areaBullet struct {
 	line string
 }
 
-// grouped writes the bullets under a bold line per area; validation keeps them in area order.
+// grouped writes the bullets of a list by area; validation keeps them in area order. An area of
+// a single entry gets no bold line of its own: those entries come first, in one list, each led by
+// its area. Each area of several entries follows under its bold line, in area order.
 func grouped(bullets []areaBullet) string {
+	count := map[string]int{}
+	for _, x := range bullets {
+		count[x.area]++
+	}
 	var b strings.Builder
+	for _, x := range bullets {
+		if count[x.area] == 1 {
+			fmt.Fprintf(&b, "- **%s**: %s", x.area, strings.TrimPrefix(x.line, "- "))
+		}
+	}
 	for i, x := range bullets {
+		if count[x.area] == 1 {
+			continue
+		}
 		if i == 0 || x.area != bullets[i-1].area {
-			if i > 0 {
+			if b.Len() > 0 {
 				b.WriteString("\n")
 			}
 			fmt.Fprintf(&b, "**%s**\n\n", x.area)

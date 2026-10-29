@@ -1,9 +1,12 @@
 package main
 
 import (
+	"cmp"
 	"fmt"
+	"math"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"sigs.k8s.io/yaml"
@@ -15,16 +18,25 @@ import (
 type Notes struct {
 	// Version is the version semantic-release computes, without the "v" of its tag.
 	Version string `json:"version"`
+	// Since is the version the changes are counted from: the baseline of the readers of
+	// these notes.
+	Since string `json:"since"`
 	// Intro is an optional paragraph above the sections.
 	Intro      string      `json:"intro,omitempty"`
 	Highlights []Highlight `json:"highlights"`
 	Breaking   []Breaking  `json:"breaking,omitempty"`
-	Limits     []Limit     `json:"limits,omitempty"`
-	// LimitsUnchangedSince is the previous release of the same channel, set when Limits holds
-	// only the limits new or changed since it: the other limits are read in its notes.
-	LimitsUnchangedSince string   `json:"limitsUnchangedSince,omitempty"`
-	Features             []Change `json:"features,omitempty"`
-	Fixes                []Change `json:"fixes,omitempty"`
+	Features   []Change    `json:"features,omitempty"`
+	Fixes      []Change    `json:"fixes,omitempty"`
+	// Previous is, in the first release of a stability level only, the changes since the
+	// version directly before it, for the readers who run every version.
+	Previous *Previous `json:"previous,omitempty"`
+}
+
+// Previous is the changes since the version directly before, whatever its stability level.
+type Previous struct {
+	Version  string   `json:"version"`
+	Features []Change `json:"features,omitempty"`
+	Fixes    []Change `json:"fixes,omitempty"`
 }
 
 // Highlight is a bullet of the Highlights section.
@@ -33,21 +45,14 @@ type Highlight struct {
 	Text string `json:"text"`
 }
 
-// Breaking is a bullet of the Breaking changes section, for the readers of From or earlier.
+// Breaking is a bullet of the Breaking changes section, for the reader of From.
 type Breaking struct {
-	// From is the previous major line ("v2") or the last version that does not have the
-	// change ("3.0.0-alpha.5").
+	// From is the reader the change breaks for: since, its major line ("v2") when since is
+	// on an earlier major, or the version of Previous. With Previous, the section groups the
+	// changes by reader; a change that breaks both readers is written once per reader.
 	From string `json:"from"`
 	Text string `json:"text"`
 	Refs Refs   `json:"refs"`
-}
-
-// Limit is a bullet of the Known limits section.
-type Limit struct {
-	Area string `json:"area"`
-	Lead string `json:"lead"`
-	Text string `json:"text"`
-	Refs Refs   `json:"refs,omitempty"`
 }
 
 // Change is a bullet of the Features or Fixes list of the Changelog.
@@ -73,7 +78,7 @@ func (r Refs) empty() bool {
 	return len(r.Pulls) == 0 && len(r.Commits) == 0 && len(r.Closes) == 0 && len(r.External) == 0
 }
 
-// areas are the areas of the Changelog and Known limits, in the order users meet them. The
+// areas are the areas of the Changelog, in the order users meet them. The
 // entries of a list follow this order, so the file reads as the rendered notes.
 var areas = []string{
 	"Install",
@@ -89,6 +94,7 @@ var areas = []string{
 
 var (
 	versionPattern  = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z]+\.[0-9]+)?$`)
+	firstPattern    = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z]+\.1)?$`)
 	majorPattern    = regexp.MustCompile(`^v[0-9]+$`)
 	commitPattern   = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
 	externalPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*$`)
@@ -124,49 +130,158 @@ func (n *Notes) validate() []string {
 	if !versionPattern.MatchString(n.Version) {
 		add("version: %q is not a version such as 3.0.0-beta.1", n.Version)
 	}
+	switch {
+	case n.Since == "":
+		add("since: missing, want the version the changes are counted from")
+	case !versionPattern.MatchString(n.Since):
+		add("since: %q is not a version such as 3.0.0-beta.1", n.Since)
+	case versionPattern.MatchString(n.Version) && compareVersions(n.Since, n.Version) >= 0:
+		add("since: %s is not below %s", n.Since, n.Version)
+	}
 	if n.Intro != "" {
 		checkText(n.Intro, false, func(p string) { add("intro: %s", p) })
 	}
-	if len(n.Highlights) < 3 || len(n.Highlights) > 6 {
-		add("highlights: %d bullets, want 3 to 6", len(n.Highlights))
+	if len(n.Highlights) > 5 {
+		add("highlights: %d bullets, want 0 to 5", len(n.Highlights))
 	}
 	for i, h := range n.Highlights {
 		at := func(p string) { add("highlights[%d]: %s", i, p) }
 		checkLead(h.Lead, at)
 		checkText(h.Text, false, at)
 	}
+	readers := n.readers()
 	for i, b := range n.Breaking {
 		at := func(p string) { add("breaking[%d]: %s", i, p) }
-		if !majorPattern.MatchString(b.From) && !versionPattern.MatchString(b.From) {
+		switch {
+		case !majorPattern.MatchString(b.From) && !versionPattern.MatchString(b.From):
 			at(fmt.Sprintf("from %q is neither a major line such as v2 nor a version such as 3.0.0-alpha.5", b.From))
+		case len(readers) > 0 && !slices.Contains(readers, b.From):
+			at(fmt.Sprintf("from %s serves no reader of these notes, want %s", b.From, oneOf(readers)))
 		}
 		checkText(b.Text, true, at)
-		checkRefs(b.Refs, true, at)
+		checkRefs(b.Refs, at)
 	}
-	switch since := n.LimitsUnchangedSince; {
-	case since == "":
-	case !versionPattern.MatchString(since):
-		add("limitsUnchangedSince: %q is not a version such as 3.0.0-beta.1", since)
-	case since == n.Version:
-		add("limitsUnchangedSince: %s is the version of these notes, want the previous release of its channel", since)
-	}
-	checkAreas("limits", len(n.Limits), func(i int) string { return n.Limits[i].Area }, add)
-	for i, l := range n.Limits {
-		at := func(p string) { add("limits[%d]: %s", i, p) }
-		checkLead(l.Lead, at)
-		checkText(l.Text, true, at)
-		checkRefs(l.Refs, false, at)
-	}
-	for name, list := range map[string][]Change{"features": n.Features, "fixes": n.Fixes} {
-		checkAreas(name, len(list), func(i int) string { return list[i].Area }, add)
-		for i, c := range list {
-			at := func(p string) { add("%s[%d]: %s", name, i, p) }
-			checkText(c.Text, false, at)
-			checkRefs(c.Refs, true, at)
-		}
+	checkChanges("features", n.Features, add)
+	checkChanges("fixes", n.Fixes, add)
+	if n.Previous != nil {
+		n.Previous.validate(n, add)
 	}
 	slices.Sort(problems)
 	return problems
+}
+
+// readers are the values a breaking change's from may take, one per reader the notes serve:
+// since, its major line when since is on an earlier major, and the version directly before
+// when the notes have one. A change that breaks only intermediate pre-releases concerns none
+// of them. Without a valid since, there is nothing to check against.
+func (n *Notes) readers() []string {
+	if !versionPattern.MatchString(n.Since) {
+		return nil
+	}
+	readers := []string{n.Since}
+	if versionPattern.MatchString(n.Version) && major(n.Since) < major(n.Version) {
+		readers = append(readers, "v"+strconv.Itoa(major(n.Since)))
+	}
+	if n.Previous != nil && versionPattern.MatchString(n.Previous.Version) {
+		readers = append(readers, n.Previous.Version)
+	}
+	return readers
+}
+
+// breakingByReader splits the breaking changes between the main reader, coming from since,
+// and the reader coming from the version directly before.
+func (n *Notes) breakingByReader() (main, previous []Breaking) {
+	for _, b := range n.Breaking {
+		if n.Previous != nil && b.From == n.Previous.Version {
+			previous = append(previous, b)
+		} else {
+			main = append(main, b)
+		}
+	}
+	return main, previous
+}
+
+// mainReader names the reader coming from since: its major line when since is on an earlier
+// major, since itself otherwise.
+func (n *Notes) mainReader() string {
+	if major(n.Since) < major(n.Version) {
+		return "v" + strconv.Itoa(major(n.Since))
+	}
+	return n.Since
+}
+
+// major is the major number of a version of versionPattern.
+func major(v string) int {
+	m, _, _ := strings.Cut(v, ".")
+	n, _ := strconv.Atoi(m)
+	return n
+}
+
+// oneOf lists values as "a", "a or b", "a, b or c".
+func oneOf(values []string) string {
+	if len(values) == 1 {
+		return values[0]
+	}
+	return strings.Join(values[:len(values)-1], ", ") + " or " + values[len(values)-1]
+}
+
+// validate checks the changes since the version directly before: only the first release of a
+// stability level has them, and that version lies between since and the notes' own.
+func (p *Previous) validate(n *Notes, add func(string, ...any)) {
+	if versionPattern.MatchString(n.Version) && !firstPattern.MatchString(n.Version) {
+		add("previous: %s is not the first release of a stability level, "+
+			"a version X.Y.Z or a pre-release numbered 1", n.Version)
+	}
+	switch {
+	case p.Version == "":
+		add("previous.version: missing, want the version directly before %s", n.Version)
+	case !versionPattern.MatchString(p.Version):
+		add("previous.version: %q is not a version such as 3.0.0-alpha.9", p.Version)
+	case versionPattern.MatchString(n.Version) && compareVersions(p.Version, n.Version) >= 0:
+		add("previous.version: %s is not below %s", p.Version, n.Version)
+	case versionPattern.MatchString(n.Since) && compareVersions(p.Version, n.Since) <= 0:
+		add("previous.version: %s is not above %s", p.Version, n.Since)
+	}
+	checkChanges("previous.features", p.Features, add)
+	checkChanges("previous.fixes", p.Fixes, add)
+}
+
+// checkChanges reports the problems of a Features or Fixes list.
+func checkChanges(name string, list []Change, add func(string, ...any)) {
+	checkAreas(name, len(list), func(i int) string { return list[i].Area }, add)
+	for i, c := range list {
+		at := func(p string) { add("%s[%d]: %s", name, i, p) }
+		checkText(c.Text, false, at)
+		checkRefs(c.Refs, at)
+	}
+}
+
+// compareVersions orders two versions of versionPattern by semver precedence: X.Y.Z as
+// numbers, a pre-release below its release, then the channel and the number of the
+// pre-release.
+func compareVersions(a, b string) int {
+	key := func(v string) (nums [4]int, channel string) {
+		core, pre, found := strings.Cut(v, "-")
+		for i, part := range strings.Split(core, ".") {
+			nums[i], _ = strconv.Atoi(part)
+		}
+		if !found {
+			nums[3] = math.MaxInt
+			return nums, ""
+		}
+		channel, number, _ := strings.Cut(pre, ".")
+		nums[3], _ = strconv.Atoi(number)
+		return nums, channel
+	}
+	an, ac := key(a)
+	bn, bc := key(b)
+	if c := slices.Compare(an[:3], bn[:3]); c != 0 {
+		return c
+	}
+	if ac != bc && ac != "" && bc != "" {
+		return strings.Compare(ac, bc)
+	}
+	return cmp.Compare(an[3], bn[3])
 }
 
 // checkAreas reports an unknown area, and a list whose entries do not follow the order of
@@ -210,13 +325,13 @@ func checkText(text string, links bool, at func(string)) {
 		at(fmt.Sprintf("%q holds an emoji: only the section headings carry one", text))
 	}
 	if !links && linkPattern.MatchString(text) {
-		at(fmt.Sprintf("%q holds a Markdown link: only breaking and limits may link", text))
+		at(fmt.Sprintf("%q holds a Markdown link: only breaking changes may link", text))
 	}
 }
 
 // checkRefs reports a malformed reference, a commit next to a pull request, and a missing
-// pull request or commit where the work must be named.
-func checkRefs(r Refs, required bool, at func(string)) {
+// pull request or commit.
+func checkRefs(r Refs, at func(string)) {
 	for _, p := range r.Pulls {
 		if p <= 0 {
 			at(fmt.Sprintf("pull request %d is not a number above 0", p))
@@ -240,7 +355,7 @@ func checkRefs(r Refs, required bool, at func(string)) {
 	if len(r.Pulls) > 0 && len(r.Commits) > 0 {
 		at("refs name commits next to pull requests: a commit only for a change without a pull request")
 	}
-	if required && len(r.Pulls) == 0 && len(r.Commits) == 0 {
+	if len(r.Pulls) == 0 && len(r.Commits) == 0 {
 		at("refs name no pull request nor commit")
 	}
 }
