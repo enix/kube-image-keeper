@@ -12,7 +12,8 @@ User documentation lives under `docs/` and is published from `main` at
 ships as soon as it is merged. The markdown is the single source of truth; read it
 alongside the code. Today: `docs/crds.md` (CRD reference, kept in step with
 `api/kuik/v1alpha1`), `docs/configuration.md`, `docs/observability.md` (events,
-metrics and logs, kept in step with what the processes emit), `docs/guides/development.md` (local
+metrics and logs, kept in step with what the processes emit), `docs/known-limits.md` (what
+does not work yet, one list for the current major line), `docs/guides/development.md` (local
 workflow), the use cases and `docs/concepts/` (how kuik works, picked up by the Concepts
 sidebar automatically). The v2 user docs are served from the `2.3.x` branch, not
 from here.

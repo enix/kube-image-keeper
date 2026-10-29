@@ -1,13 +1,13 @@
 ---
 name: release-notes
-description: Use when preparing a kuik release from the beta on, before dispatching the Release workflow, or when asked to write or update the release notes of the next version, for example "write the notes of the next beta" or "prepare the release of 3.0.0".
+description: Use when preparing any kuik release, alphas included, before dispatching the Release workflow, or when asked to write or update the release notes of the next version, for example "write the notes of the next beta" or "prepare the release of 3.0.0".
 argument-hint: "[branch, default main]"
 allowed-tools: Bash(task release-dry-run *) Bash(task test-outline *) Bash(go run ./hack/releasenotes *) Bash(git fetch origin *) Bash(git log *) Bash(git show *) Bash(git ls-tree *) Bash(git merge-base *) Bash(git tag *) Bash(git describe *) Bash(git rev-list *) Bash(gh pr list *) Bash(gh pr view *) Bash(gh issue view *) Bash(gh release view *) Bash(git ls-remote *) Read Grep Glob Write
 ---
 
 # Release notes
 
-From the first beta on, every release carries notes written for the people who install kuik, not the list of commit subjects semantic-release generates. You write them as a structured file, `release-notes.yaml`, the single source: the release body and the chart's `artifacthub.io/changes` are rendered from it by `go run ./hack/releasenotes`. The person who releases decides, and the accepted notes go into a **draft GitHub release for exactly the tag of the next version**: the rendered body, and the YAML as its `release-notes.yaml` asset. The Release workflow refuses to release without that draft and a valid asset, and publishes the rendering of the asset in place of the generated notes, with the chart's changes rendered from it too: the draft's body is only a preview ([CONTRIBUTING](../../../CONTRIBUTING.md#release-notes)). Alphas keep the generated notes: this skill is not needed for them.
+Every release carries notes written for the people who install kuik, not the list of commit subjects semantic-release generates. You write them as a structured file, `release-notes.yaml`, the single source: the release body and the chart's `artifacthub.io/changes` are rendered from it by `go run ./hack/releasenotes`. The person who releases decides, and the accepted notes go into a **draft GitHub release for exactly the tag of the next version**: the rendered body, and the YAML as its `release-notes.yaml` asset. The Release workflow refuses to release without that draft and a valid asset, and publishes the rendering of the asset in place of the generated notes, with the chart's changes rendered from it too: the draft's body is only a preview ([CONTRIBUTING](../../../CONTRIBUTING.md#release-notes)).
 
 ## Hard rules
 
@@ -21,22 +21,24 @@ From the first beta on, every release carries notes written for the people who i
 
 1. `task release-dry-run BRANCH=<branch>` (default `main`; `release` for a stable, once `release` is fast-forwarded to the commit to publish). It clones the branch from `origin` and runs semantic-release in dry-run with the workflow's plugins. It needs Node.js ^22.14.0 or >= 24.10.0 (semantic-release 25) and push access to `origin`. Its output is long: read only the line `The next release version is <version>`.
 2. No release (no `feat`, `fix` or breaking change since the last one): say so and stop.
-3. An alpha (`-alpha.` in the version): say the alpha keeps the generated notes, and stop.
-4. Otherwise the tag is `v<version>`. Note the head of `origin/<branch>` (`git rev-list -1 origin/<branch>` after `git fetch origin`): the notes cover it.
+3. Otherwise the tag is `v<version>`. Note the head of `origin/<branch>` (`git rev-list -1 origin/<branch>` after `git fetch origin`): the notes cover it.
 
 ## 2. What the release holds
 
-The notes cover what changed since a baseline, `<previous>` below. Channels go by stability: alpha < beta < rc < stable. The baseline is the highest existing tag lower than the new version, in semver order, whose channel is at least as stable as the new version's. Take it among all tags, not only those merged into the branch: the `v2.3.x` stable tags live on the maintenance branch. For example:
+The notes are written for the readers of the new version's stability: an alpha for people who run alphas, a beta for people who run betas, a stable for people who run stables. They cover what changed since a baseline, `<previous>` below, which the YAML names as `since`. Stability goes alpha < beta < rc < stable. The baseline is the latest version lower than the new one, at least as stable, on the same line (`X.Y`); on another line, only stables count. Take it among all tags, not only those merged into the branch: the `v2.3.x` stable tags live on the maintenance branch. For example:
 
-- `3.0.0-beta.1`, `3.0.0-rc.1` and `3.0.0`: the latest `v2.3.x` stable.
-- `3.0.0-beta.2`: `v3.0.0-beta.1`.
-- `3.0.1`: `v3.0.0`.
+- `3.0.0-beta.1`, `3.0.0-rc.1` and `3.0.0`: `2.3.1`, the latest stable, since no version of the 3.0 line is at least as stable.
+- `3.0.0-beta.2`: `3.0.0-beta.1`.
+- `3.0.1-rc.1` and `3.0.1`: `3.0.0` (`3.0.0-rc.1` is lower than `3.0.0`).
+- `3.1.0-alpha.1`: the latest `3.0.x` stable. `3.1.0-alpha.2`: `3.1.0-alpha.1`.
 
-List the candidates with `git tag --list 'v*' --sort=-v:refname`. Skip the tags higher than or equal to the new version, skip the less stable channels, and take the first one left. Git lists a pre-release above its own stable (`v2.3.1-rc.1` before `v2.3.1`): compare in semver order, where the stable is higher.
+List the candidates with `git tag --list 'v*' --sort=-v:refname`. Skip the tags higher than or equal to the new version and the less stable ones, and take the first one left on the same line, else the first stable. Git lists a pre-release above its own stable (`v2.3.1-rc.1` before `v2.3.1`): compare in semver order, where the stable is higher.
 
-So the first release of a channel is a full summary for people coming from the previous stable, and the next ones of the same channel are incremental. When less stable pre-releases lie between the baseline and the new version (the alphas before `3.0.0-beta.1`, the betas before `3.0.0-rc.1` or `3.0.0`), still cover everything since the baseline: start from the written notes of those pre-releases (`gh release view <tag> --repo enix/kube-image-keeper`, or their `release-notes.yaml` asset), and from the commits for the alphas, whose notes are generated. Ask the person how far back to go when unsure.
+So the first release of each stability level on a line (`3.1.0-alpha.1`, `3.0.0-beta.1`, `3.0.0-rc.1`, `3.0.0`, or a stable whose line skipped levels) is a full summary since the previous stable: every feature, every breaking change with its `from`, and the fixes of bugs its readers could meet (see Fixes below). The next releases of that level cover the changes since their baseline. When less stable pre-releases lie between the baseline and the new version (the alphas before `3.0.0-beta.1`, the betas before `3.0.0-rc.1` or `3.0.0`), still cover everything since the baseline: start from the written notes of those pre-releases (`gh release view <tag> --repo enix/kube-image-keeper`, or their `release-notes.yaml` asset), and from the commits for the alphas up to `3.0.0-alpha.6`, whose notes were generated. Ask the person how far back to go when unsure.
 
-The breaking changes serve a reader of each earlier pre-release too. For a change landed in an alpha, find the first tag that holds it with `git tag --contains <sha>`: its `from` is the release just before that first tag (a change first in `3.0.0-alpha.6` has `from: 3.0.0-alpha.5`, rendered "From `3.0.0-alpha.5` or earlier"). A break with the previous major has `from: v2`. One entry per requirement, each with its own `from`: cert-manager, required since the first v3 alpha, and Kubernetes 1.30, since `3.0.0-alpha.5`, are 2 entries.
+The first release of a stability level has a second reader: someone upgrading from the version directly before it, whatever its level (the last alpha for `3.0.0-beta.1`, the last beta for `3.0.0-rc.1`, the last rc for a stable). Enix runs every version and nobody skips a level. The YAML's `previous` serves them: `previous.version` is that version, and its `features` and `fixes` are every feature and every fix between it and the new version, fixes of bugs only pre-releases had included. They do not show in the release body, whose Changelog counts from `since` only: they become the release's entries on Artifact Hub, and the breaking changes `from: <previous.version>` show in the body. The release's `CHANGELOG.md` asset gives developers the commit-level delta since the version directly before. The other releases have no `previous`, nor has a first alpha whose version directly before is the stable it counts from.
+
+The breaking changes serve these readers only: the one coming from `since` and, with `previous`, the one coming from `previous.version`. The `from` of a change is the reader it breaks: `since`, or its major line (`v2`) when `since` is on an earlier major, for the main reader; `previous.version` for the second. `from` only picks where the change shows: the section groups the changes per reader only when something breaks the second reader; otherwise it has plain bullets. A change that breaks both readers is written twice, once per `from`, so each finds it in their group. A change that broke only what intermediate pre-releases had, which both readers already have or never had, is not listed; the tool refuses any other `from` and names the allowed ones. One entry per requirement: cert-manager and Kubernetes 1.30 are 2 entries. A behaviour change in a patch release is a breaking change too, with `from` the previous stable.
 
 semantic-release may compare from another tag (the first beta compares from `v2.3.0-beta.3`, the last beta on `main`'s channel): ignore that, the notes cover what changed since the baseline.
 
@@ -54,25 +56,22 @@ Leave out too a pull request or commit of the range whose code no longer exists 
 
 ## 3. The draft
 
+First check [`docs/known-limits.md`](../../../docs/known-limits.md) at the head is up to date with the release's changes: every limit a change of the range adds is in it, every limit it lifts is gone. The notes have no Known limits section: that page holds the full list for the major line, read in its latest state. If it is out of date, stop and tell the person: it is fixed in a pull request before the release.
+
 Write the notes to `release-notes.yaml` in a directory outside the repository, in this shape ([the notes of 3.0.0-beta.1](../../../hack/releasenotes/testdata/3.0.0-beta.1.yaml) are a full example):
 
 ```yaml
 version: 3.0.0-beta.2      # semantic-release's version, without the v
+since: 3.0.0-beta.1        # the baseline of step 2, without the v
 intro: >-                  # optional: what the release is, for whom, whether it is production-ready
   1 to 3 sentences.
-highlights:                # 3 to 6, no references
+highlights:                # 0 to 5, no references
   - lead: Short lead
     text: a highlight a user should remember, one line.
 breaking:                  # what a user must change or will see differently on upgrade, and what to do
-  - from: 3.0.0-beta.1     # or v2
-    text: the value `a` is renamed `b`, see [the docs](https://kuik.enix.io/...).
+  - from: 3.0.0-beta.1     # the reader it breaks: since, its major line (v2) on an earlier major, or previous.version
+    text: The value `a` is renamed `b`, see [the docs](https://kuik.enix.io/...).
     refs: {pulls: [801], closes: [790]}
-limits:                    # optional: what does not work yet, and the workaround if any
-  - area: Mirroring
-    lead: Short lead
-    text: it does not work yet, see [the docs](https://kuik.enix.io/...).
-    refs: {external: [goharbor/harbor#24213]}   # optional here
-limitsUnchangedSince: 3.0.0-beta.1   # optional: not in a channel's first release, see below
 features:
   - area: Routing
     text: One feature a user sees, in their words, one line.
@@ -81,6 +80,10 @@ fixes:
   - area: Pull secrets
     text: One fix a user sees, in their words, one line.
     refs: {commits: [5fa90de9]}
+previous:                  # only in the first release of a stability level (X.Y.Z or -<channel>.1)
+  version: 3.0.0-alpha.9   # the version directly before, without the v
+  features: []             # same entries as features
+  fixes: []                # same entries as fixes
 ```
 
 Then render it from the repository root, and show the result:
@@ -90,22 +93,24 @@ go run ./hack/releasenotes -version <version> render <dir>/release-notes.yaml
 go run ./hack/releasenotes -version <version> changes <dir>/release-notes.yaml
 ```
 
-`render` prints the release body: the introduction, `## ✨ Highlights`, `## ⚠️ Breaking changes`, `## 🚧 Known limits`, and `## 📋 Changelog` last, its Features and Fixes collapsed and grouped under their areas. Without breaking changes, their section is left out and **No breaking change in this release.** follows the introduction as its own bold paragraph (first when there is no `intro`). With `limitsUnchangedSince`, Known limits ends with a line linking that release's notes for the other limits, and holds only that line when `limits` is empty. `changes` prints the chart's `artifacthub.io/changes`. Both refuse a file that breaks a rule and name it: fix the YAML and render again. With `-version`, as the workflow runs them, they also refuse notes whose `version` is another one. The tool enforces:
+`render` prints the release body: the introduction, `## ✨ Highlights`, `## ⚠️ Breaking changes`, and `## 📋 Changelog` last, its Features and Fixes collapsed and grouped by area: the entries of an area with a single one come first, in one list, each led by its area (`- **Routing**: ...`), then each area with several entries under its bold line, in area order. The Changelog always opens with a line linking the `since` release ("Changes since 2.3.1.") and holds that single comparison: `previous.features` and `previous.fixes` never render in the body. When the notes have `previous` and at least one breaking change `from: <previous.version>`, the Breaking changes are grouped under `### From <reader>`: the main reader first (`since`, or its major line `v2` when `since` is on an earlier major), reading "Nothing breaks since <since>." when nothing breaks it, then `previous.version`. Otherwise they are plain bullets. Without highlights, their section is left out. Without breaking changes, their section is left out and **No breaking change in this release.** follows the introduction as its own bold paragraph (first when there is no `intro`). `changes` prints the chart's `artifacthub.io/changes`: Artifact Hub stacks every version in one view, so its entries must read as successive deltas. Without `previous`, they are the notes' main lists. With `previous`, stable or not, they are the second reader's lists instead: the breaking changes from `previous.version`, `previous.features` and `previous.fixes`, so the full summary of a first release of a level does not repeat what earlier versions listed. Both refuse a file that breaks a rule and name it: fix the YAML and render again. With `-version`, as the workflow runs them, they also refuse notes whose `version` is another one. The tool enforces:
 
 - **Strict fields**: an unknown or repeated field is an error.
-- **Areas**: `Install`, `Routing`, `Pull secrets`, `Mirroring`, `Monitoring`, `Registries`, `Configuration`, `Observability`, `Chart`, the order users meet them. The entries of `limits`, `features` and `fixes` follow that order. The Changelog always shows the areas; Known limits shows them above 6 entries.
-- **Highlights**: 3 to 6.
-- **Texts**: one line each, no emoji (the 4 section headings carry the only ones), inline code allowed, Markdown links only in `breaking` and `limits`. A link must read well without its URL, since Artifact Hub shows only its text: `see the [Cluster ID section of the configuration docs](https://kuik.enix.io/...)`, not `([Cluster ID](https://kuik.enix.io/...))`.
-- **`limitsUnchangedSince`**: a version, `X.Y.Z` or `X.Y.Z-<channel>.<N>`, not the notes' own.
-- **`from`**: a major line (`v2`) or a version (`3.0.0-alpha.5`). "From `<version>` or earlier" includes the previous major line, so a reader coming from v2 is covered too.
-- **`refs`**: `pulls` (the pull requests that delivered the change; several are fine when one change took several), `commits` (7 to 40 hex digits, only for a change without a pull request, never next to `pulls`), `closes` (the issues of this repository it closes) and `external` (`owner/repo#N`, an issue elsewhere). `breaking`, `features` and `fixes` need a pull request or a commit; `limits` may have none. They render at the end of the bullet as `(#802, closes #790)` and become the links of the Artifact Hub entry.
+- **Areas**: `Install`, `Routing`, `Pull secrets`, `Mirroring`, `Monitoring`, `Registries`, `Configuration`, `Observability`, `Chart`, the order users meet them. The entries of `features` and `fixes` follow that order, and the Changelog shows the areas.
+- **`since`**: required, a version below the notes' own.
+- **`previous`**: only when the notes' version is a stable `X.Y.Z` or a pre-release numbered 1; its `version` is required, below the notes' own and above `since`; its entries follow the rules of `features` and `fixes`.
+- **Highlights**: 0 to 5. None suits a release of a few fixes.
+- **Texts**: one line each, no emoji (the 3 section headings carry the only ones), inline code allowed, Markdown links only in `breaking`. A link must read well without its URL, since Artifact Hub shows only its text: `see the [Cluster ID section of the configuration docs](https://kuik.enix.io/...)`, not `([Cluster ID](https://kuik.enix.io/...))`.
+- **`from`**: `since`, its major line (`v2`) when `since` is on an earlier major, or `previous.version` (only with `previous`).
+- **`refs`**: `pulls` (the pull requests that delivered the change; several are fine when one change took several), `commits` (7 to 40 hex digits, only for a change without a pull request, never next to `pulls`), `closes` (the issues of this repository it closes) and `external` (`owner/repo#N`, an issue elsewhere). Every entry needs a pull request or a commit. They render at the end of the bullet as `(#802, closes #790)` and become the links of the Artifact Hub entry.
 
 Write as follows, the tool cannot check it:
 
-- **Breaking changes**: none is fine, the tool then leaves the section out and writes **No breaking change in this release.** as a bold paragraph after the introduction. It also holds the upgrade steps: there is no separate upgrade notes section.
-- **Known limits**: the first release of a channel (`3.0.0-beta.1`, `3.0.0-rc.1`, `3.0.0`: a full summary since the previous stable) lists every known limit, without `limitsUnchangedSince`. A later release of the same channel lists only the limits new or changed since the previous release of that channel (a changed one rewritten in full) and sets `limitsUnchangedSince` to that release: the reader finds the others in its notes. A limit the release lifts counts as changed: list it with its lead and a text saying this release lifts it, with the pull request, so the closing line stays true. No limit new or changed: `limits` stays empty and the field alone fills the section.
-- **Fixes**: in the first release of a channel, counted from the previous stable, list only the fixes of behaviour that stable had: a fix of code that only existed in pre-releases is left out, its feature line covers it.
-- **Length**: Highlights and Breaking changes stay short. The collapsed lists can be long, in the first release of a channel (a full summary since the previous stable) above all. Name the CRD kinds and values as users write them.
+- **Intro**: state a stability warning (such as "keep v2.3 for production") only where readers need it: never in an alpha, and in a beta or an rc only in the first release of its level (`X.Y.Z-beta.1`, which also says the release is feature complete, or `X.Y.Z-rc.1`). The later releases of a level do not repeat it.
+- **Breaking changes**: none is fine, the tool then leaves the section out and writes **No breaking change in this release.** as a bold paragraph after the introduction. It also holds the upgrade steps: there is no separate upgrade notes section. Each text is a bullet of its own, with no lead: start it with a capital.
+- **Known limits**: the notes carry only what changes: a limit the release lifts is a feature or a fix in the Changelog; a limit it adds is a breaking change (something that worked no longer does) or is said in the entry of the new feature.
+- **Fixes**: list a fix in the main lists only when its reader could have run the bug: the commit that introduced it is in `since`, or in a released version of the new version's stability level between `since` and the new version. Find that commit from the fix's `Introduced-by: #<PR>` line when it has one (the merge commit of that pull request), otherwise from `git log`, `git blame` and the code, then list the releases that hold it with `git tag --contains <commit> --sort=v:refname`. A bug of another version's pre-release counts only through the stable that still carried it: a bug of `2.3.0-rc.1` still in `2.3.1` counts for a reader of `2.3.1`. Leave out a bug that had no visible effect in the versions that carried it (its code was not reachable yet), and a bug only less stable pre-releases had: the feature line covers it. The text of a kept fix of a kuik bug ends with `(broken since <version>)`, before the references, `<version>` being the first version of the new version's stability level that had the bug; a bug inherited from the line of `since` names that line's first version with it (`A copy no longer stalls on a 429 (broken since 2.3.0).`). A security `fix(deps)` is a fix entry with no `(broken since <version>)`: its text names the vulnerability it closes, its CVE or advisory id and the affected dependency. A dependency update that closes no vulnerability reachable in kuik is not a fix and stays out of the notes. `previous.fixes` lists every fix since the version directly before, with no "broken since".
+- **Length**: Highlights and Breaking changes stay short. The collapsed lists can be long, in the first release of a stability level (a full summary since the previous stable) above all. Name the CRD kinds and values as users write them.
 - No internal vocabulary (epics, specs, outlines).
 
 Show the rendered body and the changes, with the version and the head they cover. Name what you left out and why in a few lines, so the person can bring something back. Apply their changes to the YAML and render again, until they accept.
@@ -127,7 +132,7 @@ gh release upload v<version> <dir>/release-notes.yaml --repo enix/kube-image-kee
 
 A draft (`isDraft` true): show the difference and, once the person agrees, replace both: its body with `gh release edit v<version> --repo enix/kube-image-keeper --notes-file <dir>/release-notes.md`, its asset with `gh release upload v<version> <dir>/release-notes.yaml --repo enix/kube-image-keeper --clobber`. A published release (`isDraft` false): the version is already out, so stop and tell the person; never edit it.
 
-A draft creates no tag: semantic-release creates it when the workflow runs, and the workflow deletes the draft once its notes are taken. Check the asset: `gh release view v<version> --repo enix/kube-image-keeper --json assets` lists `release-notes.yaml`. Check the tag: `git ls-remote --tags origin v<version>` must print nothing. If it prints the tag, stop and tell the person: the tag must not exist before the release, and the workflow would compute another version. Then tell the person:
+A draft creates no tag: semantic-release creates it when the workflow runs, and the workflow deletes the draft once its notes are taken. The published release carries the YAML as its `release-notes.yaml` asset, next to `CHANGELOG.md`, the changelog semantic-release generates from the commits. Check the asset: `gh release view v<version> --repo enix/kube-image-keeper --json assets` lists `release-notes.yaml`. Check the tag: `git ls-remote --tags origin v<version>` must print nothing. If it prints the tag, stop and tell the person: the tag must not exist before the release, and the workflow would compute another version. Then tell the person:
 
 - the draft's URL;
 - that the notes cover `origin/<branch>` at the head noted in step 1: if commits land before the dispatch, run the skill again (a new commit may change the version, and the workflow then fails naming both);

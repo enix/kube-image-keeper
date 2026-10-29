@@ -123,7 +123,8 @@ cert-manager). Read the one that matters before editing.
 
 **Every behaviour change ships with its tests and its documentation** in the same PR: the
 page under `docs/`, the `# --` comments of `values.yaml` for chart values, this file or the
-rule when the layout or the rules change.
+rule when the layout or the rules change. A change that adds or lifts a known limit updates
+`docs/known-limits.md` in the same PR.
 
 **Do what the kubelet does.** When kuik does something the kubelet already does
 (credentials, Secret formats, anonymous fallback, retries and backoff, references and
@@ -203,7 +204,7 @@ build are in [`.claude/rules/docs.md`](./.claude/rules/docs.md).
   [`release-acceptance`](./.claude/skills/release-acceptance/SKILL.md) (acceptance of a release on
   a shared cluster: runs the scenarios of `test/acceptance/scenarios.md`, explores and
   judges, and cleans up once the user accepts the results)
-  and [`release-notes`](./.claude/skills/release-notes/SKILL.md) (from the beta on: computes
+  and [`release-notes`](./.claude/skills/release-notes/SKILL.md) (every release: computes
   the next version, drafts its notes for users with the person who releases, and creates the
   draft GitHub release the Release workflow requires).
 - `agents/`: [`implementer`](./.claude/agents/implementer.md) (writes one pull request in
