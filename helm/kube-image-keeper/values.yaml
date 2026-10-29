@@ -376,3 +376,64 @@ monitoring:
     relabelings: []
     # -- Relabelings applied to the samples after scraping
     metricRelabelings: []
+  # The PrometheusRule of the kuik alerts, listed under docs/observability.md#alerts.
+  alerts:
+    # -- Create the PrometheusRule. An explicit opt-in: the chart does not check for the CRD,
+    # a cluster without prometheus-operator fails at apply time
+    enabled: false
+    # -- Namespace of the PrometheusRule, the release namespace when empty
+    namespace: ""
+    # -- Labels added to the PrometheusRule, e.g. the one the ruleSelector of the Prometheus
+    # expects
+    labels: {}
+    # -- Annotations added to the PrometheusRule
+    annotations: {}
+    # -- Labels added to every alert, e.g. `team: platform`. A `severity` set here replaces the
+    # one of every alert
+    additionalRuleLabels: {}
+    # -- Annotations added to every alert
+    additionalRuleAnnotations: {}
+    # -- Rule groups to render, one key per group: `false` drops the group and its alerts
+    groups:
+      process: true
+      routing: true
+      availability: true
+      mirror: true
+      pacing: true
+      registry: true
+      status: true
+      secrets: true
+      controller: true
+    # -- Labels added to the alerts of one group, over additionalRuleLabels, e.g.
+    # `mirror: { team: storage }`
+    additionalRuleGroupLabels: {}
+    # -- Alerts not to render, by name, e.g. `KuikManyOriginsUnavailable: true`. An unknown
+    # name fails the render
+    disabled: {}
+    # -- Overrides of the severity (critical, warning or info) and of the for (a Prometheus
+    # duration) of one alert, by name, e.g. `KuikRegistryUnreachable: { severity: critical, for: 15m }`.
+    # An unknown name, another severity or a for that is not a duration fails the render
+    customRules: {}
+    # -- Labels that identify one scrape target, dropped by every aggregation of the rules. A
+    # label a relabeling sets per target must be listed, or a pod replacement restarts the `for`
+    # of the alerts; any other label a relabeling adds reaches them. Must name at least one label
+    targetLabels: [instance, pod, endpoint, container, service]
+    # The thresholds that can be changed. The other rules use fixed values: presence, a ratio
+    # (half the requests unanswered), or a multiple of an interval of the global config kuik
+    # exports (a lap over twice its shared lap).
+    thresholds:
+      # -- KuikManyOriginsUnavailable: unavailable origins of one resource on one host, above
+      # which it is no longer image rotation
+      manyOriginsUnavailable: 10
+      # -- KuikMirrorOrphanTagsGrowing: orphan tags held by one mirror, above which their growth
+      # alerts
+      orphanTagsGrowing: 50
+      # -- KuikMirrorManyOrphanDeletions: orphan tags one mirror deleted within an hour
+      manyOrphanDeletions: 20
+      # -- KuikMirrorSelfCheckStale: time since the last whole destination pass of a mirror, in
+      # multiples of `mirror.destinationScan.interval` of the global config
+      mirrorSelfCheckStaleIntervals: 3
+      # -- KuikWebhookLatencyHigh: p99 of the admission latency of the webhook, in seconds
+      webhookLatencyP99Seconds: 1
+      # -- KuikWorkqueueBacklog: seconds an item of a reconciler workqueue may stay in progress
+      workqueueBacklogSeconds: 300

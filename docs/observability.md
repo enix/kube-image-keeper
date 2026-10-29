@@ -190,7 +190,7 @@ reconciler exports these series.
 | `kuik_check_ring_images{kind, name, registry}` | gauge | Size of the ring, `images` |
 | `kuik_registry_interval_seconds{registry, operation}` | gauge | `check.interval` (`Check`) and `copy.interval` (`Copy`) of a host, as currently loaded, and `mirror.destinationScan.interval` (`Scan`) of a destination an ImageMirror scans, gone once no mirror scans it |
 
-Alert on a lap against its best case rather than on a literal: see
+Alert on a lap against its shared lap rather than on a literal: see
 [Watching the pace](./concepts/pacing.md#watching-the-pace).
 
 ### Registry requests
@@ -199,7 +199,7 @@ The reconciler and the webhook export this counter, each for the requests it sen
 
 | Metric | Type | Value |
 | ------ | ---- | ----- |
-| `kuik_registry_requests_total{registry, operation, result}` | counter | Requests kuik sent to a source registry, by `operation` (`Check`, `Copy`, every request of a copy, the source check it opens with included) and outcome: `Ok`, `ManifestNotFound`, `Unauthorized`, `QuotaExceeded`, `Unreachable`. A mirror destination is not counted |
+| `kuik_registry_requests_total{registry, operation, result}` | counter | Requests kuik sent to a source registry, by `operation` (`Check`, `Copy`) and outcome: `Ok`, `ManifestNotFound`, `Unauthorized`, `QuotaExceeded`, `Unreachable`. Each credential tried counts its own request. Under `Copy`: the source check that opens a copy, the read of the source manifest, and the blob read that ends a failed copy; the blobs read successfully are not counted. A mirror destination is not counted |
 
 A rising `QuotaExceeded` on one `registry` says that host rate-limits kuik; `operation` says
 whether the checks or the copies are refused. A host that rations requests per second, refusing
@@ -217,6 +217,72 @@ The secret syncer exports this counter, see [Injected pull secrets](./concepts/p
 The syncer applies blind, so a healthy steady state is mostly `Noop`. A rate of `Applied` that
 stays high means something is flapping. The first apply of each Secret after the syncer starts
 counts as `Applied`, even when it changes nothing: expect one per Secret at startup.
+
+### Process
+
+Each of the three processes exports these about itself.
+
+| Metric | Type | Value |
+| ------ | ---- | ----- |
+| `kuik_build_info{version, revision, built, goversion, goos, goarch}` | gauge | Always `1`, labelled with the build: the kuik version, the git revision, the build date and the Go toolchain. The same labels open the logs of the process (`Starting manager`). Join on it to tell a kuik target from another: `and on (cluster, instance) kuik_build_info` |
+| `kuik_config_reload_errors_total` | counter | Reloads of the global config file rejected because it did not parse or validate: the process keeps the previous config, and only a log line says why otherwise |
+
+## Alerts
+
+The chart ships the kuik alerts as a PrometheusRule for
+[prometheus-operator](https://prometheus-operator.dev), off by default:
+`monitoring.alerts.enabled: true` creates it. The chart does not check for the CRD: without
+prometheus-operator, the install fails. A kuik process down is left to the `TargetDown` alert of
+kube-prometheus-stack, or its equivalent.
+
+Without the chart, use `helm/kube-image-keeper/files/prometheus-rules.yaml` as is: a Prometheus
+rule file for `rule_files`, whose `groups` also fit the `spec` of a PrometheusRule.
+
+| Value | Role |
+| ----- | ---- |
+| `monitoring.alerts.namespace`, `labels`, `annotations` | Where the PrometheusRule lives, its labels and annotations: add the label the `ruleSelector` of your Prometheus expects |
+| `monitoring.alerts.groups.<group>: false` | Leave out a group of the table below |
+| `monitoring.alerts.disabled.<Alert>: true` | Leave out one alert |
+| `monitoring.alerts.customRules.<Alert>` | Change the `severity` or the `for` of one alert: `KuikRegistryUnreachable: { severity: critical, for: 15m }` |
+| `monitoring.alerts.additionalRuleLabels`, `additionalRuleAnnotations`, `additionalRuleGroupLabels.<group>` | Labels and annotations added to every alert, or labels added to the alerts of one group, to route them in Alertmanager. A `severity` in `additionalRuleLabels` replaces the severity of every alert |
+| `monitoring.alerts.thresholds.<threshold>` | Change a threshold of the table below |
+| `monitoring.alerts.targetLabels` | The labels that identify one scrape target, dropped by every aggregation of the rules. Add the labels a relabeling sets per target |
+
+`critical` means pods will not start, or an irreversible deletion.
+`warning` means an action is due, with no urgency.
+`info` is a debt that wakes nobody: no alert of the chart uses it by default, `customRules` can
+set it.
+
+The `description` of each alert says what happened and what to do.
+
+| Alert | Group | Severity | Threshold |
+| ----- | ----- | -------- | --------- |
+| `KuikConfigReloadFailed` | `process` | `warning` | |
+| `KuikResourceNotReady` | `process` | `warning` | |
+| `KuikAlternativesExhausted` | `routing` | `critical` | |
+| `KuikRewriteConceded` | `routing` | `warning` | |
+| `KuikRewriteStale` | `routing` | `warning` | |
+| `KuikManyOriginsUnavailable` | `availability` | `warning` | `manyOriginsUnavailable: 10` |
+| `KuikAlternativeUnauthorized` | `availability` | `warning` | |
+| `KuikImageUnrecoverable` | `mirror` | `critical` | |
+| `KuikImageCopyFailing` | `mirror` | `warning` | |
+| `KuikMirrorRecopying` | `mirror` | `warning` | |
+| `KuikMirrorSelfCheckStale` | `mirror` | `warning` | `mirrorSelfCheckStaleIntervals: 3` |
+| `KuikMirrorOrphanTagsGrowing` | `mirror` | `warning` | `orphanTagsGrowing: 50` |
+| `KuikMirrorManyOrphanDeletions` | `mirror` | `critical` | `manyOrphanDeletions: 20` |
+| `KuikCheckLapOverrunning` | `pacing` | `warning` | |
+| `KuikCheckLapStalled` | `pacing` | `critical` | |
+| `KuikCopyBudgetSaturated` | `pacing` | `warning` | |
+| `KuikRegistryQuotaExceeded` | `registry` | `warning` | |
+| `KuikRegistryUnreachable` | `registry` | `warning` | |
+| `KuikRegistryUnauthorized` | `registry` | `warning` | |
+| `KuikStatusListNearCapacity` | `status` | `warning` | |
+| `KuikStatusListDropping` | `status` | `critical` | |
+| `KuikSecretApplyFailing` | `secrets` | `critical` | |
+| `KuikSecretApplyFlapping` | `secrets` | `warning` | |
+| `KuikWebhookLatencyHigh` | `controller` | `critical` | `webhookLatencyP99Seconds: 1` |
+| `KuikReconcileErrors` | `controller` | `warning` | |
+| `KuikWorkqueueBacklog` | `controller` | `warning` | `workqueueBacklogSeconds: 300` |
 
 ## Logs
 

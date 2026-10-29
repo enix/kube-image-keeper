@@ -91,7 +91,7 @@ tasks:
       - config/rbac/role.yaml
       - config/webhook/manifests.yaml
       - '{{.CHART}}/crds/*.yaml'
-      - '{{.CHART}}/files/*.yaml'
+      - '{{.CHART}}/files/rbac.yaml'
     cmds:
       - '{{.LOCALBIN}}/controller-gen rbac:roleName=unassigned crd webhook paths="./..." output:crd:artifacts:config={{.CRDS}}'
       - mkdir -p {{.CHART}}/crds {{.CHART}}/files
@@ -99,7 +99,6 @@ tasks:
       - for f in {{.CRDS}}/*.yaml; do sed '1{/^---$/d}' "$f" > {{.CHART}}/crds/$(basename "$f"); done
       # One role per roleName= of the markers; the chart names, binds and places them, and
       # fails on the default name, left to a marker that names no process (notes/0009)
-      - rm -f {{.CHART}}/files/*.yaml
       - cp config/rbac/role.yaml {{.CHART}}/files/rbac.yaml
 
   generate:

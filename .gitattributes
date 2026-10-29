@@ -6,6 +6,6 @@ config/crd/bases/*.yaml             linguist-generated generated-by=manifests
 config/rbac/role.yaml               linguist-generated generated-by=manifests
 config/webhook/manifests.yaml       linguist-generated generated-by=manifests
 helm/kube-image-keeper/crds/*.yaml  linguist-generated generated-by=manifests
-helm/kube-image-keeper/files/*.yaml linguist-generated generated-by=manifests
+helm/kube-image-keeper/files/rbac.yaml linguist-generated generated-by=manifests
 helm/kube-image-keeper/README.md    linguist-generated generated-by=generate-helm-docs
 PROJECT                             linguist-generated generated-by=kubebuilder
