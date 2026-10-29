@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -848,6 +849,104 @@ var _ = Describe("ImageMirror Controller", func() {
 			acceptPushes(h.destination)
 			h.window()
 			Eventually(h.copied(destinationTag(src, "acme/app"))).Should(Succeed())
+		})
+
+		Context("when a copy keeps failing", func() {
+			// inFlight counts the copies of the mirror under test still running.
+			inFlight := func() int {
+				st := h.reconciler.state(h.name)
+				st.mu.Lock()
+				defer st.mu.Unlock()
+				return st.inFlight
+			}
+			// attempts opens the windows from to to, reconciling before each, and checks that
+			// each source received the manifest HEAD of acme/app:v1 an attempt opens with at
+			// the windows of want, one list per source, each attempt over before the next
+			// window. The sources received no other HEAD of it.
+			attempts := func(from, to int, sources []*registrytest.Registry, want ...[]int) {
+				GinkgoHelper()
+				counts := func() []int {
+					got := make([]int, 0, len(sources))
+					for _, src := range sources {
+						got = append(got, checked(src, "acme/app")())
+					}
+					return got
+				}
+				expected := make([]int, len(want))
+				for w := from; w <= to; w++ {
+					h.reconcile()
+					h.window()
+					for i, windows := range want {
+						expected[i] = len(slices.DeleteFunc(slices.Clone(windows), func(at int) bool { return at > w }))
+					}
+					Eventually(counts).Should(Equal(expected), "after window %d", w)
+					Eventually(inFlight).Should(BeZero())
+				}
+				Consistently(counts).Should(Equal(expected))
+			}
+			// failingSource returns a source of acme/app:v1, which a pod of the mirror under
+			// test runs, whose every copy the destination refuses.
+			failingSource := func(mutate ...func(*kuikv1alpha1.ImageMirror)) (*registrytest.Registry, *corev1.Pod) {
+				src := h.source()
+				src.Push("acme/app:v1", registrytest.Image())
+				src.Reset()
+				pod := createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+				rejectPushes(h.destination)
+				h.mirror(mutate...)
+				return src, pod
+			}
+
+			It("waits twice as long before each new attempt when the destination refuses the copy, and refreshes lastAttempt only on an attempt", func() {
+				src, _ := failingSource()
+				lastAttempt := func() time.Time {
+					list := failures()
+					Expect(list).To(ConsistOf(HaveField("Reason", kuikv1alpha1.CopyPushRejected)))
+					return list[0].LastAttempt.Time
+				}
+				// The failure at window 1 waits 1 window, at 2 waits 2, at 4 waits 4.
+				want := []int{1, 2, 4, 8}
+
+				attempts(1, 1, []*registrytest.Registry{src}, want)
+				first := lastAttempt()
+				attempts(2, 2, []*registrytest.Registry{src}, want)
+				second := lastAttempt()
+				Expect(second).To(BeTemporally(">", first))
+				attempts(3, 3, []*registrytest.Registry{src}, want)
+				Expect(lastAttempt()).To(Equal(second))
+				attempts(4, 8, []*registrytest.Registry{src}, want)
+				Expect(lastAttempt()).To(BeTemporally(">", second))
+			})
+
+			It("waits twice as long before each new lap over the sources when every source fails", func() {
+				origin, alternative := h.source(), h.source()
+				h.alternativeTo(appEntry(origin), appEntry(alternative))
+				createPod(h.namespace(), unique("pod"), container{name: appContainer, image: origin.Host() + "/acme/app:v1"})
+				h.mirror()
+
+				// Each lap reads the origin, then the alternative at the next window, where it
+				// fails: the lap ending at window 2 waits 1 window, at 4 waits 2, at 7 waits 4.
+				attempts(1, 11, []*registrytest.Registry{origin, alternative}, []int{1, 3, 6, 11}, []int{2, 4, 7})
+				Expect(failures()).To(ConsistOf(HaveField("Reason", kuikv1alpha1.CopySourceNotFound)))
+			})
+
+			It("copies the image at its next window once it is no longer desired and becomes desired again", func() {
+				// Without cleanup, an image no pod runs is no longer desired at once: no retention
+				// holds it.
+				disabled := false
+				src, pod := failingSource(func(im *kuikv1alpha1.ImageMirror) {
+					im.Spec.Cleanup = &kuikv1alpha1.Cleanup{Enabled: &disabled}
+				})
+				// Failures at windows 1 and 2: the image waits until window 4.
+				attempts(1, 2, []*registrytest.Registry{src}, []int{1, 2})
+
+				deletePod(pod)
+				h.reconcile()
+				acceptPushes(h.destination)
+				createPod(pod.Namespace, unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+				h.reconcile()
+				h.window()
+				Eventually(h.copied(destinationTag(src, "acme/app"))).Should(Succeed())
+			})
 		})
 	})
 
