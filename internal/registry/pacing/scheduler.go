@@ -47,8 +47,22 @@ type Checker interface {
 
 // Copier copies the references a mirror owes from one source host.
 type Copier interface {
-	// Copy copies ref. ctx carries the copy timeout of the host, if any.
+	// Copy copies ref. ctx carries the copy timeout of the host, if any. An error is a failed
+	// attempt: ref then waits before its next one (see SetCopyQueue). nil is no failure,
+	// whether ref was copied or there was nothing to do.
 	Copy(ctx context.Context, ref string) error
+}
+
+// maxCopyBackoff caps the wait of a reference whose copy keeps failing. The kubelet caps an
+// image pull backoff at 5 minutes, below the default copy interval: 30 minutes is the cap
+// the ImageMirror finalizer already uses.
+const maxCopyBackoff = 30 * time.Minute
+
+// copyWait is the backoff of a reference whose last copy failed: it takes no window opened
+// before until, and its next failure waits twice delay.
+type copyWait struct {
+	until time.Time
+	delay time.Duration
 }
 
 // Scheduler opens the windows of every host and hands each one to a ring or a queue. It runs
@@ -68,6 +82,9 @@ type Scheduler struct {
 	// destinations are the destination hosts of the mirrors, by mirror, scanned whole rather
 	// than paced: they hold no series and only export their scan interval.
 	destinations map[Owner]string
+	// waits are the backoffs of the references whose copy failed, by owner and reference:
+	// a reference moving to the queue of another host keeps its own.
+	waits map[Owner]map[string]*copyWait
 	// idle is true while the loop waits for its next window, due at due.
 	idle    bool
 	due     time.Time
@@ -137,18 +154,32 @@ func (q *queue) prioritize(first []string) {
 	q.taken = taken
 }
 
-// take returns the first reference to copy first, leaving next as it is, or else the next
-// reference, or the first one when there is none, and moves next to the one after it.
-func (q *queue) take() string {
-	if len(q.first) > 0 {
-		ref := q.first[0]
-		q.first = q.first[1:]
-		q.taken[ref] = true
-		return ref
+// takeFirst returns the first reference to copy first that is ready, leaving next as it is.
+// One that waits keeps its place among them.
+func (q *queue) takeFirst(ready func(string) bool) (string, bool) {
+	for i, ref := range q.first {
+		if ready(ref) {
+			q.first = slices.Delete(q.first, i, i+1)
+			q.taken[ref] = true
+			return ref, true
+		}
 	}
-	i := max(slices.Index(q.refs, q.next), 0)
-	q.next = q.refs[(i+1)%len(q.refs)]
-	return q.refs[i]
+	return "", false
+}
+
+// takeNext returns the next reference that is ready, from next on, or from the first one
+// when there is none, and moves next to the one after it. It returns false, leaving next as
+// it is, when every reference waits.
+func (q *queue) takeNext(ready func(string) bool) (string, bool) {
+	start := max(slices.Index(q.refs, q.next), 0)
+	for k := range len(q.refs) {
+		i := (start + k) % len(q.refs)
+		if ready(q.refs[i]) {
+			q.next = q.refs[(i+1)%len(q.refs)]
+			return q.refs[i], true
+		}
+	}
+	return "", false
 }
 
 // replace sets the references q owes. When next is gone, typically copied and dropped by
@@ -197,6 +228,7 @@ func New(clk clock.Clock, cfg *config.Config) *Scheduler {
 		wake:         make(chan struct{}, 1),
 		hosts:        map[string]*host{},
 		destinations: map[Owner]string{},
+		waits:        map[Owner]map[string]*copyWait{},
 	}
 }
 
@@ -317,7 +349,9 @@ func (s *Scheduler) open(now time.Time) time.Time {
 			h.due = h.check.next(now)
 		}
 		if !now.Before(h.copyDue) {
-			s.openCopy(h)
+			// The window of the series being opened, whatever the timer's delay: the backoffs
+			// count from it.
+			s.openCopy(h, h.copy.next(now).Add(-h.copy.interval))
 			h.copyDue = h.copy.next(now)
 		}
 		earliest(h.due)
@@ -326,43 +360,122 @@ func (s *Scheduler) open(now time.Time) time.Time {
 	return next
 }
 
-// openCopy hands a copy window of h to the next queue, in round-robin, unless a queue holds
-// a reference to copy first: that one goes ahead, without taking the turn of the next
-// queue. The window is lost when every queue is empty or the previous copy still
-// transfers. s.mu is held.
-func (s *Scheduler) openCopy(h *host) {
+// openCopy hands the copy window of h opened at opened to the next queue with a ready
+// reference, in round-robin, unless a queue holds a ready reference to copy first: that one
+// goes ahead, without taking the turn of the next queue. A reference that waits for its
+// backoff is passed over. The window is lost when no queued reference is ready or the
+// previous copy still transfers. s.mu is held.
+func (s *Scheduler) openCopy(h *host, opened time.Time) {
 	if h.copy.busy || len(h.queues) == 0 {
 		return
 	}
-	var q *queue
-	for k := range len(h.queues) {
-		if candidate := h.queues[(h.copyTurn+k)%len(h.queues)]; len(candidate.first) > 0 {
-			q = candidate
-			break
+	n := len(h.queues)
+	for k := range n {
+		q := h.queues[(h.copyTurn+k)%n]
+		if ref, ok := q.takeFirst(s.ready(q.owner, opened)); ok {
+			s.startCopy(h, q, ref, opened)
+			return
 		}
 	}
-	if q == nil {
-		q = h.queues[h.copyTurn%len(h.queues)]
-		h.copyTurn = (h.copyTurn + 1) % len(h.queues)
+	for k := range n {
+		i := (h.copyTurn + k) % n
+		q := h.queues[i]
+		if ref, ok := q.takeNext(s.ready(q.owner, opened)); ok {
+			h.copyTurn = (i + 1) % n
+			s.startCopy(h, q, ref, opened)
+			return
+		}
 	}
-	ref := q.take()
-	h.copy.busy = true
-	s.running++
-	go s.copyImage(h, q.copier, ref, s.cfg.Registries.For(h.name).Copy.Timeout)
 }
 
-// copyImage copies ref with c, abandoning it after timeout unless timeout is 0.
-func (s *Scheduler) copyImage(h *host, c Copier, ref string, timeout time.Duration) {
+// ready reports which references of owner may take the window opened at opened: those whose
+// backoff, if any, is over. s.mu is held.
+func (s *Scheduler) ready(owner Owner, opened time.Time) func(string) bool {
+	waits := s.waits[owner]
+	return func(ref string) bool {
+		w, ok := waits[ref]
+		return !ok || !opened.Before(w.until)
+	}
+}
+
+// startCopy spends the window of h opened at opened on ref of q. s.mu is held.
+func (s *Scheduler) startCopy(h *host, q *queue, ref string, opened time.Time) {
+	h.copy.busy = true
+	s.running++
+	go s.copyImage(h, q.owner, q.copier, ref, opened, h.copy.interval, s.cfg.Registries.For(h.name).Copy.Timeout)
+}
+
+// copyImage copies ref with c, abandoning it after timeout unless timeout is 0. A failure
+// makes ref wait from when it failed, or from opened, the window it took, for a copy that
+// failed at once; its host copies every interval.
+func (s *Scheduler) copyImage(h *host, owner Owner, c Copier, ref string, opened time.Time, interval, timeout time.Duration) {
 	ctx, cancel := s.bounded(timeout)
-	// A failed copy stays in the queue of its mirror, which reports it: the window it
-	// spent is all the scheduler accounts for.
-	_ = c.Copy(ctx, ref)
+	err := c.Copy(ctx, ref)
 	cancel()
 
 	s.mu.Lock()
 	h.copy.busy = false
 	s.running--
+	if err != nil {
+		// As the kubelet counts its backoff from the failure: a copy that outlasted its
+		// window must not spend its wait while it was still transferring.
+		s.backOff(owner, ref, latest(opened, s.clk.Now()), interval)
+	}
 	s.mu.Unlock()
+}
+
+// latest returns the later of a and b.
+func latest(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+	return a
+}
+
+// backOff makes ref of owner, whose copy failed at failed, wait one interval, then twice as
+// long as its last wait, up to maxCopyBackoff but never less than one interval. A reference
+// no queue of owner holds any more has nothing to wait for. s.mu is held.
+func (s *Scheduler) backOff(owner Owner, ref string, failed time.Time, interval time.Duration) {
+	if !s.queued(owner, ref) {
+		return
+	}
+	waits, ok := s.waits[owner]
+	if !ok {
+		waits = map[string]*copyWait{}
+		s.waits[owner] = waits
+	}
+	w, ok := waits[ref]
+	if !ok {
+		w = &copyWait{}
+		waits[ref] = w
+	}
+	w.delay = max(min(2*w.delay, maxCopyBackoff), interval)
+	w.until = failed.Add(w.delay)
+}
+
+// queued reports whether a queue of owner holds ref. s.mu is held.
+func (s *Scheduler) queued(owner Owner, ref string) bool {
+	for _, h := range s.hosts {
+		for _, q := range h.queues {
+			if q.owner == owner && slices.Contains(q.refs, ref) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// forget drops the backoffs of the references of owner that left every queue of owner: one
+// that comes back is copied at its next window. s.mu is held.
+func (s *Scheduler) forget(owner Owner) {
+	waits, ok := s.waits[owner]
+	if !ok {
+		return
+	}
+	maps.DeleteFunc(waits, func(ref string, _ *copyWait) bool { return !s.queued(owner, ref) })
+	if len(waits) == 0 {
+		delete(s.waits, owner)
+	}
 }
 
 // openCheck hands a check window of h to the next ring with an image, in round-robin. A ring
@@ -642,12 +755,49 @@ func (s *Scheduler) RegistryChecks(owner Owner) []kuikv1alpha1.RegistryCheck {
 // first are references of refs to copy first: each is taken once at the next window of host,
 // ahead of the position of the queue and of the other owners' turns, then waits for its turn
 // like the others. An empty refs drops the queue.
+//
+// A reference whose copy failed waits before its next attempt: it takes no window opened
+// before one copy interval after the failure, counted from its window when the copy failed
+// within it, then twice as long after each
+// new failure, up to 30 minutes. The wait is held by owner and reference, whatever the queue,
+// and forgotten once the reference leaves every queue of owner. A reference moving to the
+// queue of another host keeps it only when both queues change in one SetCopyQueues.
 func (s *Scheduler) SetCopyQueue(owner Owner, host string, refs []string, c Copier, first ...string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	defer s.notify()
 
-	h := s.hostFor(host)
+	s.setCopyQueue(owner, s.hostFor(host), refs, c, first)
+	s.forget(owner)
+}
+
+// CopyQueue is the references an owner still owes from one host, as SetCopyQueue takes them.
+type CopyQueue struct {
+	Refs   []string
+	First  []string
+	Copier Copier
+}
+
+// SetCopyQueues sets every copy queue of owner at once, by host, as SetCopyQueue does for
+// each, and drops its queues on the other hosts.
+func (s *Scheduler) SetCopyQueues(owner Owner, queues map[string]CopyQueue) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	defer s.notify()
+
+	for name, h := range s.hosts {
+		if _, ok := queues[name]; !ok {
+			s.setCopyQueue(owner, h, nil, nil, nil)
+		}
+	}
+	for name, q := range queues {
+		s.setCopyQueue(owner, s.hostFor(name), q.Refs, q.Copier, q.First)
+	}
+	s.forget(owner)
+}
+
+// setCopyQueue sets the queue of owner on h. s.mu is held.
+func (s *Scheduler) setCopyQueue(owner Owner, h *host, refs []string, c Copier, first []string) {
 	i := slices.IndexFunc(h.queues, func(q *queue) bool { return q.owner == owner })
 	switch {
 	case len(refs) == 0 && i >= 0:
@@ -668,16 +818,6 @@ func (s *Scheduler) SetCopyQueue(owner Owner, host string, refs []string, c Copi
 		h.queues = append(h.queues, q)
 	}
 }
-
-// CopyQueue is the references an owner still owes from one host, as SetCopyQueue takes them.
-type CopyQueue struct {
-	Refs   []string
-	First  []string
-	Copier Copier
-}
-
-// SetCopyQueues sets every copy queue of owner at once, by host.
-func (s *Scheduler) SetCopyQueues(owner Owner, queues map[string]CopyQueue) {}
 
 // SetDestinationScan declares host the destination owner scans, in place of any previous one:
 // its scan interval is exported with operation Scan, and no window ever opens on it.
