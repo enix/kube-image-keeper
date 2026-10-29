@@ -27,8 +27,9 @@ paths:
 - The webhook serving certificate comes from cert-manager (`templates/webhook.yaml`:
   Certificate, Issuer and `cert-manager.io/inject-ca-from` on the
   MutatingWebhookConfiguration); a cluster without cert-manager cannot run kuik.
-- **Monitoring** is chart-wide (`monitoring.*`): the ServiceMonitor and the PrometheusRule.
-  The source of the rules is a plain file anyone can take as is, with no template syntax
-  inside, patched by the chart at render time: `files/prometheus-rules.yaml`, a Prometheus
-  rule file edited by hand (keep the shapes its header names, which the patches match).
+- **Monitoring** is chart-wide (`monitoring.*`): the ServiceMonitor, the PrometheusRule and the
+  Grafana dashboard. Their sources are plain files anyone can take as is, with no template
+  syntax inside, patched by the chart at render time: `files/prometheus-rules.yaml`, a
+  Prometheus rule file edited by hand (keep the shapes its header names, which the patches
+  match), and `files/dashboard-kuik.json`, edited in Grafana and exported as code.
 - Check a change with `task helm-lint`, `task lint-values` and `helm template`.

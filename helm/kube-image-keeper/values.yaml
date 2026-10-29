@@ -437,3 +437,31 @@ monitoring:
       webhookLatencyP99Seconds: 1
       # -- KuikWorkqueueBacklog: seconds an item of a reconciler workqueue may stay in progress
       workqueueBacklogSeconds: 300
+  # The Grafana dashboard, files/dashboard-kuik.json, delivered as a ConfigMap for the Grafana
+  # sidecar. Schema v2 (dynamic dashboards): Grafana 13 or later.
+  dashboard:
+    # -- Create the ConfigMap holding the Grafana dashboard (schema v2, Grafana >= 13)
+    enabled: false
+    # -- Namespace of the ConfigMap, the release namespace when empty
+    namespace: ""
+    # -- Labels of the ConfigMap, added to the common labels of the chart. Left empty, the
+    # ConfigMap carries `grafana_dashboard: "1"`, what the Grafana sidecar of
+    # kube-prometheus-stack watches; labels set here replace it rather than merge with it
+    # @default -- `{grafana_dashboard: "1"}`
+    labels: {}
+    # -- Annotations of the ConfigMap, e.g. `grafana_folder: kuik` for the sidecar
+    annotations: {}
+    # -- Prometheus datasource the dashboard opens on, by name or uid; `default` is the default
+    # datasource of the Grafana organization
+    datasource: default
+    # -- PromQL matchers appended to the cluster matcher of every query and variable, e.g.
+    # `team=~"$team"` with a `team` entry in extraVariables. The query of the cluster
+    # variable becomes `label_values(kuik_build_info{<extraMatchers>}, cluster)`
+    extraMatchers: ""
+    # -- Variables inserted between datasource and cluster, to narrow the clusters offered, each
+    # with `name`, `query` (a label_values expression, written in full), and optionally `label`,
+    # `multi`, `includeAll`, `hide`
+    extraVariables: []
+    # -- Add the Filters variable, Grafana's ad hoc filters: a free filter on any label, applied
+    # to every query of the dashboard
+    adhocFilters: false
