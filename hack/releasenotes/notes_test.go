@@ -68,6 +68,38 @@ const twoLimits = `limits:
     text: another limit, see [the docs](https://kuik.enix.io/).
 features:`
 
+const sevenLimits = `limits:
+  - area: Install
+    lead: L1
+    text: a limit.
+  - area: Install
+    lead: L2
+    text: a limit.
+  - area: Routing
+    lead: L3
+    text: a limit.
+  - area: Routing
+    lead: L4
+    text: a limit.
+  - area: Mirroring
+    lead: L5
+    text: a limit.
+  - area: Mirroring
+    lead: L6
+    text: a limit.
+  - area: Chart
+    lead: L7
+    text: a limit.
+features:`
+
+// unchangedSince sets limitsUnchangedSince to 3.0.0-beta.1, and unchangedLine is the line it
+// renders.
+const (
+	unchangedSince = "limitsUnchangedSince: 3.0.0-beta.1\nhighlights:"
+	unchangedLine  = "The other known limits are unchanged since " +
+		"[3.0.0-beta.1](" + repo + "/releases/tag/v3.0.0-beta.1).\n"
+)
+
 // with returns the fixture with exact replacements applied (old, new, old, new...), and fails
 // the spec when a text to replace is absent, so a stale fixture cannot pass silently.
 func with(pairs ...string) []byte {
@@ -105,6 +137,10 @@ var _ = Describe("Release notes file", func() {
 
 	It("accepts a breaking change from the previous major line", func() {
 		Expect(parse(with("from: 3.0.0-beta.1", "from: v2"))).NotTo(BeNil())
+	})
+
+	It("accepts the release whose other known limits still hold", func() {
+		Expect(parse(with("highlights:", unchangedSince))).NotTo(BeNil())
 	})
 
 	It("accepts a Markdown link in a breaking change and in a known limit, and a limit without references", func() {
@@ -187,6 +223,18 @@ var _ = Describe("Release notes file", func() {
 			with(featureRefs, "refs: {closes: [750]}"), "refs name no pull request nor commit"),
 		Entry("a breaking change without references",
 			with(breakingRef, ""), "refs name no pull request nor commit"),
+		Entry("unchanged limits since a malformed version",
+			with("highlights:", "limitsUnchangedSince: v3.0.0-beta.1\nhighlights:"),
+			`limitsUnchangedSince: "v3.0.0-beta.1" is not a version`),
+		Entry("unchanged limits since a pre-release with an empty identifier",
+			with("highlights:", "limitsUnchangedSince: 3.0.0-beta..1\nhighlights:"),
+			`limitsUnchangedSince: "3.0.0-beta..1" is not a version`),
+		Entry("unchanged limits since a pre-release without its number",
+			with("highlights:", "limitsUnchangedSince: 3.0.0-beta\nhighlights:"),
+			`limitsUnchangedSince: "3.0.0-beta" is not a version`),
+		Entry("unchanged limits since the version of the notes themselves",
+			with("highlights:", "limitsUnchangedSince: 3.0.0-beta.2\nhighlights:"),
+			"limitsUnchangedSince: 3.0.0-beta.2 is the version of these notes"),
 	)
 })
 
@@ -200,10 +248,41 @@ var _ = Describe("Release body", func() {
 		Expect(render(mustParse([]byte(valid)))).To(HavePrefix("## ✨ Highlights\n\n- **One**: the first highlight.\n"))
 	})
 
-	It("keeps the Breaking changes and Fixes sections with a line when they are empty", func() {
-		body := render(mustParse(with(breaking, "", fixes, "fixes: []\n")))
-		Expect(body).To(ContainSubstring("## ⚠️ Breaking changes\n\nNone in this release.\n"))
-		Expect(body).To(HaveSuffix("### Fixes\n\nNone in this release.\n"))
+	It("keeps the Fixes section with a line when it is empty", func() {
+		Expect(render(mustParse(with(fixes, "fixes: []\n")))).To(HaveSuffix("### Fixes\n\nNone in this release.\n"))
+	})
+
+	It("leaves the Breaking changes section out when there is none, and says so in bold after the introduction", func() {
+		body := render(mustParse(with(breaking, "", "highlights:", "intro: An introduction.\nhighlights:")))
+		Expect(body).To(HavePrefix("An introduction.\n\n**No breaking change in this release.**\n\n## ✨ Highlights\n"))
+		Expect(body).NotTo(ContainSubstring("Breaking changes"))
+	})
+
+	It("says there is no breaking change in bold first when the notes have no introduction", func() {
+		Expect(render(mustParse(with(breaking, "")))).To(
+			HavePrefix("**No breaking change in this release.**\n\n## ✨ Highlights\n"))
+	})
+
+	It("keeps the Breaking changes section and the introduction as written when there is a breaking change", func() {
+		body := render(mustParse(with("highlights:", "intro: An introduction.\nhighlights:")))
+		Expect(body).To(HavePrefix("An introduction.\n\n## ✨ Highlights\n"))
+		Expect(body).To(ContainSubstring("## ⚠️ Breaking changes\n\n- **From `3.0.0-beta.1` or earlier**: the value"))
+		Expect(body).NotTo(ContainSubstring("No breaking change"))
+	})
+
+	It("ends the Known limits with a line linking the release whose other limits still hold", func() {
+		Expect(render(mustParse(with("highlights:", unchangedSince, "features:", twoLimits)))).To(ContainSubstring(
+			"- **Second**: another limit, see [the docs](https://kuik.enix.io/).\n\n" + unchangedLine + "\n## 📋 Changelog"))
+	})
+
+	It("puts that line after the areas when the known limits are grouped", func() {
+		Expect(render(mustParse(with("highlights:", unchangedSince, "features:", sevenLimits)))).To(ContainSubstring(
+			"**Chart**\n\n- **L7**: a limit.\n\n" + unchangedLine + "\n## 📋 Changelog"))
+	})
+
+	It("holds only that line in the Known limits when no limit is new or changed", func() {
+		Expect(render(mustParse(with("highlights:", unchangedSince)))).To(ContainSubstring(
+			"## 🚧 Known limits\n\n" + unchangedLine + "\n## 📋 Changelog"))
 	})
 
 	It("leaves the Known limits section out when there is none", func() {
@@ -289,6 +368,10 @@ var _ = Describe("Artifact Hub changes", func() {
 		Expect(list[2]).To(HaveField("Description", "Mirroring: A mirroring feature."))
 		Expect(list[3]).To(HaveField("Kind", "fixed"))
 		Expect(list[3]).To(HaveField("Description", "Chart: A chart fix."))
+	})
+
+	It("leaves the known limits out, the release whose other limits still hold included", func() {
+		Expect(decode(with("highlights:", unchangedSince, "features:", twoLimits))).To(HaveLen(4))
 	})
 
 	It("reduces a Markdown link to its text", func() {
