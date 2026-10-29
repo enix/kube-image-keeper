@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The draft release that carries the notes written for a release, from the beta on
+# The draft release that carries the notes written for a release
 # (CONTRIBUTING.md, "Release notes"). Used by the Release workflow:
 #
 #   release-draft.sh find <tag>      print the id of the draft release for <tag>; fail, naming
