@@ -24,6 +24,11 @@ func copyReason(err error) kuikv1alpha1.CopyFailureReason {
 	return ""
 }
 
+// twoCredentials returns two credentials a registry without authentication takes alike.
+func twoCredentials() []authn.Authenticator {
+	return []authn.Authenticator{&authn.Basic{Username: "one"}, &authn.Basic{Username: "two"}}
+}
+
 var _ = Describe("Copy", func() {
 	var (
 		client   *Client
@@ -295,6 +300,45 @@ var _ = Describe("Copy", func() {
 			Expect(copyReason(err)).To(Equal(kuikv1alpha1.CopyQuotaExceeded))
 			Expect(src.Requests(http.MethodGet, "/blobs/"+layer.String())).To(HaveLen(1))
 		})
+	})
+
+	DescribeTable("with several destination credentials",
+		func(status int, tried int) {
+			src.Push("app:v1", registrytest.Image())
+			dst.Intercept(registrytest.Status(http.MethodPut, "/manifests/", status, nil))
+			dst.Reset()
+
+			_, err := client.Copy(ctx, endpoint(src, "app:v1"), endpoint(dst, "mirror/app", twoCredentials()...), []string{copyTag})
+
+			Expect(err).To(HaveOccurred())
+			// Each destination attempt opens with a HEAD of the digest: one HEAD, one attempt.
+			Expect(dst.Requests(http.MethodHead, "/manifests/sha256:")).To(HaveLen(tried))
+		},
+		Entry("tries the next credential after a 401 from the destination", http.StatusUnauthorized, 2),
+		Entry("tries the next credential after a 403 from the destination", http.StatusForbidden, 2),
+		Entry("writes with the first credential only after a 400 from the destination", http.StatusBadRequest, 1),
+		Entry("writes with the first credential only after a 429 from the destination", http.StatusTooManyRequests, 1),
+		Entry("writes with the first credential only after a 5xx from the destination", http.StatusInternalServerError, 1),
+	)
+
+	It("writes with the first destination credential only when the destination does not answer", func() {
+		src.Push("app:v1", registrytest.Image())
+		dst.Intercept(func(w http.ResponseWriter, r *http.Request) bool {
+			if r.Method != http.MethodPut || !strings.Contains(r.URL.Path, "/manifests/") {
+				return false
+			}
+			// The connection drops with no answer.
+			if conn, _, err := http.NewResponseController(w).Hijack(); err == nil {
+				_ = conn.Close()
+			}
+			return true
+		})
+		dst.Reset()
+
+		_, err := client.Copy(ctx, endpoint(src, "app:v1"), endpoint(dst, "mirror/app", twoCredentials()...), []string{copyTag})
+
+		Expect(copyReason(err)).To(Equal(kuikv1alpha1.CopyDestinationUnreachable))
+		Expect(dst.Requests(http.MethodHead, "/manifests/sha256:")).To(HaveLen(1))
 	})
 
 	Context("when the destination rate-limits a write", func() {
