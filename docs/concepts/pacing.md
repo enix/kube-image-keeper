@@ -69,14 +69,17 @@ answer is never older than its lap: the freshness its status reports still holds
 
 Copies drain a queue rather than turn a ring: each `ImageMirror` queues the images it still owes
 from a host, and the mirrors sharing that host take its copy windows in turn. An image whose copy
-fails is retried on a later turn and never holds back the images queued behind it.
+fails never holds back the images queued behind it: it is retried one `copy.interval` after the
+window it failed in, then twice as long after each new failure, up to 30 minutes. Meanwhile its
+windows go to the other images of the queue, then to the other mirrors of the host. The wait is
+held in memory and lost on restart, as the kubelet's image pull backoff is.
 
 A re-copy, an image whose manifest disappeared from the destination, goes first: it takes the next
 copy window of its source host, ahead of the initial copies and of the other mirrors' turns, and on
 each host it falls back to. Once it failed on every source, or the destination refused it, it is
-retried in turn with the others until it succeeds, so a re-copy that keeps failing never starves
-the initial copies. A tag written back over a manifest still at the destination is no re-copy and
-waits for its turn.
+retried in turn with the others, with the same wait, until it succeeds, so a re-copy that keeps
+failing never starves the initial copies. A tag written back over a manifest still at the
+destination is no re-copy and waits for its turn.
 
 `copy.timeout: 0`, the default, lets a copy take as long as it needs: a copy that outlasts its
 `copy.interval` already shows as copy windows going unused while images are pending.
