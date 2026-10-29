@@ -1,0 +1,38 @@
+{{- /*
+One ServiceMonitor on the three metrics Services (metrics-services.yaml), selected on the release
+labels. The webhook Service matches them too but has no metrics port, so it yields no target.
+*/ -}}
+{{- with .Values.monitoring.serviceMonitor }}
+{{- if .enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "kube-image-keeper.fullname" $ }}
+  namespace: {{ default $.Release.Namespace .namespace }}
+  labels:
+    {{- include "kube-image-keeper.labels-with" (dict "ctx" $ "labels" .labels) | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "kube-image-keeper.selectorLabels" $ | nindent 6 }}
+  namespaceSelector:
+    matchNames:
+      - {{ $.Release.Namespace }}
+  endpoints:
+    - port: metrics
+      {{- with .interval }}
+      interval: {{ . }}
+      {{- end }}
+      {{- with .scrapeTimeout }}
+      scrapeTimeout: {{ . }}
+      {{- end }}
+      {{- with .relabelings }}
+      relabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .metricRelabelings }}
+      metricRelabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+{{- end }}

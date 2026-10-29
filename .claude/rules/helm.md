@@ -13,7 +13,9 @@ paths:
   ...` line, in each of `webhook`, `reconciler` and `secretSyncer`; a setting one process
   alone has goes in its block only. `templates/deployments.yaml` resolves the fallback once
   at the top of its loop, never inline in the body. `task lint-values` checks the blocks
-  (`hack/valuescheck`, run by the Lint workflow).
+  (`hack/valuescheck`, run by the Lint workflow). A root key that is not a pod setting
+  (`rbac`, `secretAccess`, `config`, `monitoring`...) is chart-wide: it is listed in
+  `chartWide` of `hack/valuescheck/check.go` and no process block repeats it.
 - **RBAC** ([0009](../../notes/0009-rbac-rules-from-markers-bindings-from-chart.md)): the
   rules are generated into `files/rbac.yaml` from the `// +kubebuilder:rbac` markers of the
   Go code; the chart owns only the bindings (`templates/rbac.yaml`). A marker without

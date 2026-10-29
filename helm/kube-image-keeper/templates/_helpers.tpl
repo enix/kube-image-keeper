@@ -43,6 +43,19 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
 {{/*
+The common labels merged with labels of the values, the values winning on a shared key, so
+that a key never renders twice. Takes a dict: ctx (the root context) and labels (the map of
+the values). Every value is rendered as a string: `--set x.labels.tier=1` gives "1".
+*/}}
+{{- define "kube-image-keeper.labels-with" -}}
+{{- $merged := include "kube-image-keeper.labels" .ctx | fromYaml }}
+{{- range $key, $value := default dict .labels }}
+{{- $_ := set $merged $key (toString $value) }}
+{{- end }}
+{{- toYaml $merged }}
+{{- end }}
+
+{{/*
 Labels of one process. Takes a dict: ctx (the root context) and process (its name, which
 is also its component label). kuik runs as three separate processes, see
 docs/v3/architecture.md.
