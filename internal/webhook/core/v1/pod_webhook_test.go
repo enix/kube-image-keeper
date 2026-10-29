@@ -218,6 +218,15 @@ var _ = Describe("Pod webhook", func() {
 			Expect(admitted.Spec.Containers[0].Image).To(Equal(ref(alt)))
 		})
 
+		It("sends one request to a candidate that answers a 5xx, and moves on at once", func() {
+			origin.Intercept(registrytest.Status(http.MethodHead, "/manifests/", http.StatusServiceUnavailable, nil))
+			start := time.Now()
+			admitted := admit(d, namespace, newPod(namespace, ref(origin)))
+			Expect(time.Since(start)).To(BeNumerically("<", 500*time.Millisecond))
+			Expect(manifestHeads(origin)).To(Equal(1))
+			Expect(admitted.Spec.Containers[0].Image).To(Equal(ref(alt)))
+		})
+
 		It("sends no request when no resource offers a candidate", func() {
 			d.SetResources(nil, nil)
 			admit(d, namespace, newPod(namespace, ref(origin)))

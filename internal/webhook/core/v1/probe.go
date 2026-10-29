@@ -110,8 +110,10 @@ func (d *PodDefaulter) available(ctx context.Context, pod *corev1.Pod, c routing
 	key := c.Reference + "\x00" + strconv.FormatBool(c.Config.Insecure) + "\x00" + identity
 	timeout := cfg.Webhook.AvailabilityCheck.Timeout.Duration
 	response := d.checks.check(key, cfg.Webhook.AvailabilityCheck.ActiveCheckCache.TTL.Duration, func() checkResponse {
-		// The check serves every caller of this key: no single admission may cancel it.
-		probeCtx, cancel := registry.WithTimeout(context.WithoutCancel(ctx), timeout)
+		// The check serves every caller of this key: no single admission may cancel it. It
+		// sends one HEAD, never retried: a retry would sleep past the timeout, spending the
+		// admission's budget, and a candidate that failed once is not one to route a pod to.
+		probeCtx, cancel := registry.WithTimeout(registry.WithoutRetries(context.WithoutCancel(ctx)), timeout)
 		defer cancel()
 		// A mirror destination is the operator's own: kuik_registry_requests_total counts the
 		// source registries only.

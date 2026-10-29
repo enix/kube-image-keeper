@@ -53,7 +53,7 @@ When the original image answered first, the resource put its candidates after th
 
 ### No candidate answers
 
-The webhook checks each candidate with a manifest `HEAD`, and gives up on one after 2 seconds ([`webhook.availabilityCheck.timeout`](../configuration.md#keys)). The `debug` logs of the webhook name each candidate and why it failed. The usual causes:
+The webhook checks each candidate with a single manifest `HEAD`, never retried, and gives up on one after 2 seconds ([`webhook.availabilityCheck.timeout`](../configuration.md#keys)): a candidate that answers an error, a `503` included, is unavailable at once. The `debug` logs of the webhook name each candidate and why it failed. The usual causes:
 
 - **The candidate does not hold that tag.** Check it with `crane manifest <candidate>` or `docker manifest inspect <candidate>`.
 - **The candidate needs a credential.** The webhook checks with the candidate's `auth`, then the pod's `imagePullSecrets`, as the node would. Add an [`auth`](../crds.md#auth) to the entry. With the chart value `secretAccess.mode: restricted`, the webhook cannot read the pod's pull secrets outside `secretAccess.namespaces`, and checks anonymously: it never uses `fallbackAuth`. List the pod's namespace in `secretAccess.namespaces`.
