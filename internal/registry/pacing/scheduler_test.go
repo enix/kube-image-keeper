@@ -662,6 +662,119 @@ var _ = Describe("Scheduler", func() {
 		})
 	})
 
+	Context("copy backoff", func() {
+		var (
+			h *harness
+			c *fakeCopier
+		)
+		BeforeEach(func() {
+			// Copy windows every 3 minutes, at 3, 6, 9... on every host.
+			h = run(pacing(time.Hour, 3*time.Minute, nil))
+			c = newCopier(h)
+		})
+		windows := func(n int) {
+			GinkgoHelper()
+			for range n {
+				h.advance(3 * time.Minute)
+			}
+		}
+
+		It("takes an image whose copy failed again one copy interval after the window it failed in, then twice as long after each new failure", func() {
+			c.fail(imageA)
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA}, c)
+			windows(16)
+			Expect(c.times(imageA)).To(Equal(minutes(3, 6, 12, 24, 48)))
+		})
+
+		It("counts the wait of an image from the end of a failed copy that outlasted its window", func() {
+			c.fail(imageA)
+			c.hold(imageA)
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA}, c)
+			h.settle()
+			h.step(3 * time.Minute)
+			Eventually(c.visits).Should(HaveLen(1))
+			// The copy taken at 3 runs through the window at 6 and fails at 7:30.
+			h.step(3 * time.Minute)
+			h.step(90 * time.Second)
+			c.release(imageA)
+			h.settle()
+
+			// It waits until 10:30: the window at 9 goes by, the one at 12 takes it.
+			h.advance(90 * time.Second)
+			h.advance(3 * time.Minute)
+			Expect(c.times(imageA)).To(Equal(minutes(3, 12)))
+		})
+
+		It("waits at most 30 minutes between two attempts of an image whose copy keeps failing", func() {
+			c.fail(imageA)
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA}, c)
+			windows(36)
+			Expect(c.times(imageA)).To(Equal(minutes(3, 6, 12, 24, 48, 78, 108)))
+		})
+
+		It("gives the windows an image waits through to the other images of its queue", func() {
+			c.fail(imageA)
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA, imageB}, c)
+			windows(9)
+			// imageA waits 3, 6 then 12 minutes: imageB takes the windows at 21 and 24.
+			Expect(c.refs()).To(Equal([]string{imageA, imageB, imageA, imageB, imageA, imageB, imageB, imageB, imageA}))
+		})
+
+		It("gives a window to the next mirror on the host when every image of a queue waits", func() {
+			other := newCopier(h)
+			c.fail(imageA)
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA}, c)
+			h.s.SetCopyQueue(otherMirror, dockerHub, []string{imageX}, other)
+			windows(9)
+			Expect(c.times(imageA)).To(Equal(minutes(3, 9, 15, 27)))
+			Expect(other.times(imageX)).To(Equal(minutes(6, 12, 18, 21, 24)))
+		})
+
+		It("loses a window when every image queued on the host waits", func() {
+			other := newCopier(h)
+			c.fail(imageA)
+			other.fail(imageX)
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA}, c)
+			h.s.SetCopyQueue(otherMirror, dockerHub, []string{imageX}, other)
+			windows(10)
+			// At 21 and 24, imageA waits until 27 and imageX until 30.
+			Expect(c.times(imageA)).To(Equal(minutes(3, 9, 15, 27)))
+			Expect(other.times(imageX)).To(Equal(minutes(6, 12, 18, 30)))
+		})
+
+		It("keeps the wait of an image that moves to the queue of another host", func() {
+			c.fail(imageA)
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA}, c)
+			windows(2)
+
+			h.s.SetCopyQueues(mirror, map[string]CopyQueue{quayIO: {Refs: []string{imageA}, Copier: c}})
+			windows(2)
+			// The failure at 6 makes imageA wait until 12, on quay.io as on docker.io.
+			Expect(c.times(imageA)).To(Equal(minutes(3, 6, 12)))
+		})
+
+		It("takes an image again without waiting once it left every queue of its mirror and came back", func() {
+			c.fail(imageA)
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA}, c)
+			windows(2)
+
+			h.s.SetCopyQueue(mirror, dockerHub, nil, c)
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA}, c)
+			windows(1)
+			Expect(c.times(imageA)).To(Equal(minutes(3, 6, 9)))
+		})
+
+		It("waits nothing more for an image whose last attempt did not fail", func() {
+			c.fail(imageA)
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA}, c)
+			windows(2)
+
+			c.succeed(imageA)
+			windows(4)
+			Expect(c.times(imageA)).To(Equal(minutes(3, 6, 12, 15, 18)))
+		})
+	})
+
 	Context("config reload", func() {
 		var (
 			h      *harness

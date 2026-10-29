@@ -669,6 +669,16 @@ func (s *Scheduler) SetCopyQueue(owner Owner, host string, refs []string, c Copi
 	}
 }
 
+// CopyQueue is the references an owner still owes from one host, as SetCopyQueue takes them.
+type CopyQueue struct {
+	Refs   []string
+	First  []string
+	Copier Copier
+}
+
+// SetCopyQueues sets every copy queue of owner at once, by host.
+func (s *Scheduler) SetCopyQueues(owner Owner, queues map[string]CopyQueue) {}
+
 // SetDestinationScan declares host the destination owner scans, in place of any previous one:
 // its scan interval is exported with operation Scan, and no window ever opens on it.
 func (s *Scheduler) SetDestinationScan(owner Owner, host string) {

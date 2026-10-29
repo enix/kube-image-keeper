@@ -27,6 +27,15 @@ func at(d time.Duration) time.Time {
 	return origin.Add(d)
 }
 
+// minutes returns origin plus each of ms minutes.
+func minutes(ms ...int) []time.Time {
+	times := make([]time.Time, 0, len(ms))
+	for _, m := range ms {
+		times = append(times, at(time.Duration(m)*time.Minute))
+	}
+	return times
+}
+
 // window is a `check` or `copy` block, a zero field left out.
 func window(interval, timeout time.Duration) *config.Window {
 	w := &config.Window{}
@@ -288,6 +297,24 @@ func (f *fakeCopier) fail(ref string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.failing[ref] = true
+}
+
+// succeed makes the next copies of ref succeed again.
+func (f *fakeCopier) succeed(ref string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.failing, ref)
+}
+
+// times returns when the copies of ref were received, in order.
+func (f *fakeCopier) times(ref string) []time.Time {
+	var times []time.Time
+	for _, v := range f.visits() {
+		if v.Ref == ref {
+			times = append(times, v.At)
+		}
+	}
+	return times
 }
 
 func (f *fakeCopier) Copy(ctx context.Context, ref string) error {
