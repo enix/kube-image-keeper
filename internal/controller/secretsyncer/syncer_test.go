@@ -12,12 +12,15 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/auth"
 	"github.com/enix/kube-image-keeper/internal/auth/pullsecret"
 	kuikconfig "github.com/enix/kube-image-keeper/internal/config"
+	"github.com/enix/kube-image-keeper/internal/routing"
 )
 
 const (
@@ -405,6 +408,184 @@ var _ = Describe("Secret syncer", func() {
 			start(startOptions{clock: now})
 
 			Eventually(users(ns, cr)).WithTimeout(timeout).Should(Equal(map[string]string{quayGroup: robot}))
+		})
+
+		Context("when the syncer restarts", func() {
+			var (
+				ns string
+				cr *kuikv1alpha1.ImageAlternative
+			)
+
+			BeforeEach(func() {
+				createSource(source, robot, "ghcr.io")
+				ns = createNamespace(scope)
+				cr = createAlternative(onFailure, scope, group(quayGroup, nil), group(ghcrGroup, injectedAuth(source)))
+			})
+
+			provision := func() (*running, *corev1.Pod) {
+				GinkgoHelper()
+				first := start(startOptions{clock: now})
+				pod := createRewrittenPod(ns, cr, "ghcr.io/acme/foo:1")
+				Eventually(users(ns, cr)).WithTimeout(timeout).Should(Equal(map[string]string{ghcrGroup: robot}))
+				return first, pod
+			}
+
+			It("empties the Secret when its last rewritten pod disappeared while the syncer was stopped", func() {
+				first, pod := provision()
+				first.stop()
+				Expect(k8sClient.Delete(ctx, pod)).To(Succeed())
+
+				start(startOptions{clock: now})
+
+				Eventually(users(ns, cr)).WithTimeout(timeout).Should(Equal(map[string]string{}))
+			})
+
+			It("empties the Secret when all its entries were still in their grace", func() {
+				first, pod := provision()
+				deleteAndReconcile(pod)
+				Consistently(users(ns, cr)).WithTimeout(time.Second).Should(HaveLen(1))
+				first.stop()
+
+				start(startOptions{clock: now})
+
+				Eventually(users(ns, cr)).WithTimeout(timeout).Should(Equal(map[string]string{}))
+			})
+
+			DescribeTable("empties the Secret when its namespace left the resource's scope while the syncer was stopped",
+				func(policy kuikv1alpha1.RewritePolicy) {
+					updateAlternative(cr, func(cr *kuikv1alpha1.ImageAlternative) {
+						cr.Spec.RewritePolicy = policy
+					})
+					first, _ := provision()
+					first.stop()
+					setScope(ns, "")
+
+					start(startOptions{clock: now})
+
+					Eventually(users(ns, cr)).WithTimeout(timeout).Should(Equal(map[string]string{}))
+				},
+				Entry("under Always", always),
+				Entry("under OnFailure", onFailure),
+			)
+
+			It("empties the Secret when injection was disabled while the syncer was stopped", func() {
+				first, _ := provision()
+				first.stop()
+				updateAlternative(cr, func(cr *kuikv1alpha1.ImageAlternative) {
+					cr.Spec.Alternatives[1].Auth.InjectPullSecret = new(false)
+				})
+
+				start(startOptions{clock: now})
+
+				Eventually(users(ns, cr)).WithTimeout(timeout).Should(Equal(map[string]string{}))
+			})
+
+			It("creates no empty Secret for an unused pair, including on resync", func() {
+				first := start(startOptions{})
+				Consistently(users(ns, cr)).WithTimeout(time.Second).Should(BeNil())
+				first.stop()
+
+				start(startOptions{syncPeriod: 2 * time.Second})
+
+				Consistently(users(ns, cr)).WithTimeout(5 * time.Second).Should(BeNil())
+			})
+
+			It("creates the Secret when new demand has an unresolved source, then fills it when the source appears", func() {
+				first := start(startOptions{})
+				Consistently(users(ns, cr)).WithTimeout(time.Second).Should(BeNil())
+				first.stop()
+				Expect(k8sClient.Delete(ctx, &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Namespace: installNamespace, Name: source},
+				})).To(Succeed())
+				var checked atomic.Bool
+				start(startOptions{wrap: func(c client.Client) client.Client {
+					return failingSecretWrite{Client: c, fail: func(key client.ObjectKey) error {
+						if key.Namespace == ns && key.Name == auth.InjectedSecretName("ImageAlternative", cr.Name) {
+							checked.Store(true)
+						}
+						return nil
+					}}
+				}})
+				Eventually(checked.Load).WithTimeout(timeout).Should(BeTrue())
+				Expect(injected(ns, cr)).To(BeNil())
+
+				createRewrittenPod(ns, cr, "ghcr.io/acme/foo:1")
+
+				Eventually(users(ns, cr)).WithTimeout(timeout).Should(Equal(map[string]string{}))
+				Eventually(failedEvents(cr)).WithTimeout(timeout).Should(HaveLen(1))
+				secret := injected(ns, cr)
+				Expect(secret).NotTo(BeNil())
+				createSource(source, robot, "ghcr.io")
+
+				Eventually(users(ns, cr)).WithTimeout(timeout).Should(Equal(map[string]string{ghcrGroup: robot}))
+				Expect(injected(ns, cr).UID).To(Equal(secret.UID))
+			})
+
+			It("empties the Secret again on resync after credentials were restored externally", func() {
+				first, pod := provision()
+				first.stop()
+				Expect(k8sClient.Delete(ctx, pod)).To(Succeed())
+				start(startOptions{syncPeriod: 2 * time.Second})
+				Eventually(users(ns, cr)).WithTimeout(timeout).Should(Equal(map[string]string{}))
+
+				edited := injected(ns, cr)
+				edited.Data[corev1.DockerConfigJsonKey] = dockerConfigData(robot, ghcrGroup)
+				Expect(k8sClient.Update(ctx, edited, client.FieldOwner("someone-else"))).To(Succeed())
+
+				Eventually(users(ns, cr)).WithTimeout(timeout).Should(Equal(map[string]string{}))
+			})
+
+			It("retries emptying the Secret after a transient write failure", func() {
+				first, pod := provision()
+				first.stop()
+				Expect(k8sClient.Delete(ctx, pod)).To(Succeed())
+				var armed atomic.Bool
+				var failed atomic.Bool
+				running := start(startOptions{wrap: func(c client.Client) client.Client {
+					return failingSecretWrite{Client: c, fail: func(key client.ObjectKey) error {
+						if armed.Load() && key.Namespace == ns && key.Name == auth.InjectedSecretName("ImageAlternative", cr.Name) && failed.CompareAndSwap(false, true) {
+							return apierrors.NewServiceUnavailable("transient")
+						}
+						return nil
+					}}
+				}})
+				Eventually(users(ns, cr)).WithTimeout(timeout).Should(Equal(map[string]string{}))
+				Eventually(func(g Gomega) {
+					idle := reconciles()
+					g.Consistently(reconciles).WithTimeout(time.Second).Should(Equal(idle))
+				}).WithTimeout(timeout).Should(Succeed())
+				edited := injected(ns, cr)
+				edited.Data[corev1.DockerConfigJsonKey] = dockerConfigData(robot, ghcrGroup)
+				Expect(k8sClient.Update(ctx, edited, client.FieldOwner("someone-else"))).To(Succeed())
+				armed.Store(true)
+
+				// One explicit informer resync, with no periodic resync to mask a lost retry.
+				q := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[pullsecret.Pair]())
+				defer q.ShutDown()
+				resourceHandler[*kuikv1alpha1.ImageAlternative](running.syncer, routing.KindImageAlternative).Update(ctx,
+					event.TypedUpdateEvent[*kuikv1alpha1.ImageAlternative]{ObjectOld: cr, ObjectNew: cr}, q)
+				pair := pullsecret.Pair{Resource: routing.Resource{Kind: routing.KindImageAlternative, Name: cr.Name}, Namespace: ns}
+				_, err := running.syncer.Reconcile(ctx, pair)
+				Expect(apierrors.IsServiceUnavailable(err)).To(BeTrue())
+				Expect(injected(ns, cr).Data[corev1.DockerConfigJsonKey]).To(Equal(dockerConfigData(robot, ghcrGroup)))
+
+				_, err = running.syncer.Reconcile(ctx, pair)
+
+				Expect(err).NotTo(HaveOccurred())
+				Expect(users(ns, cr)()).To(Equal(map[string]string{}))
+			})
+
+			It("repopulates an emptied Secret when a new rewritten pod needs it", func() {
+				first, pod := provision()
+				first.stop()
+				Expect(k8sClient.Delete(ctx, pod)).To(Succeed())
+				start(startOptions{clock: now})
+				Eventually(users(ns, cr)).WithTimeout(timeout).Should(Equal(map[string]string{}))
+
+				createRewrittenPod(ns, cr, "ghcr.io/acme/bar:1")
+
+				Eventually(users(ns, cr)).WithTimeout(timeout).Should(Equal(map[string]string{ghcrGroup: robot}))
+			})
 		})
 
 		It("empties the Secret rather than deleting it when no entry is left", func() {

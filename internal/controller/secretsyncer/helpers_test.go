@@ -17,7 +17,9 @@ import (
 	eventsv1 "k8s.io/api/events/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	applycorev1 "k8s.io/client-go/applyconfigurations/core/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -179,6 +181,30 @@ func (f failingGet) Get(ctx context.Context, key client.ObjectKey, obj client.Ob
 	return f.Client.Get(ctx, key, obj, opts...)
 }
 
+// failingSecretWrite injects a write failure without selecting a patch strategy.
+type failingSecretWrite struct {
+	client.Client
+	fail func(key client.ObjectKey) error
+}
+
+func (f failingSecretWrite) Apply(ctx context.Context, obj runtime.ApplyConfiguration, opts ...client.ApplyOption) error {
+	if secret, ok := obj.(*applycorev1.SecretApplyConfiguration); ok {
+		if err := f.fail(client.ObjectKey{Namespace: *secret.Namespace, Name: *secret.Name}); err != nil {
+			return err
+		}
+	}
+	return f.Client.Apply(ctx, obj, opts...)
+}
+
+func (f failingSecretWrite) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+	if _, ok := obj.(*corev1.Secret); ok {
+		if err := f.fail(client.ObjectKeyFromObject(obj)); err != nil {
+			return err
+		}
+	}
+	return f.Client.Patch(ctx, obj, patch, opts...)
+}
+
 // applies is the value of kuik_secret_applies_total{result}.
 func (r *running) applies(result string) float64 {
 	families, err := r.registry.Gather()
@@ -211,6 +237,7 @@ func createNamespace(scope string) string {
 		ns.Labels = map[string]string{scopeLabel: scope}
 	}
 	Expect(k8sClient.Create(ctx, ns)).To(Succeed())
+	DeferCleanup(func() { Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, ns))).To(Succeed()) })
 	return name
 }
 
