@@ -38,9 +38,9 @@ func (e *sourceError) Unwrap() error { return e.err }
 // Copy copies src verbatim into the repository dst under every tag of tags and returns the
 // digest it copied: the upstream index or manifest, its digest unchanged. When dst already
 // holds that digest, only the tags are written and no blob moves. Reading the source is
-// counted in RequestsTotal, writing the destination is not. A failure on the source side
-// ends the attempts: another destination credential cannot fix it. A failure is a
-// *CopyError.
+// counted in RequestsTotal, writing the destination is not. The next destination
+// credential is tried only after a 401 or a 403 from the destination: any other failure,
+// on either side, ends the attempts. A failure is a *CopyError.
 func (c *Client) Copy(ctx context.Context, src, dst Endpoint, tags []string) (v1.Hash, error) {
 	if len(tags) == 0 {
 		return v1.Hash{}, errors.New("a copy needs at least one tag")
@@ -67,13 +67,18 @@ func (c *Client) Copy(ctx context.Context, src, dst Endpoint, tags []string) (v1
 		if _, ok := errors.AsType[*sourceError](err); ok {
 			return &stopAttempts{err}
 		}
+		// Only a refused credential calls for the next one: any other refusal or no
+		// answer would cost the destination the whole image again for the same outcome.
+		if code := TransportStatusCode(err); err != nil && code != http.StatusUnauthorized && code != http.StatusForbidden {
+			return &stopAttempts{err}
+		}
 		return err
 	})
 	if errs != nil {
 		// A source failure ends the attempts and is the outcome; otherwise the first
 		// destination credential's error is.
 		decisive := errs[0]
-		if stopped != nil {
+		if _, ok := errors.AsType[*sourceError](stopped); ok {
 			decisive = stopped
 		}
 		if fromSource, ok := errors.AsType[*sourceError](decisive); ok && !watch.failedUnsent() {
