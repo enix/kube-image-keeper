@@ -10,42 +10,21 @@ kuik 3.0.0-beta.1 is the first beta of kuik v3, a rewrite of kuik from a clean t
 
 ## ⚠️ Breaking changes
 
-- **From v2**: v3 reads none of the v2 resources (`ImageSetMirror`, `ClusterImageSetMirror`, `ReplicatedImageSet`, `ClusterReplicatedImageSet`, `ClusterImageSetAvailability`) nor the v2 chart values. Install v3 on a cluster without v2; a migration guide is planned after 3.0. (#670)
-- **From `3.0.0-alpha.4` or earlier**: the chart requires Kubernetes 1.30 or later. (#752)
-- **From `3.0.0-alpha.4` or earlier**: with `serviceAccount.create: false`, set `secretSyncer.serviceAccount.name` to an existing ServiceAccount other than `default`, or the chart refuses to render. (#752)
-- **From `3.0.0-alpha.5` or earlier**: `config.clusterID` is removed, and a release that still sets it fails to render. To keep the tags your mirrors copied, create the ConfigMap `kuik-cluster-id` with the old value before upgrading, then remove `config.clusterID` (with `--reuse-values`, add `--set config.clusterID=null`), see [Upgrading from a configured clusterID in the configuration docs](https://kuik.enix.io/configuration/#upgrading-from-a-configured-clusterid). (#764, closes #727)
-- **From `3.0.0-alpha.2` or earlier**: the processes log JSON instead of console text, with no chart value to switch back. (#703)
-- **From `3.0.0-alpha.2` or earlier**: the root `replicas` value defaults to 2. (#701)
-
-## 🚧 Known limits
-
-**Install**
-
-- **Cloud credentials**: credentials from a cloud provider (`auth.provider`: `aws`, `gcp`, `azure`) are accepted but not used yet: kuik moves on to the next credential. Planned for 3.1.
-- **One install per cluster**: 2 secret syncers would refuse each other's writes.
-- **Reconciler first**: the webhook admits pods unchanged until the reconciler has created `kuik-cluster-id`, so never run with `reconciler.replicas: 0`.
-- **Cluster ID**: deleting the ConfigMap `kuik-cluster-id`, or its namespace, generates a new cluster ID and orphans every tag already copied. Never copy it to another cluster that shares a destination: both would delete each other's tags. See the [Cluster ID section of the configuration docs](https://kuik.enix.io/configuration/#cluster-id).
-- **Backups**: a restore tool such as Velero is refused the pull Secrets kuik manages; the syncer recreates them, and the restore ends partially failed.
-
-**Mirroring**
-
-- **Tag deletion**: a destination that never accepts tag deletion holds a deleted `ImageMirror` for good: set `cleanup.enabled: false` before deleting it, see [Deleting an ImageMirror](https://kuik.enix.io/crds/#deleting-an-imagemirror).
-- **Harbor**: Harbor refuses tag deletion through the registry API (any `DELETE` by tag answers 400), so `cleanup` deletes nothing on a Harbor destination, and a deleted `ImageMirror` with `cleanup.enabled: true` stays held by its finalizer. Set `cleanup.enabled: false` on a Harbor destination and use Harbor's tag retention rules; support for tag deletion is requested in [goharbor/harbor#24213](https://github.com/goharbor/harbor/issues/24213).
-
-**Monitoring**
-
-- **Drift digests**: drift compares the digest the container runtime reports with the registry's: a runtime that reports a platform or config digest shows a tag as drifted, and a preloaded image is never checked for drift, see the [ImageMonitor reference](https://kuik.enix.io/crds/#imagemonitor).
-- **Retention after a restart**: an image whose last pod goes away while no reconciler runs (restart, leader change) is not retained by an `ImageMonitor`.
-
-**Registries**
-
-- **Node runtime**: the `tls` key and `insecure: true` configure kuik only: configure the nodes' container runtime for the same hosts, or pods fail to pull.
+- kuik v3 reads none of the v2 resources (`ImageSetMirror`, `ClusterImageSetMirror`, `ReplicatedImageSet`, `ClusterReplicatedImageSet`, `ClusterImageSetAvailability`) nor the v2 chart values. Install v3 on a cluster without v2; a migration guide is planned after 3.0. (#670)
+- The chart requires Kubernetes 1.30 or later. (#752)
+- The processes log JSON instead of console text, with no chart value to switch back. (#703)
+- The root `replicas` value defaults to 2. (#701)
 
 ## 📋 Changelog
+
+Changes since [2.3.1](https://github.com/enix/kube-image-keeper/releases/tag/v2.3.1).
 
 ### Features
 
 <details><summary>25 new features</summary>
+
+- **Pull secrets**: A candidate's `auth.secretRef` is copied as a `kuik-inject-<kind>-<name>` pull Secret into the namespaces that need it, and added to the pod's `imagePullSecrets`. (#682, #701)
+- **Observability**: Kubernetes events on pods and resources, `kuik_*` Prometheus metrics for routing, copies, checks, anomalies and pacing, JSON logs, and conditions where only `Ready` is `True` when all is well. (#696, #703, #710, #732)
 
 **Routing**
 
@@ -55,10 +34,6 @@ kuik 3.0.0-beta.1 is the first beta of kuik v3, a rewrite of kuik from a clean t
 - The webhook records each decision on the pod in the `kuik.enix.io/rewrites`, `kuik.enix.io/conceded-rewrites` and `kuik.enix.io/no-alternatives` annotations. (#682)
 - A candidate the background loops report failing is tried last (`webhook.availabilityCheck.demoteKnownFailures`, on by default). (#751, #753)
 - The status of an `ImageAlternative` reports the pods it rewrote, its active fallbacks and the images no candidate could serve. (#696)
-
-**Pull secrets**
-
-- A candidate's `auth.secretRef` is copied as a `kuik-inject-<kind>-<name>` pull Secret into the namespaces that need it, and added to the pod's `imagePullSecrets`. (#682, #701)
 
 **Mirroring**
 
@@ -86,10 +61,6 @@ kuik 3.0.0-beta.1 is the first beta of kuik v3, a rewrite of kuik from a clean t
 
 - The global config file is validated whole and reloaded without a restart; a reload that does not validate keeps the previous config. (#680)
 - kuik generates its cluster ID and keeps it in the ConfigMap `kuik-cluster-id`. (#764, closes #727)
-
-**Observability**
-
-- Kubernetes events on pods and resources, `kuik_*` Prometheus metrics for routing, copies, checks, anomalies and pacing, JSON logs, and conditions where only `Ready` is `True` when all is well. (#696, #703, #710, #732)
 
 **Chart**
 
