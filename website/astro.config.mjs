@@ -114,6 +114,7 @@ export default defineConfig({
             'crds',
             'configuration',
             'observability',
+            'known-limits',
           ],
         },
         {

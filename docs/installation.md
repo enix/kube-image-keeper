@@ -11,7 +11,7 @@ A cluster runs one kuik install: the Secret names its secret syncer reserves are
 
 We rely on [cert-manager Custom Resources](https://github.com/enix/kube-image-keeper/blob/v3.0.0-beta.1/helm/kube-image-keeper/templates/webhook.yaml) to manage the kuik mutating webhook certificate, so you need to [install it first](https://cert-manager.io/docs/installation/).
 
-kuik v3 is in beta: try it on a test or staging cluster, not in production. Pick the latest version from the [releases](https://github.com/enix/kube-image-keeper/releases).
+kuik v3 is in beta: try it on a test or staging cluster, not in production, and read its [known limits](./known-limits.md) first. Pick the latest version from the [releases](https://github.com/enix/kube-image-keeper/releases).
 
 ```bash
 VERSION=3.0.0-beta.1

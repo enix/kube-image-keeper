@@ -46,6 +46,7 @@ Developed by Enix, kube-image-keeper has run in production across many Kubernete
 - A [getting started](./getting-started.md) tutorial, 10 minutes on a test cluster
 - A detailed explanation of all [Kuik Custom Resources](./crds.md)
 - A reference for the [operator configuration file](./configuration.md) (routing, monitoring, metrics)
+- The [known limits](./known-limits.md) of the current version, with their workarounds
 - A collection of documented [use cases](./use-cases/)
 - A [development guide](./guides/development.md)
 - A [troubleshooting guide](./guides/troubleshooting.md) for common operational issues
