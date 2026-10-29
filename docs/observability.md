@@ -69,6 +69,27 @@ or alert on `kuik_image_origin_unavailable`.
 | `ImageDeletionFailed` | Warning | The destination refused a tag deletion, by the sweep or by the cleanup of a deleted `ImageMirror`, or under `cleanup.deleteByDigest` failed the `HEAD` of a tag or the manifest deletion. A destination that does not support the deletion also sets `Ready` `False` with reason `RegistryDeleteUnsupported`; on a live `ImageMirror`, the event fires at the first refusal only, not at the tries that follow (10 seconds later, doubling up to 1 hour), and again at a refusal after an accepted try or a change of the spec. The cleanup of a deleted `ImageMirror` emits it at each try. A tag kept because another tag shares its manifest emits nothing |
 | `WaitingForPods` | Normal | A deleted `ImageMirror` waits for the live pods running its copies to go, keeping its tags and its injected pull Secrets: since Kubernetes 1.35 a restarted container checks its pull Secret again. The message gives how many pods hold it. When the wait starts and each time that count changes, not at each try; a restart does not announce it again while the count is unchanged. The `DeletionBlocked` condition is `True` with reason `PodsRunningCopies` meanwhile, its message naming up to 5 of those pods (see [Deleting an ImageMirror](./crds.md#deleting-an-imagemirror) for its other reasons); `Ready` does not change. The reconciler logs `Held a deleted ImageMirror: live pods run its copies` at `info` with `count` and `pods`, see [An ImageMirror stays Terminating](./guides/troubleshooting.md#an-imagemirror-stays-terminating) |
 
+## Scraping
+
+Each process serves its series over plain HTTP on `:8080/metrics`, and the chart creates one
+Service per process on that port, named `metrics`: `<fullname>-webhook-metrics`,
+`<fullname>-reconciler-metrics` and `<fullname>-secret-syncer-metrics`, in the release
+namespace. Every series of the [metrics](#metrics) below is exported by the reconciler unless
+its row says otherwise.
+
+The chart can also create a ServiceMonitor for
+[prometheus-operator](https://prometheus-operator.dev), that selects the three Services: a
+Prometheus whose `serviceMonitorSelector` matches it scrapes them. The `job` label of the targets is
+the Service name, so the three processes stay apart.
+
+| Value | Default | Role |
+| ----- | ------- | ---- |
+| `monitoring.serviceMonitor.enabled` | `false` | Create the ServiceMonitor |
+| `monitoring.serviceMonitor.namespace` | the release namespace | Where the ServiceMonitor lives, for a Prometheus that watches one namespace. The Services it selects stay in the release namespace |
+| `monitoring.serviceMonitor.labels` | `{}` | Labels added to it, e.g. the `release` label of a kube-prometheus-stack that selects on it |
+| `monitoring.serviceMonitor.interval`, `scrapeTimeout` | the Prometheus defaults | Scrape interval and timeout |
+| `monitoring.serviceMonitor.relabelings`, `metricRelabelings` | `[]` | Relabelings of the targets before scraping, and of the samples after |
+
 ## Metrics
 
 The reconciler, the webhook and the secret syncer export their series on the metrics endpoint

@@ -353,3 +353,26 @@ config:
   registries:
     public.ecr.aws:
       requestInterval: 1s
+
+# What the chart ships for Prometheus and Grafana, chart-wide: the three processes export
+# their series on their own metrics Service (docs/observability.md).
+monitoring:
+  # The ServiceMonitor of prometheus-operator, on the three metrics Services. The job label
+  # of the targets is the Service name, `<fullname>-<process>-metrics`.
+  serviceMonitor:
+    # -- Create a ServiceMonitor on the three metrics Services
+    enabled: false
+    # -- Namespace of the ServiceMonitor, the release namespace when empty. The Services it
+    # selects stay in the release namespace
+    namespace: ""
+    # -- Scrape interval, the Prometheus default when empty
+    interval: ""
+    # -- Scrape timeout, the Prometheus default when empty
+    scrapeTimeout: ""
+    # -- Labels added to the ServiceMonitor, e.g. the one the serviceMonitorSelector of the
+    # Prometheus expects
+    labels: {}
+    # -- Relabelings applied to the targets before scraping
+    relabelings: []
+    # -- Relabelings applied to the samples after scraping
+    metricRelabelings: []
