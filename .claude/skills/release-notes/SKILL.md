@@ -72,6 +72,7 @@ limits:                    # optional: what does not work yet, and the workaroun
     lead: Short lead
     text: it does not work yet, see [the docs](https://kuik.enix.io/...).
     refs: {external: [goharbor/harbor#24213]}   # optional here
+limitsUnchangedSince: 3.0.0-beta.1   # optional: not in a channel's first release, see below
 features:
   - area: Routing
     text: One feature a user sees, in their words, one line.
@@ -89,18 +90,20 @@ go run ./hack/releasenotes -version <version> render <dir>/release-notes.yaml
 go run ./hack/releasenotes -version <version> changes <dir>/release-notes.yaml
 ```
 
-`render` prints the release body: the introduction, `## ✨ Highlights`, `## ⚠️ Breaking changes`, `## 🚧 Known limits`, and `## 📋 Changelog` last, its Features and Fixes collapsed and grouped under their areas. `changes` prints the chart's `artifacthub.io/changes`. Both refuse a file that breaks a rule and name it: fix the YAML and render again. With `-version`, as the workflow runs them, they also refuse notes whose `version` is another one. The tool enforces:
+`render` prints the release body: the introduction, `## ✨ Highlights`, `## ⚠️ Breaking changes`, `## 🚧 Known limits`, and `## 📋 Changelog` last, its Features and Fixes collapsed and grouped under their areas. Without breaking changes, their section is left out and **No breaking change in this release.** follows the introduction as its own bold paragraph (first when there is no `intro`). With `limitsUnchangedSince`, Known limits ends with a line linking that release's notes for the other limits, and holds only that line when `limits` is empty. `changes` prints the chart's `artifacthub.io/changes`. Both refuse a file that breaks a rule and name it: fix the YAML and render again. With `-version`, as the workflow runs them, they also refuse notes whose `version` is another one. The tool enforces:
 
 - **Strict fields**: an unknown or repeated field is an error.
 - **Areas**: `Install`, `Routing`, `Pull secrets`, `Mirroring`, `Monitoring`, `Registries`, `Configuration`, `Observability`, `Chart`, the order users meet them. The entries of `limits`, `features` and `fixes` follow that order. The Changelog always shows the areas; Known limits shows them above 6 entries.
 - **Highlights**: 3 to 6.
 - **Texts**: one line each, no emoji (the 4 section headings carry the only ones), inline code allowed, Markdown links only in `breaking` and `limits`. A link must read well without its URL, since Artifact Hub shows only its text: `see the [Cluster ID section of the configuration docs](https://kuik.enix.io/...)`, not `([Cluster ID](https://kuik.enix.io/...))`.
+- **`limitsUnchangedSince`**: a version, `X.Y.Z` or `X.Y.Z-<channel>.<N>`, not the notes' own.
 - **`from`**: a major line (`v2`) or a version (`3.0.0-alpha.5`). "From `<version>` or earlier" includes the previous major line, so a reader coming from v2 is covered too.
 - **`refs`**: `pulls` (the pull requests that delivered the change; several are fine when one change took several), `commits` (7 to 40 hex digits, only for a change without a pull request, never next to `pulls`), `closes` (the issues of this repository it closes) and `external` (`owner/repo#N`, an issue elsewhere). `breaking`, `features` and `fixes` need a pull request or a commit; `limits` may have none. They render at the end of the bullet as `(#802, closes #790)` and become the links of the Artifact Hub entry.
 
 Write as follows, the tool cannot check it:
 
-- **Breaking changes**: none is fine, the section then reads `None in this release.`. It also holds the upgrade steps: there is no separate upgrade notes section.
+- **Breaking changes**: none is fine, the tool then leaves the section out and writes **No breaking change in this release.** as a bold paragraph after the introduction. It also holds the upgrade steps: there is no separate upgrade notes section.
+- **Known limits**: the first release of a channel (`3.0.0-beta.1`, `3.0.0-rc.1`, `3.0.0`: a full summary since the previous stable) lists every known limit, without `limitsUnchangedSince`. A later release of the same channel lists only the limits new or changed since the previous release of that channel (a changed one rewritten in full) and sets `limitsUnchangedSince` to that release: the reader finds the others in its notes. A limit the release lifts counts as changed: list it with its lead and a text saying this release lifts it, with the pull request, so the closing line stays true. No limit new or changed: `limits` stays empty and the field alone fills the section.
 - **Fixes**: in the first release of a channel, counted from the previous stable, list only the fixes of behaviour that stable had: a fix of code that only existed in pre-releases is left out, its feature line covers it.
 - **Length**: Highlights and Breaking changes stay short. The collapsed lists can be long, in the first release of a channel (a full summary since the previous stable) above all. Name the CRD kinds and values as users write them.
 - No internal vocabulary (epics, specs, outlines).
