@@ -112,6 +112,16 @@ func WithTimeout(ctx context.Context, timeout time.Duration) (context.Context, c
 	return context.WithTimeoutCause(ctx, timeout, fmt.Errorf("timed out after %v", timeout))
 }
 
+// noRetriesKey marks a context whose requests WithoutRetries keeps to one attempt.
+type noRetriesKey struct{}
+
+// WithoutRetries keeps every request made with ctx to a single attempt: go-containerregistry
+// retries none of them, whatever it answers, the ping included, and a 5xx ends the walk
+// through the credentials. The first failure is the answer, within the caller's deadline.
+func WithoutRetries(ctx context.Context) context.Context {
+	return context.WithValue(ctx, noRetriesKey{}, true)
+}
+
 // attempt is one try of an operation with one credential.
 type attempt struct {
 	auth    authn.Authenticator
@@ -143,20 +153,22 @@ func (c *Client) tryUntilStopped(ctx context.Context, base http.RoundTripper, au
 	if len(auths) == 0 {
 		auths = []authn.Authenticator{authn.Anonymous}
 	}
+	_, noRetries := ctx.Value(noRetriesKey{}).(bool)
 	var errs []error
 	for _, auth := range auths {
 		headers := &headerCapture{next: base}
-		err := do(attempt{
-			auth:    auth,
-			headers: headers,
-			options: []remote.Option{
-				remote.WithContext(ctx),
-				remote.WithAuth(auth),
-				remote.WithTransport(headers),
-				remote.WithRetryStatusCodes(retryStatusCodes...),
-				remote.WithRetryPredicate(retryPredicate),
-			},
-		})
+		options := []remote.Option{
+			remote.WithContext(ctx),
+			remote.WithAuth(auth),
+			remote.WithTransport(headers),
+			remote.WithRetryStatusCodes(retryStatusCodes...),
+			remote.WithRetryPredicate(retryPredicate),
+		}
+		if noRetries {
+			// One step: the backoff gives up after the first attempt, before any sleep.
+			options = append(options, remote.WithRetryBackoff(remote.Backoff{Steps: 1}))
+		}
+		err := do(attempt{auth: auth, headers: headers, options: options})
 		if err == nil {
 			return auth, nil, nil
 		}
@@ -164,7 +176,9 @@ func (c *Client) tryUntilStopped(ctx context.Context, base http.RoundTripper, au
 			return nil, append(errs, stop.err), stop.err
 		}
 		errs = append(errs, err)
-		if ctx.Err() != nil {
+		// A 5xx is the registry's own failure, whatever the credential: with retries off,
+		// trying the next credential would only be a retry by another name.
+		if ctx.Err() != nil || noRetries && TransportStatusCode(err) >= http.StatusInternalServerError {
 			break
 		}
 	}

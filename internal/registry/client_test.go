@@ -91,6 +91,54 @@ var _ = Describe("Client", func() {
 		})
 	})
 
+	Context("with retries turned off on the caller's context", func() {
+		DescribeTable("sends one request and answers at once",
+			func(pathPart string, status int) {
+				reg := newRegistry()
+				reg.Push("app:v1", registrytest.Image())
+				reg.Reset()
+				reg.Intercept(registrytest.Status("", pathPart, status, nil))
+
+				bounded, cancel := WithTimeout(WithoutRetries(ctx), 2*time.Second)
+				defer cancel()
+				start := time.Now()
+				_, err := client.Check(bounded, endpoint(reg, "app:v1"))
+
+				Expect(checkReason(err)).To(Equal(kuikv1alpha1.CheckUnreachable))
+				Expect(reg.Requests("", pathPart)).To(HaveLen(1))
+				Expect(time.Since(start)).To(BeNumerically("<", 500*time.Millisecond))
+			},
+			Entry("on a 503 to the manifest HEAD", "/manifests/", http.StatusServiceUnavailable),
+			Entry("on a 502 to the manifest HEAD", "/manifests/", http.StatusBadGateway),
+			Entry("on a 503 to the ping", "/v2/", http.StatusServiceUnavailable),
+		)
+
+		It("does not try the next credential after a 5xx", func() {
+			reg := newRegistry(registrytest.WithBasicAuth(user, password))
+			reg.Push("app:v1", registrytest.Image())
+			reg.Reset()
+			reg.Intercept(registrytest.Status(http.MethodHead, "/manifests/", http.StatusServiceUnavailable, nil))
+
+			bounded, cancel := WithTimeout(WithoutRetries(ctx), 2*time.Second)
+			defer cancel()
+			_, err := client.Check(bounded, endpoint(reg, "app:v1", goodCredential(), goodCredential()))
+
+			Expect(checkReason(err)).To(Equal(kuikv1alpha1.CheckUnreachable))
+			Expect(reg.Requests(http.MethodHead, "/manifests/")).To(HaveLen(1))
+		})
+
+		It("still tries the next credential after a refusal", func() {
+			reg := newRegistry(registrytest.WithBasicAuth(user, password))
+			reg.Push("app:v1", registrytest.Image())
+			reg.Reset()
+
+			_, err := client.Check(WithoutRetries(ctx), endpoint(reg, "app:v1", badCredential(), goodCredential()))
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(reg.Requests(http.MethodHead, "/manifests/")).To(HaveLen(2))
+		})
+	})
+
 	Context("with a deadline on the caller's context", func() {
 		It("bounds the whole operation, every credential attempt included", func() {
 			const attempt = 400 * time.Millisecond
