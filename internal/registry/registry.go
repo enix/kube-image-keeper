@@ -116,8 +116,8 @@ func WithTimeout(ctx context.Context, timeout time.Duration) (context.Context, c
 type noRetriesKey struct{}
 
 // WithoutRetries keeps every request made with ctx to a single attempt: go-containerregistry
-// retries none of them, whatever it answers, the ping included. The first failure is the
-// answer, within the caller's deadline.
+// retries none of them, whatever it answers, the ping included, and a 5xx ends the walk
+// through the credentials. The first failure is the answer, within the caller's deadline.
 func WithoutRetries(ctx context.Context) context.Context {
 	return context.WithValue(ctx, noRetriesKey{}, true)
 }
@@ -176,7 +176,9 @@ func (c *Client) tryUntilStopped(ctx context.Context, base http.RoundTripper, au
 			return nil, append(errs, stop.err), stop.err
 		}
 		errs = append(errs, err)
-		if ctx.Err() != nil {
+		// A 5xx is the registry's own failure, whatever the credential: with retries off,
+		// trying the next credential would only be a retry by another name.
+		if ctx.Err() != nil || noRetries && TransportStatusCode(err) >= http.StatusInternalServerError {
 			break
 		}
 	}
