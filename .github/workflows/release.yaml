@@ -40,7 +40,7 @@ jobs:
 
       - name: Run semantic-release (dry-run)
         id: dry-run
-        uses: cycjimmy/semantic-release-action@v6
+        uses: cycjimmy/semantic-release-action@v8
         with:
           dry_run: true
           extra_plugins: |
@@ -202,7 +202,7 @@ jobs:
 
       - name: Run semantic-release
         id: release
-        uses: cycjimmy/semantic-release-action@v6
+        uses: cycjimmy/semantic-release-action@v8
         with:
           extra_plugins: |
             conventional-changelog-conventionalcommits@^9.0.0
