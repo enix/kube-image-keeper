@@ -21,9 +21,9 @@ require (
 	go4.org v0.0.0-20260112195520-a5071408f32f
 	golang.org/x/net v0.61.0
 	golang.org/x/time v0.16.0
-	k8s.io/api v0.35.9
-	k8s.io/apimachinery v0.35.9
-	k8s.io/client-go v0.35.9
+	k8s.io/api v0.35.10
+	k8s.io/apimachinery v0.35.10
+	k8s.io/client-go v0.35.10
 	k8s.io/klog/v2 v2.140.0
 	sigs.k8s.io/controller-runtime v0.23.3
 )
