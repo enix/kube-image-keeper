@@ -45,6 +45,8 @@ type Registry struct {
 	certificate  *tls.Certificate
 	open         atomic.Int64
 
+	untagOnDigestDelete bool
+
 	mu        sync.Mutex
 	requests  []Request
 	intercept Interceptor
@@ -63,6 +65,13 @@ func WithBasicAuth(user, password string) Option {
 // the next one.
 func WithTagsPageSize(n int) Option {
 	return func(r *Registry) { r.tagsPageSize = n }
+}
+
+// WithUntagOnDigestDelete makes a DELETE of a manifest by digest also delete every tag of its
+// repository pointing at it, as distribution and Harbor do: the in-memory registry otherwise
+// keeps those tags answering.
+func WithUntagOnDigestDelete() Option {
+	return func(r *Registry) { r.untagOnDigestDelete = true }
 }
 
 // WithTLS serves the registry over HTTPS only, with certificate.
@@ -216,7 +225,34 @@ func (r *Registry) serveHTTP(w http.ResponseWriter, req *http.Request) {
 		r.serveTagsPage(w, req)
 		return
 	}
+	if r.untagOnDigestDelete && req.Method == http.MethodDelete {
+		if repository, digest, ok := strings.Cut(strings.TrimPrefix(req.URL.Path, "/v2/"), "/manifests/"); ok &&
+			strings.HasPrefix(digest, "sha256:") {
+			r.untag(repository, digest)
+		}
+	}
 	r.handler.ServeHTTP(w, req)
+}
+
+// untag deletes the tags of repository pointing at digest, straight from the in-memory
+// registry: nothing of it is recorded nor intercepted.
+func (r *Registry) untag(repository, digest string) {
+	listed := httptest.NewRecorder()
+	r.handler.ServeHTTP(listed, httptest.NewRequest(http.MethodGet, "/v2/"+repository+"/tags/list", nil))
+	if listed.Code != http.StatusOK {
+		return
+	}
+	var page struct {
+		Tags []string `json:"tags"`
+	}
+	must(json.Unmarshal(listed.Body.Bytes(), &page))
+	for _, tag := range page.Tags {
+		head := httptest.NewRecorder()
+		r.handler.ServeHTTP(head, httptest.NewRequest(http.MethodHead, "/v2/"+repository+"/manifests/"+tag, nil))
+		if head.Header().Get("Docker-Content-Digest") == digest {
+			r.handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodDelete, "/v2/"+repository+"/manifests/"+tag, nil))
+		}
+	}
 }
 
 // serveTagsPage answers one page of tags/list, with a Link header when a page may follow.

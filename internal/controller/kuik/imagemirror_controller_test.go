@@ -1451,25 +1451,386 @@ var _ = Describe("ImageMirror Controller", func() {
 			Expect(h.destination.Requests(http.MethodDelete, "")).To(BeEmpty())
 		})
 
-		PIt("names cleanup.deleteByDigest in the Ready message while the destination refuses tag deletion", func() {})
+		It("names cleanup.deleteByDigest in the Ready message while the destination refuses tag deletion", func() {
+			h.mirror(withRetention(0))
+			h.orphan("old", own)
+			h.destination.Intercept(registrytest.Status(http.MethodDelete, "/manifests/", http.StatusBadRequest, nil))
+			h.reconcile()
 
-		PIt("sends no manifest HEAD for the tag it deletes when deleteByDigest is false", func() {})
+			h.pass()
+			h.reconcile()
+			ready := h.condition(kuikv1alpha1.ConditionReady)
+			Expect(ready.Reason).To(Equal(kuikv1alpha1.ReasonRegistryDeleteUnsupported))
+			Expect(ready.Message).To(ContainSubstring("cleanup.deleteByDigest: true"))
+		})
+
+		It("sends no manifest HEAD for the tag it deletes when deleteByDigest is false", func() {
+			h.mirror(withRetention(0))
+			ref := h.orphan("old", own)
+			h.destination.Reset()
+			h.reconcile()
+
+			h.pass()
+			h.reconcile()
+			Expect(h.tagHeads(ref)).To(BeEmpty())
+			Expect(h.digestDeletes()).To(BeEmpty())
+			Expect(h.copied(ref)()).NotTo(Succeed())
+		})
 
 		Context("with cleanup.deleteByDigest", func() {
-			PIt("deletes the manifest of a tag whose retention elapsed by its digest on a destination refusing tag deletion, and emits ImageDeleted", func() {})
-			PIt("counts a tag already gone from the destination as deleted, sending no DELETE, and emits ImageDeleted", func() {})
-			PIt("keeps a tag whose manifest another tag of this cluster the live references expect shares, its unusedSince unchanged, with no ImageDeletionFailed, no OrphanTagFound again and Ready left True", func() {})
-			PIt("keeps a tag whose manifest a tag of this cluster still waiting out its retention shares", func() {})
-			PIt("deletes a kept tag at the first pass after the tag sharing its manifest leaves the expected set, under a retention of 0", func() {})
-			PIt("deletes the manifest a tag of another cluster shares, which neither holds the deletion nor survives it", func() {})
-			PIt("deletes the shared manifest of tags of this cluster all due in the same pass, and emits ImageDeleted for each tag", func() {})
-			PIt("sends no manifest HEAD for its tags in a pass where no deletion is due", func() {})
-			PIt("emits ImageDeletionFailed and sets Ready False with reason RegistryDeleteUnsupported, naming manifest deletion, when the destination refuses the manifest deletion as unsupported, and stops deleting there", func() {})
-			PIt("emits ImageDeletionFailed, keeps the entry in pendingDeletion and leaves Ready True when the manifest deletion fails with a 5xx", func() {})
-			PIt("emits ImageDeletionFailed, keeps the entry in pendingDeletion and leaves Ready True when the HEAD of a guard tag fails", func() {})
-			PIt("sends no HEAD and no DELETE while cleanup is disabled", func() {})
-			PIt("defers its deletions to the next pass while a copy of the mirror runs", func() {})
-			PIt("starts no copy of the mirror while it deletes by digest", func() {})
+			// liveCopy copies acme/app:v1 of a source for a running pod, then writes the tag
+			// old_<clusterID> of the same manifest next to it, as a past copy left it. It returns
+			// the pod, the destination tag of the copy and the old tag, relative to the destination.
+			liveCopy := func(mutate ...func(*kuikv1alpha1.ImageMirror)) (*corev1.Pod, string, string) {
+				GinkgoHelper()
+				src := h.source()
+				img := registrytest.Image()
+				src.Push("acme/app:v1", img)
+				pod := createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+				h.mirror(mutate...)
+				h.copyAll(1)
+				copied := destinationTag(src, "acme/app")
+				repository, _, _ := strings.Cut(copied, ":v1_")
+				old := repository + ":old_" + mirrorClusterID
+				h.destination.Push(old, img)
+				return pod, copied, old
+			}
+
+			It("deletes the manifest of a tag whose retention elapsed by its digest on a destination refusing tag deletion, and emits ImageDeleted", func() {
+				h.mirror(withRetention(0), withDeleteByDigest)
+				ref := h.orphan("old", own)
+				manifest := h.manifestOf(ref)
+				h.destination.Intercept(refuseTagDeletion(http.StatusBadRequest))
+				h.reconcile()
+
+				h.pass()
+				h.reconcile()
+				Expect(h.manifestGone(manifest)).To(BeTrue())
+				Expect(h.copied(ref)()).NotTo(Succeed())
+				Expect(h.destination.Requests(http.MethodDelete, "")).To(Equal(h.digestDeletes()))
+				Expect(h.digestDeletes()).To(HaveLen(1))
+				Expect(h.recorder.withReason("ImageDeleted")).To(HaveLen(1))
+				Expect(h.recorder.withReason("ImageDeletionFailed")).To(BeEmpty())
+				Expect(h.status().PendingDeletion).To(BeEmpty())
+			})
+
+			It("counts a tag already gone from the destination as deleted, sending no DELETE, and emits ImageDeleted", func() {
+				h.mirror(withRetention(0), withDeleteByDigest)
+				ref := h.orphan("old", own)
+				h.reconcile()
+				Expect(h.status().PendingDeletion).To(HaveLen(1))
+				h.deleteTag(ref)
+				h.destination.Reset()
+
+				h.pass()
+				h.reconcile()
+				Expect(h.destination.Requests(http.MethodDelete, "")).To(BeEmpty())
+				Expect(h.recorder.withReason("ImageDeleted")).To(HaveLen(1))
+				Expect(h.status().PendingDeletion).To(BeEmpty())
+			})
+
+			It("keeps a tag whose manifest another tag of this cluster the live references expect shares, its unusedSince unchanged, with no ImageDeletionFailed, no OrphanTagFound again and Ready left True", func() {
+				_, copied, old := liveCopy(withRetention(0), withDeleteByDigest)
+				h.pass()
+				h.reconcile()
+				recorded := h.status().PendingDeletion
+				Expect(recorded).To(ConsistOf(HaveField("Ref", h.destination.Host()+"/"+old)))
+
+				h.pass()
+				h.reconcile()
+				h.pass()
+				h.reconcile()
+				Expect(h.digestDeletes()).To(BeEmpty())
+				Expect(h.copied(old)()).To(Succeed())
+				Expect(h.copied(copied)()).To(Succeed())
+				Expect(h.status().PendingDeletion).To(Equal(recorded))
+				Expect(h.recorder.withReason("ImageDeletionFailed")).To(BeEmpty())
+				Expect(h.recorder.withReason("OrphanTagFound")).To(HaveLen(1))
+				Expect(h.condition(kuikv1alpha1.ConditionReady).Status).To(Equal(metav1.ConditionTrue))
+			})
+
+			It("keeps a tag whose manifest a tag of this cluster still waiting out its retention shares", func() {
+				pod, copied, old := liveCopy(withRetention(90*time.Minute), withDeleteByDigest)
+				h.pass()
+				h.reconcile()
+				// One pass later the copy loses its pod: old is due a pass before it.
+				h.pass()
+				setPhase(pod, corev1.PodSucceeded)
+				h.reconcile()
+				Expect(h.status().PendingDeletion).To(HaveLen(2))
+
+				h.pass()
+				h.reconcile()
+				Expect(h.digestDeletes()).To(BeEmpty())
+				Expect(h.copied(old)()).To(Succeed())
+				Expect(h.copied(copied)()).To(Succeed())
+				Expect(h.status().PendingDeletion).To(ContainElement(HaveField("Ref", h.destination.Host()+"/"+old)))
+			})
+
+			It("deletes a kept tag at the first pass after the tag sharing its manifest leaves the expected set, under a retention of 0", func() {
+				pod, copied, old := liveCopy(withRetention(0), withDeleteByDigest)
+				manifest := h.manifestOf(old)
+				h.pass()
+				h.reconcile()
+				h.pass()
+				h.reconcile()
+				Expect(h.copied(old)()).To(Succeed())
+
+				setPhase(pod, corev1.PodSucceeded)
+				h.reconcile()
+				h.pass()
+				h.reconcile()
+				Expect(h.manifestGone(manifest)).To(BeTrue())
+				Expect(h.copied(old)()).NotTo(Succeed())
+				Expect(h.copied(copied)()).NotTo(Succeed())
+				Expect(h.digestDeletes()).To(HaveLen(1))
+				Expect(h.recorder.withReason("ImageDeleted")).To(HaveLen(2))
+				Expect(h.status().PendingDeletion).To(BeEmpty())
+			})
+
+			It("deletes the manifest a tag of another cluster shares, which neither holds the deletion nor survives it", func() {
+				h.mirror(withRetention(0), withDeleteByDigest)
+				ref := h.orphan("old", own, "v1_cluster-b")
+				manifest := h.manifestOf(ref)
+				h.reconcile()
+
+				h.pass()
+				h.reconcile()
+				Expect(h.manifestGone(manifest)).To(BeTrue())
+				Expect(h.copied("mirror/quay.io/acme/old:v1_cluster-b")()).NotTo(Succeed())
+				Expect(h.recorder.withReason("ImageDeleted")).To(HaveLen(1))
+			})
+
+			It("deletes the shared manifest of tags of this cluster all due in the same pass, and emits ImageDeleted for each tag", func() {
+				h.mirror(withRetention(0), withDeleteByDigest)
+				ref := h.orphan("old", own, "v2_"+mirrorClusterID)
+				manifest := h.manifestOf(ref)
+				h.reconcile()
+
+				h.pass()
+				h.reconcile()
+				Expect(h.manifestGone(manifest)).To(BeTrue())
+				Expect(h.digestDeletes()).To(HaveLen(1))
+				Expect(h.recorder.withReason("ImageDeleted")).To(HaveLen(2))
+				Expect(h.status().PendingDeletion).To(BeEmpty())
+			})
+
+			It("sends no manifest HEAD for its tags in a pass where no deletion is due", func() {
+				h.mirror(withDeleteByDigest)
+				ref := h.orphan("old", own)
+				h.destination.Reset()
+				h.reconcile()
+				h.pass()
+				h.reconcile()
+
+				Expect(h.status().PendingDeletion).To(HaveLen(1))
+				Expect(h.tagHeads(ref)).To(BeEmpty())
+			})
+
+			It("emits ImageDeletionFailed and sets Ready False with reason RegistryDeleteUnsupported, naming manifest deletion, when the destination refuses the manifest deletion as unsupported, and stops deleting there", func() {
+				h.mirror(withRetention(0), withDeleteByDigest)
+				ref := h.orphan("old", own)
+				next := h.orphan("older", own)
+				h.destination.Reset()
+				h.destination.Intercept(registrytest.Status(http.MethodDelete, "/manifests/", http.StatusMethodNotAllowed, nil))
+				h.reconcile()
+
+				h.pass()
+				h.reconcile()
+				events := h.recorder.withReason("ImageDeletionFailed")
+				Expect(events).To(HaveLen(1))
+				Expect(events[0].eventType).To(Equal(corev1.EventTypeWarning))
+				Expect(events[0].note).To(ContainSubstring(h.destination.Host() + "/" + ref))
+				ready := h.condition(kuikv1alpha1.ConditionReady)
+				Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+				Expect(ready.Reason).To(Equal(kuikv1alpha1.ReasonRegistryDeleteUnsupported))
+				Expect(ready.Message).To(ContainSubstring("manifest deletion"))
+				Expect(ready.Message).NotTo(ContainSubstring("deleteByDigest"))
+				Expect(h.destination.Requests(http.MethodDelete, "")).To(HaveLen(1))
+				Expect(h.tagHeads(next)).To(BeEmpty())
+			})
+
+			It("emits ImageDeletionFailed, keeps the entry in pendingDeletion and leaves Ready True when the manifest deletion fails with a 5xx", func() {
+				h.mirror(withRetention(0), withDeleteByDigest)
+				ref := h.orphan("old", own)
+				h.destination.Intercept(registrytest.Status(http.MethodDelete, "/manifests/sha256:", http.StatusInternalServerError, nil))
+				h.reconcile()
+
+				h.pass()
+				h.reconcile()
+				Expect(h.digestDeletes()).NotTo(BeEmpty())
+				Expect(h.recorder.withReason("ImageDeletionFailed")).To(HaveLen(1))
+				Expect(h.status().PendingDeletion).To(ConsistOf(HaveField("Ref", h.destination.Host()+"/"+ref)))
+				Expect(h.condition(kuikv1alpha1.ConditionReady).Status).To(Equal(metav1.ConditionTrue))
+			})
+
+			It("emits ImageDeletionFailed, keeps the entry in pendingDeletion and leaves Ready True when the HEAD of a guard tag fails", func() {
+				h.mirror(withRetention(90*time.Minute), withDeleteByDigest)
+				ref := h.orphan("old", own)
+				h.reconcile()
+				// A tag found a pass later, waiting out its retention when old is due.
+				repository, _, _ := strings.Cut(ref, ":")
+				newer := repository + ":newer_" + mirrorClusterID
+				h.destination.Push(newer, registrytest.Image())
+				h.destination.Reset()
+				h.pass()
+				h.reconcile()
+				h.destination.Intercept(registrytest.Status(http.MethodHead, "/manifests/newer_", http.StatusInternalServerError, nil))
+
+				h.pass()
+				h.reconcile()
+				Expect(h.tagHeads(newer)).NotTo(BeEmpty())
+				Expect(h.digestDeletes()).To(BeEmpty())
+				Expect(h.copied(ref)()).To(Succeed())
+				Expect(h.recorder.withReason("ImageDeletionFailed")).To(HaveLen(1))
+				Expect(h.status().PendingDeletion).To(ContainElement(HaveField("Ref", h.destination.Host()+"/"+ref)))
+				Expect(h.condition(kuikv1alpha1.ConditionReady).Status).To(Equal(metav1.ConditionTrue))
+			})
+
+			It("sends no HEAD and no DELETE while cleanup is disabled", func() {
+				h.mirror(func(im *kuikv1alpha1.ImageMirror) {
+					im.Spec.Cleanup = &kuikv1alpha1.Cleanup{Enabled: new(false), DeleteByDigest: new(true)}
+				})
+				ref := h.orphan("old", own)
+				h.destination.Reset()
+				h.reconcile()
+				h.pass()
+				h.reconcile()
+				h.pass()
+				h.reconcile()
+
+				Expect(h.tagHeads(ref)).To(BeEmpty())
+				Expect(h.destination.Requests(http.MethodDelete, "")).To(BeEmpty())
+			})
+
+			It("holds its deletions while a copy of the mirror runs, then makes them once that copy ends, without another pass", func() {
+				src := h.source()
+				src.Push("acme/app:v1", registrytest.Image())
+				createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+				h.mirror(withRetention(0), withDeleteByDigest)
+				ref := h.orphan("old", own)
+				manifest := h.manifestOf(ref)
+				entered, release := h.blockOn(http.MethodPut, "/manifests/")
+				h.reconcile()
+				h.window()
+				Eventually(entered).Should(BeClosed())
+
+				h.pass()
+				h.reconcile()
+				Expect(h.copied(ref)()).To(Succeed())
+				Expect(h.digestDeletes()).To(BeEmpty())
+				Expect(h.status().PendingDeletion).To(ContainElement(HaveField("Ref", h.destination.Host()+"/"+ref)))
+
+				release()
+				Eventually(h.copied(destinationTag(src, "acme/app"))).Should(Succeed())
+				Eventually(func() bool {
+					h.reconcile()
+					return h.manifestGone(manifest)
+				}).Should(BeTrue())
+				Expect(h.status().PendingDeletion).NotTo(ContainElement(HaveField("Ref", h.destination.Host()+"/"+ref)))
+			})
+
+			It("keeps a due tag sharing its manifest with an expected tag not copied yet, whose copy then uploads no blob", func() {
+				_, copied, old := liveCopy(withRetention(0), withDeleteByDigest)
+				h.pass()
+				h.reconcile()
+				Expect(h.status().PendingDeletion).To(ConsistOf(HaveField("Ref", h.destination.Host()+"/"+old)))
+				// The tag of the copy goes, its manifest stays: the mirror knows its digest.
+				h.deleteTag(copied)
+
+				// old is due from now on, while no window is: the tag waits to be written back.
+				h.clock.Step(30 * time.Second)
+				h.destination.Reset()
+				h.passNow()
+				h.reconcile()
+				Expect(h.digestDeletes()).To(BeEmpty())
+				Expect(h.copied(old)()).To(Succeed())
+
+				h.clock.Step(30 * time.Second)
+				Eventually(h.copied(copied)).Should(Succeed())
+				Expect(h.destination.Requests(http.MethodPost, "/blobs/uploads/")).To(BeEmpty())
+			})
+
+			It("reads the tag two expected references share at different digests rather than trusting either, and keeps a due tag sharing its manifest", func() {
+				src := h.source()
+				current, older := registrytest.Image(), registrytest.Image()
+				src.Push("acme/app:v1", current)
+				pinned := src.Push("acme/app:older", older)
+				h.mirror(withRetention(0), withDeleteByDigest)
+				repository := strings.TrimSuffix(destinationTag(src, "acme/app"), ":v1_"+mirrorClusterID)
+				// Another cluster holds the older manifest: the pinned reference is there, never copied.
+				h.destination.Push(repository+":v1_cluster-b", older)
+				h.inventory(h.destinationRepository(src, "acme/app"))
+				ns := h.namespace()
+				createPod(ns, unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+				createPod(ns, unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1@" + pinned.String()})
+				h.copyAll(1)
+				copied := destinationTag(src, "acme/app")
+				currentDigest, err := current.Digest()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(h.destination.Head(copied)).To(HaveField("Digest", currentDigest))
+
+				old := repository + ":old_" + mirrorClusterID
+				h.destination.Push(old, current)
+				h.pass()
+				h.reconcile()
+				h.pass()
+				h.reconcile()
+				Expect(h.digestDeletes()).To(BeEmpty())
+				Expect(h.copied(copied)()).To(Succeed())
+				Expect(h.copied(old)()).To(Succeed())
+			})
+
+			It("sets Ready back to True once deleteByDigest is set after a refused tag deletion, its only due tag kept by the guard", func() {
+				_, _, old := liveCopy(withRetention(0))
+				h.destination.Intercept(refuseTagDeletion(http.StatusBadRequest))
+				h.pass()
+				h.reconcile()
+				h.pass()
+				h.reconcile()
+				Expect(h.condition(kuikv1alpha1.ConditionReady).Status).To(Equal(metav1.ConditionFalse))
+
+				var im kuikv1alpha1.ImageMirror
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: h.name}, &im)).To(Succeed())
+				im.Spec.Cleanup.DeleteByDigest = new(true)
+				Expect(k8sClient.Update(ctx, &im)).To(Succeed())
+				h.pass()
+				h.reconcile()
+				Expect(h.copied(old)()).To(Succeed())
+				Expect(h.condition(kuikv1alpha1.ConditionReady).Status).To(Equal(metav1.ConditionTrue))
+			})
+
+			It("starts no copy of the mirror while it deletes by digest", func() {
+				src := h.source()
+				src.Push("acme/app:v1", registrytest.Image())
+				h.mirror(withRetention(0), withDeleteByDigest)
+				h.orphan("old", own)
+				h.reconcile()
+				// old is due from now on, while neither a destination pass nor a copy window is: a
+				// window opening now could start the copy before the deletion.
+				h.clock.Step(30 * time.Second)
+				createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+				h.reconcile()
+				Expect(h.digestDeletes()).To(BeEmpty())
+
+				entered, release := h.blockOn(http.MethodDelete, "/manifests/sha256:")
+				h.passNow()
+				swept := make(chan struct{})
+				go func() {
+					defer GinkgoRecover()
+					defer close(swept)
+					h.reconcile()
+				}()
+				Eventually(entered).Should(BeClosed())
+				h.window()
+				Consistently(h.copied(destinationTag(src, "acme/app"))).WithTimeout(time.Second).ShouldNot(Succeed())
+
+				release()
+				Eventually(swept).Should(BeClosed())
+				h.reconcile()
+				h.window()
+				Eventually(h.copied(destinationTag(src, "acme/app"))).Should(Succeed())
+			})
 		})
 	})
 
