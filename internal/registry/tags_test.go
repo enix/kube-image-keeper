@@ -3,6 +3,7 @@ package registry
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -114,22 +115,130 @@ var _ = Describe("DeleteTag", func() {
 })
 
 var _ = Describe("ManifestDigest", func() {
-	PIt("returns the digest of the manifest a tag points at", func() {})
-	PIt("returns the digest of the index a multi-platform tag points at", func() {})
-	PIt("falls back to a GET when the registry answers the HEAD without Docker-Content-Digest", func() {})
-	PIt("reports a tag the registry does not hold as not found, with no error", func() {})
-	PIt("counts nothing in kuik_registry_requests_total", func() {})
+	var (
+		client *Client
+		reg    *registrytest.Registry
+	)
+
+	BeforeEach(func() {
+		client = NewClient()
+		reg = newRegistry()
+	})
+
+	It("returns the digest of the manifest a tag points at", func() {
+		digest := reg.Push("mirror/app:v1_a", registrytest.Image())
+
+		got, found, err := client.ManifestDigest(ctx, endpoint(reg, "mirror/app:v1_a"))
+
+		Expect(err).NotTo(HaveOccurred())
+		Expect(found).To(BeTrue())
+		Expect(got).To(Equal(digest))
+	})
+
+	It("returns the digest of the index a multi-platform tag points at", func() {
+		digest := reg.PushIndex("mirror/app:v1_a", registrytest.Index())
+
+		got, found, err := client.ManifestDigest(ctx, endpoint(reg, "mirror/app:v1_a"))
+
+		Expect(err).NotTo(HaveOccurred())
+		Expect(found).To(BeTrue())
+		Expect(got).To(Equal(digest))
+	})
+
+	It("falls back to a GET when the registry answers the HEAD without Docker-Content-Digest", func() {
+		digest := reg.Push("mirror/app:v1_a", registrytest.Image())
+		reg.Intercept(func(w http.ResponseWriter, r *http.Request) bool {
+			if r.Method != http.MethodHead || !strings.Contains(r.URL.Path, "/manifests/") {
+				return false
+			}
+			w.Header().Set("Content-Type", "application/vnd.oci.image.manifest.v1+json")
+			w.Header().Set("Content-Length", "2")
+			w.WriteHeader(http.StatusOK)
+			return true
+		})
+
+		got, found, err := client.ManifestDigest(ctx, endpoint(reg, "mirror/app:v1_a"))
+
+		Expect(err).NotTo(HaveOccurred())
+		Expect(found).To(BeTrue())
+		Expect(got).To(Equal(digest))
+		Expect(reg.Requests(http.MethodGet, "/manifests/v1_a")).NotTo(BeEmpty())
+	})
+
+	It("reports a tag the registry does not hold as not found, with no error", func() {
+		reg.Push("mirror/app:v1_a", registrytest.Image())
+
+		_, found, err := client.ManifestDigest(ctx, endpoint(reg, "mirror/app:v1_gone"))
+
+		Expect(err).NotTo(HaveOccurred())
+		Expect(found).To(BeFalse())
+	})
+
+	It("counts nothing in kuik_registry_requests_total", func() {
+		reg.Push("mirror/app:v1_a", registrytest.Image())
+
+		_, _, err := client.ManifestDigest(ctx, endpoint(reg, "mirror/app:v1_a"))
+
+		Expect(err).NotTo(HaveOccurred())
+		Expect(countedFor(reg.Host())).To(BeZero())
+	})
 })
 
 var _ = Describe("DeleteManifest", func() {
-	PIt("deletes the manifest of a digest reference", func() {})
-	PIt("refuses a tag reference, sending no DELETE", func() {})
-	PIt("succeeds when the manifest is already gone", func() {})
-	DescribeTable("returns ErrManifestDeleteUnsupported when the registry refuses manifest deletion",
-		func(code int) {},
-		PEntry("400 Bad Request", http.StatusBadRequest),
-		PEntry("405 Method Not Allowed", http.StatusMethodNotAllowed),
-		PEntry("501 Not Implemented", http.StatusNotImplemented),
+	var (
+		client *Client
+		reg    *registrytest.Registry
 	)
-	PIt("counts nothing in kuik_registry_requests_total", func() {})
+
+	BeforeEach(func() {
+		client = NewClient()
+		reg = newRegistry()
+	})
+
+	It("deletes the manifest of a digest reference", func() {
+		digest := reg.Push("mirror/app:v1_a", registrytest.Image())
+
+		Expect(client.DeleteManifest(ctx, endpoint(reg, "mirror/app@"+digest.String()))).To(Succeed())
+
+		Expect(reg.Requests(http.MethodDelete, "/manifests/"+digest.String())).To(HaveLen(1))
+		_, err := reg.Head("mirror/app@" + digest.String())
+		Expect(err).To(HaveOccurred())
+	})
+
+	It("refuses a tag reference, sending no DELETE", func() {
+		reg.Push("mirror/app:v1_a", registrytest.Image())
+
+		Expect(client.DeleteManifest(ctx, endpoint(reg, "mirror/app:v1_a"))).NotTo(Succeed())
+
+		Expect(reg.Requests(http.MethodDelete, "")).To(BeEmpty())
+	})
+
+	It("succeeds when the manifest is already gone", func() {
+		digest := reg.Push("mirror/app:v1_a", registrytest.Image())
+		Expect(client.DeleteManifest(ctx, endpoint(reg, "mirror/app@"+digest.String()))).To(Succeed())
+
+		Expect(client.DeleteManifest(ctx, endpoint(reg, "mirror/app@"+digest.String()))).To(Succeed())
+	})
+
+	DescribeTable("returns ErrManifestDeleteUnsupported when the registry refuses manifest deletion",
+		func(code int) {
+			digest := reg.Push("mirror/app:v1_a", registrytest.Image())
+			reg.Intercept(registrytest.Status(http.MethodDelete, "/manifests/", code, nil))
+
+			err := client.DeleteManifest(ctx, endpoint(reg, "mirror/app@"+digest.String()))
+
+			Expect(errors.Is(err, ErrManifestDeleteUnsupported)).To(BeTrue())
+		},
+		Entry("400 Bad Request", http.StatusBadRequest),
+		Entry("405 Method Not Allowed", http.StatusMethodNotAllowed),
+		Entry("501 Not Implemented", http.StatusNotImplemented),
+	)
+
+	It("counts nothing in kuik_registry_requests_total", func() {
+		digest := reg.Push("mirror/app:v1_a", registrytest.Image())
+
+		Expect(client.DeleteManifest(ctx, endpoint(reg, "mirror/app@"+digest.String()))).To(Succeed())
+
+		Expect(countedFor(reg.Host())).To(BeZero())
+	})
 })
