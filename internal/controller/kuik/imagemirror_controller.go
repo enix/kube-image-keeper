@@ -250,6 +250,9 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	st.seed(&im)
 	clusterID := r.clusterID
 	cleanup := im.Spec.Cleanup.IsEnabled()
+	// A sweep waiting for the copies to end to delete by digest has nothing to wait for any
+	// more once the mirror no longer deletes that way.
+	st.keepDeleting(cleanup && im.Spec.Cleanup.DeletesByDigest())
 	mirror := plan.Mirror{Path: im.Spec.Destination.Path, ExcludeImages: im.Spec.ExcludeImages, CleanupEnabled: cleanup}
 	live := plan.Desired(plan.Mirror{Path: mirror.Path, ExcludeImages: mirror.ExcludeImages}, pods, nil)
 	now := r.clock.Now()
@@ -297,6 +300,8 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				selfChecked = &metav1.Time{Time: at}
 				r.metrics.selfChecked.WithLabelValues(resource.Kind, resource.Name).Set(float64(at.Unix()))
 			case errors.Is(err, errPassInterrupted):
+				// A sweep waiting for the copies to end waits for the next pass, copies going on.
+				st.doneDeleting()
 				logf.FromContext(ctx).V(1).Info("Interrupted ImageMirror destination pass", "error", err.Error())
 			default:
 				return ctrl.Result{}, err
@@ -368,11 +373,8 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		kuikv1alpha1.ReasonMissingImages, fmt.Sprintf("%d images not copied yet", counts.Unavailable), im.Generation)
 	r.metrics.report(resource.Kind, resource.Name, counts, failed, drifted)
 	next.Truncated = pass.End(&next.Conditions, im.Generation)
-	if notReady == nil && cleanup && st.refusesDeletion() {
-		notReady = &condition.NotReady{
-			Reason:  kuikv1alpha1.ReasonRegistryDeleteUnsupported,
-			Message: "the destination refuses tag deletion: cleanup cannot make progress",
-		}
+	if notReady == nil && cleanup {
+		notReady = refusedSweep(&im, st)
 	}
 	r.readiness.Set(&im, resource.Kind, resource.Name, &next.Conditions, im.Generation, notReady)
 

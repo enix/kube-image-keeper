@@ -52,6 +52,11 @@ type mirrorState struct {
 	// copies running.
 	stopping bool
 	inFlight int
+	// deleting is set while the sweep deletes manifests by digest, or waits for the copies
+	// running to end to do so: no copy starts meanwhile, so none pushes a tag of the manifest
+	// between the guard and the deletion. sweepAgain is set while it waits.
+	deleting   bool
+	sweepAgain bool
 
 	// present are the references the last whole destination pass found, keyed by their String
 	// form; lastPass is when that pass ran, zero before the first.
@@ -82,19 +87,49 @@ type mirrorState struct {
 	// live are the references the selected pods ran at the last reconcile, nil before the
 	// first one: what tells which reference lost its last pod.
 	live []imagepath.Reference
-	// deleteUnsupported is set once the destination refused a tag deletion as unsupported,
-	// until one succeeds.
+	// deleteUnsupported is set once the destination refused a deletion as unsupported, until
+	// one succeeds; manifestRefused when that deletion was by digest.
 	deleteUnsupported bool
+	manifestRefused   bool
 	// held counts the tries of the finalizer holding the deleted mirror.
 	held uint
 }
 
-// refusesDeletion reports whether the destination refused the last tag deletion as
-// unsupported.
-func (st *mirrorState) refusesDeletion() bool {
+// refusesDeletion reports whether the destination refused the last deletion made the way
+// byDigest says as unsupported. A refusal of the other way is forgotten: the mode changed
+// since, and only a deletion that way can tell.
+func (st *mirrorState) refusesDeletion(byDigest bool) bool {
 	st.mu.Lock()
 	defer st.mu.Unlock()
+	if st.manifestRefused != byDigest {
+		st.deleteUnsupported = false
+	}
 	return st.deleteUnsupported
+}
+
+// startDeleting lets no copy start until doneDeleting, and reports whether no copy runs
+// either. When one does, the next reconcile once the last one ended runs a destination pass,
+// whose sweep deletes.
+func (st *mirrorState) startDeleting() bool {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.deleting = true
+	st.sweepAgain = st.inFlight > 0
+	return !st.sweepAgain
+}
+
+// keepDeleting lets copies start again unless byDigest.
+func (st *mirrorState) keepDeleting(byDigest bool) {
+	if !byDigest {
+		st.doneDeleting()
+	}
+}
+
+// doneDeleting lets copies start again.
+func (st *mirrorState) doneDeleting() {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.deleting, st.sweepAgain = false, false
 }
 
 // remember records live as the references of the last reconcile whose status was written.
@@ -390,7 +425,8 @@ func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
 	source, ok := st.sources[ref]
 	// A window of a host reads that host only: a reference handed to a candidate elsewhere
 	// waits for a window there, once the next reconcile moved it to that queue.
-	if !ok || source.host() != c.host || (st.copied[ref] && !st.resync[ref]) || st.stopping {
+	// A copy waiting on the sweep's deletions by digest takes the next window.
+	if !ok || source.host() != c.host || (st.copied[ref] && !st.resync[ref]) || st.stopping || st.deleting {
 		st.mu.Unlock()
 		return nil
 	}
@@ -398,7 +434,12 @@ func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
 	// The finalizer of a deleted mirror waits for the copies running.
 	st.inFlight++
 	st.mu.Unlock()
-	defer st.ended()
+	// Deferred first, run last: the reconcile it wakes sees the copy ended.
+	defer func() {
+		if st.ended() {
+			r.wake(c.name)
+		}
+	}()
 
 	var im kuikv1alpha1.ImageMirror
 	if err := r.Get(ctx, types.NamespacedName{Name: c.name}, &im); err != nil {
@@ -548,11 +589,18 @@ func sourceFailureReason(err error) kuikv1alpha1.CopyFailureReason {
 	}
 }
 
-// ended counts a copy out of the running ones.
-func (st *mirrorState) ended() {
+// ended counts a copy out of the running ones, and reports whether it was the last one a sweep
+// waited for: its destination pass is then due at once.
+func (st *mirrorState) ended() bool {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	st.inFlight--
+	if st.inFlight > 0 || !st.sweepAgain {
+		return false
+	}
+	st.sweepAgain = false
+	st.lastPass = time.Time{}
+	return true
 }
 
 // seed takes over, on the first reconcile of a process, the failing copies the status of im
