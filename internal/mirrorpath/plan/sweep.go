@@ -68,11 +68,24 @@ type SweepResult struct {
 	Delete []string
 	// Retire are the repositories where no tag of this cluster remains.
 	Retire []string
+
+	// kept are the destination tag references of this cluster the sweep keeps: the ones the
+	// live references expect, and the pending ones whose retention has not elapsed.
+	kept []string
 }
 
-// Guard is a stub.
+// Guard returns the tags of this cluster in the repository of ref, a reference of Delete,
+// that the sweep keeps. Deleting the manifest of ref by digest would take them with it when
+// one of them shares it. A tag due in the same pass is not one of them: it goes either way.
 func (r SweepResult) Guard(ref string) []string {
-	return nil
+	repository := ref[:strings.LastIndex(ref, ":")]
+	var out []string
+	for _, tag := range r.kept {
+		if tag != ref && strings.HasPrefix(tag, repository+":") {
+			out = append(out, tag)
+		}
+	}
+	return out
 }
 
 // Run diffs the listed tags of this cluster forward against the tags the live references
@@ -104,8 +117,11 @@ func (s Sweep) Run() SweepResult {
 	for _, entry := range result.Pending {
 		if s.Now.Sub(entry.UnusedSince.Time) >= hold {
 			result.Delete = append(result.Delete, entry.Ref)
+		} else {
+			result.kept = append(result.kept, entry.Ref)
 		}
 	}
+	result.kept = append(result.kept, slices.Sorted(maps.Keys(expected))...)
 	return result
 }
 
