@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -81,7 +82,7 @@ func newMirrorHarness() *mirrorHarness {
 		recorder:    &eventRecorder{},
 		clock:       clocktesting.NewFakeClock(time.Now()),
 		config:      mirrorConfig(),
-		destination: registrytest.New(),
+		destination: registrytest.New(registrytest.WithUntagOnDigestDelete()),
 	}
 	DeferCleanup(h.destination.Close)
 	h.scheduler = pacing.New(h.clock, h.config)
@@ -275,18 +276,90 @@ func (h *mirrorHarness) pass() {
 	h.clock.Step(h.config.Mirror.DestinationScan.Interval.Duration)
 }
 
-// deleteManifest deletes the manifest ref, relative to the destination, and its tag, as an
-// external garbage collection would. The in-memory registry keeps the tags of a manifest
-// deleted by digest, where a real one drops them: the tag is deleted on its own.
+// passNow makes the next reconcile run a destination pass without moving the clock, so that no
+// copy window opens with it.
+func (h *mirrorHarness) passNow() {
+	st := h.reconciler.state(h.name)
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.lastPass = time.Time{}
+}
+
+// blockOn makes the destination hold every request matching method and pathPart until release
+// is called, and returns a channel closed once the first one arrived. Release runs when the
+// spec ends too.
+func (h *mirrorHarness) blockOn(method, pathPart string) (entered chan struct{}, release func()) {
+	entered, released := make(chan struct{}), make(chan struct{})
+	var enter, done sync.Once
+	release = func() { done.Do(func() { close(released) }) }
+	DeferCleanup(release)
+	h.destination.Intercept(func(_ http.ResponseWriter, r *http.Request) bool {
+		if r.Method == method && strings.Contains(r.URL.Path, pathPart) {
+			enter.Do(func() { close(entered) })
+			<-released
+		}
+		return false
+	})
+	return entered, release
+}
+
+// deleteManifest deletes the manifest ref, relative to the destination, and the tags pointing
+// at it, as an external garbage collection would.
 func (h *mirrorHarness) deleteManifest(ref string) {
+	GinkgoHelper()
+	Expect(remote.Delete(h.manifestOf(ref))).To(Succeed())
+}
+
+// manifestOf is the digest reference of the manifest the tag ref, relative to the destination,
+// points at.
+func (h *mirrorHarness) manifestOf(ref string) ggcrname.Digest {
 	GinkgoHelper()
 	descriptor, err := h.destination.Head(ref)
 	Expect(err).NotTo(HaveOccurred())
 	repository, _, _ := strings.Cut(ref, ":")
 	digest, err := ggcrname.NewDigest(h.destination.Host()+"/"+repository+"@"+descriptor.Digest.String(), ggcrname.Insecure)
 	Expect(err).NotTo(HaveOccurred())
-	Expect(remote.Delete(digest)).To(Succeed())
-	h.deleteTag(ref)
+	return digest
+}
+
+// manifestGone reports whether the destination no longer holds the manifest digest.
+func (h *mirrorHarness) manifestGone(digest ggcrname.Digest) bool {
+	GinkgoHelper()
+	_, err := h.destination.Head(strings.TrimPrefix(digest.String(), h.destination.Host()+"/"))
+	return err != nil
+}
+
+// refuseTagDeletion answers a DELETE by tag with status, as Harbor answers 400 UNSUPPORTED,
+// and lets a DELETE by digest through.
+func refuseTagDeletion(status int) registrytest.Interceptor {
+	return func(w http.ResponseWriter, r *http.Request) bool {
+		_, reference, ok := strings.Cut(r.URL.Path, "/manifests/")
+		if r.Method != http.MethodDelete || !ok || strings.HasPrefix(reference, "sha256:") {
+			return false
+		}
+		w.WriteHeader(status)
+		return true
+	}
+}
+
+// digestDeletes are the DELETE requests the destination received by digest.
+func (h *mirrorHarness) digestDeletes() []registrytest.Request {
+	return h.destination.Requests(http.MethodDelete, "/manifests/sha256:")
+}
+
+// tagHeads are the manifest HEAD requests the destination received for the tag ref, relative
+// to it.
+func (h *mirrorHarness) tagHeads(ref string) []registrytest.Request {
+	repository, tag, _ := strings.Cut(ref, ":")
+	return h.destination.Requests(http.MethodHead, "/v2/"+repository+"/manifests/"+tag)
+}
+
+// withDeleteByDigest sets cleanup.deleteByDigest on the mirror under test.
+func withDeleteByDigest(im *kuikv1alpha1.ImageMirror) {
+	if im.Spec.Cleanup == nil {
+		im.Spec.Cleanup = &kuikv1alpha1.Cleanup{}
+	}
+	im.Spec.Cleanup.DeleteByDigest = new(true)
 }
 
 // deleteTag deletes the tag ref, relative to the destination, and leaves its manifest.
