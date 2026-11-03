@@ -58,7 +58,7 @@ A key left out takes the default below.
 | `secretSyncer.onFailureGrace` | `15m` | How long an entry of an injected pull Secret stays once no live pod uses it, for a `rewritePolicy: OnFailure` resource: the next pod of a rollout or a scale-up during an outage still finds the credential. Held in memory: a restart of the secret syncer drops the entries in their grace. Must be positive |
 | `webhook.demoteMirrorWithPullPolicyAlways` | `true` | Demote a mirror candidate for a container with `imagePullPolicy: Always` |
 | `webhook.availabilityCheck.timeout` | `2s` | Time before the webhook considers a candidate unavailable |
-| `webhook.availabilityCheck.activeCheckCache.ttl` | `10s` | Lifetime of an active check result, per webhook replica |
+| `webhook.availabilityCheck.activeCheckCache.ttl` | `10s` | Lifetime of an active check result, per webhook replica, kept per candidate, `insecure` setting and credentials (the pull Secrets and their versions). A failed check is kept too: the webhook sends one manifest `HEAD` per candidate, bounded by `webhook.availabilityCheck.timeout` and never retried, so a single timeout or `5xx` rules that candidate out on that replica for the whole TTL, for every pod checked with the same credentials |
 | `webhook.availabilityCheck.demoteKnownFailures` | `true` | Try last a candidate the background loops report failing, see [`rewritePolicy`](./crds.md#rewritepolicy) |
 | `registries.default.check` | `interval: 1m`, `timeout: 10s` | Pace of the background checks against every host |
 | `registries.default.copy` | `interval: 3m`, `timeout: 0` | Pace of the copies from every host. A `timeout` of `0` means no bound |
