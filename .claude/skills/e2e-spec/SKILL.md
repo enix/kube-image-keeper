@@ -30,7 +30,7 @@ On a PR, the suite runs only under the `e2e-ready` label
 pushed and its `fixup!` commits are autosquashed, add it yourself (`gh pr edit <n>
 --add-label e2e-ready`, which the outbound hook allows on the pull request of the current
 branch; step 5 of the [`pull-request`](../pull-request/SKILL.md) skill). The required `E2E`
-check fails until then, unless the PR changes no path the suite depends on.
+check waits until then, unless the PR changes no path the suite depends on.
 
 ## Workflow
 
