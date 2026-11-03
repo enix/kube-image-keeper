@@ -30,7 +30,7 @@ When no pod uses an image any more, its copy is kept for `cleanup.retention` (a 
 
 1. [Install kuik](../installation.md).
 
-2. Prepare the backup registry. It must accept nested repository paths (Harbor, Zot and the CNCF `distribution` registry do), support tag deletion, and run its own garbage collection: kuik deletes tags, the registry frees the space. See [Destination requirements](../crds.md#destination-requirements).
+2. Prepare the backup registry. It must accept nested repository paths (Harbor, Zot and the CNCF `distribution` registry do), support tag deletion, and run its own garbage collection: kuik deletes tags, the registry frees the space. See [Destination requirements](../crds.md#destination-requirements). For a registry that refuses tag deletion, Harbor for instance, `cleanup.deleteByDigest: true` is the way out, only on a destination the `ImageMirror` is the only writer of: see [Deleting by digest](../crds.md#deleting-by-digest).
 
 3. Create 2 credentials in kuik's namespace (`kuik-system` by default, adapt the commands otherwise): one for kuik to push, read, list and delete tags, one for the kubelet to pull the copies. kuik copies the pull credential into the namespaces of the pods it rewrites (see [Injected pull secrets](../concepts/pull-secrets.md)).
 

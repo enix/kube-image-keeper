@@ -211,6 +211,7 @@ spec:
   cleanup:
     enabled: true
     retention: 168h
+    deleteByDigest: false     # not safe on a destination shared by several clusters
   driftPolicy: Ignore         # Ignore | Warn | Sync
 ```
 
@@ -228,9 +229,10 @@ spec:
 | `spec.destination.pull.auth` | | Credential the kubelet pulls the mirrored images with, injected in the namespaces that need it |
 | `spec.cleanup.enabled` | | Default `true`. Deletes the destination tags no pod references any more once their retention elapsed. With `false` nothing is deleted and `retention` has no effect |
 | `spec.cleanup.retention` | | Default `168h`. How long an unused tag is held before deletion, so a CronJob's image survives between runs. A Go duration |
+| `spec.cleanup.deleteByDigest` | | Default `false`. Deletes a tag by deleting the manifest it points at, for a destination that refuses tag deletion. **Not safe on a destination shared by several clusters**, see [deleting by digest](#deleting-by-digest). No effect while `enabled` is `false` |
 | `spec.driftPolicy` | | What to do when the upstream digest of a copied tag moves: `Ignore` (default, copy once), `Warn` (re-read the upstream periodically and report), `Sync` (re-read and copy again) |
 
-The tag of every copy carries the operator's [cluster ID](./configuration.md#cluster-id) as a `_<clusterID>` suffix, so that several clusters can share one destination: the second cluster to need an image uploads nothing, and each cluster only ever creates, verifies and deletes its own tags. The `ImageMirror` object is identical on every cluster.
+The tag of every copy carries the operator's [cluster ID](./configuration.md#cluster-id) as a `_<clusterID>` suffix, so that several clusters can share one destination: the second cluster to need an image uploads nothing, and each cluster only ever creates, verifies and deletes its own tags, as long as it deletes by tag, the default. Under `cleanup.deleteByDigest`, a deletion removes every tag of the manifest, the other clusters' included: see [deleting by digest](#deleting-by-digest). The `ImageMirror` object is identical on every cluster.
 
 A copy reads the origin first, whatever the `rewritePolicy` of the `ImageAlternative`s covering it. When the origin does not answer, it reads those alternatives in their candidate order, skipping the entries marked `unavailable`, on a copy window of each alternative's own host. A source that answers but fails the copy on its side, a `429` on a blob for instance, gives way to the next one the same way rather than being read again on its next window; a failure on the destination side keeps the source and enters `status.failedImageCopies` at once. A source failure enters it once every source was tried: with the reason of the last source that failed for another reason than lacking the image (`QuotaExceeded` for an origin answering `429` then an alternative lacking the image), or `SourceNotFound` when every one lacked it. An origin matching an `unavailable` entry is read last. The destination is derived from the origin whichever source the bytes came from.
 
@@ -253,16 +255,36 @@ The mirror's own `destination.path` is excluded on top of this list, which is wh
 
 ### Destination requirements
 
-The destination must conform to the OCI Distribution spec, accept arbitrarily nested repository paths, and refuse a manifest whose blobs it does not hold. With `cleanup.enabled`, it must also support tag deletion (`DELETE /v2/<name>/manifests/<tag>`) and run its own garbage collection of untagged manifests: kuik deletes tags only, never manifests or blobs. A registry that rejects tag deletion flips the `Ready` condition to `False` with reason `RegistryDeleteUnsupported`.
+The destination must conform to the OCI Distribution spec, accept arbitrarily nested repository paths, and refuse a manifest whose blobs it does not hold. With `cleanup.enabled`, it must also support tag deletion (`DELETE /v2/<name>/manifests/<tag>`) and run its own garbage collection of untagged manifests: by default kuik deletes tags only, never manifests or blobs. A registry that rejects tag deletion flips the `Ready` condition to `False` with reason `RegistryDeleteUnsupported`; on a destination the `ImageMirror` is the only writer of, [`cleanup.deleteByDigest`](#deleting-by-digest) works around it.
+
+### Deleting by digest
+
+`cleanup.deleteByDigest: true` is for a destination that refuses tag deletion, Harbor for instance. The sweep and the cleanup of a deleted `ImageMirror` then delete a tag in 3 steps:
+
+1. `HEAD` the tag to read the digest of its manifest (an index for a multi-platform image). A tag already gone counts as deleted.
+2. Guard, in the sweep only: `HEAD` every other tag of this cluster in the repository that the mirror still expects, those waiting out their retention included. If one of them points at the same manifest, the tag is kept in `status.pendingDeletion` and tried again at the next pass, with no event: deleting the manifest would take that tag with it (`latest` and `v1.2` of the same image, or the anchor tag of a pinned pod). A deleted `ImageMirror` expects no tag any more, so the guard never holds its cleanup.
+3. `DELETE /v2/<name>/manifests/<digest>`. A refusal is reported like a refused tag deletion: `ImageDeletionFailed`, and `Ready` `False` with reason `RegistryDeleteUnsupported`.
+
+These `HEAD`s go to the destination only, and only when a deletion is due, at most once per tag and pass; an expected tag whose digest the mirror already knows (a pinned digest, or the one the last pass or copy saw) is not read at all, and holds the deletion even before its copy. While the sweep deletes, no copy of the mirror starts; when a copy is running, no new one starts and the deletions wait for it to end, then run at once: otherwise a copy could write a tag of the manifest between the guard and the deletion.
+
+> [!WARNING]
+> **Deleting by digest is not safe on a destination shared by several clusters**, and the guard does not change that. Deleting a manifest removes every tag pointing at it: the tags of the other clusters, the tags of another `ImageMirror` writing to the same repository, and tags kuik does not manage (pushed by hand or by another tool). Each other cluster whose tag goes:
+>
+> - fails to pull that image from the mirror until its next destination pass copies it again (`mirror.destinationScan.interval`); under `rewritePolicy: Always`, every new pull of it is affected;
+> - copies the image from upstream again, spending upstream quota and traffic, and emits an `ImageRecopied` warning;
+> - loses the image for good when it is gone upstream; pinned digests are the most exposed, since registries often garbage-collect old digests;
+> - under `driftPolicy: Ignore`, copies whatever the upstream tag points to now, so its copy may move forward silently.
+>
+> Use it only on a destination path the `ImageMirror` is the only writer of: no other cluster, no other `ImageMirror`, no other tool and no hand-pushed tag.
 
 ### Deleting an ImageMirror
 
 A deleted `ImageMirror` stops routing new pods and copying images at once, then stays `Terminating` until kuik has released it:
 
 1. While a live pod runs an image under `destination.path`, it waits: a node rescheduling that pod would find the copy gone. Roll those workloads onto their origin to release it.
-2. With `cleanup.enabled`, it then deletes every tag of this cluster in `status.repositories`, whatever their retention. It keeps waiting while the `manage` credential cannot be read, or while the destination refuses tag deletion: released, it would take with it the only inventory of the tags left behind.
+2. With `cleanup.enabled`, it then deletes every tag of this cluster in `status.repositories`, whatever their retention, by digest under [`cleanup.deleteByDigest`](#deleting-by-digest). It keeps waiting while the `manage` credential cannot be read, or while the destination refuses the deletion: released, it would take with it the only inventory of the tags left behind.
 
-It retries after 10 seconds, doubling up to 30 minutes, and sooner when a pod goes. A destination that never accepts tag deletion holds the mirror for good: each try emits `ImageDeletionFailed`, and `Ready` goes `False` with reason `RegistryDeleteUnsupported`. Set `cleanup.enabled: false`, before deleting it or while it is held, to release it and leave the tags in place.
+It retries after 10 seconds, doubling up to 30 minutes, and sooner when a pod goes. A destination that never accepts the deletion holds the mirror for good: each try emits `ImageDeletionFailed`, and `Ready` goes `False` with reason `RegistryDeleteUnsupported`. Set `cleanup.enabled: false`, before deleting it or while it is held, to release it and leave the tags in place; when the destination refuses tag deletion and the `ImageMirror` is its only writer, `cleanup.deleteByDigest: true` lets the cleanup through instead.
 
 ### Status
 

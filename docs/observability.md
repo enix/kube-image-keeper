@@ -40,7 +40,7 @@ created.
 
 | Reason | Type | Emitted when |
 | ------ | ---- | ------------ |
-| `ResourceNotReady` | Warning | The `Ready` condition goes `False`. The message carries its reason: `InvalidConfig`, `SecretNotFound`, `SecretMalformed`, and `RegistryDeleteUnsupported` on an `ImageMirror` whose destination refuses tag deletion |
+| `ResourceNotReady` | Warning | The `Ready` condition goes `False`. The message carries its reason: `InvalidConfig`, `SecretNotFound`, `SecretMalformed`, and `RegistryDeleteUnsupported` on an `ImageMirror` whose destination refuses tag deletion, or manifest deletion under `cleanup.deleteByDigest` |
 | `ResourceReady` | Normal | `Ready` goes back to `True` |
 | `PullSecretInjectionFailed` | Warning | The secret syncer could not resolve a credential of the resource for one namespace, and wrote the [injected Secret](./concepts/pull-secrets.md) without it. The message carries the reason (`SecretNotFound`, `SecretMalformed`), the entry's path and the namespace. Emitted by the secret syncer, once while the failure lasts |
 
@@ -68,8 +68,8 @@ the upstream digest, emits nothing either.
 | `ImageCopyFailed` | Warning | Copies failed since the last status write. Failures sharing a reason and a registry make one event, naming the image, or how many images failed under their common prefix |
 | `ImageUnrecoverable` | Warning | No source can supply an image any more (`SourceNotFound` on the origin and every alternative). Pods still running it do so from a node cache. Once, when the copy starts failing that way |
 | `OrphanTagFound` | Warning | The sweep found a tag of this cluster no tracked image accounts for. It is deleted once its retention elapsed. Once per tag |
-| `ImageDeleted` | Normal | A tag was deleted after its retention elapsed |
-| `ImageDeletionFailed` | Warning | The destination refused a tag deletion, by the sweep or by the cleanup of a deleted `ImageMirror`. A destination that does not support tag deletion also sets `Ready` `False` with reason `RegistryDeleteUnsupported` |
+| `ImageDeleted` | Normal | A tag was deleted after its retention elapsed, or was already gone. Under `cleanup.deleteByDigest`, also for each tag of a manifest deleted with another tag of this cluster in the same pass |
+| `ImageDeletionFailed` | Warning | The destination refused a tag deletion, by the sweep or by the cleanup of a deleted `ImageMirror`, or under `cleanup.deleteByDigest` failed the `HEAD` of a tag or the manifest deletion. A destination that does not support the deletion also sets `Ready` `False` with reason `RegistryDeleteUnsupported`. A tag kept because another tag shares its manifest emits nothing |
 
 ## Metrics
 
