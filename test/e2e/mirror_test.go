@@ -30,7 +30,8 @@ type destinationRegistry struct {
 	// name is the name of its Deployment and its Service
 	name string
 	// refuseDeletes puts a proxy in front of the registry that answers 400 UNSUPPORTED to every
-	// DELETE: distribution deletes a tag even with storage deletion disabled
+	// DELETE but a manifest's by digest: distribution deletes a tag even with storage deletion
+	// disabled
 	refuseDeletes bool
 	// secret is its write credential, in the install namespace
 	secret string
@@ -39,7 +40,8 @@ type destinationRegistry struct {
 var (
 	// deletingRegistry accepts tag deletion
 	deletingRegistry = destinationRegistry{name: "registry", secret: "e2e-mirror-manage"}
-	// refusingRegistry refuses tag deletion as unsupported, as Harbor does
+	// refusingRegistry refuses tag deletion as unsupported and accepts manifest deletion by
+	// digest, as Harbor does
 	refusingRegistry = destinationRegistry{
 		name: "registry-nodelete", refuseDeletes: true, secret: "e2e-mirror-manage-nodelete",
 	}
@@ -75,6 +77,8 @@ const (
 	httpMirror = "e2e-mirror-http"
 	// refusedMirror copies to refusingRegistry
 	refusedMirror = "e2e-mirror-refused"
+	// digestMirror copies to refusingRegistry and deletes by digest
+	digestMirror = "e2e-mirror-digest"
 	// routedMirror routes the pods of mirrorNamespace to its copies on deletingRegistry
 	routedMirror = "e2e-mirror-routed"
 	// downMirror routes the pods of mirrorNamespace labelled downPodLabel to a destination that
@@ -85,13 +89,19 @@ const (
 // downPodLabel is the pod label downMirror selects: the running pause pod lacks it
 const downPodLabel = "kuik.enix.io/e2e-mirror-down"
 
-// refusingProxyConfig is the nginx in front of a registry that refuses deletion: every DELETE
-// gets 400 UNSUPPORTED, as Harbor answers a tag deletion (goharbor/harbor#24213), and any other
-// request reaches the registry unchanged, Host and port included, so that the upload locations
-// and the Basic challenge it returns name the proxy. Bodies stream both ways, unbounded.
+// refusingProxyConfig is the nginx in front of a registry that refuses tag deletion: every
+// DELETE but a manifest's by digest gets 400 UNSUPPORTED, as Harbor answers a tag deletion
+// (goharbor/harbor#24213), and any other request reaches the registry unchanged, Host and port
+// included, so that the upload locations and the Basic challenge it returns name the proxy.
+// Bodies stream both ways, unbounded.
 const refusingProxyConfig = `
 events {}
 http {
+  map "$request_method:$uri" $refused {
+    default 0;
+    "~^DELETE:/v2/.+/manifests/sha256:" 0;
+    "~^DELETE:" 1;
+  }
   server {
     listen 5000;
     client_max_body_size 0;
@@ -99,7 +109,7 @@ http {
     proxy_buffering off;
     default_type application/json;
     location / {
-      if ($request_method = DELETE) {
+      if ($refused) {
         return 400 '{"errors":[{"code":"UNSUPPORTED","message":"the e2e proxy refuses deletion"}]}';
       }
       proxy_pass http://127.0.0.1:5002;
@@ -333,10 +343,10 @@ var _ = Describe("Image mirroring", Ordered, func() {
 		// would wait on it. The deletion spec is what checks the finalizer.
 		// refusedMirror is gone unless its spec failed, and its destination never lets it go.
 		// The routing specs delete their mirrors themselves, unless they failed.
-		_, _ = kubectl("delete", "imagemirrors", copyMirror, httpMirror, refusedMirror, routedMirror, downMirror,
-			"--ignore-not-found", "--wait=false")
+		_, _ = kubectl("delete", "imagemirrors", copyMirror, httpMirror, refusedMirror, digestMirror, routedMirror,
+			downMirror, "--ignore-not-found", "--wait=false")
 		_, _ = kubectl("wait", "--for=delete", "imagemirror/"+copyMirror, "imagemirror/"+httpMirror, "--timeout=50s")
-		for _, name := range []string{copyMirror, httpMirror, refusedMirror, routedMirror, downMirror} {
+		for _, name := range []string{copyMirror, httpMirror, refusedMirror, digestMirror, routedMirror, downMirror} {
 			_, _ = kubectl("patch", "imagemirror", name, "--type=merge", "-p", `{"metadata":{"finalizers":null}}`)
 		}
 		_, _ = kubectl("delete", "ns", mirrorNamespace, registryNamespace, "--wait=false")
@@ -425,8 +435,23 @@ var _ = Describe("Image mirroring", Ordered, func() {
 				Expect(refusingRegistry.tags("refused/registry.k8s.io/pause")).To(ContainElement(pauseTag + "_" + clusterID))
 			})
 
-		PIt("deletes the tags of a deleted ImageMirror with cleanup.deleteByDigest by their manifest digest, then lets it go",
-			func() {})
+		It("deletes the tags of a deleted ImageMirror with cleanup.deleteByDigest by their manifest digest, then lets it go",
+			func() {
+				digest := mirrorManifest(digestMirror, refusingRegistry, "digest", true) +
+					"  cleanup:\n    deleteByDigest: true\n"
+				Expect(kubectlStdin(digest, "apply", "-f", "-")).Error().NotTo(HaveOccurred())
+				Eventually(refusingRegistry.tags, "4m").WithArguments("digest/registry.k8s.io/pause").
+					Should(ContainElement(pauseTag + "_" + clusterID))
+
+				_, err := kubectl("delete", "imagemirror", digestMirror, "--wait=false")
+				Expect(err).NotTo(HaveOccurred())
+
+				By("releasing the mirror once the manifest is deleted by digest")
+				Eventually(kubectl).WithArguments("get", "imagemirror", digestMirror, "--ignore-not-found", "-o", "name").
+					Should(BeEmpty())
+				// The tag and the anchor of the pinned pod point at one manifest: both are gone.
+				Expect(refusingRegistry.tags("digest/registry.k8s.io/pause")).To(BeEmpty())
+			})
 	})
 
 	// No node pulls from the in-cluster destination: these specs check what the webhook admits,
