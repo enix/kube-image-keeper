@@ -82,7 +82,7 @@ kubectl get imagemirror <name> -o jsonpath='{.status.conditions[?(@.type=="Ready
 | `SecretNotFound` | A `secretRef` names a Secret that does not exist in kuik's namespace | Create it in kuik's namespace (`kuik-system` by default): a `secretRef` carries no namespace |
 | `SecretMalformed` | The Secret is not of type `kubernetes.io/dockerconfigjson`, or its content does not parse | Recreate it with `kubectl create secret docker-registry` |
 | `InvalidConfig` | A selector or an entry the API server accepted cannot be used | The message names the field |
-| `RegistryDeleteUnsupported` | The `ImageMirror` destination refuses tag deletion, so the cleanup cannot run | Allow tag deletion on the registry, or set `cleanup.enabled: false` |
+| `RegistryDeleteUnsupported` | The `ImageMirror` destination refuses tag deletion, or manifest deletion under `cleanup.deleteByDigest`, so the cleanup cannot run | Allow the deletion on the registry, set `cleanup.deleteByDigest: true` when the `ImageMirror` is the only writer of its destination (see [Deleting by digest](../crds.md#deleting-by-digest)), or set `cleanup.enabled: false` |
 
 The other conditions (`FallbackActive`, `ImagesUnavailable`...) are not errors of the resource: they report an image, see [Status conventions](../crds.md#status-conventions).
 
@@ -124,9 +124,9 @@ An `AnonymousAccessDenied` event on the monitor says that a registry refused an 
 A deleted `ImageMirror` waits until it can be released safely:
 
 1. **A pod still runs one of its copies.** A rescheduled pod would find the copy gone. Restart those workloads: they go back to their origin.
-2. **It cannot delete its tags**, with `cleanup.enabled`: the `manage` credential cannot be read, or the destination refuses tag deletion. A destination that refuses tag deletion sets `Ready` to `False` with the reason `RegistryDeleteUnsupported`, and emits an `ImageDeletionFailed` event on each try.
+2. **It cannot delete its tags**, with `cleanup.enabled`: the `manage` credential cannot be read, or the destination refuses tag deletion, or manifest deletion under `cleanup.deleteByDigest`. A destination that refuses the deletion sets `Ready` to `False` with the reason `RegistryDeleteUnsupported`, its message naming which deletion was refused, and emits an `ImageDeletionFailed` event on each try.
 
-To release it while leaving the tags in place, set `cleanup.enabled: false` on it. See [Deleting an ImageMirror](../crds.md#deleting-an-imagemirror).
+To release it while leaving the tags in place, set `cleanup.enabled: false` on it. When the destination refuses tag deletion and the `ImageMirror` is its only writer, `cleanup.deleteByDigest: true` lets the cleanup through instead. When it refuses manifest deletion under `cleanup.deleteByDigest`, allow manifest deletion on the registry (on the CNCF `distribution` registry, `storage.delete.enabled`), or set `cleanup.enabled: false`. See [Deleting an ImageMirror](../crds.md#deleting-an-imagemirror).
 
 ## A status list is truncated
 
