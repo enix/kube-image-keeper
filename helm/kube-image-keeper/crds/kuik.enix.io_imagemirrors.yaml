@@ -65,7 +65,13 @@ spec:
                   any more.
                 properties:
                   deleteByDigest:
-                    description: deleteByDigest is a stub.
+                    default: false
+                    description: |-
+                      deleteByDigest deletes a tag by deleting the manifest it points at, for a destination
+                      that refuses tag deletion. A tag is kept while another tag of this cluster the mirror
+                      still expects shares its manifest. Not safe on a destination shared by several
+                      clusters: deleting a manifest removes every tag pointing at it, theirs included. No
+                      effect while enabled is false.
                     type: boolean
                   enabled:
                     default: true
