@@ -2073,13 +2073,90 @@ var _ = Describe("ImageMirror Controller", func() {
 			Expect(h.copied(destinationTag(src, "acme/app"))()).To(Succeed())
 		})
 
-		PIt("names cleanup.deleteByDigest in the Ready message of a mirror its destination holds by refusing tag deletion", func() {})
+		It("names cleanup.deleteByDigest in the Ready message of a mirror its destination holds by refusing tag deletion", func() {
+			pod := routedToCopy()
+			Expect(k8sClient.Delete(ctx, pod)).To(Succeed())
+			h.destination.Intercept(registrytest.Status(http.MethodDelete, "/manifests/", http.StatusBadRequest, nil))
+			deleteMirror()
+
+			h.reconcile()
+			Expect(gone()).To(BeFalse())
+			ready := h.condition(kuikv1alpha1.ConditionReady)
+			Expect(ready.Reason).To(Equal(kuikv1alpha1.ReasonRegistryDeleteUnsupported))
+			Expect(ready.Message).To(ContainSubstring("cleanup.enabled: false"))
+			Expect(ready.Message).To(ContainSubstring("cleanup.deleteByDigest: true"))
+		})
 
 		Context("with cleanup.deleteByDigest", func() {
-			PIt("deletes the manifests of its tags by digest on a destination refusing tag deletion, then releases its finalizer", func() {})
-			PIt("deletes a tag and the anchor sharing its manifest, the second already gone, then releases its finalizer", func() {})
-			PIt("emits ImageDeletionFailed and sets Ready False with reason RegistryDeleteUnsupported, naming manifest deletion, while the destination refuses manifest deletion", func() {})
-			PIt("releases its finalizer, leaving its tags, while cleanup is disabled", func() {})
+			It("deletes the manifests of its tags by digest on a destination refusing tag deletion, then releases its finalizer", func() {
+				pod := routedToCopy(withDeleteByDigest)
+				manifest := h.manifestOf(destinationTag(src, "acme/app"))
+				Expect(k8sClient.Delete(ctx, pod)).To(Succeed())
+				h.destination.Intercept(refuseTagDeletion(http.StatusBadRequest))
+				deleteMirror()
+
+				h.reconcile()
+				Expect(gone()).To(BeTrue())
+				Expect(h.manifestGone(manifest)).To(BeTrue())
+				Expect(h.copied(destinationTag(src, "acme/app"))()).NotTo(Succeed())
+				Expect(h.digestDeletes()).To(HaveLen(1))
+				Expect(h.destination.Requests(http.MethodDelete, "")).To(Equal(h.digestDeletes()))
+			})
+
+			It("deletes a tag and the anchor sharing its manifest, the second already gone, then releases its finalizer", func() {
+				src = h.source()
+				digest := src.Push("acme/app:v1", registrytest.Image())
+				pod := createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1@" + digest.String()})
+				h.mirror(withDeleteByDigest)
+				h.copyAll(1)
+				tag := destinationTag(src, "acme/app")
+				repository, _, _ := strings.Cut(tag, ":v1_")
+				anchor := repository + ":" + strings.Replace(digest.String(), ":", "-", 1) + "_" + mirrorClusterID
+				Expect(h.copied(anchor)()).To(Succeed())
+				Expect(k8sClient.Delete(ctx, pod)).To(Succeed())
+				deleteMirror()
+
+				h.reconcile()
+				Expect(gone()).To(BeTrue())
+				Expect(h.copied(tag)()).NotTo(Succeed())
+				Expect(h.copied(anchor)()).NotTo(Succeed())
+				Expect(h.digestDeletes()).To(HaveLen(1))
+			})
+
+			It("emits ImageDeletionFailed and sets Ready False with reason RegistryDeleteUnsupported, naming manifest deletion, while the destination refuses manifest deletion", func() {
+				pod := routedToCopy(withDeleteByDigest)
+				Expect(k8sClient.Delete(ctx, pod)).To(Succeed())
+				h.destination.Intercept(registrytest.Status(http.MethodDelete, "/manifests/", http.StatusMethodNotAllowed, nil))
+				deleteMirror()
+
+				h.reconcile()
+				Expect(gone()).To(BeFalse())
+				Expect(h.copied(destinationTag(src, "acme/app"))()).To(Succeed())
+				events := h.recorder.withReason("ImageDeletionFailed")
+				Expect(events).To(HaveLen(1))
+				Expect(events[0].note).To(ContainSubstring(mirrored))
+				ready := h.condition(kuikv1alpha1.ConditionReady)
+				Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+				Expect(ready.Reason).To(Equal(kuikv1alpha1.ReasonRegistryDeleteUnsupported))
+				Expect(ready.Message).To(ContainSubstring("manifest deletion"))
+				Expect(ready.Message).To(ContainSubstring("cleanup.enabled: false"))
+				Expect(ready.Message).NotTo(ContainSubstring("deleteByDigest"))
+			})
+
+			It("releases its finalizer, leaving its tags, while cleanup is disabled", func() {
+				pod := routedToCopy(func(im *kuikv1alpha1.ImageMirror) {
+					im.Spec.Cleanup = &kuikv1alpha1.Cleanup{Enabled: new(false), DeleteByDigest: new(true)}
+				})
+				Expect(k8sClient.Delete(ctx, pod)).To(Succeed())
+				h.destination.Reset()
+				deleteMirror()
+
+				h.reconcile()
+				Expect(gone()).To(BeTrue())
+				Expect(h.tagHeads(destinationTag(src, "acme/app"))).To(BeEmpty())
+				Expect(h.destination.Requests(http.MethodDelete, "")).To(BeEmpty())
+				Expect(h.copied(destinationTag(src, "acme/app"))()).To(Succeed())
+			})
 		})
 
 		It("drops the Scan series of its destination host once released", func() {
