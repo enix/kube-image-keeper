@@ -126,7 +126,7 @@ A deleted `ImageMirror` waits until it can be released safely:
 1. **A pod still runs one of its copies.** A rescheduled pod would find the copy gone. Restart those workloads: they go back to their origin.
 2. **It cannot delete its tags**, with `cleanup.enabled`: the `manage` credential cannot be read, or the destination refuses tag deletion, or manifest deletion under `cleanup.deleteByDigest`. A destination that refuses the deletion sets `Ready` to `False` with the reason `RegistryDeleteUnsupported`, its message naming which deletion was refused, and emits an `ImageDeletionFailed` event on each try.
 
-To release it while leaving the tags in place, set `cleanup.enabled: false` on it. When the destination refuses tag deletion and the `ImageMirror` is its only writer, `cleanup.deleteByDigest: true` lets the cleanup through instead. When it refuses manifest deletion under `cleanup.deleteByDigest`, allow manifest deletion on the registry (on the CNCF `distribution` registry, `storage.delete.enabled`), or set `cleanup.enabled: false`. See [Deleting an ImageMirror](../crds.md#deleting-an-imagemirror).
+To release it while leaving the tags in place, set `cleanup.enabled: false` on it. When the destination refuses tag deletion and the `ImageMirror` is its only writer, `cleanup.deleteByDigest: true` lets the cleanup through instead. When it refuses manifest deletion under `cleanup.deleteByDigest`, allow manifest deletion on the registry (on the CNCF `distribution` registry, `storage.delete.enabled`), or set `cleanup.enabled: false`. See [Deleting an ImageMirror](../crds.md#deleting-an-imagemirror), and [Harbor as an ImageMirror destination](./harbor-destination.md) for a Harbor destination.
 
 ## A status list is truncated
 

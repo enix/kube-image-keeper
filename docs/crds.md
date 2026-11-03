@@ -259,7 +259,7 @@ The destination must conform to the OCI Distribution spec, accept arbitrarily ne
 
 ### Deleting by digest
 
-`cleanup.deleteByDigest: true` is for a destination that refuses tag deletion, Harbor for instance. The sweep and the cleanup of a deleted `ImageMirror` then delete a tag in 3 steps:
+`cleanup.deleteByDigest: true` is for a destination that refuses tag deletion, Harbor for instance (see [Harbor as an ImageMirror destination](./guides/harbor-destination.md)). The sweep and the cleanup of a deleted `ImageMirror` then delete a tag in 3 steps:
 
 1. `HEAD` the tag to read the digest of its manifest (an index for a multi-platform image). A tag already gone counts as deleted.
 2. Guard, in the sweep only: `HEAD` every other tag of this cluster in the repository that the mirror still expects, those waiting out their retention included. If one of them points at the same manifest, the tag is kept in `status.pendingDeletion` and tried again at the next pass, with no event: deleting the manifest would take that tag with it (`latest` and `v1.2` of the same image, or the anchor tag of a pinned pod). A deleted `ImageMirror` expects no tag any more, so the guard never holds its cleanup.
