@@ -70,7 +70,12 @@ type Cleanup struct {
 	// +optional
 	Retention *metav1.Duration `json:"retention,omitempty"`
 
-	// deleteByDigest is a stub.
+	// deleteByDigest deletes a tag by deleting the manifest it points at, for a destination
+	// that refuses tag deletion. A tag is kept while another tag of this cluster the mirror
+	// still expects shares its manifest. Not safe on a destination shared by several
+	// clusters: deleting a manifest removes every tag pointing at it, theirs included. No
+	// effect while enabled is false.
+	// +kubebuilder:default=false
 	// +optional
 	DeleteByDigest *bool `json:"deleteByDigest,omitempty"`
 }
@@ -80,9 +85,9 @@ func (c *Cleanup) IsEnabled() bool {
 	return c == nil || c.Enabled == nil || *c.Enabled
 }
 
-// DeletesByDigest is a stub.
+// DeletesByDigest applies the default: tags are deleted by tag unless deleteByDigest is true.
 func (c *Cleanup) DeletesByDigest() bool {
-	return false
+	return c != nil && c.DeleteByDigest != nil && *c.DeleteByDigest
 }
 
 // ImageMirrorSpec defines the desired state of ImageMirror.
