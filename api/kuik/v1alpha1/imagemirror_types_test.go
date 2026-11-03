@@ -41,6 +41,14 @@ var _ = Describe("ImageMirror", func() {
 			Expect(im.Spec.Cleanup.Enabled).To(HaveValue(BeFalse()))
 			Expect(im.Spec.Cleanup.Retention).To(HaveValue(Equal(metav1.Duration{Duration: 168 * time.Hour})))
 		})
+
+		It("defaults cleanup.deleteByDigest to false, deleting by tag", func() {
+			im := newImageMirror("registry.tld/mirror/")
+			Expect(k8sClient.Create(ctx, im)).To(Succeed())
+			Expect(im.Spec.Cleanup).NotTo(BeNil())
+			Expect(im.Spec.Cleanup.DeleteByDigest).To(HaveValue(BeFalse()))
+			Expect(im.Spec.Cleanup.DeletesByDigest()).To(BeFalse())
+		})
 	})
 
 	Context("rewritePolicy and driftPolicy", func() {
@@ -197,6 +205,21 @@ var _ = Describe("Cleanup", func() {
 
 		It("is disabled when enabled is false", func() {
 			Expect((&Cleanup{Enabled: new(false)}).IsEnabled()).To(BeFalse())
+		})
+	})
+
+	Describe("DeletesByDigest", func() {
+		It("deletes by tag when cleanup is absent", func() {
+			var c *Cleanup
+			Expect(c.DeletesByDigest()).To(BeFalse())
+		})
+
+		It("deletes by tag when deleteByDigest is unset", func() {
+			Expect((&Cleanup{}).DeletesByDigest()).To(BeFalse())
+		})
+
+		It("deletes by digest when deleteByDigest is true", func() {
+			Expect((&Cleanup{DeleteByDigest: new(true)}).DeletesByDigest()).To(BeTrue())
 		})
 	})
 })

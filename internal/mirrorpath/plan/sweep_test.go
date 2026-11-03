@@ -152,4 +152,11 @@ var _ = Describe("Sweep", func() {
 			Expect(result.Retire).To(BeEmpty())
 		})
 	})
+
+	Context("the guard of a deletion by digest", func() {
+		PIt("guards a tag due for deletion with the tags of its repository the live references expect, the anchor of a pinned reference included", func() {})
+		PIt("guards it with the tags of its repository still waiting out their retention", func() {})
+		PIt("leaves out of its guard the tag itself, the tags due in the same pass and the tags of other repositories", func() {})
+		PIt("leaves the tags of other clusters out of its guard", func() {})
+	})
 })
