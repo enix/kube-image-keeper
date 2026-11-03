@@ -424,6 +424,9 @@ var _ = Describe("Image mirroring", Ordered, func() {
 					Should(BeEmpty())
 				Expect(refusingRegistry.tags("refused/registry.k8s.io/pause")).To(ContainElement(pauseTag + "_" + clusterID))
 			})
+
+		PIt("deletes the tags of a deleted ImageMirror with cleanup.deleteByDigest by their manifest digest, then lets it go",
+			func() {})
 	})
 
 	// No node pulls from the in-cluster destination: these specs check what the webhook admits,

@@ -64,6 +64,9 @@ spec:
                 description: cleanup deletes the destination tags no pod references
                   any more.
                 properties:
+                  deleteByDigest:
+                    description: deleteByDigest is a stub.
+                    type: boolean
                   enabled:
                     default: true
                     description: |-

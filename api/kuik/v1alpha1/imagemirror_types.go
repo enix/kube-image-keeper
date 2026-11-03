@@ -69,11 +69,20 @@ type Cleanup struct {
 	// +kubebuilder:default="168h"
 	// +optional
 	Retention *metav1.Duration `json:"retention,omitempty"`
+
+	// deleteByDigest is a stub.
+	// +optional
+	DeleteByDigest *bool `json:"deleteByDigest,omitempty"`
 }
 
 // IsEnabled applies the default: cleanup is enabled unless set to false.
 func (c *Cleanup) IsEnabled() bool {
 	return c == nil || c.Enabled == nil || *c.Enabled
+}
+
+// DeletesByDigest is a stub.
+func (c *Cleanup) DeletesByDigest() bool {
+	return false
 }
 
 // ImageMirrorSpec defines the desired state of ImageMirror.

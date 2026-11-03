@@ -112,3 +112,24 @@ var _ = Describe("DeleteTag", func() {
 		Expect(countedFor(reg.Host())).To(BeZero())
 	})
 })
+
+var _ = Describe("ManifestDigest", func() {
+	PIt("returns the digest of the manifest a tag points at", func() {})
+	PIt("returns the digest of the index a multi-platform tag points at", func() {})
+	PIt("falls back to a GET when the registry answers the HEAD without Docker-Content-Digest", func() {})
+	PIt("reports a tag the registry does not hold as not found, with no error", func() {})
+	PIt("counts nothing in kuik_registry_requests_total", func() {})
+})
+
+var _ = Describe("DeleteManifest", func() {
+	PIt("deletes the manifest of a digest reference", func() {})
+	PIt("refuses a tag reference, sending no DELETE", func() {})
+	PIt("succeeds when the manifest is already gone", func() {})
+	DescribeTable("returns ErrManifestDeleteUnsupported when the registry refuses manifest deletion",
+		func(code int) {},
+		PEntry("400 Bad Request", http.StatusBadRequest),
+		PEntry("405 Method Not Allowed", http.StatusMethodNotAllowed),
+		PEntry("501 Not Implemented", http.StatusNotImplemented),
+	)
+	PIt("counts nothing in kuik_registry_requests_total", func() {})
+})

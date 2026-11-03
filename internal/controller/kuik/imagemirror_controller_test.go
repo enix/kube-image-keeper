@@ -1450,6 +1450,27 @@ var _ = Describe("ImageMirror Controller", func() {
 			Expect(h.status().PendingDeletion).To(BeEmpty())
 			Expect(h.destination.Requests(http.MethodDelete, "")).To(BeEmpty())
 		})
+
+		PIt("names cleanup.deleteByDigest in the Ready message while the destination refuses tag deletion", func() {})
+
+		PIt("sends no manifest HEAD for the tag it deletes when deleteByDigest is false", func() {})
+
+		Context("with cleanup.deleteByDigest", func() {
+			PIt("deletes the manifest of a tag whose retention elapsed by its digest on a destination refusing tag deletion, and emits ImageDeleted", func() {})
+			PIt("counts a tag already gone from the destination as deleted, sending no DELETE, and emits ImageDeleted", func() {})
+			PIt("keeps a tag whose manifest another tag of this cluster the live references expect shares, its unusedSince unchanged, with no ImageDeletionFailed, no OrphanTagFound again and Ready left True", func() {})
+			PIt("keeps a tag whose manifest a tag of this cluster still waiting out its retention shares", func() {})
+			PIt("deletes a kept tag at the first pass after the tag sharing its manifest leaves the expected set, under a retention of 0", func() {})
+			PIt("deletes the manifest a tag of another cluster shares, which neither holds the deletion nor survives it", func() {})
+			PIt("deletes the shared manifest of tags of this cluster all due in the same pass, and emits ImageDeleted for each tag", func() {})
+			PIt("sends no manifest HEAD for its tags in a pass where no deletion is due", func() {})
+			PIt("emits ImageDeletionFailed and sets Ready False with reason RegistryDeleteUnsupported, naming manifest deletion, when the destination refuses the manifest deletion as unsupported, and stops deleting there", func() {})
+			PIt("emits ImageDeletionFailed, keeps the entry in pendingDeletion and leaves Ready True when the manifest deletion fails with a 5xx", func() {})
+			PIt("emits ImageDeletionFailed, keeps the entry in pendingDeletion and leaves Ready True when the HEAD of a guard tag fails", func() {})
+			PIt("sends no HEAD and no DELETE while cleanup is disabled", func() {})
+			PIt("defers its deletions to the next pass while a copy of the mirror runs", func() {})
+			PIt("starts no copy of the mirror while it deletes by digest", func() {})
+		})
 	})
 
 	Describe("its finalizer", func() {
@@ -1689,6 +1710,15 @@ var _ = Describe("ImageMirror Controller", func() {
 			h.reconcile()
 			Expect(gone()).To(BeTrue())
 			Expect(h.copied(destinationTag(src, "acme/app"))()).To(Succeed())
+		})
+
+		PIt("names cleanup.deleteByDigest in the Ready message of a mirror its destination holds by refusing tag deletion", func() {})
+
+		Context("with cleanup.deleteByDigest", func() {
+			PIt("deletes the manifests of its tags by digest on a destination refusing tag deletion, then releases its finalizer", func() {})
+			PIt("deletes a tag and the anchor sharing its manifest, the second already gone, then releases its finalizer", func() {})
+			PIt("emits ImageDeletionFailed and sets Ready False with reason RegistryDeleteUnsupported, naming manifest deletion, while the destination refuses manifest deletion", func() {})
+			PIt("releases its finalizer, leaving its tags, while cleanup is disabled", func() {})
 		})
 
 		It("drops the Scan series of its destination host once released", func() {
