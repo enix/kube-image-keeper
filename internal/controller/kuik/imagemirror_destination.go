@@ -116,6 +116,13 @@ func (r *ImageMirrorReconciler) selfCheck(ctx context.Context, im *kuikv1alpha1.
 // fails interrupts the pass, which records, deletes and retires nothing.
 func (r *ImageMirrorReconciler) sweep(ctx context.Context, im *kuikv1alpha1.ImageMirror, st *mirrorState, live []imagepath.Reference, pending []kuikv1alpha1.PendingDeletion, now time.Time) ([]kuikv1alpha1.PendingDeletion, []string, error) {
 	log := logf.FromContext(ctx)
+	// Copies start again once the sweep is over, unless it waits for the ones running.
+	waiting := false
+	defer func() {
+		if !waiting {
+			st.doneDeleting()
+		}
+	}()
 	manage, err := r.manageAuth(ctx, im)
 	if err != nil {
 		return nil, nil, err
@@ -162,10 +169,37 @@ func (r *ImageMirrorReconciler) sweep(ctx context.Context, im *kuikv1alpha1.Imag
 	for _, entry := range result.Pending {
 		entries[entry.Ref] = entry
 	}
+	byDigest := im.Spec.Cleanup.DeletesByDigest()
+	if byDigest && len(result.Delete) > 0 {
+		// A copy running could push a tag of a manifest between its guard and its deletion: no
+		// copy starts any more, and the end of the last one running brings the pass back.
+		waiting = !st.startDeleting()
+	}
+	if waiting {
+		log.V(1).Info("Held the deletion of ImageMirror tags until the copies of the mirror running end")
+		result.Delete = nil
+	}
+	guards := &digestReader{r: r, endpoint: endpoint, known: r.knownDigests(im, st, retained(live, pending)), read: map[string]string{}}
 	deleted := map[string]bool{}
 	for _, ref := range result.Delete {
-		err := r.registry.DeleteTag(ctx, endpoint(ref))
+		var (
+			err    error
+			keptBy string
+		)
+		if byDigest {
+			var outcome digestDeletion
+			outcome, err = r.deleteByDigest(ctx, endpoint, ref, result.Guard(ref), guards)
+			keptBy = outcome.keptBy
+			if outcome.manifest != "" {
+				log.Info("Deleted ImageMirror manifest", "image", outcome.manifest)
+			}
+		} else {
+			err = r.registry.DeleteTag(ctx, endpoint(ref))
+		}
 		switch {
+		case err == nil && keptBy != "":
+			// Held for good while that tag is expected: no event, the entry stays pending.
+			log.V(1).Info("Kept ImageMirror tag: a tag this cluster still expects shares its manifest", "image", ref, "sharedWith", keptBy)
 		case err == nil:
 			deleted[ref] = true
 			r.metrics.deletedTag(routing.KindImageMirror, im.Name, entries[ref])
@@ -175,18 +209,19 @@ func (r *ImageMirrorReconciler) sweep(ctx context.Context, im *kuikv1alpha1.Imag
 			// Events expire: the log is what records every deletion.
 			log.Info("Deleted ImageMirror tag", "image", ref, "reason", deletionReason(entries[ref]))
 			r.recorder.Eventf(im, nil, corev1.EventTypeNormal, "ImageDeleted", "Delete", "Deleted %s, unused for longer than its retention", ref)
-		case errors.Is(err, registry.ErrDeleteUnsupported):
+		case deleteUnsupported(err):
 			// The registry will keep refusing: stop there, the next pass tries once more.
-			log.Info("Stopped deleting ImageMirror tags: the destination refuses tag deletion", "image", ref, "error", err.Error())
+			log.Info("Stopped deleting ImageMirror tags: the destination refuses deletion", "image", ref, "error", err.Error())
 			st.mu.Lock()
 			st.deleteUnsupported = true
+			st.manifestRefused = byDigest
 			st.mu.Unlock()
 			r.recorder.Eventf(im, nil, corev1.EventTypeWarning, "ImageDeletionFailed", "Delete", "Failed to delete %s: %v", ref, err)
 		default:
 			log.Info("Failed to delete ImageMirror tag", "image", ref, "error", err.Error())
 			r.recorder.Eventf(im, nil, corev1.EventTypeWarning, "ImageDeletionFailed", "Delete", "Failed to delete %s: %v", ref, err)
 		}
-		if errors.Is(err, registry.ErrDeleteUnsupported) {
+		if deleteUnsupported(err) {
 			break
 		}
 	}
