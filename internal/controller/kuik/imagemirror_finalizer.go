@@ -66,8 +66,8 @@ func (st *mirrorState) holdAgain() time.Duration {
 // +kubebuilder:rbac:groups=kuik.enix.io,resources=imagemirrors/finalizers,verbs=update,roleName=reconciler
 
 // finalize releases a deleted ImageMirror once no pod runs one of its copies any more: a node
-// rescheduling such a pod would find its image gone. With cleanup, it first deletes by tag
-// every tag of this cluster in the repositories the mirror wrote to.
+// rescheduling such a pod would find its image gone. With cleanup, it first deletes every tag
+// of this cluster in the repositories the mirror wrote to.
 func (r *ImageMirrorReconciler) finalize(ctx context.Context, im *kuikv1alpha1.ImageMirror, resource routing.Resource) (ctrl.Result, error) {
 	if !controllerutil.ContainsFinalizer(im, mirrorFinalizer) {
 		return ctrl.Result{}, nil
@@ -92,7 +92,7 @@ func (r *ImageMirrorReconciler) finalize(ctx context.Context, im *kuikv1alpha1.I
 			return ctrl.Result{}, err
 		}
 		if refused {
-			enabled, err := r.reportRefused(ctx, im.Name, resource)
+			enabled, err := r.reportRefused(ctx, im.Name, resource, im.Spec.Cleanup.DeletesByDigest())
 			if err != nil {
 				if apierrors.IsConflict(err) {
 					return ctrl.Result{RequeueAfter: conflictWait}, nil
@@ -134,19 +134,29 @@ func (r *ImageMirrorReconciler) patchFinalizers(ctx context.Context, im, origina
 	return r.Patch(ctx, im, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{}))
 }
 
-// refusedCleanup is why a deleted mirror whose destination refuses tag deletion is not ready:
-// only an operator can release it.
-var refusedCleanup = condition.NotReady{
-	Reason:  kuikv1alpha1.ReasonRegistryDeleteUnsupported,
-	Message: "the destination refuses tag deletion: cleanup cannot make progress; set cleanup.enabled: false to release the ImageMirror and leave its tags in place",
+// refusedCleanup is why a deleted mirror whose destination refuses deletion, by digest or by
+// tag, is not ready: only an operator can release it. A mirror deleting by tag is pointed to
+// deleting by digest too.
+func refusedCleanup(byDigest bool) condition.NotReady {
+	const release = "set cleanup.enabled: false to release the ImageMirror and leave its tags in place"
+	if byDigest {
+		return condition.NotReady{
+			Reason:  kuikv1alpha1.ReasonRegistryDeleteUnsupported,
+			Message: "the destination refuses manifest deletion: cleanup cannot make progress; " + release,
+		}
+	}
+	return condition.NotReady{
+		Reason:  kuikv1alpha1.ReasonRegistryDeleteUnsupported,
+		Message: "the destination refuses tag deletion: cleanup cannot make progress; " + release + ", or " + deleteByDigestHint,
+	}
 }
 
 // reportRefused sets Ready False with reason RegistryDeleteUnsupported on a deleted mirror its
 // destination holds, and writes the status only when that changed it: a held mirror is tried
 // again for good. It reads the mirror again first, since deleting the tags took registry round
 // trips, and reports false, writing nothing, when cleanup was disabled meanwhile: the next try
-// releases it.
-func (r *ImageMirrorReconciler) reportRefused(ctx context.Context, name string, resource routing.Resource) (bool, error) {
+// releases it. byDigest is how the refused deletion was made, whatever the spec says now.
+func (r *ImageMirrorReconciler) reportRefused(ctx context.Context, name string, resource routing.Resource, byDigest bool) (bool, error) {
 	var im kuikv1alpha1.ImageMirror
 	if err := r.Get(ctx, types.NamespacedName{Name: name}, &im); err != nil {
 		return false, err
@@ -155,7 +165,7 @@ func (r *ImageMirrorReconciler) reportRefused(ctx context.Context, name string, 
 		return false, nil
 	}
 	next := im.Status.DeepCopy()
-	notReady := refusedCleanup
+	notReady := refusedCleanup(byDigest)
 	r.readiness.Set(&im, resource.Kind, resource.Name, &next.Conditions, im.Generation, &notReady)
 	if equality.Semantic.DeepEqual(im.Status, *next) {
 		return true, nil
@@ -184,8 +194,9 @@ func (r *ImageMirrorReconciler) runsCopies(ctx context.Context, im *kuikv1alpha1
 	return false, nil
 }
 
-// deleteTags deletes by tag every tag of this cluster in the repositories of im, and reports
-// whether it got through, and whether the destination refused a deletion as unsupported. A
+// deleteTags deletes by tag, or by digest under cleanup.deleteByDigest, every tag of this
+// cluster in the repositories of im, and reports whether it got through, and whether the
+// destination refused a deletion as unsupported. A
 // manage credential that cannot be read or a destination refusing tag deletion holds the
 // mirror: released, it would take with it status.repositories, the only inventory of the tags
 // left behind.
@@ -204,10 +215,13 @@ func (r *ImageMirrorReconciler) deleteTags(ctx context.Context, im *kuikv1alpha1
 	if err != nil {
 		return false, false, err
 	}
+	endpoint := func(ref string) registry.Endpoint {
+		return registry.Endpoint{Reference: ref, Insecure: im.Spec.Destination.Insecure, Auth: manage(ref)}
+	}
+	byDigest := im.Spec.Cleanup.DeletesByDigest()
 	suffix := "_" + r.clusterID
 	for _, repository := range im.Status.Repositories {
-		endpoint := registry.Endpoint{Reference: repository, Insecure: im.Spec.Destination.Insecure, Auth: manage(repository)}
-		tags, err := r.registry.ListTags(ctx, endpoint)
+		tags, err := r.registry.ListTags(ctx, endpoint(repository))
 		if err != nil {
 			return false, false, err
 		}
@@ -215,17 +229,25 @@ func (r *ImageMirrorReconciler) deleteTags(ctx context.Context, im *kuikv1alpha1
 			if !strings.HasSuffix(tag, suffix) {
 				continue
 			}
-			endpoint.Reference = repository + ":" + tag
-			err := r.registry.DeleteTag(ctx, endpoint)
-			if errors.Is(err, registry.ErrDeleteUnsupported) {
-				log.Info("Held a deleted ImageMirror: its destination refuses tag deletion", "image", endpoint.Reference, "error", err.Error())
-				r.recorder.Eventf(im, nil, corev1.EventTypeWarning, "ImageDeletionFailed", "Delete", "Failed to delete %s: %v", endpoint.Reference, err)
+			ref := repository + ":" + tag
+			if byDigest {
+				// The mirror expects no tag any more: no guard holds the deletion.
+				var outcome digestDeletion
+				if outcome, err = r.deleteByDigest(ctx, endpoint, ref, nil, nil); err == nil && outcome.manifest != "" {
+					log.Info("Deleted the manifest of a deleted ImageMirror", "image", outcome.manifest)
+				}
+			} else {
+				err = r.registry.DeleteTag(ctx, endpoint(ref))
+			}
+			if deleteUnsupported(err) {
+				log.Info("Held a deleted ImageMirror: its destination refuses deletion", "image", ref, "error", err.Error())
+				r.recorder.Eventf(im, nil, corev1.EventTypeWarning, "ImageDeletionFailed", "Delete", "Failed to delete %s: %v", ref, err)
 				return false, true, nil
 			}
 			if err != nil {
 				return false, false, err
 			}
-			log.Info("Deleted the tag of a deleted ImageMirror", "image", endpoint.Reference)
+			log.Info("Deleted the tag of a deleted ImageMirror", "image", ref)
 		}
 	}
 	return true, false, nil
