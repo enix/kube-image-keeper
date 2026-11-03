@@ -212,15 +212,17 @@ describes a dropped file misleads the reviewer and CodeRabbit alike.
 
   - The open threads read above prints nothing.
 
-  Add the label only once the `E2E` run of the last push has finished (it fails within
-  seconds without the label: `gh pr checks <n>` shows it). Both runs share one concurrency
-  group: a label added while the push's run starts can get its own run cancelled.
+  Add the label only once the E2E workflow run of the last push has finished (without the
+  label it ends within seconds, its job named `E2E waits for the e2e-ready label`:
+  `gh pr checks <n>` shows it). Both runs share one concurrency group: a label added while
+  the push's run starts can get its own run cancelled.
 
-  The required `E2E` check fails until the label is there. Skip it when the PR changes no
-  path the suite depends on (the list in `.github/workflows/e2e.yaml`): `E2E` passes
-  without it. The suite then runs once. If it fails, push `fixup!` commits: `E2E` fails at
-  once without running the suite until the next autosquash and force-push, which runs it
-  again.
+  The required `E2E` check waits ("Expected") until the label is there, which blocks the
+  merge. Skip it when the PR changes no path the suite depends on (the list in
+  `.github/workflows/e2e.yaml`): `E2E` passes without it. The suite then runs once. If it
+  fails, push `fixup!` commits: `E2E` waits again, the job named
+  `E2E waits for the autosquash`, without running the suite until the next autosquash and
+  force-push, which runs it again.
 
 ## 6. Merge
 
