@@ -154,9 +154,43 @@ var _ = Describe("Sweep", func() {
 	})
 
 	Context("the guard of a deletion by digest", func() {
-		PIt("guards a tag due for deletion with the tags of its repository the live references expect, the anchor of a pinned reference included", func() {})
-		PIt("guards it with the tags of its repository still waiting out their retention", func() {})
-		PIt("leaves out of its guard the tag itself, the tags due in the same pass and the tags of other repositories", func() {})
-		PIt("leaves the tags of other clusters out of its guard", func() {})
+		const oldTag = "old_" + clusterID
+		due := now.Add(-retention - time.Second)
+
+		It("guards a tag due for deletion with the tags of its repository the live references expect, the anchor of a pinned reference included", func() {
+			result := sweep(refs("quay.io/acme/app:v1", "quay.io/acme/app:v2@"+digest), []string{oldTag},
+				entry(oldTag, "", due)).Run()
+
+			Expect(result.Delete).To(ConsistOf(repository + ":" + oldTag))
+			anchor := strings.Replace(digest, ":", "-", 1) + "_" + clusterID
+			Expect(result.Guard(repository + ":" + oldTag)).To(ConsistOf(
+				repository+":"+ownTag,
+				repository+":v2_"+clusterID,
+				repository+":"+anchor,
+			))
+		})
+
+		It("guards it with the tags of its repository still waiting out their retention", func() {
+			result := sweep(nil, []string{oldTag, "v3_" + clusterID},
+				entry(oldTag, "", due), entry("v3_"+clusterID, "quay.io/acme/app:v3", now)).Run()
+
+			Expect(result.Delete).To(ConsistOf(repository + ":" + oldTag))
+			Expect(result.Guard(repository + ":" + oldTag)).To(ConsistOf(repository + ":v3_" + clusterID))
+		})
+
+		It("leaves out of its guard the tag itself, the tags due in the same pass and the tags of other repositories", func() {
+			result := sweep(refs("quay.io/acme/other:v1"), []string{oldTag, "older_" + clusterID},
+				entry(oldTag, "", due), entry("older_"+clusterID, "", due)).Run()
+
+			Expect(result.Delete).To(HaveLen(2))
+			Expect(result.Guard(repository + ":" + oldTag)).To(BeEmpty())
+		})
+
+		It("leaves the tags of other clusters out of its guard", func() {
+			result := sweep(nil, []string{oldTag, otherTag}, entry(oldTag, "", due)).Run()
+
+			Expect(result.Delete).To(ConsistOf(repository + ":" + oldTag))
+			Expect(result.Guard(repository + ":" + oldTag)).To(BeEmpty())
+		})
 	})
 })

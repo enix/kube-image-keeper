@@ -70,6 +70,11 @@ type SweepResult struct {
 	Retire []string
 }
 
+// Guard is a stub.
+func (r SweepResult) Guard(ref string) []string {
+	return nil
+}
+
 // Run diffs the listed tags of this cluster forward against the tags the live references
 // expect.
 func (s Sweep) Run() SweepResult {
