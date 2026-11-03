@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/google/go-containerregistry/pkg/name"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 )
 
@@ -60,5 +61,18 @@ func (c *Client) DeleteTag(ctx context.Context, tag Endpoint) error {
 	if errs != nil {
 		return errors.Join(errs...)
 	}
+	return nil
+}
+
+// ErrManifestDeleteUnsupported is a stub.
+var ErrManifestDeleteUnsupported = errors.New("stub")
+
+// ManifestDigest is a stub.
+func (c *Client) ManifestDigest(ctx context.Context, image Endpoint) (v1.Hash, bool, error) {
+	return v1.Hash{}, false, nil
+}
+
+// DeleteManifest is a stub.
+func (c *Client) DeleteManifest(ctx context.Context, manifest Endpoint) error {
 	return nil
 }
