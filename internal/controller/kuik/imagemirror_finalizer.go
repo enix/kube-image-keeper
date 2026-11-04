@@ -10,6 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -31,8 +32,9 @@ import (
 const mirrorFinalizer = "kuik.enix.io/mirror-cleanup"
 
 // A deleted mirror its finalizer holds tries again after finalizerWait, doubled at each try up
-// to finalizerMaxWait: what holds it, pods or a destination refusing deletion, rarely clears
-// within seconds, and a pod event reconciles it sooner anyway.
+// to finalizerMaxWait: what holds it, a manage credential that cannot be read or a destination
+// refusing deletion, rarely clears within seconds, and a fix of the credential or of the spec
+// reconciles it sooner anyway.
 const (
 	finalizerWait    = 10 * time.Second
 	finalizerMaxWait = 30 * time.Minute
@@ -65,9 +67,11 @@ func (st *mirrorState) holdAgain() time.Duration {
 // +kubebuilder:rbac:groups=kuik.enix.io,resources=imagemirrors,verbs=update;patch,roleName=reconciler
 // +kubebuilder:rbac:groups=kuik.enix.io,resources=imagemirrors/finalizers,verbs=update,roleName=reconciler
 
-// finalize releases a deleted ImageMirror once no pod runs one of its copies any more: a node
-// rescheduling such a pod would find its image gone. With cleanup, it first deletes every tag
-// of this cluster in the repositories the mirror wrote to.
+// finalize releases a deleted ImageMirror, with cleanup once it deleted every tag of this
+// cluster in the repositories the mirror wrote to. It never waits for the pods running its
+// copies: a recreated pod goes through the webhook again, which offers no deleted mirror, and a
+// restarted container reuses the image of its node. Only a container pulling with
+// imagePullPolicy Always cannot pull its copy again: the release logs those.
 func (r *ImageMirrorReconciler) finalize(ctx context.Context, im *kuikv1alpha1.ImageMirror, resource routing.Resource) (ctrl.Result, error) {
 	if !controllerutil.ContainsFinalizer(im, mirrorFinalizer) {
 		return ctrl.Result{}, nil
@@ -78,13 +82,6 @@ func (r *ImageMirrorReconciler) finalize(ctx context.Context, im *kuikv1alpha1.I
 	r.stop(im.Name, st)
 	if st.halt() > 0 {
 		return ctrl.Result{RequeueAfter: inFlightWait}, nil
-	}
-	running, err := r.runsCopies(ctx, im)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	if running {
-		return ctrl.Result{RequeueAfter: r.state(im.Name).holdAgain()}, nil
 	}
 	if im.Spec.Cleanup.IsEnabled() {
 		done, refused, err := r.deleteTags(ctx, im)
@@ -113,6 +110,11 @@ func (r *ImageMirrorReconciler) finalize(ctx context.Context, im *kuikv1alpha1.I
 			return ctrl.Result{RequeueAfter: r.state(im.Name).holdAgain()}, nil
 		}
 	}
+	// The count only feeds a log line: a failed pod list never holds the mirror.
+	pulling, example, err := r.pullingAlways(ctx, im)
+	if err != nil {
+		logf.FromContext(ctx).Info("Failed to list the pods pulling copies of deleted ImageMirror", "error", err.Error())
+	}
 	original := im.DeepCopy()
 	controllerutil.RemoveFinalizer(im, mirrorFinalizer)
 	if err := r.patchFinalizers(ctx, im, original); err != nil {
@@ -122,7 +124,12 @@ func (r *ImageMirrorReconciler) finalize(ctx context.Context, im *kuikv1alpha1.I
 		return ctrl.Result{}, err
 	}
 	r.forget(resource)
-	logf.FromContext(ctx).Info("Released deleted ImageMirror")
+	log := logf.FromContext(ctx)
+	log.Info("Released deleted ImageMirror")
+	if pulling > 0 {
+		log.Info("Released deleted ImageMirror while live pods pull its copies with imagePullPolicy Always",
+			"pods", pulling, "pod", klog.KObj(example))
+	}
 	return ctrl.Result{}, nil
 }
 
@@ -174,24 +181,43 @@ func (r *ImageMirrorReconciler) reportRefused(ctx context.Context, name string, 
 	return true, r.Status().Update(ctx, &im)
 }
 
-// runsCopies reports whether a live pod runs an image under the destination of im.
-func (r *ImageMirrorReconciler) runsCopies(ctx context.Context, im *kuikv1alpha1.ImageMirror) (bool, error) {
+// pullingAlways counts the live pods with a container that runs an image under the destination
+// of im with imagePullPolicy Always, and returns one of them: once the mirror is gone, such a
+// container cannot pull its image again until its pod is recreated.
+func (r *ImageMirrorReconciler) pullingAlways(ctx context.Context, im *kuikv1alpha1.ImageMirror) (int, *corev1.Pod, error) {
 	var pods corev1.PodList
 	if err := r.List(ctx, &pods); err != nil {
-		return false, err
+		return 0, nil, err
 	}
+	count := 0
+	var example *corev1.Pod
 	for i := range pods.Items {
 		pod := &pods.Items[i]
-		if !attribution.Live(pod) {
+		if !attribution.Live(pod) || !pullsCopyAlways(pod, im.Spec.Destination.Path) {
 			continue
 		}
-		for _, c := range attribution.Containers(pod) {
-			if ref, err := imagepath.Parse(c.Image); err == nil && mirrorpath.UnderDestination(im.Spec.Destination.Path, ref) {
-				return true, nil
+		count++
+		if example == nil {
+			example = pod
+		}
+	}
+	return count, example, nil
+}
+
+// pullsCopyAlways reports whether a container of pod runs an image under destination with
+// imagePullPolicy Always.
+func pullsCopyAlways(pod *corev1.Pod, destination string) bool {
+	for _, list := range [][]corev1.Container{pod.Spec.InitContainers, pod.Spec.Containers} {
+		for _, c := range list {
+			if c.ImagePullPolicy != corev1.PullAlways {
+				continue
+			}
+			if ref, err := imagepath.Parse(c.Image); err == nil && mirrorpath.UnderDestination(destination, ref) {
+				return true
 			}
 		}
 	}
-	return false, nil
+	return false
 }
 
 // deleteTags deletes by tag, or by digest under cleanup.deleteByDigest, every tag of this
