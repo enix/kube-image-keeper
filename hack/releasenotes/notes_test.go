@@ -381,6 +381,18 @@ Changes since [3.0.0-beta.1](https://github.com/enix/kube-image-keeper/releases/
 `))
 	})
 
+	It("shows the changelog lists open when the notes have no highlights, since nothing else tells what changed", func() {
+		Expect(render(mustParse(with(noHighlights...)))).To(HaveSuffix(`### Features
+
+- **Routing**: A routing feature. (#802)
+- **Mirroring**: A mirroring feature. (#803)
+
+### Fixes
+
+- **Chart**: A chart fix. (#804)
+`))
+	})
+
 	It("lists the areas of a single entry first, led by their area, then each area of several entries under its bold line",
 		func() {
 			body := render(mustParse(with(
