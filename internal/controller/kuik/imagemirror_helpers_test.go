@@ -1,8 +1,10 @@
 package kuik
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -25,6 +27,8 @@ import (
 	clocktesting "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
@@ -243,6 +247,48 @@ func (h *mirrorHarness) reconcile() reconcile.Result {
 	result, err := h.reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: h.name}})
 	Expect(err).NotTo(HaveOccurred())
 	return result
+}
+
+// msgReleasedWhilePullingAlways is the message of the line a deleted mirror logs when it is
+// released while live pods run its copies with imagePullPolicy Always.
+const msgReleasedWhilePullingAlways = "Released deleted ImageMirror while live pods pull its copies with imagePullPolicy Always"
+
+// lockedBuffer is a buffer a logger may write to from several goroutines.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// reconcileLogged runs one reconcile of the mirror under test and returns every line it logs at
+// Info, each decoded from its JSON form.
+func (h *mirrorHarness) reconcileLogged() []map[string]any {
+	GinkgoHelper()
+	out := &lockedBuffer{}
+	log := zap.New(zap.WriteTo(out), zap.JSONEncoder())
+	_, err := h.reconciler.Reconcile(logf.IntoContext(ctx, log), reconcile.Request{NamespacedName: types.NamespacedName{Name: h.name}})
+	Expect(err).NotTo(HaveOccurred())
+	var lines []map[string]any
+	for line := range strings.SplitSeq(strings.TrimSpace(out.String()), "\n") {
+		if line == "" {
+			continue
+		}
+		var entry map[string]any
+		Expect(json.Unmarshal([]byte(line), &entry)).To(Succeed(), "line %q", line)
+		lines = append(lines, entry)
+	}
+	return lines
 }
 
 // status reads the status of the mirror under test.
