@@ -550,9 +550,8 @@ func (r *ImageMirrorReconciler) mirrorsSelecting(ctx context.Context, obj client
 	}
 	var requests []reconcile.Request
 	for i := range list.Items {
-		// A deleted mirror waits for the pods running its copies: it hears of them all.
 		s, _ := mirrorScope(&list.Items[i])
-		if s.selects(pod, ns.Labels) || !list.Items[i].DeletionTimestamp.IsZero() {
+		if s.selects(pod, ns.Labels) {
 			requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{Name: list.Items[i].Name}})
 		}
 	}
