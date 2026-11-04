@@ -160,6 +160,10 @@ build are in [`.claude/rules/docs.md`](./.claude/rules/docs.md).
   name in the local task list of the outbound hook,
   which allows it itself after a leading `-d` to a worktree (an allow rule cannot pin the value
   of `-d`).
+- `hooks/run-main-hook.sh` runs every hook below, and those of the agents, as it stands on
+  `origin/main`, whatever the branch of the session: a session started in an old worktree
+  runs today's guards, and a branch that edits a hook is not checked by its own edit. A hook
+  change applies once merged; `KUIK_LIVE_HOOKS=1` runs the working copy's hooks to try one.
 - `hooks/guard-generated-files.sh` refuses Edit and Write on the generated files of
   [Code](#code) and names the task to run instead. A Bash command that writes a file
   (`sed -i`, `>`) is not covered.

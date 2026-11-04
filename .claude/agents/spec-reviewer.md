@@ -15,7 +15,7 @@ hooks:
     - matcher: "Bash"
       hooks:
         - type: command
-          command: '"$CLAUDE_PROJECT_DIR"/.claude/hooks/review-guard.sh --outline || exit 2'
+          command: '"$CLAUDE_PROJECT_DIR"/.claude/hooks/run-main-hook.sh review-guard.sh --outline || exit 2'
 ---
 
 # Spec conformance reviewer

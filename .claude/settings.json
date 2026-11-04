@@ -107,7 +107,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-generated-files.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/run-main-hook.sh guard-generated-files.sh",
             "timeout": 10
           }
         ]
@@ -117,7 +117,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/confirm-outbound-actions.sh || exit 2",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/run-main-hook.sh confirm-outbound-actions.sh || exit 2",
             "timeout": 30
           }
         ]
