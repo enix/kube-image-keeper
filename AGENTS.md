@@ -60,7 +60,7 @@ internal/status/*             Status building blocks shared by the reconcilers: 
 config/                       controller-gen output (CRDs, rbac/role.yaml, webhook), read by envtest
 helm/kube-image-keeper/       The Helm chart, the only deployment path (crds/ and files/ generated)
 test/e2e/                     End-to-end suite, runs on a Kind cluster
-test/acceptance/              Acceptance of a release on a cluster where kuik runs: user stories (scenarios.md),
+test/acceptance/              Acceptance of a release on a shared cluster: user stories (scenarios.md),
                               YAML fixtures and a program that applies and prints test objects, never asserts
                               (see its README)
 hack/                         Developer tools run with go run (the test outline, the values check,
@@ -126,7 +126,10 @@ cert-manager). Read the one that matters before editing.
 **Every behaviour change ships with its tests and its documentation** in the same PR: the
 page under `docs/`, the `# --` comments of `values.yaml` for chart values, this file or the
 rule when the layout or the rules change. A change that adds or lifts a known limit updates
-`docs/known-limits.md` in the same PR.
+`docs/known-limits.md` in the same PR. A change that makes an acceptance scenario, fixture or
+guard comment of `test/acceptance/` wrong updates it in the same PR; a change with no
+acceptance effect leaves those files alone. New scenarios still go in their own PR
+([`acceptance-scenarios`](./.claude/skills/acceptance-scenarios/SKILL.md)).
 
 **Do what the kubelet does.** When kuik does something the kubelet already does
 (credentials, Secret formats, anonymous fallback, retries and backoff, references and
@@ -213,12 +216,13 @@ build are in [`.claude/rules/docs.md`](./.claude/rules/docs.md).
   [`pull-request`](./.claude/skills/pull-request/SKILL.md) (prepares the branch, drafts the
   description for the user to confirm, keeps it in step),
   [`e2e-spec`](./.claude/skills/e2e-spec/SKILL.md) (e2e specs on Kind, added last in a PR),
-  [`acceptance-scenarios`](./.claude/skills/acceptance-scenarios/SKILL.md) (drafts the
-  acceptance scenarios of a release from its commits, with the user, and writes the agreed
-  ones; never touches a cluster),
+  [`acceptance-scenarios`](./.claude/skills/acceptance-scenarios/SKILL.md) (drafts new
+  acceptance scenarios when the maintainer asks, with the user, and writes the agreed ones;
+  never touches a cluster),
   [`release-acceptance`](./.claude/skills/release-acceptance/SKILL.md) (acceptance of a release on
-  a shared cluster: runs the scenarios of `test/acceptance/scenarios.md`, explores and
-  judges, and cleans up once the user accepts the results)
+  a shared cluster once it is deployed there, never on a throwaway cluster (Kind, a local one):
+  runs the scenarios of `test/acceptance/scenarios.md`, explores and judges, cleans up at
+  once when everything passed and waits for the user otherwise)
   and [`release-notes`](./.claude/skills/release-notes/SKILL.md) (every release: computes
   the next version, drafts its notes for users with the person who releases, and creates the
   draft GitHub release the Release workflow requires).

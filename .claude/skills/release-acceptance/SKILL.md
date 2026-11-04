@@ -1,6 +1,6 @@
 ---
 name: release-acceptance
-description: Use when asked to run the acceptance tests of a kuik v3 release (also called a smoke test) on a pre-production or other cluster where kuik is already installed, for example "validate kuik 3.0.0-alpha.3 on preprod", "smoke test the release on our cluster" or "run the acceptance tests".
+description: Use when asked to run the acceptance tests of a kuik v3 release (also called a smoke test) on a shared cluster where the release is deployed (a pre-production cluster that runs real workloads), for example "validate kuik 3.0.0-alpha.3 on preprod", "smoke test the release on our cluster" or "run the acceptance tests".
 argument-hint: "<version>"
 ---
 
@@ -8,18 +8,18 @@ argument-hint: "<version>"
 
 ## Overview
 
-Accepts one kuik v3 release on a cluster that runs real workloads. The program [`test/acceptance/`](../../../test/acceptance/README.md) applies the fixtures and prints what the cluster holds; it never decides. **You judge**: you compare what it prints with what [`docs/v3/`](../../../docs/v3/) says, look for what nobody wrote a check for, and report ([note 0015](../../../notes/0015-acceptance-tooling-acts-the-agent-judges.md)). Read the [README](../../../test/acceptance/README.md) first (its commands and its guard), then [`scenarios.md`](../../../test/acceptance/scenarios.md): the user stories you run, each with what to prepare, what to expect and how to check it. They are the floor every run covers, not the ceiling: a run that only ticks them found nothing an e2e spec would not.
+Accepts one kuik v3 release on a shared cluster that runs real workloads, once the release is deployed there. Never on a throwaway cluster (Kind, a local cluster): the Kind e2e suite covers what those can show. The program [`test/acceptance/`](../../../test/acceptance/README.md) applies the fixtures and prints what the cluster holds; it never decides. **You judge**: you compare what it prints with what [`docs/v3/`](../../../docs/v3/) says, look for what nobody wrote a check for, and report ([note 0015](../../../notes/0015-acceptance-tooling-acts-the-agent-judges.md)). Read the [README](../../../test/acceptance/README.md) first (its commands and its guard), then [`scenarios.md`](../../../test/acceptance/scenarios.md): the user stories you run, each with what to prepare, what to expect and how to check it. They are the floor every run covers, not the ceiling: a run that only ticks them found nothing an e2e spec would not.
 
-You run the scenarios; you do not write them. New ones are drafted per release with the user by the [`acceptance-scenarios`](../acceptance-scenarios/SKILL.md) skill, before this run.
+You run the scenarios; you do not write them. New ones are drafted with the user by the [`acceptance-scenarios`](../acceptance-scenarios/SKILL.md) skill, when the maintainer asks for them.
 
 The cluster is not a test cluster: every rule below protects the workloads already on it.
 
 ## Hard rules
 
 - **Existing workloads**: never touch, restart or roll out an existing workload, kuik's own pods included. If a test ever needs one, name that specific workload ahead and wait for the user's explicit approval.
-- **The tasks only**: the cluster is reached through the tasks of the [Reference](#reference), one per Bash call, alone: no pipe, redirection or `grep`/`cut` after it, or the hook asks every time. Filter with `--grep` and `--metrics`, a regex in single quotes, and read a long output as it is. `acceptance-check` and `acceptance-inspect` only read; `acceptance-setup`, `-apply` and `-delete` write test objects only, through the program's guard. The shared settings allow all five: run them without asking. A command outside the tasks is a read-only diagnosis, one per call, always with `--context`, and never reads a Secret's data. The one exception, without GitOps only: the `helm upgrade` that switches the verbosity for the test (step 2) and the one that restores it (step 7), which the outbound hook asks for.
+- **The tasks only**: the cluster is reached through the tasks of the [Reference](#reference), one per Bash call, alone: no pipe, redirection or `grep`/`cut` after it, or the hook asks every time. Filter with `--grep` and `--metrics`, a regex in single quotes, and read a long output as it is. `acceptance-check` and `acceptance-inspect` only read; `acceptance-setup`, `-apply`, `-delete` and `-cleanup` write test objects only, through the program's guard. The shared settings allow all six: run them without asking. A command outside the tasks is a read-only diagnosis, one per call, always with `--context`, and never reads a Secret's data. The one exception, without GitOps only: the `helm upgrade` that switches the verbosity for the test (step 2) and the one that restores it (step 7), which the outbound hook asks for.
 - **The guard is reviewed code**: never edit `test/acceptance/` during a run, scenarios and fixtures included. A change to the program (Go code, Taskfile) runs on a cluster only once the user has approved it, with `task acceptance-approve` after your explanation (step 4). A branch of new scenarios and fixtures, written beforehand by the `acceptance-scenarios` skill, needs no approval: each fixture goes through the guard of `origin/main`. A scenario worth keeping goes to the report (step 6).
-- **Cleanup waits for the user**: the test objects stay until the user says the results are accepted, so they can look at the cluster too. Never clean up on your own initiative; `acceptance-cleanup` asks for permission again.
+- **Cleanup follows the verdict**: when every scenario passes and nothing looks off, run `acceptance-cleanup` right after the report, without asking (the shared settings allow it like `acceptance-delete`). When something failed or looks off, the test objects stay until the user says they are done, so they can look at the cluster.
 - **kuik config**: when kuik is managed by GitOps (Flux, Argo CD), never `kubectl edit`, `patch` or `helm upgrade` it; a config change is a GitOps change the user makes.
 - **Kubeconfig**: passed as `--kubeconfig <path> --context <name>`, or as `KUBECONFIG=<path> kubectl --context <name> ...` for a diagnosis. Never open, cat or print the file, never copy it.
 - **Unexpected result**: investigate with reads, report it. Do not fix anything on the cluster.
@@ -28,7 +28,7 @@ The cluster is not a test cluster: every rule below protects the workloads alrea
 
 | Item | Value |
 | ---- | ----- |
-| Tasks | [Commands](../../../test/acceptance/README.md#commands): `acceptance-check`, `-setup`, `-inspect`, `-apply`, `-delete` (allowed), `-approve` and `-cleanup` (ask); each followed by `-- --kubeconfig <path> --context <name>` |
+| Tasks | [Commands](../../../test/acceptance/README.md#commands): `acceptance-check`, `-setup`, `-inspect`, `-apply`, `-delete`, `-cleanup` (allowed), `-approve` (ask); each followed by `-- --kubeconfig <path> --context <name>` |
 | Test objects | what [the guard](../../../test/acceptance/README.md#the-guard) lets through; anything else is refused before a write |
 | Exploration files | write the YAML of `acceptance-apply` in your scratchpad, never in the repository; the report says what you tried |
 
@@ -38,8 +38,8 @@ The cluster is not a test cluster: every rule below protects the workloads alrea
 
 Ask the user for anything missing:
 
-1. the version under test (for example `3.0.0-alpha.3`);
-2. the kubeconfig path and the context to use;
+1. the version under test (for example `3.0.0-alpha.3`), and whether it is deployed on the cluster: if not, stop until the user says it is;
+2. the kubeconfig path and the context of that cluster; a throwaway cluster (Kind, a local cluster) stops the run;
 3. the kuik namespace and Helm release name (defaults `kuik-system` / `kube-image-keeper`);
 4. whether kuik is managed by GitOps (Flux, Argo CD): if it is, never change kuik's config with kubectl or helm;
 5. where to write the report: by default a Markdown report in the conversation (see step 6). The user, or their own memory, may name another destination;
@@ -65,8 +65,8 @@ If any process does not log at `debug`, switch them all for the test: the webhoo
 
 1. Read `git log --oneline <previous>..v<version>` and the release notes (`gh release view v<version>`); open `docs/v3/` or the code only where a commit is unclear.
 2. Run every scenario of [`scenarios.md`](../../../test/acceptance/scenarios.md) whose **Since** is not newer than the version under test; `setup` skips the fixtures of the others.
-3. **Coverage**: when the release adds a behaviour a user can observe (a field, a reason, an event, a metric, a chart value) that no scenario covers, tell the user what is missing, propose to run the [`acceptance-scenarios`](../acceptance-scenarios/SKILL.md) skill first, and **STOP**: the run goes on only once the scenarios are merged or the user says to go without them.
-4. Add, for what the release changes, what to look at and what to try beyond the scenarios: their **Explore** variants first, then your own. They are explorations with `acceptance-apply` on top of the base objects, never a change to `test/acceptance/`.
+3. Add, for what the release changes, what to look at and what to try beyond the scenarios: their **Explore** variants first, then your own. They are explorations with `acceptance-apply` on top of the base objects, never a change to `test/acceptance/`.
+4. A behaviour of the release no scenario covers is no reason to stop: explore it in step 5 when useful, and list it under "scenarios to add" in the report. The maintainer says when he wants new scenarios; a new behaviour usually belongs in an e2e spec.
 5. Show the plan in a few lines, then go on to step 4 in the same turn.
 
 ### 4. Setup
@@ -89,16 +89,14 @@ Write the report where step 1 said. The default is Markdown in the conversation:
 - the version, the context, the date, and whether any existing workload was touched;
 - a test table, one row per scenario run: #, Test, Expected, Observed, Verdict;
 - **found while exploring**: what you tried, what you saw, your verdict and why, with the spec section;
-- **scenarios to add**: the findings worth checking on every release, each as a one-line user story with its spec link, for the next run of the [`acceptance-scenarios`](../acceptance-scenarios/SKILL.md) skill;
+- **scenarios to add**: the findings worth checking on every release, each as a one-line user story with its spec link, and the release behaviours no scenario covers: the maintainer decides whether any becomes a scenario (with the [`acceptance-scenarios`](../acceptance-scenarios/SKILL.md) skill) or an e2e spec;
 - caveats;
 - implemented but not tested;
 - not shipped yet in this version.
 
-**STOP. The test objects stay in place.** Ask the user whether they accept the results or want to look at something first.
+When every scenario passes and nothing looks off, go on to step 7 in the same turn, without asking. Otherwise, **STOP: the test objects stay in place**, so the user can look at the cluster; go on to step 7 once they say they are done.
 
 ### 7. Cleanup
-
-Only once the user has accepted the results:
 
 1. `task acceptance-cleanup -- --kubeconfig <path> --context <name>`: it deletes the test CRs and Secrets, then the 2 test namespaces, and checks none is left. The user's Secret of test 11 carries no label and stays: offer its deletion, the user decides.
 2. If the verbosity was switched for the test and the user wants it back, restore every value noted in step 2 the same way it was switched (`helm --kube-context <name> upgrade ... --reuse-values`, without GitOps): the root `verbosity` to its value, and `--set <process>.verbosity=""` for a process value that was empty, never the effective level it resolved to.
@@ -111,11 +109,12 @@ Only once the user has accepted the results:
 | Going on after a context mismatch | Stop: the commands would hit another cluster |
 | Reporting the scenarios and nothing else | Explore: they are what an e2e spec would check; acceptance is for what it would not |
 | Writing a scenario or a fixture during the run | Report it under "scenarios to add"; the `acceptance-scenarios` skill writes it with the user |
-| Running on when the release adds a behaviour no scenario covers | Stop at the plan and propose the `acceptance-scenarios` skill |
 | Calling a delay a failure | Inspect again; report the delay itself when it is far beyond the others |
 | Reporting a hunch as a bug | Trace it to the spec or the code at the tag first; say which |
 | Reading metrics through the Service or a single pod | Inspect prints every replica: only the replica that served an admission counts it |
-| Cleaning up once the report is written | Wait for the user to accept the results |
+| Cleaning up after a failure or a doubt | Keep the test objects and wait for the user; clean up at once only when everything passed |
+| Asking before the cleanup of a run where everything passed | Run `acceptance-cleanup` right after the report |
+| Running on Kind or a local cluster | Acceptance runs on a shared cluster where the release is deployed |
 | `kubectl` writes, or a `go run` of the program around the tasks | Go through the tasks: the program holds the guard, and the hook asks before each write |
 | Fixing a surprise on the cluster (edit, restart, re-apply with changes) | Stop, report to the user |
 | Changing kuik's config with kubectl or helm on a GitOps cluster | The user changes it in the GitOps repository |

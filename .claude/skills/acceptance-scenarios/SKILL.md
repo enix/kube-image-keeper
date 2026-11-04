@@ -8,13 +8,15 @@ argument-hint: "<version>"
 
 ## Overview
 
-Prepares, once per release and before its acceptance run, the scenarios the [`release-acceptance`](../release-acceptance/SKILL.md) skill will run. A scenario is a user story in [`scenarios.md`](../../../test/acceptance/scenarios.md): what a user does, what they expect with its `docs/v3/` link, and the commands that prepare and check it, so a human could run it by hand. Its fixture lives under [`test/acceptance/fixtures/`](../../../test/acceptance/fixtures/) ([note 0015](../../../notes/0015-acceptance-tooling-acts-the-agent-judges.md)).
+Prepares, when the maintainer asks for new scenarios, the scenarios the [`release-acceptance`](../release-acceptance/SKILL.md) skill will run on a shared cluster. A release behaviour no scenario covers is no reason to write one: it usually belongs in an e2e spec, and the acceptance report lists it for the maintainer to decide. A scenario is a user story in [`scenarios.md`](../../../test/acceptance/scenarios.md): what a user does, what they expect with its `docs/v3/` link, and the commands that prepare and check it, so a human could run it by hand. Its fixture lives under [`test/acceptance/fixtures/`](../../../test/acceptance/fixtures/) ([note 0015](../../../notes/0015-acceptance-tooling-acts-the-agent-judges.md)).
 
 You draft; **the user decides** which scenarios exist. Nothing is written before they agree.
 
+New scenarios go in their own pull request. A behaviour change that makes an existing scenario, fixture or guard comment of `test/acceptance/` wrong updates it in the pull request of that behaviour, not here (for example the ImageMirror finalizer that stopped waiting for pods updated scenarios 14 and 23 in [#829](https://github.com/enix/kube-image-keeper/pull/829)); a change with no acceptance effect leaves those files alone. A `guard.go` change in a behaviour pull request still needs `task acceptance-approve` at the next acceptance run, until it is on `origin/main`.
+
 ## Hard rules
 
-- **No cluster**: never run an acceptance task other than `task acceptance-validate`, never run `kubectl` or `helm`. The scenarios are checked on a cluster by `release-acceptance`, after review.
+- **No cluster**: never run an acceptance task other than `task acceptance-validate`, never run `kubectl` or `helm`. The scenarios are checked by `release-acceptance` on a shared cluster where the release is deployed, after review; never on a throwaway cluster.
 - **The user validates every scenario** before you write it, and is always invited to add their own.
 - **The spec is read-only**: never edit `docs/v3/`. A scenario that contradicts it is a question for the user, not a spec change.
 - **Scenarios stay inside the guard**: test objects are those [the guard](../../../test/acceptance/README.md#the-guard) lets through. A new kind of test object extends the guard in `guard.go`, a reviewed code change you name to the user first.
@@ -76,7 +78,7 @@ One task per Bash call, and fix what they report in your files:
 
 ### 7. Hand over
 
-Commit a change to the program (`guard.go`, a skip rule of `setup.go`, a new fixture variable, any Go file or the Taskfile) in its own commit, then the scenarios as `test(e2e): add the acceptance scenarios of <version>`. The branch can run on a cluster with the [`release-acceptance`](../release-acceptance/SKILL.md) skill before its pull request opens: fixtures and Markdown need no approval, a program change one `task acceptance-approve` for the whole run, after the agent explains it. Then hand over to the [`pull-request`](../pull-request/SKILL.md) skill.
+Commit a change to the program (`guard.go`, a skip rule of `setup.go`, a new fixture variable, any Go file or the Taskfile) in its own commit, then the scenarios as `test(e2e): add the acceptance scenarios of <version>`. The branch can run on the shared cluster with the [`release-acceptance`](../release-acceptance/SKILL.md) skill before its pull request opens, once the release is deployed there: fixtures and Markdown need no approval, a program change one `task acceptance-approve` for the whole run, after the agent explains it. Then hand over to the [`pull-request`](../pull-request/SKILL.md) skill.
 
 ## Common mistakes
 

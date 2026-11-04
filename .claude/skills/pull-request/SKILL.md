@@ -33,6 +33,12 @@ the [`test-outline`](../test-outline/SKILL.md) skill.
   Conform check reject a `fix` commit without it.
 - Check `git log --stat origin/main..HEAD`: every test file comes from a `test` commit and
   no `feat` commit touches one. The reviewer checks the same thing.
+- Check `test/acceptance/` against the behaviour the branch changes: a scenario of
+  `scenarios.md`, a fixture or a guard comment it makes wrong is updated in this pull
+  request (as [#829](https://github.com/enix/kube-image-keeper/pull/829) did for scenarios 14
+  and 23); a change with no acceptance effect leaves those files alone. New scenarios go in
+  their own pull request (the [`acceptance-scenarios`](../acceptance-scenarios/SKILL.md)
+  skill).
 - No commit that only indexes or fixes the previous ones: before the PR opens, fold a fix
   into its commit with `git commit --fixup=<sha>`, then autosquash in place as in step 5.
   Once it is open, fixes stay `fixup!` commits until the review is over (step 5), and so does
