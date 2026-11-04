@@ -293,3 +293,6 @@ func destinationHost(path string) string {
 	host, _, _ := strings.Cut(path, "/")
 	return host
 }
+
+// interrupted records that the destination pass of st was interrupted at now.
+func (r *ImageMirrorReconciler) interrupted(st *mirrorState, now time.Time) {}
