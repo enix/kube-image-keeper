@@ -281,12 +281,14 @@ These `HEAD`s go to the destination only, and only when a deletion is due, at mo
 
 ### Deleting an ImageMirror
 
-A deleted `ImageMirror` stops routing new pods and copying images at once, then stays `Terminating` until kuik has released it:
+A deleted `ImageMirror` stops routing new pods and copying images at once, waits for the copies still running, then is released:
 
-1. While a live pod runs an image under `destination.path`, it waits: a node rescheduling that pod would find the copy gone. Roll those workloads onto their origin to release it.
-2. With `cleanup.enabled`, it then deletes every tag of this cluster in `status.repositories`, whatever their retention, by digest under [`cleanup.deleteByDigest`](#deleting-by-digest). It keeps waiting while the `manage` credential cannot be read, or while the destination refuses the deletion: released, it would take with it the only inventory of the tags left behind.
+- With `cleanup.enabled`, it first deletes every tag of this cluster in `status.repositories`, whatever their retention, by digest under [`cleanup.deleteByDigest`](#deleting-by-digest). It stays `Terminating` while the `manage` credential cannot be read, or while the destination refuses the deletion: released, it would take with it the only inventory of the tags left behind.
+- With `cleanup.enabled: false`, it is released at once, its tags left in place.
 
-It retries after 10 seconds, doubling up to 30 minutes, and sooner when a pod goes. A destination that never accepts the deletion holds the mirror for good: each try emits `ImageDeletionFailed`, and `Ready` goes `False` with reason `RegistryDeleteUnsupported`. Set `cleanup.enabled: false`, before deleting it or while it is held, to release it and leave the tags in place; when the destination refuses tag deletion and the `ImageMirror` is its only writer, `cleanup.deleteByDigest: true` lets the cleanup through instead.
+It never waits for the pods running its copies: a recreated pod goes through the webhook again, which no longer offers the deleted mirror, and a restarted container reuses the image of its node. Only a container with `imagePullPolicy: Always` pulls again, and fails until its pod is recreated: the reconciler logs how many live pods do so when it releases the `ImageMirror`, see [Known limits](./known-limits.md#mirroring). The injected pull Secrets go with it.
+
+While held, it retries after 10 seconds, doubling up to 30 minutes. A destination that never accepts the deletion holds the mirror for good: each try emits `ImageDeletionFailed`, and `Ready` goes `False` with reason `RegistryDeleteUnsupported`. Set `cleanup.enabled: false`, before deleting it or while it is held, to release it and leave the tags in place; when the destination refuses tag deletion and the `ImageMirror` is its only writer, `cleanup.deleteByDigest: true` lets the cleanup through instead.
 
 ### Status
 
