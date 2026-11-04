@@ -2362,20 +2362,13 @@ var _ = Describe("ImageMirror Controller", func() {
 			return apierrors.IsNotFound(err)
 		}
 
-		It("holds its finalizer while a pod still runs one of its destination references", func() {
-			routedToCopy()
-			deleteMirror()
-
-			h.reconcile()
-			Expect(gone()).To(BeFalse())
-			Expect(h.copied(destinationTag(src, "acme/app"))()).To(Succeed())
-		})
-
 		It("copies no image it owed before its deletion while its finalizer holds it", func() {
 			routedToCopy()
 			src.Push("acme/tool:v1", registrytest.Image())
 			createPod(ns, unique("pod"), container{name: appContainer, image: src.Host() + "/acme/tool:v1"})
 			h.reconcile()
+			// A destination refusing tag deletion holds the mirror.
+			h.destination.Intercept(registrytest.Status(http.MethodDelete, "/manifests/", http.StatusBadRequest, nil))
 			deleteMirror()
 
 			h.reconcile()
@@ -2418,32 +2411,65 @@ var _ = Describe("ImageMirror Controller", func() {
 			Expect(h.copied(destinationTag(src, "acme/app"))()).NotTo(Succeed())
 		})
 
-		It("deletes the tags of this cluster once no pod runs one of its destination references, then releases its finalizer", func() {
-			pod := routedToCopy()
+		It("deletes the tags of this cluster, leaving the other clusters' tags, then releases its finalizer at once, even while a pod still runs one of its destination references", func() {
+			routedToCopy()
 			h.destination.Push(strings.TrimSuffix(destinationTag(src, "acme/app"), mirrorClusterID)+"cluster-b", registrytest.Image())
 			deleteMirror()
-			h.reconcile()
 
-			Expect(k8sClient.Delete(ctx, pod)).To(Succeed())
 			h.reconcile()
 			Expect(gone()).To(BeTrue())
 			Expect(h.copied(destinationTag(src, "acme/app"))()).NotTo(Succeed())
 			Expect(h.copied(strings.TrimSuffix(destinationTag(src, "acme/app"), mirrorClusterID) + "cluster-b")()).To(Succeed())
 		})
 
-		It("releases its finalizer without deleting anything when cleanup is disabled, once no pod runs one of its destination references", func() {
-			pod := routedToCopy(func(im *kuikv1alpha1.ImageMirror) {
+		It("releases its finalizer at once without deleting anything when cleanup is disabled, even while a pod still runs one of its destination references", func() {
+			routedToCopy(func(im *kuikv1alpha1.ImageMirror) {
 				disabled := false
 				im.Spec.Cleanup = &kuikv1alpha1.Cleanup{Enabled: &disabled}
 			})
 			deleteMirror()
-			h.reconcile()
-			Expect(gone()).To(BeFalse())
 
-			Expect(k8sClient.Delete(ctx, pod)).To(Succeed())
 			h.reconcile()
 			Expect(gone()).To(BeTrue())
 			Expect(h.copied(destinationTag(src, "acme/app"))()).To(Succeed())
+		})
+
+		It("logs at Info how many live pods run one of its copies with imagePullPolicy Always, naming one of them, when it releases its finalizer", func() {
+			// The pod routedToCopy creates pulls its copy IfNotPresent, the default of a tag
+			// other than latest: it is not counted.
+			routedToCopy()
+			always := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{Name: unique("pod"), Namespace: ns},
+				Spec: corev1.PodSpec{Containers: []corev1.Container{
+					{Name: appContainer, Image: mirrored, ImagePullPolicy: corev1.PullAlways},
+				}},
+			}
+			Expect(k8sClient.Create(ctx, always)).To(Succeed())
+			deleteMirror()
+
+			lines := h.reconcileLogged()
+			Expect(gone()).To(BeTrue())
+			var released []map[string]any
+			for _, line := range lines {
+				if line["msg"] == msgReleasedWhilePullingAlways {
+					released = append(released, line)
+				}
+			}
+			Expect(released).To(HaveLen(1))
+			Expect(released[0]).To(HaveKeyWithValue("level", "info"))
+			Expect(released[0]).To(HaveKeyWithValue("pods", 1.0))
+			Expect(released[0]).To(HaveKeyWithValue("pod", map[string]any{"name": always.Name, "namespace": ns}))
+		})
+
+		It("logs no line about pods when it releases its finalizer while only pods pulling its copies IfNotPresent run them", func() {
+			routedToCopy()
+			deleteMirror()
+
+			lines := h.reconcileLogged()
+			Expect(gone()).To(BeTrue())
+			for _, line := range lines {
+				Expect(line).NotTo(HaveKeyWithValue("msg", msgReleasedWhilePullingAlways))
+			}
 		})
 
 		It("holds its finalizer while the manage secretRef cannot be read", func() {
