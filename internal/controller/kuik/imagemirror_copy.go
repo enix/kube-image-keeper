@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
@@ -91,9 +92,24 @@ type mirrorState struct {
 	// one succeeds; manifestRefused when that deletion was by digest.
 	deleteUnsupported bool
 	manifestRefused   bool
+	// refusedTries counts the tries refused since the first refusal of the series, and nextTry
+	// is when the sweep tries a deletion again; refusedGeneration is the generation of the
+	// mirror that last try ran at. tryNow is set once a new generation forgot the series: the
+	// next pass tries at once, as a first deletion.
+	refusedTries      uint
+	nextTry           time.Time
+	refusedGeneration int64
+	tryNow            bool
 	// held counts the tries of the finalizer holding the deleted mirror.
 	held uint
 }
+
+const (
+	// deletionRetryWait is how long the sweep waits after a first refusal before it tries a
+	// deletion again; the wait doubles after each refused try, up to deletionRetryMaxWait.
+	deletionRetryWait    = 10 * time.Second
+	deletionRetryMaxWait = time.Hour
+)
 
 // refusesDeletion reports whether the destination refused the last deletion made the way
 // byDigest says as unsupported. A refusal of the other way is forgotten: the mode changed
@@ -101,10 +117,85 @@ type mirrorState struct {
 func (st *mirrorState) refusesDeletion(byDigest bool) bool {
 	st.mu.Lock()
 	defer st.mu.Unlock()
+	return st.refusing(byDigest)
+}
+
+// refusing is refusesDeletion with st.mu held.
+func (st *mirrorState) refusing(byDigest bool) bool {
 	if st.manifestRefused != byDigest {
 		st.deleteUnsupported = false
 	}
 	return st.deleteUnsupported
+}
+
+// deletionTry reports, while the destination refuses deletion the way byDigest says, when the
+// sweep tries again. A new generation of the mirror forgets the refusal, a new destination or
+// credential among what it may change, and makes a try due at now as a first deletion: its
+// refusal is announced.
+func (st *mirrorState) deletionTry(byDigest bool, now time.Time, generation int64) (time.Time, bool) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.deleteUnsupported && generation != st.refusedGeneration {
+		st.deleteUnsupported, st.refusedTries, st.nextTry, st.tryNow = false, 0, time.Time{}, true
+	}
+	if st.tryNow {
+		return now, true
+	}
+	if !st.refusing(byDigest) {
+		return time.Time{}, false
+	}
+	return st.nextTry, true
+}
+
+// refuseDeletion records a deletion the destination refused as unsupported at now, and
+// returns whether it starts a series of refusals and how long the next try waits.
+func (st *mirrorState) refuseDeletion(byDigest bool, now time.Time, generation int64) (bool, time.Duration) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	first := !st.refusing(byDigest)
+	if first {
+		st.refusedTries = 0
+	}
+	st.deleteUnsupported, st.manifestRefused, st.refusedGeneration, st.tryNow = true, byDigest, generation, false
+	return first, st.retryLater(now)
+}
+
+// retryLater counts a refused try at now and returns how long the next one waits. st.mu is
+// held.
+func (st *mirrorState) retryLater(now time.Time) time.Duration {
+	wait := deletionRetryMaxWait
+	if st.refusedTries < 10 {
+		wait = min(deletionRetryWait<<st.refusedTries, deletionRetryMaxWait)
+	}
+	st.refusedTries++
+	st.nextTry = now.Add(wait)
+	return wait
+}
+
+// endTry closes a try of the sweep that no accepted and no refused deletion ended: the next
+// one waits like after a refusal, so that a try never runs at every reconcile.
+func (st *mirrorState) endTry(now time.Time) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.tryNow = false
+	if st.deleteUnsupported && !now.Before(st.nextTry) {
+		st.retryLater(now)
+	}
+}
+
+// cleanupEnabled forgets the refusals of the destination unless enabled: a mirror that deletes
+// nothing tries nothing, and the first refusal once cleanup is back is announced again.
+func (st *mirrorState) cleanupEnabled(enabled bool) {
+	if !enabled {
+		st.acceptDeletion()
+	}
+}
+
+// acceptDeletion ends a series of refusals: the destination deleted.
+func (st *mirrorState) acceptDeletion() {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.deleteUnsupported, st.refusedTries, st.nextTry, st.tryNow = false, 0, time.Time{}, false
 }
 
 // startDeleting lets no copy start until doneDeleting, and reports whether no copy runs
@@ -116,6 +207,13 @@ func (st *mirrorState) startDeleting() bool {
 	st.deleting = true
 	st.sweepAgain = st.inFlight > 0
 	return !st.sweepAgain
+}
+
+// awaitingCopies reports whether a sweep waits for the copies running to end to delete.
+func (st *mirrorState) awaitingCopies() bool {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return st.sweepAgain
 }
 
 // keepDeleting lets copies start again unless byDigest.
@@ -626,6 +724,17 @@ func (st *mirrorState) seed(im *kuikv1alpha1.ImageMirror) {
 		if _, ok := st.digests[e.Ref]; !ok {
 			st.digests[e.Ref] = e.CopiedDigest
 		}
+	}
+	// A refusal the status reports was announced already: its try is due at the first pass,
+	// which emits nothing if refused again. Its message tells the way the refused deletion was
+	// made: a refusal of the other way is forgotten, so the first refusal of the way the spec
+	// says now is announced. With nothing pending deletion there is nothing to refuse: Ready is
+	// recomputed, a refusal whose accepted deletion lost its status write included.
+	ready := meta.FindStatusCondition(im.Status.Conditions, kuikv1alpha1.ConditionReady)
+	if im.Spec.Cleanup.IsEnabled() && len(im.Status.PendingDeletion) > 0 && ready != nil && ready.Status == metav1.ConditionFalse && ready.Reason == kuikv1alpha1.ReasonRegistryDeleteUnsupported {
+		// The generation Ready observed: a spec changed since starts a new series at once.
+		st.deleteUnsupported, st.refusedGeneration = true, ready.ObservedGeneration
+		st.manifestRefused = strings.HasPrefix(ready.Message, manifestRefusal)
 	}
 }
 

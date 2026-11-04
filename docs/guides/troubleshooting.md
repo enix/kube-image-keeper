@@ -82,7 +82,7 @@ kubectl get imagemirror <name> -o jsonpath='{.status.conditions[?(@.type=="Ready
 | `SecretNotFound` | A `secretRef` names a Secret that does not exist in kuik's namespace | Create it in kuik's namespace (`kuik-system` by default): a `secretRef` carries no namespace |
 | `SecretMalformed` | The Secret is not of type `kubernetes.io/dockerconfigjson`, or its content does not parse | Recreate it with `kubectl create secret docker-registry` |
 | `InvalidConfig` | A selector or an entry the API server accepted cannot be used | The message names the field |
-| `RegistryDeleteUnsupported` | The `ImageMirror` destination refuses tag deletion, or manifest deletion under `cleanup.deleteByDigest`, so the cleanup cannot run | Allow the deletion on the registry, set `cleanup.deleteByDigest: true` when the `ImageMirror` is the only writer of its destination (see [Deleting by digest](../crds.md#deleting-by-digest)), or set `cleanup.enabled: false` |
+| `RegistryDeleteUnsupported` | The `ImageMirror` destination refuses tag deletion, or manifest deletion under `cleanup.deleteByDigest`, so the cleanup cannot run | Allow the deletion on the registry, set `cleanup.deleteByDigest: true` when the `ImageMirror` is the only writer of its destination (see [Deleting by digest](../crds.md#deleting-by-digest)), or set `cleanup.enabled: false`. Once the deletion is allowed, kuik resumes at its next try, within 1 hour, or at once on a change of the `ImageMirror` spec. With `cleanup.deleteByDigest: true`, a try also waits for the mirror copies running to end |
 
 The other conditions (`FallbackActive`, `ImagesUnavailable`...) are not errors of the resource: they report an image, see [Status conventions](../crds.md#status-conventions).
 
