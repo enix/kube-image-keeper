@@ -298,9 +298,9 @@ gh_outbound="gh[[:space:]]+${opts}(pr[[:space:]]+(create|merge|close|reopen|read
 # gh api writes with an explicit method, or implicitly (POST) as soon as it sends fields.
 gh_api="gh[[:space:]]+${opts}api[[:space:]][^;&|]*(-X|--method)[[:space:]=]*(POST|PATCH|PUT|DELETE)|gh[[:space:]]+${opts}api[[:space:]][^;&|]*(-f|-F|--field|--raw-field|--input)"
 # The Makefile forwards to task. run and its run:* subtasks use the current kubeconfig;
-# the e2e tasks create and delete a Kind cluster; acceptance-cleanup ends a release acceptance
-# (the other acceptance tasks only read, or write test objects through the program's guard).
-task_outbound="(task|make)[[:space:]]+${opts}(deploy|kind-deploy|undeploy|install|uninstall|docker-push|docker-buildx|run(:[a-z-]+)?|setup-test-e2e|test-e2e|cleanup-test-e2e|acceptance-cleanup)"
+# the e2e tasks create and delete a Kind cluster (the acceptance tasks only read, or write test
+# objects through the program's guard: they are checked below).
+task_outbound="(task|make)[[:space:]]+${opts}(deploy|kind-deploy|undeploy|install|uninstall|docker-push|docker-buildx|run(:[a-z-]+)?|setup-test-e2e|test-e2e|cleanup-test-e2e)"
 # The acceptance program run or built directly, around the tasks and the code they pin.
 go_acceptance="go[[:space:]]+(run|build)[[:space:]][^;&|]*test/acceptance"
 docker_push="docker[[:space:]]+${opts}((image|manifest)[[:space:]]+)?push|docker[[:space:]][^;&|]*--push(=[^[:space:]]*)?"
@@ -403,8 +403,9 @@ ${untracked:-none}"
 fi
 
 # The acceptance tasks reach a cluster without asking: check, inspect, get and validate because
-# they only read, setup, apply and delete because the guard of test/acceptance keeps them on test
-# objects. config changes kuik's own configuration: the same checks apply, and an ask rule of
+# they only read, setup, apply, delete and cleanup because the guard of test/acceptance keeps them
+# on test objects (cleanup also puts back the global config a test replaced, and the release
+# acceptance runs it on its own once every scenario passed). config changes kuik's own configuration: the same checks apply, and an ask rule of
 # settings.json still asks at every call. All hold for the reviewed code only. Almost anything in
 # the repository can change what runs (the program, the API types it decodes into, go.mod, a
 # go.work, another Taskfile), so they pass only as one plain `task acceptance-X -- <args>` in a
@@ -416,13 +417,13 @@ fi
 # `task acceptance-approve` recorded in this worktree's git directory: one question for a whole
 # run, asked again as soon as the code moves. Anything else, or a git error, asks. origin/main is
 # the local ref: moving it takes a git command that asks on its own.
-if printf '%s' "$cmd" | grep -Eq "(task|make)[[:space:]]+${opts}acceptance-(check|inspect|get|validate|setup|apply|delete|config)([[:space:]]|\$)"; then
+if printf '%s' "$cmd" | grep -Eq "(task|make)[[:space:]]+${opts}acceptance-(check|inspect|get|validate|setup|apply|delete|cleanup|config)([[:space:]]|\$)"; then
   reason="This acceptance task reaches a cluster from code that differs from origin/main, or in a form the hook cannot check: the user confirms it explicitly."
   case "$cmd" in *'
 '* | *"$(printf '\r')"*) ask "$reason" ;; esac
   # An argument is plain characters, or single-quoted pieces the shell reads literally (a regex
   # for --grep): only a single quote ends one, and none may appear inside.
-  printf '%s' "$cmd" | grep -Eq "^task[[:space:]]+acceptance-(check|inspect|get|validate|setup|apply|delete|config)([[:space:]]+--([[:space:]]+([A-Za-z0-9=,./:_@+-]|'[^']*')+)*)?[[:space:]]*\$" || ask "$reason"
+  printf '%s' "$cmd" | grep -Eq "^task[[:space:]]+acceptance-(check|inspect|get|validate|setup|apply|delete|cleanup|config)([[:space:]]+--([[:space:]]+([A-Za-z0-9=,./:_@+-]|'[^']*')+)*)?[[:space:]]*\$" || ask "$reason"
   top=$(git -C "${cwd:-.}" rev-parse --show-toplevel 2>/dev/null) || ask "$reason"
   # Task picks its Taskfile from the current directory: only the top level is the one checked.
   [ "$(cd "${cwd:-.}" 2>/dev/null && pwd -P)" = "$(cd "$top" && pwd -P)" ] || ask "$reason"

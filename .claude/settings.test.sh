@@ -46,7 +46,7 @@ check ask "task setup-test-e2e"
 check ask "task cleanup-test-e2e"
 check ask "task run"
 check ask "task run:webhook"
-check ask "task acceptance-cleanup -- --kubeconfig k"
+check pass "task acceptance-cleanup -- --kubeconfig k"
 check ask "task acceptance-config -- --kubeconfig k"
 
 [ "$failed" = 0 ] && echo "all cases pass"
