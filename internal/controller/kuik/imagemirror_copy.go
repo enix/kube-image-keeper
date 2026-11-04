@@ -62,6 +62,9 @@ type mirrorState struct {
 	// form; lastPass is when that pass ran, zero before the first.
 	present  map[string]bool
 	lastPass time.Time
+	// retryAt is when a pass that was interrupted may run again, zero when none was: an
+	// interrupted pass sets no lastPass, so without it the next reconcile would run it again.
+	retryAt time.Time
 	// digests are the digests the destination is known to hold each reference at, from a
 	// pass or a copy: what tells a deleted manifest from a deleted tag.
 	digests map[string]string
@@ -600,6 +603,7 @@ func (st *mirrorState) ended() bool {
 	}
 	st.sweepAgain = false
 	st.lastPass = time.Time{}
+	st.retryAt = time.Time{}
 	return true
 }
 

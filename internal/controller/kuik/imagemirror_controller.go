@@ -302,6 +302,7 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			case errors.Is(err, errPassInterrupted):
 				// A sweep waiting for the copies to end waits for the next pass, copies going on.
 				st.doneDeleting()
+				r.interrupted(st, now)
 				logf.FromContext(ctx).V(1).Info("Interrupted ImageMirror destination pass", "error", err.Error())
 			default:
 				return ctrl.Result{}, err
