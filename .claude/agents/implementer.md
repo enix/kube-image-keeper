@@ -15,7 +15,7 @@ hooks:
     - matcher: "Bash"
       hooks:
         - type: command
-          command: '"$CLAUDE_PROJECT_DIR"/.claude/hooks/implementer-guard.sh || exit 2'
+          command: '"$CLAUDE_PROJECT_DIR"/.claude/hooks/run-main-hook.sh implementer-guard.sh || exit 2'
 ---
 
 # Implementer
