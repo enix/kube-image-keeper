@@ -62,10 +62,12 @@ func render(n *Notes) string {
 	// repeated here: Artifact Hub and the release's CHANGELOG.md asset carry them.
 	b.WriteString(sep + "## 📋 Changelog\n\n")
 	fmt.Fprintf(&b, "Changes since [%s](%s/releases/tag/v%s).\n\n", n.Since, repository, n.Since)
+	// Without highlights, the lists are all a reader has to tell what changed: they stay open.
+	collapse := len(n.Highlights) > 0
 	b.WriteString("### Features\n\n")
-	b.WriteString(changelog(n.Features, "new feature", "new features"))
+	b.WriteString(changelog(n.Features, "new feature", "new features", collapse))
 	b.WriteString("\n### Fixes\n\n")
-	b.WriteString(changelog(n.Fixes, "fix", "fixes"))
+	b.WriteString(changelog(n.Fixes, "fix", "fixes", collapse))
 	return b.String()
 }
 
@@ -130,8 +132,9 @@ func grouped(bullets []areaBullet) string {
 	return b.String()
 }
 
-// changelog is a collapsed list of the Changelog, grouped by area, or the line of an empty one.
-func changelog(changes []Change, one, many string) string {
+// changelog is a list of the Changelog, grouped by area and collapsed when collapse is set, or
+// the line of an empty one.
+func changelog(changes []Change, one, many string, collapse bool) string {
 	if len(changes) == 0 {
 		return none
 	}
@@ -142,6 +145,9 @@ func changelog(changes []Change, one, many string) string {
 	bullets := make([]areaBullet, len(changes))
 	for i, c := range changes {
 		bullets[i] = areaBullet{area: c.Area, line: fmt.Sprintf("- %s%s\n", c.Text, refs(c.Refs))}
+	}
+	if !collapse {
+		return grouped(bullets)
 	}
 	return fmt.Sprintf("<details><summary>%d %s</summary>\n\n%s\n</details>\n", len(changes), noun, grouped(bullets))
 }

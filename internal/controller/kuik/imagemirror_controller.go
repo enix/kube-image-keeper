@@ -253,6 +253,7 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// A sweep waiting for the copies to end to delete by digest has nothing to wait for any
 	// more once the mirror no longer deletes that way.
 	st.keepDeleting(cleanup && im.Spec.Cleanup.DeletesByDigest())
+	st.cleanupEnabled(cleanup)
 	mirror := plan.Mirror{Path: im.Spec.Destination.Path, ExcludeImages: im.Spec.ExcludeImages, CleanupEnabled: cleanup}
 	live := plan.Desired(plan.Mirror{Path: mirror.Path, ExcludeImages: mirror.ExcludeImages}, pods, nil)
 	now := r.clock.Now()
@@ -280,7 +281,7 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if !blocked {
 		r.scheduler.SetDestinationScan(scanner, destinationHost(im.Spec.Destination.Path))
 		var due bool
-		if due, nextPass = r.passDue(st, now); due {
+		if due, nextPass = r.passOrTryDue(&im, st, now); due {
 			at, err := r.selfCheck(ctx, &im, st, desired)
 			if err == nil && cleanup {
 				// An interrupted sweep keeps pendingDeletion as it was.
@@ -303,10 +304,14 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				// A sweep waiting for the copies to end waits for the next pass, copies going on.
 				st.doneDeleting()
 				r.interrupted(st, now)
+				// A try of a refused deletion it interrupted waits like a refused one.
+				st.endTry(now)
 				logf.FromContext(ctx).V(1).Info("Interrupted ImageMirror destination pass", "error", err.Error())
 			default:
 				return ctrl.Result{}, err
 			}
+			// The next pass is an interval after this one, a pass a try ran included.
+			_, nextPass = r.passDue(st, r.clock.Now())
 		}
 		sources, err := r.copySources(ctx, desired, pods)
 		if err != nil {
@@ -323,6 +328,8 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		st.mu.Unlock()
 		r.turnRings(&im, st, desired)
 		r.owe(&im, st, st.owed(desired, inventoried), sources)
+		// The next try of a deletion the destination refused comes on its own.
+		nextPass = untilTry(&im, st, r.clock.Now(), nextPass)
 	}
 
 	// Under rewritePolicy None the mirror never routes, so it has no routing side at all.
@@ -544,9 +551,8 @@ func (r *ImageMirrorReconciler) mirrorsSelecting(ctx context.Context, obj client
 	}
 	var requests []reconcile.Request
 	for i := range list.Items {
-		// A deleted mirror waits for the pods running its copies: it hears of them all.
 		s, _ := mirrorScope(&list.Items[i])
-		if s.selects(pod, ns.Labels) || !list.Items[i].DeletionTimestamp.IsZero() {
+		if s.selects(pod, ns.Labels) {
 			requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{Name: list.Items[i].Name}})
 		}
 	}

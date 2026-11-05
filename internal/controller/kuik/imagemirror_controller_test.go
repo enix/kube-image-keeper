@@ -19,6 +19,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
@@ -1461,6 +1462,375 @@ var _ = Describe("ImageMirror Controller", func() {
 			Entry("405 Method Not Allowed", http.StatusMethodNotAllowed),
 		)
 
+		Context("once the destination refused a deletion as unsupported", func() {
+			deletes := func() []registrytest.Request {
+				return h.destination.Requests(http.MethodDelete, "")
+			}
+			// refuse makes the destination refuse every deletion as unsupported, runs the pass
+			// that meets the first refusal, and returns the RequeueAfter of that reconcile.
+			refuse := func() time.Duration {
+				GinkgoHelper()
+				h.destination.Intercept(registrytest.Status(http.MethodDelete, "/manifests/", http.StatusMethodNotAllowed, nil))
+				h.reconcile()
+				h.pass()
+				result := h.reconcile()
+				Expect(deletes()).To(HaveLen(1))
+				return result.RequeueAfter
+			}
+			accept := func() {
+				h.destination.Intercept(func(http.ResponseWriter, *http.Request) bool { return false })
+			}
+			// changeSpec makes a new generation of the mirror, excluding an image it never copies.
+			changeSpec := func() {
+				GinkgoHelper()
+				var im kuikv1alpha1.ImageMirror
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: h.name}, &im)).To(Succeed())
+				im.Spec.ExcludeImages = []string{"example.com/excluded"}
+				Expect(k8sClient.Update(ctx, &im)).To(Succeed())
+			}
+
+			It("tries a single deletion 10 seconds after the refusal, without waiting for the next destination pass", func() {
+				h.mirror(withRetention(0))
+				h.orphan("old", own)
+				Expect(refuse()).To(Equal(10 * time.Second))
+
+				h.clock.Step(9 * time.Second)
+				h.reconcile()
+				Expect(deletes()).To(HaveLen(1))
+				h.clock.Step(time.Second)
+				h.reconcile()
+				Expect(deletes()).To(HaveLen(2))
+			})
+
+			It("sends no DELETE at a destination pass that comes before its next try", func() {
+				h.mirror(withRetention(0))
+				ref := h.orphan("old", own)
+				refuse()
+				listed := len(h.destination.Requests(http.MethodGet, "/tags/list"))
+				pending := h.status().PendingDeletion
+
+				h.passNow()
+				h.reconcile()
+				Expect(h.destination.Requests(http.MethodGet, "/tags/list")).To(HaveLen(listed + 1))
+				Expect(deletes()).To(HaveLen(1))
+				Expect(h.status().PendingDeletion).To(Equal(pending))
+				Expect(h.status().PendingDeletion).To(ConsistOf(HaveField("Ref", h.destination.Host()+"/"+ref)))
+				ready := h.condition(kuikv1alpha1.ConditionReady)
+				Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+				Expect(ready.Reason).To(Equal(kuikv1alpha1.ReasonRegistryDeleteUnsupported))
+			})
+
+			It("doubles the wait after each refused try, up to 1 hour", func() {
+				h.mirror(withRetention(0))
+				h.orphan("old", own)
+				wait := refuse()
+				expected := 10 * time.Second
+				for try := 2; try <= 12; try++ {
+					Expect(wait).To(Equal(expected), "wait before try %d", try)
+					h.clock.Step(expected - time.Second)
+					h.reconcile()
+					Expect(deletes()).To(HaveLen(try-1), "a DELETE before try %d", try)
+					h.clock.Step(time.Second)
+					wait = h.reconcile().RequeueAfter
+					Expect(deletes()).To(HaveLen(try), "no DELETE at try %d", try)
+					expected = min(2*expected, time.Hour)
+				}
+				Expect(wait).To(Equal(time.Hour))
+			})
+
+			It("tries one due tag per try, and none of the others while that try is refused", func() {
+				h.mirror(withRetention(0))
+				h.orphan("old", own)
+				next := h.orphan("older", own)
+				refuse()
+
+				h.clock.Step(10 * time.Second)
+				h.reconcile()
+				Expect(deletes()).To(HaveLen(2))
+				h.clock.Step(20 * time.Second)
+				h.reconcile()
+				Expect(deletes()).To(HaveLen(3))
+				Expect(deletes()[1].Path).To(Equal(deletes()[2].Path))
+				Expect(h.copied(next)()).To(Succeed())
+				Expect(h.status().PendingDeletion).To(HaveLen(2))
+			})
+
+			It("emits no ImageDeletionFailed again at the refused tries that follow, Ready staying False with reason RegistryDeleteUnsupported", func() {
+				h.mirror(withRetention(0))
+				h.orphan("old", own)
+				refuse()
+
+				h.clock.Step(10 * time.Second)
+				h.reconcile()
+				h.clock.Step(20 * time.Second)
+				h.reconcile()
+				Expect(deletes()).To(HaveLen(3))
+				Expect(h.recorder.withReason("ImageDeletionFailed")).To(HaveLen(1))
+				ready := h.condition(kuikv1alpha1.ConditionReady)
+				Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+				Expect(ready.Reason).To(Equal(kuikv1alpha1.ReasonRegistryDeleteUnsupported))
+			})
+
+			It("deletes every due tag once a try is accepted, emitting ImageDeleted for each", func() {
+				h.mirror(withRetention(0))
+				ref := h.orphan("old", own)
+				next := h.orphan("older", own)
+				refuse()
+
+				accept()
+				h.clock.Step(10 * time.Second)
+				h.reconcile()
+				Expect(h.copied(ref)()).NotTo(Succeed())
+				Expect(h.copied(next)()).NotTo(Succeed())
+				Expect(h.recorder.withReason("ImageDeleted")).To(HaveLen(2))
+				Expect(h.status().PendingDeletion).To(BeEmpty())
+			})
+
+			It("sets Ready back to True and emits ResourceReady once a try is accepted", func() {
+				h.mirror(withRetention(0))
+				h.orphan("old", own)
+				refuse()
+				Expect(h.condition(kuikv1alpha1.ConditionReady).Status).To(Equal(metav1.ConditionFalse))
+				before := len(h.recorder.withReason(condition.EventResourceReady))
+
+				accept()
+				h.clock.Step(10 * time.Second)
+				h.reconcile()
+				ready := h.condition(kuikv1alpha1.ConditionReady)
+				Expect(ready.Status).To(Equal(metav1.ConditionTrue))
+				Expect(ready.Reason).To(Equal(kuikv1alpha1.ReasonIsReady))
+				Expect(h.recorder.withReason(condition.EventResourceReady)).To(HaveLen(before + 1))
+			})
+
+			It("emits ImageDeletionFailed and waits 10 seconds again when a refusal follows an accepted try", func() {
+				h.mirror(withRetention(0))
+				h.orphan("old", own)
+				refuse()
+				h.clock.Step(10 * time.Second)
+				h.reconcile()
+				accept()
+				h.clock.Step(20 * time.Second)
+				h.reconcile()
+				Expect(deletes()).To(HaveLen(3))
+				Expect(h.status().PendingDeletion).To(BeEmpty())
+
+				// Found at one pass, newer is due at the next one.
+				h.orphan("newer", own)
+				h.destination.Intercept(registrytest.Status(http.MethodDelete, "/manifests/", http.StatusMethodNotAllowed, nil))
+				h.pass()
+				h.reconcile()
+				Expect(deletes()).To(HaveLen(3))
+				h.pass()
+				wait := h.reconcile().RequeueAfter
+				Expect(deletes()).To(HaveLen(4))
+				Expect(h.recorder.withReason("ImageDeletionFailed")).To(HaveLen(2))
+				Expect(wait).To(Equal(10 * time.Second))
+				h.clock.Step(10 * time.Second)
+				h.reconcile()
+				Expect(deletes()).To(HaveLen(5))
+			})
+
+			It("tries at once when the spec of the ImageMirror changes", func() {
+				h.mirror(withRetention(0))
+				h.orphan("old", own)
+				refuse()
+				h.clock.Step(10 * time.Second)
+				h.reconcile()
+				Expect(deletes()).To(HaveLen(2))
+
+				changeSpec()
+				wait := h.reconcile().RequeueAfter
+				Expect(deletes()).To(HaveLen(3))
+				Expect(wait).To(Equal(10 * time.Second))
+			})
+
+			It("emits ImageDeletionFailed again at the first refusal after cleanup is disabled then enabled again", func() {
+				h.mirror(withRetention(0))
+				h.orphan("old", own)
+				refuse()
+				setCleanup := func(enabled bool) {
+					GinkgoHelper()
+					var im kuikv1alpha1.ImageMirror
+					Expect(k8sClient.Get(ctx, types.NamespacedName{Name: h.name}, &im)).To(Succeed())
+					im.Spec.Cleanup.Enabled = new(enabled)
+					Expect(k8sClient.Update(ctx, &im)).To(Succeed())
+				}
+				setCleanup(false)
+				h.reconcile()
+				setCleanup(true)
+				h.reconcile()
+
+				// Disabled, the mirror held no pendingDeletion: old is found again, then due.
+				h.pass()
+				h.reconcile()
+				h.pass()
+				h.reconcile()
+				Expect(deletes()).To(HaveLen(2))
+				Expect(h.recorder.withReason("ImageDeletionFailed")).To(HaveLen(2))
+			})
+
+			It("tries at its first pass after a restart without emitting ImageDeletionFailed again", func() {
+				h.mirror(withRetention(0))
+				h.orphan("old", own)
+				refuse()
+
+				h.restart()
+				h.reconcile()
+				Expect(deletes()).To(HaveLen(2))
+				Expect(h.recorder.withReason("ImageDeletionFailed")).To(HaveLen(1))
+				ready := h.condition(kuikv1alpha1.ConditionReady)
+				Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+				Expect(ready.Reason).To(Equal(kuikv1alpha1.ReasonRegistryDeleteUnsupported))
+			})
+
+			It("emits ImageDeletionFailed at the first refusal after a restart when deleteByDigest changed since the refusal Ready reports", func() {
+				h.mirror(withRetention(0))
+				h.orphan("old", own)
+				refuse()
+
+				// The reconciler is down while deleteByDigest is set: Ready still reports a refused
+				// tag deletion.
+				var im kuikv1alpha1.ImageMirror
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: h.name}, &im)).To(Succeed())
+				im.Spec.Cleanup.DeleteByDigest = new(true)
+				Expect(k8sClient.Update(ctx, &im)).To(Succeed())
+				h.restart()
+				h.reconcile()
+				Expect(h.digestDeletes()).To(HaveLen(1))
+				Expect(h.recorder.withReason("ImageDeletionFailed")).To(HaveLen(2))
+			})
+
+			It("emits ImageDeletionFailed at the first tag refusal after a restart when deleteByDigest was disabled since a manifest refusal", func() {
+				h.mirror(withRetention(0), withDeleteByDigest)
+				h.orphan("old", own)
+				refuse()
+				Expect(h.digestDeletes()).To(HaveLen(1))
+
+				// The reconciler is down while deleteByDigest is unset: Ready still reports a
+				// refused manifest deletion.
+				var im kuikv1alpha1.ImageMirror
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: h.name}, &im)).To(Succeed())
+				im.Spec.Cleanup.DeleteByDigest = new(false)
+				Expect(k8sClient.Update(ctx, &im)).To(Succeed())
+				h.restart()
+				h.reconcile()
+				Expect(deletes()).To(HaveLen(2))
+				Expect(h.digestDeletes()).To(HaveLen(1))
+				Expect(h.recorder.withReason("ImageDeletionFailed")).To(HaveLen(2))
+			})
+
+			It("emits ImageDeletionFailed at the first refusal after a restart when the spec changed since the refusal Ready reports", func() {
+				h.mirror(withRetention(0))
+				h.orphan("old", own)
+				refuse()
+
+				// The reconciler is down while the spec changes.
+				changeSpec()
+				h.restart()
+				h.reconcile()
+				Expect(deletes()).To(HaveLen(2))
+				Expect(h.recorder.withReason("ImageDeletionFailed")).To(HaveLen(2))
+			})
+
+			It("sets Ready back to True after a restart when nothing is pending deletion, despite a refusal Ready still reports", func() {
+				h.mirror(withRetention(0))
+				h.reconcile()
+				// The status write of an accepted deletion was lost: Ready still reports the refusal
+				// before it, and nothing is pending deletion.
+				var im kuikv1alpha1.ImageMirror
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: h.name}, &im)).To(Succeed())
+				meta.SetStatusCondition(&im.Status.Conditions, metav1.Condition{
+					Type:    kuikv1alpha1.ConditionReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  kuikv1alpha1.ReasonRegistryDeleteUnsupported,
+					Message: "the destination refuses tag deletion: cleanup cannot make progress",
+				})
+				Expect(k8sClient.Status().Update(ctx, &im)).To(Succeed())
+				Expect(h.status().PendingDeletion).To(BeEmpty())
+
+				h.restart()
+				h.reconcile()
+				Expect(h.condition(kuikv1alpha1.ConditionReady).Status).To(Equal(metav1.ConditionTrue))
+			})
+
+			It("emits ImageDeletionFailed at the first refusal after the spec of the ImageMirror changes", func() {
+				h.mirror(withRetention(0))
+				h.orphan("old", own)
+				refuse()
+
+				// destination.path is immutable: any other change starts a new series.
+				changeSpec()
+				h.reconcile()
+				Expect(deletes()).To(HaveLen(2))
+				Expect(h.recorder.withReason("ImageDeletionFailed")).To(HaveLen(2))
+			})
+
+			It("makes its next try at once when the refused pass took longer than the wait", func() {
+				h.mirror(withRetention(0))
+				h.orphan("old", own)
+				// The destination refuses every deletion, and holds the listing of the pass until
+				// release.
+				entered, released := make(chan struct{}), make(chan struct{})
+				var enter, done sync.Once
+				release := func() { done.Do(func() { close(released) }) }
+				DeferCleanup(release)
+				var holding atomic.Bool
+				h.destination.Intercept(func(w http.ResponseWriter, r *http.Request) bool {
+					if holding.Load() && r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/tags/list") {
+						enter.Do(func() { close(entered) })
+						<-released
+						return false
+					}
+					if r.Method == http.MethodDelete && strings.Contains(r.URL.Path, "/manifests/") {
+						w.WriteHeader(http.StatusMethodNotAllowed)
+						return true
+					}
+					return false
+				})
+				h.reconcile()
+
+				holding.Store(true)
+				h.pass()
+				results := make(chan time.Duration, 1)
+				go func() {
+					defer GinkgoRecover()
+					result, err := h.reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: h.name}})
+					Expect(err).NotTo(HaveOccurred())
+					results <- result.RequeueAfter
+				}()
+				Eventually(entered).Should(BeClosed())
+				h.clock.Step(11 * time.Second)
+				holding.Store(false)
+				release()
+				var wait time.Duration
+				Eventually(results).Should(Receive(&wait))
+				Expect(deletes()).To(HaveLen(1))
+				Expect(wait).To(BeNumerically(">", 0))
+				Expect(wait).To(BeNumerically("<", time.Second))
+
+				h.reconcile()
+				Expect(deletes()).To(HaveLen(2))
+			})
+
+			It("waits for its next try after a try the destination does not answer, as after a refused one", func() {
+				h.mirror(withRetention(0))
+				h.orphan("old", own)
+				refuse()
+
+				h.destination.Intercept(registrytest.Status(http.MethodGet, "/tags/list", http.StatusInternalServerError, nil))
+				h.clock.Step(10 * time.Second)
+				wait := h.reconcile().RequeueAfter
+				listed := len(h.destination.Requests(http.MethodGet, "/tags/list"))
+				Expect(wait).To(Equal(20 * time.Second))
+				Expect(deletes()).To(HaveLen(1))
+
+				h.clock.Step(time.Second)
+				h.reconcile()
+				Expect(h.destination.Requests(http.MethodGet, "/tags/list")).To(HaveLen(listed))
+				Expect(deletes()).To(HaveLen(1))
+			})
+		})
+
 		It("deletes nothing and holds nothing in pendingDeletion when cleanup is disabled", func() {
 			src := h.source()
 			src.Push("acme/job:v1", registrytest.Image())
@@ -1679,6 +2049,76 @@ var _ = Describe("ImageMirror Controller", func() {
 				Expect(ready.Message).NotTo(ContainSubstring("deleteByDigest"))
 				Expect(h.destination.Requests(http.MethodDelete, "")).To(HaveLen(1))
 				Expect(h.tagHeads(next)).To(BeEmpty())
+			})
+
+			It("waits for its next try the same way once the destination refused the manifest deletion as unsupported", func() {
+				h.mirror(withRetention(0), withDeleteByDigest)
+				h.orphan("old", own)
+				h.destination.Intercept(registrytest.Status(http.MethodDelete, "/manifests/", http.StatusMethodNotAllowed, nil))
+				h.reconcile()
+				h.pass()
+				wait := h.reconcile().RequeueAfter
+				Expect(h.digestDeletes()).To(HaveLen(1))
+				Expect(wait).To(Equal(10 * time.Second))
+
+				h.passNow()
+				h.reconcile()
+				Expect(h.digestDeletes()).To(HaveLen(1))
+				h.clock.Step(10 * time.Second)
+				wait = h.reconcile().RequeueAfter
+				Expect(h.digestDeletes()).To(HaveLen(2))
+				Expect(wait).To(Equal(20 * time.Second))
+				Expect(h.recorder.withReason("ImageDeletionFailed")).To(HaveLen(1))
+				Expect(h.condition(kuikv1alpha1.ConditionReady).Reason).To(Equal(kuikv1alpha1.ReasonRegistryDeleteUnsupported))
+			})
+
+			It("makes its due try once the copies of the mirror running end, without counting the held try as refused", func() {
+				src := h.source()
+				src.Push("acme/app:v1", registrytest.Image())
+				src.Push("acme/app:v2", registrytest.Image())
+				ns := h.namespace()
+				createPod(ns, unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+				h.mirror(withRetention(0), withDeleteByDigest)
+				h.orphan("old", own)
+				h.copyAll(1)
+
+				// The destination refuses manifest deletion, and holds the next copy until release.
+				entered, released := make(chan struct{}), make(chan struct{})
+				var enter, done sync.Once
+				release := func() { done.Do(func() { close(released) }) }
+				DeferCleanup(release)
+				h.destination.Intercept(func(w http.ResponseWriter, r *http.Request) bool {
+					if r.Method == http.MethodPut && strings.Contains(r.URL.Path, "/manifests/") {
+						enter.Do(func() { close(entered) })
+						<-released
+						return false
+					}
+					if r.Method == http.MethodDelete && strings.Contains(r.URL.Path, "/manifests/") {
+						w.WriteHeader(http.StatusMethodNotAllowed)
+						return true
+					}
+					return false
+				})
+				h.pass()
+				h.reconcile()
+				Expect(h.digestDeletes()).To(HaveLen(1))
+
+				// The copy of v2 runs when the next try is due: the try waits for it.
+				createPod(ns, unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v2"})
+				h.reconcile()
+				h.window()
+				Eventually(entered).Should(BeClosed())
+				h.reconcile()
+				Expect(h.digestDeletes()).To(HaveLen(1))
+
+				release()
+				var wait time.Duration
+				Eventually(func() int {
+					wait = h.reconcile().RequeueAfter
+					return len(h.digestDeletes())
+				}).Should(Equal(2))
+				// The held try counted for nothing: the try made is the second one.
+				Expect(wait).To(Equal(20 * time.Second))
 			})
 
 			It("emits ImageDeletionFailed, keeps the entry in pendingDeletion and leaves Ready True when the manifest deletion fails with a 5xx", func() {
@@ -1953,20 +2393,13 @@ var _ = Describe("ImageMirror Controller", func() {
 			return apierrors.IsNotFound(err)
 		}
 
-		It("holds its finalizer while a pod still runs one of its destination references", func() {
-			routedToCopy()
-			deleteMirror()
-
-			h.reconcile()
-			Expect(gone()).To(BeFalse())
-			Expect(h.copied(destinationTag(src, "acme/app"))()).To(Succeed())
-		})
-
 		It("copies no image it owed before its deletion while its finalizer holds it", func() {
 			routedToCopy()
 			src.Push("acme/tool:v1", registrytest.Image())
 			createPod(ns, unique("pod"), container{name: appContainer, image: src.Host() + "/acme/tool:v1"})
 			h.reconcile()
+			// A destination refusing tag deletion holds the mirror.
+			h.destination.Intercept(registrytest.Status(http.MethodDelete, "/manifests/", http.StatusBadRequest, nil))
 			deleteMirror()
 
 			h.reconcile()
@@ -2009,32 +2442,65 @@ var _ = Describe("ImageMirror Controller", func() {
 			Expect(h.copied(destinationTag(src, "acme/app"))()).NotTo(Succeed())
 		})
 
-		It("deletes the tags of this cluster once no pod runs one of its destination references, then releases its finalizer", func() {
-			pod := routedToCopy()
+		It("deletes the tags of this cluster, leaving the other clusters' tags, then releases its finalizer at once, even while a pod still runs one of its destination references", func() {
+			routedToCopy()
 			h.destination.Push(strings.TrimSuffix(destinationTag(src, "acme/app"), mirrorClusterID)+"cluster-b", registrytest.Image())
 			deleteMirror()
-			h.reconcile()
 
-			Expect(k8sClient.Delete(ctx, pod)).To(Succeed())
 			h.reconcile()
 			Expect(gone()).To(BeTrue())
 			Expect(h.copied(destinationTag(src, "acme/app"))()).NotTo(Succeed())
 			Expect(h.copied(strings.TrimSuffix(destinationTag(src, "acme/app"), mirrorClusterID) + "cluster-b")()).To(Succeed())
 		})
 
-		It("releases its finalizer without deleting anything when cleanup is disabled, once no pod runs one of its destination references", func() {
-			pod := routedToCopy(func(im *kuikv1alpha1.ImageMirror) {
+		It("releases its finalizer at once without deleting anything when cleanup is disabled, even while a pod still runs one of its destination references", func() {
+			routedToCopy(func(im *kuikv1alpha1.ImageMirror) {
 				disabled := false
 				im.Spec.Cleanup = &kuikv1alpha1.Cleanup{Enabled: &disabled}
 			})
 			deleteMirror()
-			h.reconcile()
-			Expect(gone()).To(BeFalse())
 
-			Expect(k8sClient.Delete(ctx, pod)).To(Succeed())
 			h.reconcile()
 			Expect(gone()).To(BeTrue())
 			Expect(h.copied(destinationTag(src, "acme/app"))()).To(Succeed())
+		})
+
+		It("logs at Info how many live pods run one of its copies with imagePullPolicy Always, naming one of them, when it releases its finalizer", func() {
+			// The pod routedToCopy creates pulls its copy IfNotPresent, the default of a tag
+			// other than latest: it is not counted.
+			routedToCopy()
+			always := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{Name: unique("pod"), Namespace: ns},
+				Spec: corev1.PodSpec{Containers: []corev1.Container{
+					{Name: appContainer, Image: mirrored, ImagePullPolicy: corev1.PullAlways},
+				}},
+			}
+			Expect(k8sClient.Create(ctx, always)).To(Succeed())
+			deleteMirror()
+
+			lines := h.reconcileLogged()
+			Expect(gone()).To(BeTrue())
+			var released []map[string]any
+			for _, line := range lines {
+				if line["msg"] == msgReleasedWhilePullingAlways {
+					released = append(released, line)
+				}
+			}
+			Expect(released).To(HaveLen(1))
+			Expect(released[0]).To(HaveKeyWithValue("level", "info"))
+			Expect(released[0]).To(HaveKeyWithValue("pods", 1.0))
+			Expect(released[0]).To(HaveKeyWithValue("pod", map[string]any{"name": always.Name, "namespace": ns}))
+		})
+
+		It("logs no line about pods when it releases its finalizer while only pods pulling its copies IfNotPresent run them", func() {
+			routedToCopy()
+			deleteMirror()
+
+			lines := h.reconcileLogged()
+			Expect(gone()).To(BeTrue())
+			for _, line := range lines {
+				Expect(line).NotTo(HaveKeyWithValue("msg", msgReleasedWhilePullingAlways))
+			}
 		})
 
 		It("holds its finalizer while the manage secretRef cannot be read", func() {

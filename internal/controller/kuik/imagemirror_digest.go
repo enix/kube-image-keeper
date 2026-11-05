@@ -18,6 +18,10 @@ import (
 // that deletes by manifest instead, with what makes it unsafe.
 const deleteByDigestHint = "cleanup.deleteByDigest: true deletes by manifest instead, when this ImageMirror is the only writer of its destination"
 
+// manifestRefusal starts the Ready message of a mirror whose destination refused a deletion by
+// digest: what tells a restart which way the refused deletion was made.
+const manifestRefusal = "the destination refuses manifest deletion"
+
 // digestDeletion is how deleting one tag by the manifest it points at ended.
 type digestDeletion struct {
 	// manifest is the digest reference deleted, empty when nothing was.
@@ -62,7 +66,7 @@ func refusedSweep(im *kuikv1alpha1.ImageMirror, st *mirrorState) *condition.NotR
 	if byDigest {
 		return &condition.NotReady{
 			Reason:  kuikv1alpha1.ReasonRegistryDeleteUnsupported,
-			Message: "the destination refuses manifest deletion: cleanup cannot make progress",
+			Message: manifestRefusal + ": cleanup cannot make progress",
 		}
 	}
 	return &condition.NotReady{

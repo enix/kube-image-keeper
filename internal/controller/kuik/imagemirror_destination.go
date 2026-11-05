@@ -51,6 +51,34 @@ func (r *ImageMirrorReconciler) interrupted(st *mirrorState, now time.Time) {
 	st.retryAt = now.Add(interval)
 }
 
+// passOrTryDue is passDue, also due when the try of a deletion the destination of im refused
+// as unsupported is: that try runs a pass of its own, without waiting for the next one.
+func (r *ImageMirrorReconciler) passOrTryDue(im *kuikv1alpha1.ImageMirror, st *mirrorState, now time.Time) (bool, time.Duration) {
+	due, wait := r.passDue(st, now)
+	if due || !im.Spec.Cleanup.IsEnabled() {
+		return due, wait
+	}
+	next, refusing := st.deletionTry(im.Spec.Cleanup.DeletesByDigest(), now, im.Generation)
+	// A try waiting for the copies running is made by the pass their end brings back.
+	return refusing && !now.Before(next) && !st.awaitingCopies(), wait
+}
+
+// untilTry shortens nextPass to the next try of a deletion the destination of im refused as
+// unsupported, when that try comes first. A try already due, the refused pass having taken
+// longer than its wait, comes at once, unless it waits for the copies running: their end
+// brings the pass back.
+func untilTry(im *kuikv1alpha1.ImageMirror, st *mirrorState, now time.Time, nextPass time.Duration) time.Duration {
+	if !im.Spec.Cleanup.IsEnabled() {
+		return nextPass
+	}
+	next, refusing := st.deletionTry(im.Spec.Cleanup.DeletesByDigest(), now, im.Generation)
+	if !refusing || st.awaitingCopies() {
+		return nextPass
+	}
+	// The smallest positive RequeueAfter: zero would mean no requeue at all.
+	return min(max(next.Sub(now), time.Nanosecond), nextPass)
+}
+
 // selfCheck compares the whole desired state of im with its destination, one manifest HEAD per
 // reference, and records what it found: present references, lost ones to copy again first,
 // and the ones whose tag only is gone, written back without a blob. A destination that does
@@ -127,7 +155,8 @@ func (r *ImageMirrorReconciler) selfCheck(ctx context.Context, im *kuikv1alpha1.
 // sweep lists every repository of status.repositories, records in pendingDeletion the tags of
 // this cluster the live references do not expect, deletes by tag those whose retention
 // elapsed, and returns the new pendingDeletion and the repositories to retire. A listing that
-// fails interrupts the pass, which records, deletes and retires nothing.
+// fails interrupts the pass, which records, deletes and retires nothing. Once the destination
+// refused a deletion as unsupported, it deletes nothing until the next try is due.
 func (r *ImageMirrorReconciler) sweep(ctx context.Context, im *kuikv1alpha1.ImageMirror, st *mirrorState, live []imagepath.Reference, pending []kuikv1alpha1.PendingDeletion, now time.Time) ([]kuikv1alpha1.PendingDeletion, []string, error) {
 	log := logf.FromContext(ctx)
 	// Copies start again once the sweep is over, unless it waits for the ones running.
@@ -184,10 +213,22 @@ func (r *ImageMirrorReconciler) sweep(ctx context.Context, im *kuikv1alpha1.Imag
 		entries[entry.Ref] = entry
 	}
 	byDigest := im.Spec.Cleanup.DeletesByDigest()
+	// A destination that refused a deletion as unsupported gets one try per backoff step, not
+	// one per pass.
+	next, refusing := st.deletionTry(byDigest, now, im.Generation)
+	held := refusing && now.Before(next)
+	if held && len(result.Delete) > 0 {
+		log.V(1).Info("Held the deletion of ImageMirror tags until the next try on a destination refusing deletion", "retryIn", next.Sub(now).String())
+		result.Delete = nil
+	}
 	if byDigest && len(result.Delete) > 0 {
 		// A copy running could push a tag of a manifest between its guard and its deletion: no
 		// copy starts any more, and the end of the last one running brings the pass back.
 		waiting = !st.startDeleting()
+	}
+	if !held && !waiting {
+		// A try waiting for the copies stays due: the pass their end brings back makes it.
+		defer st.endTry(now)
 	}
 	if waiting {
 		log.V(1).Info("Held the deletion of ImageMirror tags until the copies of the mirror running end")
@@ -217,20 +258,18 @@ func (r *ImageMirrorReconciler) sweep(ctx context.Context, im *kuikv1alpha1.Imag
 		case err == nil:
 			deleted[ref] = true
 			r.metrics.deletedTag(routing.KindImageMirror, im.Name, entries[ref])
-			st.mu.Lock()
-			st.deleteUnsupported = false
-			st.mu.Unlock()
+			st.acceptDeletion()
 			// Events expire: the log is what records every deletion.
 			log.Info("Deleted ImageMirror tag", "image", ref, "reason", deletionReason(entries[ref]))
 			r.recorder.Eventf(im, nil, corev1.EventTypeNormal, "ImageDeleted", "Delete", "Deleted %s, unused for longer than its retention", ref)
 		case deleteUnsupported(err):
-			// The registry will keep refusing: stop there, the next pass tries once more.
-			log.Info("Stopped deleting ImageMirror tags: the destination refuses deletion", "image", ref, "error", err.Error())
-			st.mu.Lock()
-			st.deleteUnsupported = true
-			st.manifestRefused = byDigest
-			st.mu.Unlock()
-			r.recorder.Eventf(im, nil, corev1.EventTypeWarning, "ImageDeletionFailed", "Delete", "Failed to delete %s: %v", ref, err)
+			// The registry will keep refusing: stop there, and try a single deletion again once
+			// the wait is over. The event announces the first refusal of a series only.
+			first, wait := st.refuseDeletion(byDigest, now, im.Generation)
+			log.Info("Stopped deleting ImageMirror tags: the destination refuses deletion", "image", ref, "error", err.Error(), "retryIn", wait.String())
+			if first {
+				r.recorder.Eventf(im, nil, corev1.EventTypeWarning, "ImageDeletionFailed", "Delete", "Failed to delete %s: %v", ref, err)
+			}
 		default:
 			log.Info("Failed to delete ImageMirror tag", "image", ref, "error", err.Error())
 			r.recorder.Eventf(im, nil, corev1.EventTypeWarning, "ImageDeletionFailed", "Delete", "Failed to delete %s: %v", ref, err)

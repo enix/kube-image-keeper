@@ -277,7 +277,7 @@ task acceptance-apply -- --kubeconfig <path> --context <name> --mirror-prefix <p
 - conditions: `task acceptance-get -- --kubeconfig <path> --context <name> imagemirror/kuik-test-mirror-copy --jsonpath '{range .status.conditions[*]}{.type} {.status} {.reason}{"\n"}{end}'`
 - event (section "events") and counter: `task acceptance-inspect -- --kubeconfig <path> --context <name> --grep kuik-test-mirror-copy --metrics 'kuik_mirror_copies_total.*kuik-test-mirror-copy'`
 
-**Explore**: the tag in the registry carries this cluster's `clusterID` suffix ([Multi-cluster](../../docs/v3/spec.md#multi-cluster-shared-destination-one-tag-per-cluster)); `selfChecked` appears within one `mirror.destinationScan.interval` (1 hour by default). Delete the CR (`task acceptance-delete -- --kubeconfig <path> --context <name> imagemirror/kuik-test-mirror-copy`): it is held until no pod runs its copies, then its tags are deleted and it goes ([Deleting an ImageMirror](../../docs/crds.md#deleting-an-imagemirror)). Without `--mirror-prefix`, the scenario is reported as not tested.
+**Explore**: the tag in the registry carries this cluster's `clusterID` suffix ([Multi-cluster](../../docs/v3/spec.md#multi-cluster-shared-destination-one-tag-per-cluster)); `selfChecked` appears within one `mirror.destinationScan.interval` (1 hour by default). Delete the CR (`task acceptance-delete -- --kubeconfig <path> --context <name> imagemirror/kuik-test-mirror-copy`): its tags are deleted and it goes at once, even while the scenario's pod still runs its copy ([Deleting an ImageMirror](../../docs/crds.md#deleting-an-imagemirror)). Without `--mirror-prefix`, the scenario is reported as not tested.
 
 ## 17. Nobody but the secret syncer writes a Secret under its reserved prefix
 
@@ -356,7 +356,7 @@ task acceptance-apply -- --kubeconfig <path> --context <name> --file test/accept
 
 `acceptance-get` reads the CR through the kuik API types, so it prints `spec.cleanup.retention` as `168h0m0s` whatever the API server stored: the generation is the check. A spec written back as `168h0m0s` is a change the API server counts, so it would read 2.
 
-**Explore**: delete the CR (`task acceptance-delete -- --kubeconfig <path> --context <name> imagemirror/kuik-test-mirror`): the finalizer is removed the same way, and the CR goes within a minute, since no pod runs its copies and the fixture turns cleanup off ([Deleting an ImageMirror](../../docs/crds.md#deleting-an-imagemirror)).
+**Explore**: delete the CR (`task acceptance-delete -- --kubeconfig <path> --context <name> imagemirror/kuik-test-mirror`): the finalizer is removed the same way, and the CR goes within a minute, since the fixture turns cleanup off ([Deleting an ImageMirror](../../docs/crds.md#deleting-an-imagemirror)).
 
 ## 24. kuik_registry_requests_total is exported, without mirror destinations
 

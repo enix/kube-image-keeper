@@ -30,7 +30,7 @@ When no pod uses an image any more, its copy is kept for `cleanup.retention` (a 
 
 1. [Install kuik](../installation.md).
 
-2. Prepare the backup registry. It must accept nested repository paths (Harbor, Zot and the CNCF `distribution` registry do), support tag deletion, and run its own garbage collection: kuik deletes tags, the registry frees the space. See [Destination requirements](../crds.md#destination-requirements). For a registry that refuses tag deletion, Harbor for instance, `cleanup.deleteByDigest: true` is the way out, only on a destination the `ImageMirror` is the only writer of: see [Deleting by digest](../crds.md#deleting-by-digest).
+2. Prepare the backup registry. It must accept nested repository paths (Harbor, Zot and the CNCF `distribution` registry do), support tag deletion, and run its own garbage collection: kuik deletes tags, the registry frees the space. See [Destination requirements](../crds.md#destination-requirements). For a registry that refuses tag deletion, Harbor for instance, `cleanup.deleteByDigest: true` is the way out, only on a destination the `ImageMirror` is the only writer of: see [Deleting by digest](../crds.md#deleting-by-digest). On Harbor, follow [Harbor as an ImageMirror destination](../guides/harbor-destination.md).
 
 3. Create 2 credentials in kuik's namespace (`kuik-system` by default, adapt the commands otherwise): one for kuik to push, read, list and delete tags, one for the kubelet to pull the copies. kuik copies the pull credential into the namespaces of the pods it rewrites (see [Injected pull secrets](../concepts/pull-secrets.md)).
 
@@ -101,5 +101,5 @@ When the origin deletes an image, the next pod that needs it runs the copy: it g
 - kuik reads a private origin with the pull secrets of the pods that use the image. With the chart value `secretAccess.mode: restricted`, declare the origin's credentials in [`fallbackAuth`](../configuration.md#fallbackauth) for the copies, and list the namespaces of those pods in `secretAccess.namespaces`: the webhook never uses `fallbackAuth`, so elsewhere it checks a private origin anonymously, and routes every new pod to the copy as if the origin were gone.
 - Start the mirror before tightening the retention policy of the origin: an image is only protected once its copy exists.
 - Excluding an image, or narrowing a selector, deletes its copy once `cleanup.retention` has elapsed. `cleanup.enabled: false` keeps every copy forever.
-- A deleted `ImageMirror` waits until no pod runs one of its copies, then deletes its tags, unless `cleanup.enabled` is `false`, see [Deleting an ImageMirror](../crds.md#deleting-an-imagemirror).
+- A deleted `ImageMirror` deletes its tags at once, unless `cleanup.enabled` is `false`, without waiting for the pods running its copies: a container with `imagePullPolicy: Always` among them cannot pull its image again until its pod is recreated, see [Deleting an ImageMirror](../crds.md#deleting-an-imagemirror).
 - To see the missing images that are not mirrored, add an [`ImageMonitor`](./detect-missing-images-before-outage.md).

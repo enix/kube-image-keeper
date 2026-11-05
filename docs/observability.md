@@ -69,7 +69,7 @@ the upstream digest, emits nothing either.
 | `ImageUnrecoverable` | Warning | No source can supply an image any more (`SourceNotFound` on the origin and every alternative). Pods still running it do so from a node cache. Once, when the copy starts failing that way |
 | `OrphanTagFound` | Warning | The sweep found a tag of this cluster no tracked image accounts for. It is deleted once its retention elapsed. Once per tag |
 | `ImageDeleted` | Normal | A tag was deleted after its retention elapsed, or was already gone. Under `cleanup.deleteByDigest`, also for each tag of a manifest deleted with another tag of this cluster in the same pass |
-| `ImageDeletionFailed` | Warning | The destination refused a tag deletion, by the sweep or by the cleanup of a deleted `ImageMirror`, or under `cleanup.deleteByDigest` failed the `HEAD` of a tag or the manifest deletion. A destination that does not support the deletion also sets `Ready` `False` with reason `RegistryDeleteUnsupported`. A tag kept because another tag shares its manifest emits nothing |
+| `ImageDeletionFailed` | Warning | The destination refused a tag deletion, by the sweep or by the cleanup of a deleted `ImageMirror`, or under `cleanup.deleteByDigest` failed the `HEAD` of a tag or the manifest deletion. A destination that does not support the deletion also sets `Ready` `False` with reason `RegistryDeleteUnsupported`; on a live `ImageMirror`, the event fires at the first refusal only, not at the tries that follow (10 seconds later, doubling up to 1 hour), and again at a refusal after an accepted try or a change of the spec. The cleanup of a deleted `ImageMirror` emits it at each try. A tag kept because another tag shares its manifest emits nothing |
 
 ## Metrics
 

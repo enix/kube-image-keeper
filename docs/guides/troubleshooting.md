@@ -53,7 +53,7 @@ When the original image answered first, the resource put its candidates after th
 
 ### No candidate answers
 
-The webhook checks each candidate with a single manifest `HEAD`, never retried, and gives up on one after 2 seconds ([`webhook.availabilityCheck.timeout`](../configuration.md#keys)): a candidate that answers an error, a `503` included, is unavailable at once. The `debug` logs of the webhook name each candidate and why it failed. The usual causes:
+The webhook checks each candidate with a single manifest `HEAD`, never retried, and gives up on one after 2 seconds ([`webhook.availabilityCheck.timeout`](../configuration.md#keys)): a candidate that answers an error, a `503` included, is unavailable at once. That answer, a failure included, stays in the replica's cache for [`webhook.availabilityCheck.activeCheckCache.ttl`](../configuration.md#keys), 10 seconds by default: a pod that replica admits within it gets the same verdict without a new check, unless the candidate is checked with other credentials (other pull Secrets, or a new version of them). The `debug` logs of the webhook name each candidate and why it failed. The usual causes:
 
 - **The candidate does not hold that tag.** Check it with `crane manifest <candidate>` or `docker manifest inspect <candidate>`.
 - **The candidate needs a credential.** The webhook checks with the candidate's `auth`, then the pod's `imagePullSecrets`, as the node would. Add an [`auth`](../crds.md#auth) to the entry. With the chart value `secretAccess.mode: restricted`, the webhook cannot read the pod's pull secrets outside `secretAccess.namespaces`, and checks anonymously: it never uses `fallbackAuth`. List the pod's namespace in `secretAccess.namespaces`.
@@ -82,7 +82,7 @@ kubectl get imagemirror <name> -o jsonpath='{.status.conditions[?(@.type=="Ready
 | `SecretNotFound` | A `secretRef` names a Secret that does not exist in kuik's namespace | Create it in kuik's namespace (`kuik-system` by default): a `secretRef` carries no namespace |
 | `SecretMalformed` | The Secret is not of type `kubernetes.io/dockerconfigjson`, or its content does not parse | Recreate it with `kubectl create secret docker-registry` |
 | `InvalidConfig` | A selector or an entry the API server accepted cannot be used | The message names the field |
-| `RegistryDeleteUnsupported` | The `ImageMirror` destination refuses tag deletion, or manifest deletion under `cleanup.deleteByDigest`, so the cleanup cannot run | Allow the deletion on the registry, set `cleanup.deleteByDigest: true` when the `ImageMirror` is the only writer of its destination (see [Deleting by digest](../crds.md#deleting-by-digest)), or set `cleanup.enabled: false` |
+| `RegistryDeleteUnsupported` | The `ImageMirror` destination refuses tag deletion, or manifest deletion under `cleanup.deleteByDigest`, so the cleanup cannot run | Allow the deletion on the registry, set `cleanup.deleteByDigest: true` when the `ImageMirror` is the only writer of its destination (see [Deleting by digest](../crds.md#deleting-by-digest)), or set `cleanup.enabled: false`. Once the deletion is allowed, kuik resumes at its next try, within 1 hour, or at once on a change of the `ImageMirror` spec. With `cleanup.deleteByDigest: true`, a try also waits for the mirror copies running to end |
 
 The other conditions (`FallbackActive`, `ImagesUnavailable`...) are not errors of the resource: they report an image, see [Status conventions](../crds.md#status-conventions).
 
@@ -121,12 +121,9 @@ An `AnonymousAccessDenied` event on the monitor says that a registry refused an 
 
 ## An `ImageMirror` stays `Terminating`
 
-A deleted `ImageMirror` waits until it can be released safely:
+A deleted `ImageMirror` waits for the copies still running, which ends within a copy timeout. Beyond that, it stays `Terminating` while **it cannot delete its tags**, with `cleanup.enabled`: the `manage` credential cannot be read, the destination refuses tag deletion, or manifest deletion under `cleanup.deleteByDigest`, or the destination cannot be reached or refuses the credential (shown only in the reconciler logs). A destination that refuses the deletion sets `Ready` to `False` with the reason `RegistryDeleteUnsupported`, its message naming which deletion was refused, and emits an `ImageDeletionFailed` event on each try.
 
-1. **A pod still runs one of its copies.** A rescheduled pod would find the copy gone. Restart those workloads: they go back to their origin.
-2. **It cannot delete its tags**, with `cleanup.enabled`: the `manage` credential cannot be read, or the destination refuses tag deletion, or manifest deletion under `cleanup.deleteByDigest`. A destination that refuses the deletion sets `Ready` to `False` with the reason `RegistryDeleteUnsupported`, its message naming which deletion was refused, and emits an `ImageDeletionFailed` event on each try.
-
-To release it while leaving the tags in place, set `cleanup.enabled: false` on it. When the destination refuses tag deletion and the `ImageMirror` is its only writer, `cleanup.deleteByDigest: true` lets the cleanup through instead. When it refuses manifest deletion under `cleanup.deleteByDigest`, allow manifest deletion on the registry (on the CNCF `distribution` registry, `storage.delete.enabled`), or set `cleanup.enabled: false`. See [Deleting an ImageMirror](../crds.md#deleting-an-imagemirror).
+To release it while leaving the tags in place, set `cleanup.enabled: false` on it. When the destination refuses tag deletion and the `ImageMirror` is its only writer, `cleanup.deleteByDigest: true` lets the cleanup through instead. When it refuses manifest deletion under `cleanup.deleteByDigest`, allow manifest deletion on the registry (on the CNCF `distribution` registry, `storage.delete.enabled`), or set `cleanup.enabled: false`. See [Deleting an ImageMirror](../crds.md#deleting-an-imagemirror), and [Harbor as an ImageMirror destination](./harbor-destination.md) for a Harbor destination.
 
 ## A status list is truncated
 
