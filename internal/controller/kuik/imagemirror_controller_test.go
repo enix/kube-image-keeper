@@ -1005,6 +1005,37 @@ var _ = Describe("ImageMirror Controller", func() {
 			Expect(h.status().SelfChecked).To(Equal(before))
 		})
 
+		Describe("when a pass is interrupted", func() {
+			// interruptedFirstPass starts a mirror whose first pass fails at the first manifest
+			// HEAD, and returns the HEADs the destination received by then.
+			interruptedFirstPass := func() int {
+				GinkgoHelper()
+				src := h.source()
+				createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+				h.mirror()
+				h.destination.Intercept(registrytest.Status(http.MethodHead, "/manifests/", http.StatusInternalServerError, nil))
+				h.reconcile()
+				Expect(destinationHeads()).To(BeNumerically(">", 0))
+				Expect(h.status().SelfChecked).To(BeNil())
+				return destinationHeads()
+			}
+
+			It("does not read the destination again before mirror.destinationScan.interval elapses", func() {
+				heads := interruptedFirstPass()
+
+				h.reconcile()
+				Expect(destinationHeads()).To(Equal(heads))
+			})
+
+			It("runs the pass again once mirror.destinationScan.interval has elapsed", func() {
+				heads := interruptedFirstPass()
+
+				h.pass()
+				h.reconcile()
+				Expect(destinationHeads()).To(BeNumerically(">", heads))
+			})
+		})
+
 		It("re-copies a manifest missing from the destination and emits ImageRecopied", func() {
 			copiedApp()
 			h.reconcile()

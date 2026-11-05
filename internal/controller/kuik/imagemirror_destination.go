@@ -29,6 +29,10 @@ func (r *ImageMirrorReconciler) passDue(st *mirrorState, now time.Time) (bool, t
 	interval := r.config.Load().Mirror.DestinationScan.Interval.Duration
 	st.mu.Lock()
 	defer st.mu.Unlock()
+	// An interrupted pass waits for the interval too, rather than running at every reconcile.
+	if wait := st.retryAt.Sub(now); wait > 0 {
+		return false, wait
+	}
 	if st.lastPass.IsZero() {
 		return true, interval
 	}
@@ -36,6 +40,15 @@ func (r *ImageMirrorReconciler) passDue(st *mirrorState, now time.Time) (bool, t
 		return false, interval - elapsed
 	}
 	return true, interval
+}
+
+// interrupted records that the destination pass of st was interrupted at now: the next one is
+// due after the scan interval, as after a pass that ended.
+func (r *ImageMirrorReconciler) interrupted(st *mirrorState, now time.Time) {
+	interval := r.config.Load().Mirror.DestinationScan.Interval.Duration
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.retryAt = now.Add(interval)
 }
 
 // passOrTryDue is passDue, also due when the try of a deletion the destination of im refused
@@ -135,6 +148,7 @@ func (r *ImageMirrorReconciler) selfCheck(ctx context.Context, im *kuikv1alpha1.
 	maps.DeleteFunc(st.lapped, func(key string, _ bool) bool { return !recopy[key] })
 	st.writeBack = writeBack
 	st.lastPass = now
+	st.retryAt = time.Time{}
 	return now, nil
 }
 
