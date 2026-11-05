@@ -50,8 +50,10 @@ its `injectPullSecret`.
 
 ## Keeping it valid
 
-The syncer writes with a server-side apply and never reads the Secrets it wrote: it cannot read
-any Secret outside the cluster resource namespace. It writes again when:
+The syncer provisions credentials with a server-side apply. When no credential is needed, it
+empties an existing Secret with a patch that cannot create one. Neither operation reads the
+Secret first: the syncer cannot read any Secret outside the cluster resource namespace. It
+writes again when:
 
 - a `secretRef` Secret is created or changes in the cluster resource namespace;
 - the resource changes, or a namespace enters or leaves its scope;
@@ -96,19 +98,14 @@ that leaves the scope of an `Always` resource gets the same empty Secret; one th
 scope of an `OnFailure` resource gets it once that grace period has passed, its pods still
 running.
 
-The syncer keeps which Secrets it wrote in memory. After a restart, it does not know a Secret
-nothing needs any more, so such a Secret keeps its last content:
-
-- under `OnFailure`, when the pods of its namespace all went away while the syncer was stopped,
-  until a new rewrite lands in that namespace;
-- under `OnFailure`, when its namespace left the scope while the syncer was stopped, or before
-  the grace period had passed, until the namespace is back in scope with a rewritten pod;
-- under `Always`, when its namespace left the scope while the syncer was stopped, until the
-  namespace comes back into scope.
+After a restart, the syncer rebuilds the desired credentials from the resources, namespaces and
+live pods. It empties existing Secrets that are no longer needed, including when pods disappeared,
+the namespace left the resource's scope, or injection was disabled while it was stopped. Grace
+periods are held in memory: entries kept only by a grace period are dropped on restart. Unused
+pairs without an existing Secret stay without one.
 
 Deleting the resource deletes those Secrets in every case.
 
 The 3.0.0 alphas could write the Secret of an `OnFailure` resource in a namespace its
-`namespaceSelector` does not select. kuik does not empty these Secrets after an upgrade: it
-never reads them, and a restarted syncer only writes the Secrets something needs. Delete them by
-hand.
+`namespaceSelector` does not select. After an upgrade, the syncer empties these Secrets while
+their resource and namespace still exist.
