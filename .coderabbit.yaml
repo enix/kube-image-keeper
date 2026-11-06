@@ -112,6 +112,9 @@ reviews:
     - "!cover.out"
     - "!go.sum"
     - "!**/package-lock.json"
+    - "!test/kuik-tester/go.sum"
+    - "!test/kuik-tester/charts/kuik-tester/README.md"
+    - "!test/kuik-tester/internal/admin/ui/static/htmx.min.js"
 
   # Per-path guidance fed to the model alongside the diff. Keep these
   # short and load-bearing: long instructions get diluted. docs/v3 is the
@@ -171,6 +174,14 @@ reviews:
         than the process needs: the webhook is read-only, only the secret
         syncer writes Secrets. A new value needs a "# --" comment in
         values.yaml: the chart README is generated from them.
+
+    - path: "test/kuik-tester/**"
+      instructions: |
+        kuik-tester, a test tool and not kuik: docs/v3, the kubelet parity
+        and kuik's logr conventions do not apply (it logs with slog,
+        notes/0017). A nested Go module that stands alone: flag an import of
+        a package of the root module, a github.com/enix/kube-image-keeper/
+        path outside github.com/enix/kube-image-keeper/test/kuik-tester/.
 
     - path: ".github/workflows/**"
       instructions: |
