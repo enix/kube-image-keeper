@@ -137,6 +137,10 @@ The notes have no known limits section: [`docs/known-limits.md`](./docs/known-li
 
 A maintenance line only ships fixes. `X.Y.x-stable` and `X.Y.x-rc` are regular release branches for semantic-release, so nothing caps their computed version natively; the Release workflow enforces the line instead, and fails when the computed version escapes `X.Y.*` (which would mean a stray `feat` or breaking-change commit landed on the line).
 
+### Releasing kuik-tester
+
+kuik-tester (`test/kuik-tester/`, [0017](./notes/0017-kuik-tester.md)) is released apart from kuik: dispatch the [Tester release workflow](./.github/workflows/tester-release.yaml) on `main` with the version, `X.Y.Z` or `X.Y.Z-pre` without a leading `v`, major 0 or 1 (a v2 needs the `/v2` suffix in the module path first). It runs the Tester checks, pushes `quay.io/enix/kuik-tester:<version>` (and `latest` when it is the highest stable version) and the chart `oci://quay.io/enix/charts/kuik-tester`, then tags the commit `test/kuik-tester/v<version>`, the Go version of the nested module. No GitHub release, notes or announcement; semantic-release ignores the tag. A run that fails before the tag is dispatched again with the same version.
+
 ## Cutting a maintenance branch
 
 Each release line `X.Y` is maintained from a **maintenance branch `X.Y.x`**: it carries the release-line code and its published documentation, and receives the line's fixes through pull requests. When cutting a new line `X.Y`:
