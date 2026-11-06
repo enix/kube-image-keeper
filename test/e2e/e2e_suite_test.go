@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"testing"
 	"time"
 
@@ -84,7 +85,8 @@ var (
 // To skip CertManager installation, set: CERT_MANAGER_INSTALL_SKIP=true
 // To skip the teardown on a cluster deleted after the run, set: KUIK_E2E_DISPOSABLE_CLUSTER=true
 // (task test-e2e sets it when it created the cluster)
-// To load a manager image built beforehand instead of building it, set: KUIK_E2E_SKIP_IMAGE_BUILD=true
+// To load the manager and kuik-tester images built beforehand instead of building them, set:
+// KUIK_E2E_SKIP_IMAGE_BUILD=true
 func TestE2E(t *testing.T) {
 	RegisterFailHandler(Fail)
 	_, _ = fmt.Fprintf(GinkgoWriter, "Starting kube-image-keeper e2e test suite\n")
@@ -92,13 +94,21 @@ func TestE2E(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	// The CI builds managerImage before the suite, with its layers cached across runs.
+	// The CI builds managerImage and testerImage before the suite, with their layers cached across
+	// runs.
 	if envSet("KUIK_E2E_SKIP_IMAGE_BUILD") {
-		_, _ = fmt.Fprintf(GinkgoWriter, "Skipping the manager image build (KUIK_E2E_SKIP_IMAGE_BUILD=true)\n")
+		_, _ = fmt.Fprintf(GinkgoWriter,
+			"Skipping the manager and kuik-tester image builds (KUIK_E2E_SKIP_IMAGE_BUILD=true)\n")
 	} else {
 		By("building the manager image")
 		_, err := makeTarget("docker-build", fmt.Sprintf("IMG=%s", managerImage))
 		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the manager image")
+
+		// For the platform of the nodes only, which loads it into the local Docker.
+		By("building the kuik-tester image")
+		_, err = runBounded(makeTimeout, nil, taskBinary, "tester:image", "TESTER_IMAGE="+testerImage,
+			"TESTER_PLATFORMS=linux/"+runtime.GOARCH)
+		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the kuik-tester image")
 	}
 
 	// TODO(user): If you want to change the e2e test vendor from Kind,
@@ -106,6 +116,10 @@ var _ = BeforeSuite(func() {
 	By("loading the manager image on Kind")
 	err := utils.LoadImageToKindClusterWithName(managerImage)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the manager image into Kind")
+
+	By("loading the kuik-tester image on Kind")
+	err = utils.LoadImageToKindClusterWithName(testerImage)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the kuik-tester image into Kind")
 
 	configureKubectlKubeRC()
 	setupCertManager()

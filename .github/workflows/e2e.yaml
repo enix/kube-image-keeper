@@ -19,10 +19,11 @@ on:
     branches:
       - main
     # The suite builds the manager image, applies the CRDs and installs the chart on a Kind
-    # cluster created from its config. Anything else landing on main cannot change its outcome. Paths are ignored by workflow_call and
-    # workflow_dispatch, so a release still runs it whatever it carries.
-    # Keep in sync with the list of the "Look for relevant changes" step below. kuik-tester is a
-    # nested module the suite does not build: its own workflow checks it (notes/0017).
+    # cluster created from its config, and builds and installs kuik-tester, the destination
+    # registry refusing tag deletion; task loads the Taskfile kuik-tester's tasks live in.
+    # Anything else landing on main cannot change its outcome. Paths are ignored by
+    # workflow_call and workflow_dispatch, so a release still runs it whatever it carries.
+    # Keep in sync with the list of the "Look for relevant changes" step below.
     paths:
       - '**/*.go'
       - go.mod
@@ -38,8 +39,12 @@ on:
       - .github/workflows/e2e.yaml
       - .github/actions/setup-kind/**
       - .github/actions/setup-task/**
-      # Last: a negative pattern excludes only what the patterns before it matched.
-      - '!test/kuik-tester/**'
+      - test/kuik-tester/go.mod
+      - test/kuik-tester/go.sum
+      - test/kuik-tester/Dockerfile
+      - test/kuik-tester/.dockerignore
+      - test/kuik-tester/Taskfile.yaml
+      - test/kuik-tester/charts/**
   workflow_call:
   workflow_dispatch:
 
@@ -94,7 +99,12 @@ jobs:
             .github/workflows/e2e.yaml \
             '.github/actions/setup-kind/**' \
             '.github/actions/setup-task/**' \
-            ':(exclude)test/kuik-tester/**'
+            test/kuik-tester/go.mod \
+            test/kuik-tester/go.sum \
+            test/kuik-tester/Dockerfile \
+            test/kuik-tester/.dockerignore \
+            test/kuik-tester/Taskfile.yaml \
+            'test/kuik-tester/charts/**'
           then
             echo "::notice::No change can affect the e2e suite; skipping it."
             echo "run=false" >> "$GITHUB_OUTPUT"
@@ -155,6 +165,21 @@ jobs:
           cache-from: type=gha
           # A cache the GitHub service fails to store costs the next run time, never this one.
           cache-to: type=gha,mode=max,ignore-error=true
+
+      # testerImage in test/e2e/tester_test.go, for the platform of the Kind node, as the suite
+      # would build it with task tester:image. A cache scope of its own, so that it never evicts
+      # the manager's.
+      - name: Build the kuik-tester image
+        if: steps.changes.outputs.run != 'false'
+        uses: docker/build-push-action@v7
+        with:
+          context: test/kuik-tester
+          load: true
+          platforms: linux/amd64
+          tags: example.com/kuik-tester:e2e
+          provenance: false
+          cache-from: type=gha,scope=kuik-tester
+          cache-to: type=gha,mode=max,ignore-error=true,scope=kuik-tester
 
       - name: Run the e2e suite
         if: steps.changes.outputs.run != 'false'
