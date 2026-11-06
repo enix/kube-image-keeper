@@ -1,0 +1,62 @@
+{{define "imgrow"}}<tr data-ref="{{.Host}}/{{.Repo}}:{{.Tag}}">
+<td>{{.Repo}}:{{.Tag}}</td>
+<td>{{.Generation}}</td>
+<td><code>{{shortDigest .IndexDigest}}</code></td>
+<td>{{.Behaviour}}</td>
+<td><code>{{.RuleID}}</code></td>
+<td class="acts">
+<form hx-post="/ui/images/action" hx-target="closest tr" hx-swap="outerHTML">
+<input type="hidden" name="host" value="{{.Host}}">
+<input type="hidden" name="repo" value="{{.Repo}}">
+<input type="hidden" name="tag" value="{{.Tag}}">
+{{range actions}}{{if .Shows $}}<button name="action" value="{{.Value}}" title="{{.Title}}">{{.Label}}</button>
+{{end}}{{end}}{{if .Pinned}}<button type="button" class="copy" title="Copy the pinned reference host/repo:tag@digest" data-pinned="{{.Pinned}}">copy pinned</button>{{end}}
+</form>
+</td>
+</tr>{{end}}
+
+{{define "resolved"}}<div class="box" id="resolved" data-pinned="{{.Pinned}}">
+<div><code>{{.Pinned}}</code></div>
+<div>content key <code>{{.ContentKey}}</code>, generation {{.Generation}}</div>
+<div>index <code>{{.IndexDigest}}</code></div>
+<ul>{{range $p, $d := .Platforms}}<li><code>{{$p}} {{$d}}</code></li>{{end}}</ul>
+</div>{{end}}
+
+{{define "drifted"}}<div class="box" id="drifted" data-count="{{len .}}">{{if .}}<div>Drifted:</div><ul>{{range .}}<li data-ref="{{.}}"><code>{{.}}</code></li>{{end}}</ul>{{else}}nothing matched{{end}}</div>{{end}}
+{{define "content"}}
+<h1>Images</h1>
+<p class="lead">Images seen here (pulled, or resolved below) or named exactly by a rule, with the rule an anonymous manifest HEAD by tag meets now. A quick action replaces the rules that target exactly that image with one rule on top of the list; OK only removes them. Purging the images forgets what was seen and every generation; an image that a rule names exactly stays listed as long as that rule exists.</p>
+<p class="lead">Build an image without pulling it: records it as seen and shows its pinned reference and digests.</p>
+<form class="inline" hx-post="/ui/images/resolve" hx-target="#resolved" hx-swap="outerHTML">
+<label>host <input name="host" placeholder="upstream" required title="Host label, the part before .&lt;baseDomain&gt;"></label>
+<label>repo <input name="repo" placeholder="acme/foo" required title="Repository, no glob"></label>
+<label>tag <input name="tag" placeholder="v1" required title="Tag, no glob"></label>
+<button>Resolve</button>
+</form>
+<div id="resolved"></div>
+<p class="lead">Move every seen tag matching the globs to new content (generation + 1); a literal tag never seen starts at generation 2.</p>
+<form class="inline" hx-post="/ui/images/drift" hx-target="#drifted" hx-swap="outerHTML">
+<label>host glob <input name="host" placeholder="upstream or *" title="Host label glob"></label>
+<label>repo glob <input name="repo" placeholder="acme/*" title="Repository glob: * is one path segment, ** any number"></label>
+<label>tag glob <input name="tag" placeholder="*" title="Tag glob"></label>
+<button>Drift matching images</button>
+</form>
+<div id="drifted"></div>
+{{if .Purgeable}}<form class="inline" hx-post="/ui/images/purge" hx-swap="none" hx-confirm="Forget all {{count .Purgeable "image" "images"}} (seen images and generations)?">
+<button title="Forget the seen images, their digests and their generations; an image a rule names exactly stays listed">Purge all images</button></form>{{end}}
+<form class="inline" method="get" action="/">
+<label>host <input name="host" value="{{.Host}}" placeholder="upstream" title="Keep the images whose host contains this text"></label>
+<label>repo <input name="repo" value="{{.Repo}}" placeholder="acme/foo" title="Keep the images whose repository contains this text"></label>
+<button>Filter</button>
+</form>
+{{if gt .Total .Shown}}<p class="muted" id="images-capped" data-shown="{{.Shown}}" data-total="{{.Total}}">Showing {{.Shown}} of {{.Total}} matching images: narrow the filter.</p>{{end}}
+{{range .Groups}}
+<h2>{{.Host}}</h2>
+<table>
+<thead><tr><th>Image</th><th>Gen</th><th>Digest</th><th>Behaviour</th><th>Rule</th><th>Actions</th></tr></thead>
+<tbody>
+{{range .Rows}}{{template "imgrow" .}}{{end}}
+</tbody>
+</table>
+{{else}}{{if or .Host .Repo}}<p class="muted" id="images-empty" data-filtered="true">No image matches the filter.</p>{{else}}<p class="muted" id="images-empty" data-filtered="false">No image seen yet. Pull one, or resolve it above.</p>{{end}}{{end}}
+{{end}}
