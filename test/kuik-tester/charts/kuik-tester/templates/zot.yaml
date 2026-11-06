@@ -1,0 +1,124 @@
+{{- if .Values.zot.enabled -}}
+{{- $fullname := include "kuik-tester.fullname" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullname }}-zot
+  labels:
+    {{- include "kuik-tester.labels" . | nindent 4 }}
+data:
+  config.json: |
+    {{- include "kuik-tester.zotConfig" . | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-zot
+  labels:
+    {{- include "kuik-tester.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "kuik-tester.zotSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kuik-tester.zotSelectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ (include "kuik-tester.zotConfig" . ) | sha256sum }}
+    spec:
+      containers:
+        - name: zot
+          image: {{ .Values.zot.image | quote }}
+          args: ["serve", "/etc/zot/config.json"]
+          ports:
+            - name: http
+              containerPort: 5000
+          livenessProbe:
+            httpGet:
+              path: /v2/
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /v2/
+              port: http
+          {{- with .Values.zot.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/zot
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/registry
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $fullname }}-zot
+        - name: data
+          {{- if .Values.zot.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ $fullname }}-zot
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-zot
+  labels:
+    {{- include "kuik-tester.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "kuik-tester.zotSelectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: 5000
+      targetPort: http
+{{- if .Values.zot.persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $fullname }}-zot
+  labels:
+    {{- include "kuik-tester.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with .Values.zot.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.zot.persistence.size }}
+{{- end }}
+{{- if .Values.networkPolicy.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-zot
+  labels:
+    {{- include "kuik-tester.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "kuik-tester.zotSelectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "kuik-tester.selectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 5000
+{{- end }}
+{{- end }}

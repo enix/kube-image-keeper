@@ -1,0 +1,20 @@
+{{- if .Values.plainHTTP.enabled -}}
+{{- $fullname := include "kuik-tester.fullname" . -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-plainhttp
+  labels:
+    {{- include "kuik-tester.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.plainHTTP.service.type }}
+  selector:
+    {{- include "kuik-tester.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: plainhttp
+      port: {{ .Values.plainHTTP.service.port }}
+      targetPort: plainhttp
+      {{- with .Values.plainHTTP.service.nodePort }}
+      nodePort: {{ . }}
+      {{- end }}
+{{- end }}
