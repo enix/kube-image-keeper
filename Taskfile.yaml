@@ -316,7 +316,7 @@ tasks:
         {{.LOCALBIN}}/conform enforce {{if .COMMIT_MSG_FILE}}--commit-msg-file={{.COMMIT_MSG_FILE}}{{else}}--base-branch={{.BASE_BRANCH}}{{end}}
 
   check-commits:
-    desc: Check each commit since BASE_BRANCH (after an autosquash) - no feat or fix in the claude, e2e and tester scopes, feat commits pass task test (no e2e), the others build and vet
+    desc: Check each commit since BASE_BRANCH (after an autosquash) - no feat or fix in the claude, e2e and tester scopes, feat commits pass task test (no e2e), the others build and vet, and the commits that change kuik-tester build and vet it
     cmds:
       # A scratch detached worktree, removed even on failure: the branch is never rebased nor
       # checked out. The envtest binaries stay in ENVTEST_BIN_DIR, outside of it.
@@ -343,6 +343,11 @@ tasks:
             feat*) task -d "$dir" test ;;
             *) (cd "$dir" && go build ./... && go vet -tags e2e ./...) ;;
           esac
+          # kuik-tester is a nested module the root build skips, and it imports nothing from the
+          # root one: checked on the commits that change it only.
+          if [ -n "$(git diff-tree --no-commit-id --name-only -r "$c" -- test/kuik-tester)" ]; then
+            (cd "$dir/test/kuik-tester" && go build ./... && go vet -tags e2e ./...)
+          fi
         done
 
   release-dry-run:
