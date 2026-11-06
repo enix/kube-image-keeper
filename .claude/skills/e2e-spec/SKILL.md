@@ -73,9 +73,11 @@ The suite needs internet access: images come from public registries. Kind gets
 `test/e2e/kind-config.yaml` only (the kubelet `syncFrequency` set to 10s) and containerd no
 configuration, so the kubelet never pulls from an in-cluster registry (a
 plain HTTP registry does not work: the webhook probes an original over HTTPS even when it
-matches an `insecure: true` entry). cert-manager is pulled the same way. The one in-cluster
-registry is the ImageMirror destination of `mirror_test.go`: kuik writes to it, no pod pulls
-from it, so its mirrors use `rewritePolicy: None`.
+matches an `insecure: true` entry). cert-manager is pulled the same way. The in-cluster
+registries are the ImageMirror destinations of `mirror_test.go`: kuik writes to them, no pod
+pulls from them, so their mirrors use `rewritePolicy: None`. A destination that must fail on
+purpose goes through [kuik-tester](../../../test/kuik-tester/README.md): a rule of its state
+injects the fault, and its request log shows what kuik sent.
 
 The chart is deployed once per suite, in `BeforeSuite` / `AfterSuite`, and never a second
 time: Ginkgo shuffles the top-level containers, so one container's `BeforeAll` would not cover
@@ -84,12 +86,12 @@ the others. A top-level `AfterEach` dumps logs, events and pod descriptions on f
 ## Fixtures and helpers
 
 - [`e2e_suite_test.go`](../../../test/e2e/e2e_suite_test.go): `BeforeSuite` builds the manager
-  image, loads it into Kind, installs cert-manager unless present
+  and kuik-tester images, loads them into Kind, installs cert-manager unless present
   (`CERT_MANAGER_INSTALL_SKIP=true` skips it) and runs `deployChart` (the `kuik-system`
   namespace under the restricted Pod Security profile, `make install`, `make deploy` with
   `test/e2e/values.yaml`, which sets `registries.default.check.interval: 10s`).
-  `KUIK_E2E_SKIP_IMAGE_BUILD=true` loads an image built beforehand instead of building it (CI
-  sets it after a cached buildx build). `AfterSuite` runs `undeployChart` and removes
+  `KUIK_E2E_SKIP_IMAGE_BUILD=true` loads images built beforehand instead of building them (CI
+  sets it after cached buildx builds). `AfterSuite` runs `undeployChart` and removes
   cert-manager if the suite installed it, unless `KUIK_E2E_DISPOSABLE_CLUSTER=true`, which
   `task test-e2e` sets when it created the cluster and deletes it after the run. The
   top-level `AfterEach` dumps logs, events and pod descriptions on failure. The default
@@ -117,10 +119,19 @@ the others. A top-level `AfterEach` dumps logs, events and pod descriptions on f
   - `scaleWebhook`, `webhookPods`, `webhookRestarts`, `deploymentAvailable`: the webhook
     Deployment and its pods; `webhookRestarts` is what a "without a restart" spec compares.
   - `kubectlStdin`: kubectl with a manifest on stdin.
-- [`mirror_test.go`](../../../test/e2e/mirror_test.go): the `Image mirroring` container. A
-  distribution v3 registry in `kuik-e2e-registry` (htpasswd, tag deletion on), addressed by
-  its DNS name so that `destination.insecure` matters, and pods in `kuik-e2e-mirror`.
-  `registryTags` reads the tags of a repository from the registry's storage.
+- [`mirror_test.go`](../../../test/e2e/mirror_test.go): the `Image mirroring` container. Its
+  destinations live in `kuik-e2e-registry`, addressed by their DNS name so that
+  `destination.insecure` matters, and its pods in `kuik-e2e-mirror`. Both, `registry` and
+  `registry-nodelete`, are hosts of one kuik-tester, each in front of its own distribution v3
+  backend without auth (tag deletion on): the tester checks the `e2e` credential, and a rule
+  makes `registry-nodelete` refuse tag deletion with a 400. The `tags` method of
+  `destinationRegistry` reads the tags of a repository from the storage of its backend.
+- [`tester_test.go`](../../../test/e2e/tester_test.go): kuik-tester for the suite.
+  `installTester` installs its chart from the checkout (the image `BeforeSuite` loaded),
+  `testerServiceManifest` adds the Service of one host, `importTesterState` replaces its state
+  (users, grants, rules) and `testerRequests` reads its request log by host, kind and
+  repository (who sent what, which rule answered, what reached the backend), both through
+  `kubectl proxy`.
 - [`test/utils`](../../../test/utils/utils.go): `Run` (runs a command from the project
   directory), `LoadImageToKindClusterWithName`, `GetNonEmptyLines`, the cert-manager install
   helpers.
