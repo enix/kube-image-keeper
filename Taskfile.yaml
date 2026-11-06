@@ -59,6 +59,13 @@ vars:
     {{if .RUN_FLAG_ZAP_ENCODER}}-zap-encoder={{.RUN_FLAG_ZAP_ENCODER}}{{end}}
     {{.RUN_ADDITIONAL_ARGS}}
 
+includes:
+  # kuik-tester, the fault-injecting registry of the tests, a nested Go module (notes/0017):
+  # `task tester:<task>`, run from its directory.
+  tester:
+    taskfile: ./test/kuik-tester
+    dir: ./test/kuik-tester
+
 tasks:
   default:
     silent: true

@@ -1,0 +1,91 @@
+# kuik-tester tasks, included by the root Taskfile as `tester:<task>` and run from
+# test/kuik-tester. The tester is a nested Go module (notes/0017): the root lint, vet and test
+# tasks do not cover it.
+
+version: '3'
+
+vars:
+  # Image built by the image task, as repository:tag
+  TESTER_IMAGE: '{{.TESTER_IMAGE | default "kuik-tester:dev"}}'
+  # The synthetic images exist for linux/amd64 and linux/arm64 only (internal/synth). A single
+  # platform loads the image into the local Docker.
+  TESTER_PLATFORMS: '{{.TESTER_PLATFORMS | default "linux/amd64,linux/arm64"}}'
+  HELM_DOCS_ARGS: --chart-search-root charts/kuik-tester --sort-values-order file
+
+tasks:
+  bins:
+    desc: Build the sleep binaries of the synthetic images into internal/synth/bin, reproducibly
+    cmds:
+      - for: [amd64, arm64]
+        cmd: >-
+          CGO_ENABLED=0 GOOS=linux GOARCH={{.ITEM}} go build -buildvcs=false -trimpath
+          -ldflags="-s -w -buildid=" -o internal/synth/bin/sleep-{{.ITEM}} ./cmd/sleep
+
+  build:
+    desc: Build bin/kuik-tester with the sleep binaries embedded
+    deps: [bins]
+    cmds:
+      - CGO_ENABLED=0 go build -tags sleepbins -trimpath -o bin/kuik-tester ./cmd/kuik-tester
+
+  test:
+    desc: Run the tester specs with the race detector (the e2e-tagged zot specs excluded)
+    cmds:
+      - go test -race ./...
+
+  test-bins:
+    desc: Build the sleep binaries, then run the specs that need them
+    deps: [bins]
+    cmds:
+      - go test -tags sleepbins ./internal/synth/...
+
+  test-integration:
+    desc: Run every spec, the e2e-tagged ones against a running zot (ZOT_URL=http://127.0.0.1:5001)
+    requires:
+      vars: [ZOT_URL]
+    cmds:
+      - ZOT_URL={{.ZOT_URL}} go test -tags e2e -count=1 ./...
+
+  vet:
+    desc: Run go vet on the tester, the e2e-tagged specs included
+    cmds:
+      - go vet -tags e2e ./...
+
+  lint:
+    desc: Run golangci-lint on the tester with the root configuration
+    deps: [':tools:golangci-lint']
+    cmds:
+      - '{{.LOCALBIN}}/golangci-lint run --config {{.ROOT_DIR}}/.golangci.yml'
+
+  lint-fix:
+    desc: Run golangci-lint on the tester and apply the fixes
+    deps: [':tools:golangci-lint']
+    cmds:
+      - '{{.LOCALBIN}}/golangci-lint run --config {{.ROOT_DIR}}/.golangci.yml --fix'
+
+  tidy:
+    desc: Fail when go.mod or go.sum of the tester is not tidy
+    cmds:
+      - go mod tidy -diff
+
+  image:
+    desc: Build the image with docker buildx (TESTER_IMAGE, TESTER_PLATFORMS=linux/amd64 to load it)
+    cmds:
+      - >-
+        docker buildx build --platform {{.TESTER_PLATFORMS}}
+        {{if not (contains "," .TESTER_PLATFORMS)}}--load{{end}} -t {{.TESTER_IMAGE}} .
+
+  chart-docs:
+    desc: Generate the kuik-tester chart README from its values
+    deps: [':tools:helm-docs']
+    cmds:
+      - '{{.LOCALBIN}}/helm-docs {{.HELM_DOCS_ARGS}}'
+
+  chart-test:
+    desc: Lint the kuik-tester chart, check its rendering and that its README is current
+    deps: [':tools:helm-docs']
+    cmds:
+      - helm lint charts/kuik-tester --set image.repository=x
+      - sh charts/kuik-tester/test.sh
+      - |
+        {{.LOCALBIN}}/helm-docs {{.HELM_DOCS_ARGS}} --dry-run | diff -u charts/kuik-tester/README.md - \
+          || { echo "chart README is stale: run task tester:chart-docs" >&2; exit 1; }

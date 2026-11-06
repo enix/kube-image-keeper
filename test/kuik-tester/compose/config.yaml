@@ -1,0 +1,9 @@
+baseDomain: kt.localhost
+plainHTTPAddr: ":5000"
+plainHTTPHost: upstream
+proxies:
+  - name: mirror
+    backend: http://zot:5000
+  - name: nodelete
+    backend: http://zot:5000
+statePath: /home/nonroot/state.json
