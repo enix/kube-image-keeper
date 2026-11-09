@@ -23,9 +23,11 @@ func init() {
 
 // Watch reloads the file on change until ctx is done, and calls onChange with every config
 // that validates and differs from the current one. It watches the file's directory: a
-// ConfigMap mount replaces the file by swapping a symlink. A rejected reload keeps the
-// current config, and is logged and counted. metrics is read at startup only: a change to
-// it is logged and ignored until restart.
+// ConfigMap mount replaces the file by swapping a symlink, in several events: the file is
+// loaded only when the symlink resolves to a new target or that target is written, so one
+// update is loaded once. A rejected reload keeps the current config, and is logged and
+// counted. metrics is read at startup only: a change to it is logged and ignored until
+// restart.
 func Watch(ctx context.Context, path string, current *Config, onChange func(*Config)) error {
 	log := logf.FromContext(ctx).WithValues("path", path)
 
@@ -37,6 +39,7 @@ func Watch(ctx context.Context, path string, current *Config, onChange func(*Con
 	if err := watcher.Add(filepath.Dir(path)); err != nil {
 		return err
 	}
+	target, _ := filepath.EvalSymlinks(path)
 
 	for {
 		select {
@@ -44,7 +47,15 @@ func Watch(ctx context.Context, path string, current *Config, onChange func(*Con
 			return nil
 		case err := <-watcher.Errors:
 			log.Error(err, "Failed to watch the global config")
-		case <-watcher.Events:
+		case event := <-watcher.Events:
+			resolved, _ := filepath.EvalSymlinks(path)
+			// A write to the file, or to the file its symlink resolves to, swaps no symlink.
+			eventTarget, _ := filepath.EvalSymlinks(event.Name)
+			written := event.Has(fsnotify.Write|fsnotify.Create) && resolved != "" && eventTarget == resolved
+			if resolved == target && !written {
+				continue
+			}
+			target = resolved
 			next, err := Load(path)
 			if err != nil {
 				reloadErrors.Inc()
