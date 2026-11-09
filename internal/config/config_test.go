@@ -335,6 +335,53 @@ var _ = Describe("Watch", func() {
 		Eventually(func() float64 { return testutil.ToFloat64(reloadErrors) }).Should(BeNumerically(">", before))
 	})
 
+	It("counts one rejected ConfigMap update once, and its revert not at all", func() {
+		startWatch(minimal)
+		before := testutil.ToFloat64(reloadErrors)
+		mount.swap("clusterID: [\n")
+		Eventually(func() float64 { return testutil.ToFloat64(reloadErrors) }).Should(Equal(before + 1))
+		Consistently(func() float64 { return testutil.ToFloat64(reloadErrors) }, "500ms").Should(Equal(before + 1))
+
+		By("writing the loaded config back")
+		mount.swap(minimal)
+		Consistently(func() float64 { return testutil.ToFloat64(reloadErrors) }, "500ms").Should(Equal(before + 1))
+		Expect(changes).NotTo(Receive())
+	})
+
+	It("reloads a plain file written in place", func() {
+		path := writeFile(minimal)
+		current, err := Load(path)
+		Expect(err).NotTo(HaveOccurred())
+		changes = make(chan *Config, 10)
+		ctx, cancel := context.WithCancel(context.Background())
+		DeferCleanup(cancel)
+		go func() {
+			defer GinkgoRecover()
+			Expect(Watch(ctx, path, current, func(c *Config) { changes <- c })).To(Succeed())
+		}()
+		time.Sleep(100 * time.Millisecond)
+		Expect(os.WriteFile(path, []byte(minimal+"mirror:\n  destinationScan:\n    interval: 2h\n"), 0o600)).To(Succeed())
+		Eventually(changes).Should(Receive())
+	})
+
+	It("reloads a symlinked file when its target, in the same directory, is written in place", func() {
+		target := writeFile(minimal)
+		path := filepath.Join(filepath.Dir(target), "link.yaml")
+		Expect(os.Symlink(filepath.Base(target), path)).To(Succeed())
+		current, err := Load(path)
+		Expect(err).NotTo(HaveOccurred())
+		changes = make(chan *Config, 10)
+		ctx, cancel := context.WithCancel(context.Background())
+		DeferCleanup(cancel)
+		go func() {
+			defer GinkgoRecover()
+			Expect(Watch(ctx, path, current, func(c *Config) { changes <- c })).To(Succeed())
+		}()
+		time.Sleep(100 * time.Millisecond)
+		Expect(os.WriteFile(target, []byte(minimal+"mirror:\n  destinationScan:\n    interval: 2h\n"), 0o600)).To(Succeed())
+		Eventually(changes).Should(Receive())
+	})
+
 	It("keeps metrics until restart and applies the other keys", func() {
 		startWatch(minimal)
 		mount.swap("metrics:\n  copyDuration: true\nmirror:\n  destinationScan:\n    interval: 2h\n")
