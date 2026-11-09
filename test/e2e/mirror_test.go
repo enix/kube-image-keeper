@@ -3,8 +3,8 @@
 package e2e
 
 import (
-	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -20,19 +20,16 @@ const mirrorNamespace = "kuik-e2e-mirror"
 // mirrorLabel is the namespace label the mirrors select
 const mirrorLabel = "kuik.enix.io/e2e-mirror"
 
-// registryNamespace holds the destination registry, out of the mirrors' reach: they would copy
-// its own images otherwise
+// registryNamespace holds the destination registries, out of the mirrors' reach: they would copy
+// their own images otherwise
 const registryNamespace = "kuik-e2e-registry"
 
-// destinationRegistry is a distribution v3 registry of registryNamespace, behind htpasswd, that
-// the mirrors write to with the manage credential secret
+// destinationRegistry is a host of kuik-tester in registryNamespace that the mirrors write to
+// with the manage credential secret. kuik-tester checks the credential and forwards the requests
+// it lets through to a distribution v3 registry of its own, without auth.
 type destinationRegistry struct {
-	// name is the name of its Deployment and its Service
+	// name is the host label of the registry and the name of its Service
 	name string
-	// refuseDeletes puts a proxy in front of the registry that answers 400 UNSUPPORTED to every
-	// DELETE but a manifest's by digest: distribution deletes a tag even with storage deletion
-	// disabled
-	refuseDeletes bool
 	// secret is its write credential, in the install namespace
 	secret string
 }
@@ -41,11 +38,16 @@ var (
 	// deletingRegistry accepts tag deletion
 	deletingRegistry = destinationRegistry{name: "registry", secret: "e2e-mirror-manage"}
 	// refusingRegistry refuses tag deletion as unsupported and accepts manifest deletion by
-	// digest, as Harbor does
-	refusingRegistry = destinationRegistry{
-		name: "registry-nodelete", refuseDeletes: true, secret: "e2e-mirror-manage-nodelete",
-	}
+	// digest, as Harbor does: kuik-tester answers 400 to every DELETE naming a tag there.
+	// distribution itself deletes a tag even with storage deletion disabled.
+	refusingRegistry = destinationRegistry{name: "registry-nodelete", secret: "e2e-mirror-manage-nodelete"}
 )
+
+// backend is the name of the Deployment and the Service of the distribution registry behind the
+// host
+func (r destinationRegistry) backend() string {
+	return r.name + "-backend"
+}
 
 // host names the registry through the cluster DNS: go-containerregistry speaks plain HTTP to a
 // private IP on its own, which would make destination.insecure moot
@@ -64,7 +66,8 @@ var pauseManifests = map[string]string{
 	"arm64": "sha256:e50b7059b633caf3c1449b8da680d11845cda4506b513ee7a2de00725f0a34a7",
 }
 
-// A placeholder credential of the throwaway destination registry, which only this suite runs.
+// A placeholder credential of the throwaway destination registries, which only this suite runs:
+// the one account kuik-tester knows.
 const (
 	registryUser     = "e2e"
 	registryPassword = "e2e-mirror"
@@ -89,133 +92,44 @@ const (
 // downPodLabel is the pod label downMirror selects: the running pause pod lacks it
 const downPodLabel = "kuik.enix.io/e2e-mirror-down"
 
-// refusingProxyConfig is the nginx in front of a registry that refuses tag deletion: every
-// DELETE but a manifest's by digest gets 400 UNSUPPORTED, as Harbor answers a tag deletion
-// (goharbor/harbor#24213), and any other request reaches the registry unchanged, Host and port
-// included, so that the upload locations and the Basic challenge it returns name the proxy.
-// Bodies stream both ways, unbounded.
-const refusingProxyConfig = `
-events {}
-http {
-  map "$request_method:$uri" $refused {
-    default 0;
-    "~^DELETE:/v2/.+/manifests/sha256:" 0;
-    "~^DELETE:" 1;
-  }
-  server {
-    listen 5000;
-    client_max_body_size 0;
-    proxy_request_buffering off;
-    proxy_buffering off;
-    default_type application/json;
-    location / {
-      if ($refused) {
-        return 400 '{"errors":[{"code":"UNSUPPORTED","message":"the e2e proxy refuses deletion"}]}';
-      }
-      proxy_pass http://127.0.0.1:5002;
-      proxy_http_version 1.1;
-      proxy_set_header Host $http_host;
-      proxy_read_timeout 900s;
-      proxy_send_timeout 900s;
-    }
-  }
-}
-`
-
-// refusingProxyImage is the nginx of refusingProxyConfig, pulled from Docker Hub like the registry
-const refusingProxyImage = "nginx:1.27.4-alpine"
-
-// manifest is the Deployment and the Service of the registry, its password file written by an
-// init container. A registry that refuses deletes listens on loopback behind an nginx serving
-// refusingProxyConfig on the port of the Service.
+// manifest is the Deployment and the Service of its distribution registry, without auth and
+// with deletion on, and the Service of its name, which reaches kuik-tester.
 func (r destinationRegistry) manifest() string {
-	var registryAddress, proxyContainer, proxyVolume, proxyConfigMap string
-	registryPort := 5000
-	if r.refuseDeletes {
-		// Not 5001: the debug server of the registry image listens there.
-		registryPort = 5002
-		registryAddress = `
-            - name: REGISTRY_HTTP_ADDR
-              value: 127.0.0.1:5002`
-		proxyContainer = fmt.Sprintf(`
-        - name: proxy
-          image: %s
-          ports:
-            - containerPort: 5000
-          volumeMounts:
-            - name: proxy
-              mountPath: /etc/nginx/nginx.conf
-              subPath: nginx.conf`, refusingProxyImage)
-		proxyVolume = fmt.Sprintf(`
-        - name: proxy
-          configMap:
-            name: %s-proxy`, r.name)
-		config, _ := json.Marshal(refusingProxyConfig)
-		proxyConfigMap = fmt.Sprintf(`
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: %s-proxy
-  namespace: %s
-data:
-  nginx.conf: %s`, r.name, registryNamespace, config)
-	}
 	return fmt.Sprintf(`
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: %[4]s
+  name: %[2]s
   namespace: %[1]s
 spec:
   selector:
     matchLabels:
-      app: %[4]s
+      app: %[2]s
   template:
     metadata:
       labels:
-        app: %[4]s
+        app: %[2]s
     spec:
-      initContainers:
-        - name: htpasswd
-          image: httpd:2.4-alpine
-          command: [sh, -c, "htpasswd -Bbn %[2]s %[3]s > /auth/htpasswd"]
-          volumeMounts:
-            - name: auth
-              mountPath: /auth
       containers:
         - name: registry
           image: registry:3.0.0
           env:
             - name: REGISTRY_STORAGE_DELETE_ENABLED
               value: "true"
-            - name: REGISTRY_AUTH
-              value: htpasswd
-            - name: REGISTRY_AUTH_HTPASSWD_REALM
-              value: e2e
-            - name: REGISTRY_AUTH_HTPASSWD_PATH
-              value: /auth/htpasswd%[5]s
           ports:
-            - containerPort: %[6]d
-          volumeMounts:
-            - name: auth
-              mountPath: /auth%[7]s
-      volumes:
-        - name: auth
-          emptyDir: {}%[8]s%[9]s
+            - containerPort: 5000
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: %[4]s
+  name: %[2]s
   namespace: %[1]s
 spec:
   selector:
-    app: %[4]s
+    app: %[2]s
   ports:
     - port: 5000
-`, registryNamespace, registryUser, registryPassword, r.name, registryAddress, registryPort,
-		proxyContainer, proxyVolume, proxyConfigMap)
+---%[3]s`, registryNamespace, r.backend(), testerServiceManifest(r.name))
 }
 
 // mirrorManifest is an ImageMirror copying the pods of mirrorNamespace to repository under
@@ -303,16 +217,18 @@ var _ = Describe("Image mirroring", Ordered, func() {
 		DeferCleanup(setConfig, original)
 		setConfig(mergeConfig(original, "registries:\n  registry.k8s.io:\n    copy:\n      interval: 5s\n"))
 
-		By("deploying the destination registries, one refusing tag deletion")
+		By("deploying the destination registries behind kuik-tester, one refusing tag deletion")
 		_, err = kubectl("create", "ns", registryNamespace)
 		Expect(err).NotTo(HaveOccurred())
+		installTester()
 		for _, destination := range []destinationRegistry{deletingRegistry, refusingRegistry} {
 			Expect(kubectlStdin(destination.manifest(), "apply", "-f", "-")).Error().NotTo(HaveOccurred())
 		}
 		for _, destination := range []destinationRegistry{deletingRegistry, refusingRegistry} {
-			Eventually(kubectl).WithArguments("rollout", "status", "deployment/"+destination.name, "-n", registryNamespace,
+			Eventually(kubectl).WithArguments("rollout", "status", "deployment/"+destination.backend(), "-n", registryNamespace,
 				"--timeout=30s").Should(ContainSubstring("successfully rolled out"))
 		}
+		Eventually(importTesterState).WithArguments(testerState()).Should(Succeed())
 
 		By("creating the write credentials in the install namespace")
 		for _, destination := range []destinationRegistry{deletingRegistry, refusingRegistry} {
@@ -360,7 +276,8 @@ var _ = Describe("Image mirroring", Ordered, func() {
 				Expect(kubectlStdin(mirrorManifest(copyMirror, deletingRegistry, "copy", true), "apply", "-f", "-")).
 					Error().NotTo(HaveOccurred())
 
-				// The registry refuses an anonymous push: a tag there was written with the credential.
+				// kuik-tester lets only the e2e user of the manage credential push to this host: the
+				// tag in the backend proves the credential was used.
 				Eventually(deletingRegistry.tags, "4m").WithArguments("copy/registry.k8s.io/pause").
 					Should(ContainElement(pauseTag + "_" + clusterID))
 			})
@@ -426,6 +343,16 @@ var _ = Describe("Image mirroring", Ordered, func() {
 					Should(ContainSubstring("/refused/registry.k8s.io/pause:" + pauseTag + "_" + clusterID))
 				Expect(refusingRegistry.tags("refused/registry.k8s.io/pause")).To(ContainElement(pauseTag + "_" + clusterID))
 
+				By("having had the DELETE of the tag refused with 400 by kuik-tester, never forwarded")
+				Eventually(testerRequests).WithTimeout(30*time.Second).
+					WithArguments(refusingRegistry.name, testerKindDelete, "refused/registry.k8s.io/pause").
+					Should(ContainElement(SatisfyAll(
+						HaveField("Reference", pauseTag+"_"+clusterID),
+						HaveField("Status", http.StatusBadRequest),
+						HaveField("RuleID", testerRefuseTagDelete),
+						HaveField("Forwarded", BeFalse()),
+					)))
+
 				By("releasing the mirror once cleanup.enabled is false")
 				_, err = kubectl("patch", "imagemirror", refusedMirror, "--type=merge",
 					"-p", `{"spec":{"cleanup":{"enabled":false}}}`)
@@ -451,6 +378,15 @@ var _ = Describe("Image mirroring", Ordered, func() {
 					Should(BeEmpty())
 				// The tag and the anchor of the pinned pod point at one manifest: both are gone.
 				Expect(refusingRegistry.tags("digest/registry.k8s.io/pause")).To(BeEmpty())
+
+				By("having had the DELETE of the manifest digest forwarded to the registry")
+				Eventually(testerRequests).WithTimeout(30*time.Second).
+					WithArguments(refusingRegistry.name, testerKindDelete, "digest/registry.k8s.io/pause").
+					Should(ContainElement(SatisfyAll(
+						HaveField("Reference", pauseDigest),
+						HaveField("Status", http.StatusAccepted),
+						HaveField("Forwarded", BeTrue()),
+					)))
 			})
 	})
 
@@ -567,10 +503,10 @@ func trueLabel(label string) string {
 	return fmt.Sprintf("%q: \"true\"", label)
 }
 
-// tags lists the tags the registry holds in repository, read from its storage: an empty list
-// when the repository or its tags are gone.
+// tags lists the tags the registry holds in repository, read from the storage of its
+// distribution registry: an empty list when the repository or its tags are gone.
 func (r destinationRegistry) tags(repository string) ([]string, error) {
-	output, err := kubectl("exec", "-n", registryNamespace, "deploy/"+r.name, "-c", "registry", "--",
+	output, err := kubectl("exec", "-n", registryNamespace, "deploy/"+r.backend(), "-c", "registry", "--",
 		"sh", "-c", fmt.Sprintf("ls %s/%s/_manifests/tags 2>/dev/null || true", registryStorage, repository))
 	if err != nil {
 		return nil, err
