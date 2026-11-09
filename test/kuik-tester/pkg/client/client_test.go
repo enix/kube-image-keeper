@@ -213,7 +213,8 @@ var _ = Describe("Client", func() {
 		c := srv.Client
 		full, err := c.Resolve(ctx, hostUpstream, repoFoo, tagT1)
 		Expect(err).NotTo(HaveOccurred())
-		p, err := c.CreatePlatform(ctx, api.PlatformRule{Host: hostUpstream, Repo: repoFoo, Platforms: []string{"linux/amd64"}})
+		p, err := c.CreatePlatform(ctx, api.PlatformRule{Host: hostUpstream, Repo: repoFoo,
+			Platforms: []string{"linux/amd64"}})
 		Expect(err).NotTo(HaveOccurred())
 		narrowed, err := c.Resolve(ctx, hostUpstream, repoFoo, tagT1)
 		Expect(err).NotTo(HaveOccurred())
