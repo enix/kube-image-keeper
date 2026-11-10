@@ -291,6 +291,7 @@ func (r *ImageAlternativeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&corev1.Namespace{}, delayed(r.StatusInterval, r.all)).
 		WatchesRawSource(source.Kind[client.Object](secrets, &corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(r.naming))).
+		WithLogConstructor(reconcileLog(mgr.GetLogger(), routing.KindImageAlternative)).
 		Named("kuik-imagealternative").
 		Complete(r)
 }

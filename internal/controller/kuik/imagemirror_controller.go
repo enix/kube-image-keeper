@@ -519,6 +519,7 @@ func (r *ImageMirrorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		WatchesRawSource(source.Kind[client.Object](secrets, &corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(r.mirrorsNaming))).
 		WatchesRawSource(source.Channel(wakes, &handler.TypedEnqueueRequestForObject[*kuikv1alpha1.ImageMirror]{})).
+		WithLogConstructor(reconcileLog(mgr.GetLogger(), routing.KindImageMirror)).
 		Named("kuik-imagemirror").
 		Complete(r)
 }

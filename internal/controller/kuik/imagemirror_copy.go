@@ -17,7 +17,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
-	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -517,7 +516,7 @@ type mirrorCopier struct {
 // return nil.
 func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
 	r := c.r
-	log := logf.FromContext(ctx).WithValues("imagemirror", klog.KRef("", c.name), "image", ref)
+	log := resourceLog(logf.FromContext(ctx), routing.KindImageMirror, c.name).WithValues("image", ref, "registry", c.host)
 	st := r.state(c.name)
 	st.mu.Lock()
 	source, ok := st.sources[ref]

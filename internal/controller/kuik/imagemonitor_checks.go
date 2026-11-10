@@ -314,7 +314,7 @@ func (c monitorChecker) Check(ctx context.Context, ref string) pacing.Response {
 				entry.auths = authenticators(ref, creds)
 			} else {
 				logf.FromContext(ctx).V(1).Info("Skipped the auth of an alternative's entry", "image", ref,
-					"resource", viaOf(source), "error", err.Error())
+					"via", viaOf(source), "error", err.Error())
 			}
 		}
 		entries = append(entries, entry)
@@ -386,7 +386,10 @@ func (c monitorChecker) Checked(ref string, response pacing.Response) {
 		// The monitor was deleted while the check ran.
 		return
 	}
-	log := logf.Log.WithValues("resource", kindImageMonitor+"/"+c.name, "image", ref)
+	log := resourceLog(logf.Log, kindImageMonitor, c.name).WithValues("image", ref)
+	if parsed, err := imagepath.Parse(ref); err == nil {
+		log = log.WithValues("registry", parsed.Host)
+	}
 	// Status times are written to the second: a finer since would differ from its own
 	// read-back and rewrite the status on every report.
 	now := metav1.NewTime(c.r.clock.Now()).Rfc3339Copy().Time

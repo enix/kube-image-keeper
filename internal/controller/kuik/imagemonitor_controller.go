@@ -615,6 +615,7 @@ func (r *ImageMonitorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&kuikv1alpha1.ImageAlternative{}, delayed(r.StatusInterval, r.watchingAlternatives),
 			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		WatchesRawSource(source.Channel(wakes, checked)).
+		WithLogConstructor(reconcileLog(mgr.GetLogger(), kindImageMonitor)).
 		Named("kuik-imagemonitor").
 		Complete(r)
 }
