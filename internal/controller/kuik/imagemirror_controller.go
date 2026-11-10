@@ -305,6 +305,7 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				st.doneDeleting()
 				// A try of a refused deletion it interrupted waits like a refused one.
 				st.endTry(now)
+				r.interrupted(st, now)
 				logf.FromContext(ctx).V(1).Info("Interrupted ImageMirror destination pass", "error", err.Error())
 			default:
 				return ctrl.Result{}, err
