@@ -38,6 +38,12 @@ func RegisterMetrics(registerer prometheus.Registerer) error {
 
 const resultOk = "Ok"
 
+// The operations of RequestsTotal: a check, or a copy, its source check included.
+const (
+	operationCheck = "Check"
+	operationCopy  = "Copy"
+)
+
 // retryStatusCodes overrides go-containerregistry's defaults, which retry 429 since
 // v0.21.9. A rate limit must surface at once as QuotaExceeded: a transport-level retry
 // would only spend more of an exhausted quota. The retries above the transport (a layer

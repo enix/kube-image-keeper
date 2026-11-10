@@ -83,7 +83,7 @@ func (c *Client) Copy(ctx context.Context, src, dst Endpoint, tags []string) (v1
 		}
 		if fromSource, ok := errors.AsType[*sourceError](decisive); ok && !watch.failedUnsent() {
 			// The blobs read during the transfer are source requests too.
-			RequestsTotal.WithLabelValues(registryLabel(srcRef), "Copy", checkResultLabel(fromSource.err)).Inc()
+			RequestsTotal.WithLabelValues(registryLabel(srcRef), operationCopy, checkResultLabel(fromSource.err)).Inc()
 		}
 		_, fromSource := errors.AsType[*sourceError](decisive)
 		return v1.Hash{}, &CopyError{Reason: copyFailureReason(decisive), Destination: !fromSource, Err: errors.Join(errs...)}
@@ -98,7 +98,7 @@ func (c *Client) readSource(ctx context.Context, ref name.Reference, src Endpoin
 	_, errs := c.tryThrough(ctx, watch, src.Auth, func(a attempt) error {
 		descriptor, err := remote.Get(ref, a.options...)
 		if a.headers.sent() {
-			RequestsTotal.WithLabelValues(host, "Copy", checkResultLabel(err)).Inc()
+			RequestsTotal.WithLabelValues(host, operationCopy, checkResultLabel(err)).Inc()
 		}
 		source = descriptor
 		return err

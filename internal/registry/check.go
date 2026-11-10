@@ -37,15 +37,22 @@ func (e *CheckError) Unwrap() error { return e.Err }
 // Check sends one manifest HEAD to a source registry, by digest when the reference carries
 // one, and counts it in RequestsTotal. A failure is a *CheckError.
 func (c *Client) Check(ctx context.Context, image Endpoint) (*CheckResult, error) {
-	return c.check(ctx, image, true)
+	return c.check(ctx, image, operationCheck)
+}
+
+// CheckCopySource is Check of the source a copy is about to read, counted with the copies
+// under operation Copy: it is the first request of the copy.
+func (c *Client) CheckCopySource(ctx context.Context, image Endpoint) (*CheckResult, error) {
+	return c.check(ctx, image, operationCopy)
 }
 
 // CheckDestination is Check against a mirror destination, which kuik does not count.
 func (c *Client) CheckDestination(ctx context.Context, image Endpoint) (*CheckResult, error) {
-	return c.check(ctx, image, false)
+	return c.check(ctx, image, "")
 }
 
-func (c *Client) check(ctx context.Context, image Endpoint, count bool) (*CheckResult, error) {
+// check sends the HEAD and counts it under operation, nothing when operation is empty.
+func (c *Client) check(ctx context.Context, image Endpoint, operation string) (*CheckResult, error) {
 	ref, err := name.ParseReference(image.Reference, image.nameOptions()...)
 	if err != nil {
 		return nil, err
@@ -59,8 +66,8 @@ func (c *Client) check(ctx context.Context, image Endpoint, count bool) (*CheckR
 			err = errors.Join(errRateLimited, err)
 		}
 		// A request refused before it was sent is not one kuik sent.
-		if count && a.headers.sent() {
-			RequestsTotal.WithLabelValues(host, "Check", checkResultLabel(err)).Inc()
+		if operation != "" && a.headers.sent() {
+			RequestsTotal.WithLabelValues(host, operation, checkResultLabel(err)).Inc()
 		}
 		descriptor = d
 		return err
