@@ -107,6 +107,11 @@ type mirrorState struct {
 	tryNow            bool
 	// held counts the tries of the finalizer holding the deleted mirror.
 	held uint
+	// waitingPods is how many live pods running its copies held the deleted mirror at the last
+	// try, 0 once none does; waitingSeeded is set once it took over the count the status held
+	// before this process.
+	waitingPods   int
+	waitingSeeded bool
 }
 
 const (
