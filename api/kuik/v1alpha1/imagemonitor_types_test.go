@@ -69,9 +69,7 @@ var _ = Describe("ImageMonitor", func() {
 			now := metav1.Now()
 			m.Status = ImageMonitorStatus{
 				Images: &MonitorImages{
-					Origin: &OriginImageCounts{
-						ImageCounts: ImageCounts{Tracked: 3241, Running: 3168, Standby: 12, Retained: 61, Available: 3226, Unavailable: 4},
-					},
+					Origin:       &ImageCounts{Tracked: 3241, Running: 3168, Standby: 12, Retained: 61, Available: 3226, Unavailable: 4},
 					Alternatives: &ImageCounts{Tracked: 214, Running: 9, Standby: 201, Retained: 4, Available: 211, Unavailable: 2},
 				},
 				RetainedImages:    []RetainedImage{{Ref: "ghcr.io/acme/report-job:v42", UnusedSince: now, Digest: digestA}},

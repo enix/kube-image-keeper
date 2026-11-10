@@ -435,14 +435,14 @@ func (r *ImageMonitorReconciler) track(ctx context.Context, im *kuikv1alpha1.Ima
 	if len(unavailable) == 0 {
 		next.UnavailableImages = nil
 	}
-	next.Images = &kuikv1alpha1.MonitorImages{Origin: &kuikv1alpha1.OriginImageCounts{ImageCounts: kuikv1alpha1.ImageCounts{
+	next.Images = &kuikv1alpha1.MonitorImages{Origin: &kuikv1alpha1.ImageCounts{
 		Tracked:     counts.Running + counts.Standby + counts.Retained,
 		Running:     counts.Running,
 		Standby:     counts.Standby,
 		Retained:    counts.Retained,
 		Available:   counts.Available,
 		Unavailable: counts.Unavailable,
-	}}}
+	}}
 	listedAlts := checkedAlts.capped(pass, memory, alternatives)
 	next.UnavailableAlternatives = nil
 	var altCounts *imagemetrics.Counts
