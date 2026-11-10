@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -96,6 +98,27 @@ var _ = Describe("Logging", func() {
 			Expect(entries[0]).To(HaveKeyWithValue("revision", "252a096"))
 			Expect(entries[0]).To(HaveKeyWithValue("built", "2026-10-06T09:00:00Z"))
 			Expect(entries[0]).To(HaveKeyWithValue("goversion", runtime.Version()))
+		})
+
+		It("logs Starting manager first, before the line of the global config it loads", func() {
+			path := filepath.Join(GinkgoT().TempDir(), "config.yaml")
+			Expect(os.WriteFile(path, []byte("{}\n"), 0o600)).To(Succeed())
+
+			out := &bytes.Buffer{}
+			_, err := startUp(zap.New(options(out)...), reconcilerProcess, path, "kuik-system")
+			Expect(err).NotTo(HaveOccurred())
+			entries := lines(out)
+			Expect(entries).To(HaveLen(2))
+			Expect(entries[0]).To(HaveKeyWithValue("msg", "Starting manager"))
+			Expect(entries[1]).To(HaveKeyWithValue("msg", "Loaded global config"))
+		})
+
+		It("logs Starting manager even when the global config does not load", func() {
+			out := &bytes.Buffer{}
+			missing := filepath.Join(GinkgoT().TempDir(), "missing.yaml")
+			_, err := startUp(zap.New(options(out)...), reconcilerProcess, missing, "kuik-system")
+			Expect(err).To(HaveOccurred())
+			Expect(lines(out)[0]).To(HaveKeyWithValue("msg", "Starting manager"))
 		})
 	})
 })

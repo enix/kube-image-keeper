@@ -117,13 +117,11 @@ func main() {
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
-	// The file is required: a process does not start on a config nobody validated.
-	globalConfig, err := config.Load(configPath)
+	globalConfig, err := startUp(setupLog, proc.name, configPath, clusterResourceNamespace)
 	if err != nil {
 		setupLog.Error(err, "Failed to load the global config")
 		os.Exit(1)
 	}
-	setupLog.Info("Loaded global config", "path", configPath, "clusterResourceNamespace", clusterResourceNamespace)
 	ctx := ctrl.SetupSignalHandler()
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
