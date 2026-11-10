@@ -67,7 +67,7 @@ This branch holds **kuik v3**, a rewrite released as betas since [3.0.0-beta.1](
 | Migration from v2 | None: a migration plan will be proposed once GA is out ([#749](https://github.com/enix/kube-image-keeper/issues/749)) |
 
 - **Stable version**: [v2.3](https://github.com/enix/kube-image-keeper/releases), documented on [kuik.enix.io](https://kuik.enix.io/2.3/). It is in maintenance: bug fixes only.
-- **v3 specification**: [`docs/v3/`](./docs/v3/), starting with [`spec.md`](./docs/v3/spec.md). It is the source of truth for v3 behaviour.
+- **v3 specification**: [`docs/v3/`](./docs/v3/), the design as decided before the implementation, kept as a historical record: what kuik does is in the user documentation ([why](./docs/v3/README.md)).
 - **Custom resources**: `ImageAlternative` (routing), `ImageMirror` (copy) and `ImageMonitor` (monitoring), described in the [CRD reference](./docs/crds.md).
 
 Development process and decisions are recorded in [`notes/`](./notes/). Contributions follow [`CONTRIBUTING.md`](./CONTRIBUTING.md).
