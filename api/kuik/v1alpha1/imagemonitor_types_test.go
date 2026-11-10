@@ -16,17 +16,27 @@ func newImageMonitor() *ImageMonitor {
 	return &ImageMonitor{ObjectMeta: metav1.ObjectMeta{GenerateName: testGenerateName}}
 }
 
+// newUnstructuredImageMonitor is an ImageMonitor with spec as written, fields the schema does
+// not define included.
+func newUnstructuredImageMonitor(spec map[string]any) *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": SchemeGroupVersion.String(),
+		"kind":       "ImageMonitor",
+		"metadata":   map[string]any{"generateName": testGenerateName},
+		"spec":       spec,
+	}}
+}
+
 var _ = Describe("ImageMonitor", func() {
 	AfterEach(func() {
 		Expect(k8sClient.DeleteAllOf(ctx, &ImageMonitor{})).To(Succeed())
 	})
 
 	Context("defaults", func() {
-		It("defaults unusedImageRetention to 168h, driftDetection to true and monitorAlternatives to false", func() {
+		It("defaults unusedImageRetention to 168h and monitorAlternatives to false", func() {
 			m := newImageMonitor()
 			Expect(k8sClient.Create(ctx, m)).To(Succeed())
 			Expect(m.Spec.UnusedImageRetention).To(HaveValue(Equal(metav1.Duration{Duration: 168 * time.Hour})))
-			Expect(m.Spec.DriftDetection).To(HaveValue(BeTrue()))
 			Expect(m.Spec.MonitorAlternatives).To(HaveValue(BeFalse()))
 		})
 
@@ -45,12 +55,7 @@ var _ = Describe("ImageMonitor", func() {
 		})
 
 		It("rejects a retention that is not a duration", func() {
-			m := &unstructured.Unstructured{Object: map[string]any{
-				"apiVersion": SchemeGroupVersion.String(),
-				"kind":       "ImageMonitor",
-				"metadata":   map[string]any{"generateName": "test-"},
-				"spec":       map[string]any{"unusedImageRetention": "7 days"},
-			}}
+			m := newUnstructuredImageMonitor(map[string]any{"unusedImageRetention": "7 days"})
 			Expect(apierrors.IsInvalid(k8sClient.Create(ctx, m))).To(BeTrue())
 		})
 	})
@@ -66,7 +71,6 @@ var _ = Describe("ImageMonitor", func() {
 				Images: &MonitorImages{
 					Origin: &OriginImageCounts{
 						ImageCounts: ImageCounts{Tracked: 3241, Running: 3168, Standby: 12, Retained: 61, Available: 3226, Unavailable: 4},
-						Drifted:     2,
 					},
 					Alternatives: &ImageCounts{Tracked: 214, Running: 9, Standby: 201, Retained: 4, Available: 211, Unavailable: 2},
 				},
@@ -76,10 +80,6 @@ var _ = Describe("ImageMonitor", func() {
 					Ref: "ghcr.io/thanos-io/thanos:v0.42.2", DerivedFrom: thanosImage, Via: "ImageAlternative/thanos",
 					Reason: CheckUnauthorized, Since: now,
 				}},
-				DriftedImages: []MonitorDriftedImage{{
-					Ref: "docker.io/acme/app:prod", UpstreamDigest: "sha256:bbbb", Since: now,
-					RunningDigests: []RunningDigest{{Digest: digestA, Pods: 5}, {Digest: "sha256:cccc", Pods: 2}},
-				}},
 				Checks: &ChecksStatus{Registries: []RegistryCheck{
 					{Registry: dockerHub, Images: 2140, Cursor: "docker.io/library/nginx:1.27", CycleStarted: &now, CycleDuration: &metav1.Duration{Duration: 35*time.Hour + 40*time.Minute}},
 					{Registry: "quay.io", Images: 1101, Cursor: thanosImage, CycleStarted: &now},
@@ -87,7 +87,6 @@ var _ = Describe("ImageMonitor", func() {
 				Conditions: []metav1.Condition{
 					{Type: ConditionReady, Status: metav1.ConditionTrue, Reason: ReasonIsReady, LastTransitionTime: now},
 					{Type: ConditionImagesUnavailable, Status: metav1.ConditionTrue, Reason: ReasonChecksFailed, LastTransitionTime: now},
-					{Type: ConditionImagesDrifted, Status: metav1.ConditionTrue, Reason: ReasonUpstreamDigestMoved, LastTransitionTime: now},
 				},
 			}
 			Expect(k8sClient.Status().Update(ctx, m)).To(Succeed())
@@ -95,10 +94,9 @@ var _ = Describe("ImageMonitor", func() {
 			got := &ImageMonitor{}
 			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(m), got)).To(Succeed())
 			Expect(got.Status.Images.Origin.Tracked).To(BeEquivalentTo(3241))
-			Expect(got.Status.Images.Origin.Drifted).To(BeEquivalentTo(2))
-			Expect(got.Status.DriftedImages[0].RunningDigests).To(HaveLen(2))
+			Expect(got.Status.UnavailableAlternatives).To(HaveLen(1))
 			Expect(got.Status.Checks.Registries).To(HaveLen(2))
-			Expect(got.Status.Conditions).To(HaveLen(3))
+			Expect(got.Status.Conditions).To(HaveLen(2))
 		})
 
 		It("has no drifted gauge on the alternatives population", func() {
@@ -123,6 +121,31 @@ var _ = Describe("ImageMonitor", func() {
 			Expect(alternatives).NotTo(HaveKey("drifted"), "the schema prunes the field the spec does not define")
 		})
 
+		It("has no drift detection: the schema prunes driftDetection, images.origin.drifted and driftedImages", func() {
+			u := newUnstructuredImageMonitor(map[string]any{"driftDetection": true})
+			Expect(k8sClient.Create(ctx, u)).To(Succeed())
+			Expect(u.Object["spec"]).NotTo(HaveKey("driftDetection"))
+
+			Expect(unstructured.SetNestedField(u.Object, map[string]any{
+				"images": map[string]any{"origin": map[string]any{
+					"tracked": int64(1), "running": int64(1), "standby": int64(0), "retained": int64(0),
+					"available": int64(1), "unavailable": int64(0), "drifted": int64(1),
+				}},
+				"driftedImages": []any{map[string]any{
+					"ref": "docker.io/acme/app:prod", "upstreamDigest": digestA, "since": "2026-11-10T00:00:00Z",
+					"runningDigests": []any{map[string]any{"digest": "sha256:cccc", "pods": int64(1)}},
+				}},
+			}, "status")).To(Succeed())
+			Expect(k8sClient.Status().Update(ctx, u)).To(Succeed())
+
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(u), u)).To(Succeed())
+			origin, _, err := unstructured.NestedMap(u.Object, "status", "images", "origin")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(origin).To(HaveKeyWithValue("tracked", int64(1)))
+			Expect(origin).NotTo(HaveKey("drifted"))
+			Expect(u.Object["status"]).NotTo(HaveKey("driftedImages"))
+		})
+
 		It("rejects two check rings for the same registry", func() {
 			m := newImageMonitor()
 			Expect(k8sClient.Create(ctx, m)).To(Succeed())
@@ -143,11 +166,6 @@ var _ = Describe("ImageMonitor", func() {
 })
 
 var _ = Describe("ImageMonitorSpec", func() {
-	It("detects drift unless driftDetection is false", func() {
-		Expect((&ImageMonitorSpec{}).DetectsDrift()).To(BeTrue())
-		Expect((&ImageMonitorSpec{DriftDetection: new(false)}).DetectsDrift()).To(BeFalse())
-	})
-
 	It("monitors alternatives only when monitorAlternatives is true", func() {
 		Expect((&ImageMonitorSpec{}).MonitorsAlternatives()).To(BeFalse())
 		Expect((&ImageMonitorSpec{MonitorAlternatives: new(true)}).MonitorsAlternatives()).To(BeTrue())
