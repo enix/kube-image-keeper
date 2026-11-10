@@ -27,6 +27,20 @@ jobs:
       - name: Setup Task
         uses: ./.github/actions/setup-task
 
+      # A review fix left as a fixup!, squash! or amend! commit would land as is: say how to
+      # fold it, rather than let conform reject its subject with no hint.
+      - name: Look for unfolded review fixes
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          GUIDE: ${{ github.server_url }}/${{ github.repository }}/blob/main/CONTRIBUTING.md#pull-requests
+        run: |
+          unfolded=$(git log --format=%s "origin/$BASE_REF..HEAD" | grep -E '^(fixup|squash|amend)! ' || true)
+          if [ -n "$unfolded" ]; then
+            printf '%s\n' "$unfolded"
+            echo "::error::Fold the review fixes before the merge: git rebase -i --autosquash origin/$BASE_REF, then git push --force-with-lease. See $GUIDE"
+            exit 1
+          fi
+
       - name: Lint commits
         run: task conform BASE_BRANCH=origin/${{ github.event.pull_request.base.ref }}
 

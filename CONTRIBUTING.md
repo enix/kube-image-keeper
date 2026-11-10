@@ -60,7 +60,7 @@ We welcome contributions through pull requests. For your pull request to be acce
 - End the body of every `fix` commit with `Introduced-by: #<PR>`, the pull request that introduced the bug, found with `git log`, `git blame` or the pull request history (`Introduced-by: unknown` only when nobody can tell). The release notes read it: a bug of a released version is reported with the version that introduced it, a bug of a feature never released is left out. The `Conform` check and `task check-commits` reject a `fix` commit without it; Dependabot's `fix(deps)` commits, which fix no bug, are exempt.
 - Follow the [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/#summary) specification (enforced on every pull request).
 - Contain no merge commits (the `Conform` check rejects them). To bring your branch up to date with `main`, rebase it (`git rebase origin/main`) instead of merging `main` into it.
-- Hold only commits meant for `main`: pull requests are merged by rebase, so each commit lands as is. Fold review fixes into the commit they fix before the merge, the way you like: amend, interactive rebase, or `git commit --fixup` then `git rebase --autosquash`.
+- Hold only commits meant for `main`: pull requests are merged by rebase, so each commit lands as is. Fold review fixes into the commit they fix before the merge, the way you like: amend, interactive rebase, or `git commit --fixup` then `git rebase --autosquash`. Once the review is over, autosquash and force-push: `Conform` fails while a `fixup!`, `squash!` or `amend!` commit remains, and the pull request cannot merge.
 
 The automated review (CodeRabbit) runs once, when the pull request is opened; comment `@coderabbitai review` to have later commits reviewed.
 
