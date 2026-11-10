@@ -2492,6 +2492,10 @@ var _ = Describe("ImageMirror Controller", func() {
 			deleteMirror()
 			h.reconcile()
 			Expect(gone()).To(BeFalse())
+			blocked := h.condition(kuikv1alpha1.ConditionDeletionBlocked)
+			Expect(blocked).NotTo(BeNil())
+			Expect(blocked.Status).To(Equal(metav1.ConditionTrue))
+			Expect(blocked.Reason).To(Equal(kuikv1alpha1.ReasonCopiesInFlight))
 			unblock()
 			Eventually(func() bool {
 				h.reconcile()
@@ -2500,68 +2504,172 @@ var _ = Describe("ImageMirror Controller", func() {
 			Expect(h.copied(destinationTag(src, "acme/app"))()).NotTo(Succeed())
 		})
 
-		It("deletes the tags of this cluster, leaving the other clusters' tags, then releases its finalizer at once, even while a pod still runs one of its destination references", func() {
-			routedToCopy()
-			h.destination.Push(strings.TrimSuffix(destinationTag(src, "acme/app"), mirrorClusterID)+"cluster-b", registrytest.Image())
-			deleteMirror()
-
-			h.reconcile()
-			Expect(gone()).To(BeTrue())
-			Expect(h.copied(destinationTag(src, "acme/app"))()).NotTo(Succeed())
-			Expect(h.copied(strings.TrimSuffix(destinationTag(src, "acme/app"), mirrorClusterID) + "cluster-b")()).To(Succeed())
-		})
-
-		It("releases its finalizer at once without deleting anything when cleanup is disabled, even while a pod still runs one of its destination references", func() {
-			routedToCopy(func(im *kuikv1alpha1.ImageMirror) {
-				disabled := false
-				im.Spec.Cleanup = &kuikv1alpha1.Cleanup{Enabled: &disabled}
-			})
-			deleteMirror()
-
-			h.reconcile()
-			Expect(gone()).To(BeTrue())
-			Expect(h.copied(destinationTag(src, "acme/app"))()).To(Succeed())
-		})
-
-		It("logs at Info how many live pods run one of its copies with imagePullPolicy Always, naming one of them, when it releases its finalizer", func() {
-			// The pod routedToCopy creates pulls its copy IfNotPresent, the default of a tag
-			// other than latest: it is not counted.
-			routedToCopy()
-			always := &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{Name: unique("pod"), Namespace: ns},
-				Spec: corev1.PodSpec{Containers: []corev1.Container{
-					{Name: appContainer, Image: mirrored, ImagePullPolicy: corev1.PullAlways},
-				}},
-			}
-			Expect(k8sClient.Create(ctx, always)).To(Succeed())
-			deleteMirror()
-
-			lines := h.reconcileLogged()
-			Expect(gone()).To(BeTrue())
-			var released []map[string]any
-			for _, line := range lines {
-				if line["msg"] == msgReleasedWhilePullingAlways {
-					released = append(released, line)
+		Context("while live pods run its copies", func() {
+			// moreCopies runs n more pods on the copy routedToCopy made, and returns them.
+			moreCopies := func(n int) []*corev1.Pod {
+				GinkgoHelper()
+				pods := make([]*corev1.Pod, 0, n)
+				for range n {
+					pods = append(pods, createPod(ns, unique("pod"), container{name: appContainer, image: mirrored}))
 				}
+				return pods
 			}
-			Expect(released).To(HaveLen(1))
-			Expect(released[0]).To(HaveKeyWithValue("level", "info"))
-			Expect(released[0]).To(HaveKeyWithValue("pods", 1.0))
-			Expect(released[0]).To(HaveKeyWithValue("pod", map[string]any{"name": always.Name, "namespace": ns}))
+			// held returns the lines of logs that report the hold.
+			held := func(lines []map[string]any) []map[string]any {
+				var found []map[string]any
+				for _, line := range lines {
+					if line["msg"] == msgHeldWaitingForPods {
+						found = append(found, line)
+					}
+				}
+				return found
+			}
+
+			It("holds its finalizer and deletes nothing while a live pod pulling its copy IfNotPresent runs one of its destination references", func() {
+				pod := routedToCopy()
+				Expect(pod.Spec.Containers[0].ImagePullPolicy).To(Equal(corev1.PullIfNotPresent))
+				deleteMirror()
+
+				h.reconcile()
+				Expect(gone()).To(BeFalse())
+				Expect(h.copied(destinationTag(src, "acme/app"))()).To(Succeed())
+			})
+
+			It("sets DeletionBlocked True with reason PodsRunningCopies, naming how many live pods hold it and up to 5 of them, and leaves Ready as it was", func() {
+				pods := append([]*corev1.Pod{routedToCopy()}, moreCopies(5)...)
+				Expect(h.condition(kuikv1alpha1.ConditionReady).Status).To(Equal(metav1.ConditionTrue))
+				deleteMirror()
+
+				h.reconcile()
+				Expect(gone()).To(BeFalse())
+				blocked := h.condition(kuikv1alpha1.ConditionDeletionBlocked)
+				Expect(blocked).NotTo(BeNil())
+				Expect(blocked.Status).To(Equal(metav1.ConditionTrue))
+				Expect(blocked.Reason).To(Equal(kuikv1alpha1.ReasonPodsRunningCopies))
+				Expect(blocked.Message).To(HavePrefix("6 live pods "))
+				Expect(blocked.Message).To(ContainSubstring("pull Secret"))
+				Expect(blocked.Message).To(ContainSubstring("rollout restart"))
+				named := 0
+				for _, pod := range pods {
+					if strings.Contains(blocked.Message, pod.Namespace+"/"+pod.Name) {
+						named++
+					}
+				}
+				Expect(named).To(Equal(5))
+				Expect(h.condition(kuikv1alpha1.ConditionReady).Status).To(Equal(metav1.ConditionTrue))
+				Expect(h.recorder.withReason(condition.EventResourceNotReady)).To(BeEmpty())
+			})
+
+			It("gives DeletionBlocked the reason of the next hold once the pods are gone", func() {
+				pod := routedToCopy()
+				deleteMirror()
+				h.reconcile()
+				Expect(h.condition(kuikv1alpha1.ConditionDeletionBlocked)).To(HaveField("Reason", kuikv1alpha1.ReasonPodsRunningCopies))
+
+				Expect(k8sClient.Delete(ctx, pod)).To(Succeed())
+				h.destination.Intercept(registrytest.Status(http.MethodDelete, "/manifests/", http.StatusBadRequest, nil))
+				h.reconcile()
+				Expect(gone()).To(BeFalse())
+				blocked := h.condition(kuikv1alpha1.ConditionDeletionBlocked)
+				Expect(blocked).NotTo(BeNil())
+				Expect(blocked.Status).To(Equal(metav1.ConditionTrue))
+				Expect(blocked.Reason).To(Equal(kuikv1alpha1.ReasonDestinationRefusedDeletion))
+			})
+
+			It("emits a Normal WaitingForPods event naming the count when the hold starts and when the count changes, not at each try", func() {
+				routedToCopy()
+				other := moreCopies(1)[0]
+				deleteMirror()
+
+				h.reconcile()
+				h.reconcile()
+				events := h.recorder.withReason("WaitingForPods")
+				Expect(events).To(HaveLen(1))
+				Expect(events[0].eventType).To(Equal(corev1.EventTypeNormal))
+				Expect(events[0].note).To(HavePrefix("2 live pods "))
+				Expect(events[0].note).To(ContainSubstring("pull Secret"))
+
+				Expect(k8sClient.Delete(ctx, other)).To(Succeed())
+				h.reconcile()
+				events = h.recorder.withReason("WaitingForPods")
+				Expect(events).To(HaveLen(2))
+				Expect(events[1].note).To(HavePrefix("1 live pod "))
+				Expect(gone()).To(BeFalse())
+			})
+
+			It("logs at Info when the hold starts or its count changes, with the count and up to 5 pods, not at each try", func() {
+				routedToCopy()
+				others := moreCopies(5)
+				deleteMirror()
+
+				lines := held(h.reconcileLogged())
+				Expect(lines).To(HaveLen(1))
+				Expect(lines[0]).To(HaveKeyWithValue("level", "info"))
+				Expect(lines[0]).To(HaveKeyWithValue("count", 6.0))
+				Expect(lines[0]).To(HaveKeyWithValue("pods", HaveLen(5)))
+
+				Expect(held(h.reconcileLogged())).To(BeEmpty())
+
+				Expect(k8sClient.Delete(ctx, others[0])).To(Succeed())
+				lines = held(h.reconcileLogged())
+				Expect(lines).To(HaveLen(1))
+				Expect(lines[0]).To(HaveKeyWithValue("count", 5.0))
+			})
+
+			It("announces the hold again neither by event nor by log after a restart while the count is unchanged", func() {
+				routedToCopy()
+				deleteMirror()
+				h.reconcile()
+				Expect(h.recorder.withReason("WaitingForPods")).To(HaveLen(1))
+
+				h.restart()
+				Expect(held(h.reconcileLogged())).To(BeEmpty())
+				Expect(h.recorder.withReason("WaitingForPods")).To(HaveLen(1))
+				Expect(gone()).To(BeFalse())
+			})
+
+			It("deletes the tags of this cluster, leaving the other clusters' tags, once no pod runs one of its destination references, then releases its finalizer", func() {
+				pod := routedToCopy()
+				h.destination.Push(strings.TrimSuffix(destinationTag(src, "acme/app"), mirrorClusterID)+"cluster-b", registrytest.Image())
+				deleteMirror()
+				h.reconcile()
+				Expect(gone()).To(BeFalse())
+
+				Expect(k8sClient.Delete(ctx, pod)).To(Succeed())
+				h.reconcile()
+				Expect(gone()).To(BeTrue())
+				Expect(h.copied(destinationTag(src, "acme/app"))()).NotTo(Succeed())
+				Expect(h.copied(strings.TrimSuffix(destinationTag(src, "acme/app"), mirrorClusterID) + "cluster-b")()).To(Succeed())
+			})
+
+			It("releases its finalizer without deleting anything when cleanup is disabled, once no pod runs one of its destination references", func() {
+				pod := routedToCopy(func(im *kuikv1alpha1.ImageMirror) {
+					disabled := false
+					im.Spec.Cleanup = &kuikv1alpha1.Cleanup{Enabled: &disabled}
+				})
+				deleteMirror()
+				h.reconcile()
+				Expect(gone()).To(BeFalse())
+
+				Expect(k8sClient.Delete(ctx, pod)).To(Succeed())
+				h.reconcile()
+				Expect(gone()).To(BeTrue())
+				Expect(h.copied(destinationTag(src, "acme/app"))()).To(Succeed())
+			})
+
+			It("is woken by an event of a pod it does not select once deleted, since such a pod may run its copies", func() {
+				h.mirror()
+				h.reconcile()
+				deleteMirror()
+				outside := unique("ns")
+				createNamespace(outside, nil)
+				pod := createPod(outside, unique("pod"), container{name: appContainer, image: h.destination.Host() + "/mirror/acme/app:v1"})
+
+				Expect(h.reconciler.mirrorsSelecting(ctx, pod)).To(ContainElement(reconcile.Request{NamespacedName: types.NamespacedName{Name: h.name}}))
+			})
 		})
 
-		It("logs no line about pods when it releases its finalizer while only pods pulling its copies IfNotPresent run them", func() {
-			routedToCopy()
-			deleteMirror()
-
-			lines := h.reconcileLogged()
-			Expect(gone()).To(BeTrue())
-			for _, line := range lines {
-				Expect(line).NotTo(HaveKeyWithValue("msg", msgReleasedWhilePullingAlways))
-			}
-		})
-
-		It("holds its finalizer while the manage secretRef cannot be read", func() {
+		It("holds its finalizer while the manage secretRef cannot be read, with DeletionBlocked True and reason ManageCredentialUnreadable", func() {
 			manage := unique("manage")
 			createSecret(installNamespace, manage, corev1.SecretTypeDockerConfigJson)
 			pod := routedToCopy(func(im *kuikv1alpha1.ImageMirror) { im.Spec.Destination.Manage = secretAuth(manage) })
@@ -2572,6 +2680,11 @@ var _ = Describe("ImageMirror Controller", func() {
 			h.reconcile()
 			Expect(gone()).To(BeFalse())
 			Expect(h.copied(destinationTag(src, "acme/app"))()).To(Succeed())
+			blocked := h.condition(kuikv1alpha1.ConditionDeletionBlocked)
+			Expect(blocked).NotTo(BeNil())
+			Expect(blocked.Status).To(Equal(metav1.ConditionTrue))
+			Expect(blocked.Reason).To(Equal(kuikv1alpha1.ReasonManageCredentialUnreadable))
+			Expect(blocked.Message).To(ContainSubstring(manage))
 		})
 
 		DescribeTable("emits ImageDeletionFailed and sets Ready False with reason RegistryDeleteUnsupported, once in its status, while the destination refuses its tag deletion as unsupported",
@@ -2592,6 +2705,11 @@ var _ = Describe("ImageMirror Controller", func() {
 				Expect(ready.Status).To(Equal(metav1.ConditionFalse))
 				Expect(ready.Reason).To(Equal(kuikv1alpha1.ReasonRegistryDeleteUnsupported))
 				Expect(ready.Message).To(ContainSubstring("cleanup.enabled: false"))
+				blocked := h.condition(kuikv1alpha1.ConditionDeletionBlocked)
+				Expect(blocked).NotTo(BeNil())
+				Expect(blocked.Status).To(Equal(metav1.ConditionTrue))
+				Expect(blocked.Reason).To(Equal(kuikv1alpha1.ReasonDestinationRefusedDeletion))
+				Expect(blocked.Message).To(ContainSubstring("cleanup.enabled: false"))
 				Expect(h.recorder.withReason(condition.EventResourceNotReady)).To(HaveLen(1))
 				v, ok := notReadyGauge(kuikv1alpha1.ReasonRegistryDeleteUnsupported)
 				Expect(ok).To(BeTrue())

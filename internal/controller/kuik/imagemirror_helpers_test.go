@@ -251,9 +251,9 @@ func (h *mirrorHarness) reconcile() reconcile.Result {
 	return result
 }
 
-// msgReleasedWhilePullingAlways is the message of the line a deleted mirror logs when it is
-// released while live pods run its copies with imagePullPolicy Always.
-const msgReleasedWhilePullingAlways = "Released deleted ImageMirror while live pods pull its copies with imagePullPolicy Always"
+// msgHeldWaitingForPods is the message of the line a deleted mirror logs when live pods running
+// its copies start holding it, or when their count changes.
+const msgHeldWaitingForPods = "Held a deleted ImageMirror: live pods run its copies"
 
 // lockedBuffer is a buffer a logger may write to from several goroutines.
 type lockedBuffer struct {
