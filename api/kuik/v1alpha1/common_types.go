@@ -175,6 +175,22 @@ const (
 	ConditionImagesUnavailable = "ImagesUnavailable"
 	// ConditionAlternativesUnavailable is True when a monitored alternative fails its check.
 	ConditionAlternativesUnavailable = "AlternativesUnavailable"
+	// ConditionDeletionBlocked is True while a deleted ImageMirror's finalizer holds it, its
+	// reason naming the current hold.
+	ConditionDeletionBlocked = "DeletionBlocked"
+)
+
+// The reasons of DeletionBlocked, one per hold of a deleted ImageMirror.
+const (
+	// ReasonPodsRunningCopies: live pods run copies of the mirror.
+	ReasonPodsRunningCopies = "PodsRunningCopies"
+	// ReasonCopiesInFlight: copies of the mirror still run.
+	ReasonCopiesInFlight = "CopiesInFlight"
+	// ReasonManageCredentialUnreadable: the manage credential cannot be read.
+	ReasonManageCredentialUnreadable = "ManageCredentialUnreadable"
+	// ReasonDestinationRefusedDeletion: the destination refuses the deletion of a tag, or of a
+	// manifest under cleanup.deleteByDigest.
+	ReasonDestinationRefusedDeletion = "DestinationRefusedDeletion"
 )
 
 // Condition reasons, about a resource rather than about a request.

@@ -477,8 +477,9 @@ spec:
               conditions:
                 description: |-
                   conditions report the state of the resource. Ready is the only one that is True when
-                  things are well; DestinationOutOfSync, FallbackActive, AlternativesExhausted and
-                  ListCapacityPressure each name an anomaly and stay True as long as it lasts.
+                  things are well; DestinationOutOfSync, FallbackActive, AlternativesExhausted,
+                  ListCapacityPressure and, on a deleted ImageMirror its finalizer holds, DeletionBlocked
+                  each name an anomaly and stay True as long as it lasts.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.

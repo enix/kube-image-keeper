@@ -269,8 +269,9 @@ type ImageMirrorStatus struct {
 	Truncated map[string]int32 `json:"truncated,omitempty"`
 
 	// conditions report the state of the resource. Ready is the only one that is True when
-	// things are well; DestinationOutOfSync, FallbackActive, AlternativesExhausted and
-	// ListCapacityPressure each name an anomaly and stay True as long as it lasts.
+	// things are well; DestinationOutOfSync, FallbackActive, AlternativesExhausted,
+	// ListCapacityPressure and, on a deleted ImageMirror its finalizer holds, DeletionBlocked
+	// each name an anomaly and stay True as long as it lasts.
 	// +listType=map
 	// +listMapKey=type
 	// +optional
