@@ -554,7 +554,7 @@ func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
 
 	sourceEndpoint, err := r.sourceEndpoint(ctx, candidate, source.pod)
 	if err == nil {
-		_, err = r.registry.Check(ctx, sourceEndpoint)
+		_, err = r.registry.CheckCopySource(ctx, sourceEndpoint)
 	}
 	if err != nil {
 		reason := sourceFailureReason(err)

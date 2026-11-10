@@ -177,7 +177,7 @@ The reconciler and the webhook export this counter, each for the requests it sen
 
 | Metric | Type | Value |
 | ------ | ---- | ----- |
-| `kuik_registry_requests_total{registry, operation, result}` | counter | Requests kuik sent to a source registry, by `operation` (`Check`, `Copy`) and outcome: `Ok`, `ManifestNotFound`, `Unauthorized`, `QuotaExceeded`, `Unreachable`. A mirror destination is not counted |
+| `kuik_registry_requests_total{registry, operation, result}` | counter | Requests kuik sent to a source registry, by `operation` (`Check`, `Copy`, every request of a copy, the source check it opens with included) and outcome: `Ok`, `ManifestNotFound`, `Unauthorized`, `QuotaExceeded`, `Unreachable`. A mirror destination is not counted |
 
 A rising `QuotaExceeded` on one `registry` says that host rate-limits kuik; `operation` says
 whether the checks or the copies are refused.
