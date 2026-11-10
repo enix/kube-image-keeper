@@ -43,9 +43,9 @@ type verdict struct {
 	denied bool
 }
 
-// seed reads the failing images and the drifted tags of status back into the memory, once per
-// process: a restart keeps the since of a failure or a drift that lasts, announces neither
-// again, and writes the lists back as they were until the ring comes round.
+// seed reads the failing images of status back into the memory, once per process: a restart
+// keeps the since of a failure that lasts, does not announce it again, and writes the lists
+// back as they were until the ring comes round.
 func (m *monitorMemory) seed(status *kuikv1alpha1.ImageMonitorStatus) {
 	if m.seeded {
 		return
@@ -55,9 +55,6 @@ func (m *monitorMemory) seed(status *kuikv1alpha1.ImageMonitorStatus) {
 		held := persistedCounts{}
 		if out := status.Truncated[listUnavailableImages]; out > 0 {
 			held.unavailable, held.truncated = status.Images.Origin.Unavailable, out
-		}
-		if out := status.Truncated[listDriftedImages]; out > 0 {
-			held.drifted, held.driftTruncated = status.Images.Origin.Drifted, out
 		}
 		if out := status.Truncated[listUnavailableAlternatives]; out > 0 && status.Images.Alternatives != nil {
 			held.altUnavailable, held.altTruncated = status.Images.Alternatives.Unavailable, out
@@ -74,17 +71,8 @@ func (m *monitorMemory) seed(status *kuikv1alpha1.ImageMonitorStatus) {
 			m.unusable[canonicalRef(e.Ref)] = true
 		}
 	}
-	// A drift the status holds was announced already, its skew too when it lists several digests.
-	for _, e := range status.DriftedImages {
-		m.drifts[e.Ref] = driftState{since: e.Since.Time, skewed: len(e.RunningDigests) > 1}
-	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for _, e := range status.DriftedImages {
-		if _, ok := m.upstream[e.Ref]; !ok {
-			m.upstream[e.Ref] = e.UpstreamDigest
-		}
-	}
 	for _, e := range status.UnavailableImages {
 		if _, ok := m.verdicts[e.Ref]; !ok {
 			// An Unauthorized entry the status holds was announced already.
@@ -112,17 +100,11 @@ func canonicalRef(ref string) string {
 // listUnavailableImages is the status field of the failing origins, a capped list.
 const listUnavailableImages = "unavailableImages"
 
-// listDriftedImages is the status field of the drifted tags, a capped list.
-const listDriftedImages = "driftedImages"
-
-// persistedCounts are the failing images and the drifted tags a status counted beyond the
-// entries of its capped lists.
+// persistedCounts are the failing images a status counted beyond the entries of its capped
+// lists.
 type persistedCounts struct {
 	unavailable int32
 	truncated   int32
-	// drifted and driftTruncated are the same for driftedImages.
-	drifted        int32
-	driftTruncated int32
 	// altUnavailable and altTruncated are the same for unavailableAlternatives.
 	altUnavailable int32
 	altTruncated   int32
@@ -153,10 +135,9 @@ func (m *monitorMemory) heldAlternatives(alternatives []string) (persistedCounts
 	return *m.persisted, true
 }
 
-// held returns what the status persisted beyond its capped lists: the failing images while
-// some tracked image has no verdict yet, the drifted tags while pendingDrift tags have no
-// upstream digest known yet. It forgets each part once that no longer holds.
-func (m *monitorMemory) held(tracked []string, pendingDrift int32) (persistedCounts, bool) {
+// held returns what the status persisted beyond unavailableImages while some tracked image has
+// no verdict yet, and forgets it once every one has.
+func (m *monitorMemory) held(tracked []string) (persistedCounts, bool) {
 	if m.persisted == nil {
 		return persistedCounts{}, false
 	}
@@ -169,11 +150,6 @@ func (m *monitorMemory) held(tracked []string, pendingDrift int32) (persistedCou
 	if complete {
 		m.persisted.unavailable, m.persisted.truncated = 0, 0
 	}
-	// The drift the status persisted is the last thing known of the tags no check read an
-	// upstream digest of yet: a failed check tells nothing of their drift.
-	if pendingDrift == 0 {
-		m.persisted.drifted, m.persisted.driftTruncated = 0, 0
-	}
 	if *m.persisted == (persistedCounts{}) {
 		m.persisted = nil
 		return persistedCounts{}, false
@@ -181,50 +157,17 @@ func (m *monitorMemory) held(tracked []string, pendingDrift int32) (persistedCou
 	return *m.persisted, true
 }
 
-// forgetHeldDrift drops what the status persisted beyond driftedImages, and the persisted
-// counts once nothing else is left in them.
-func (m *monitorMemory) forgetHeldDrift() {
-	if m.persisted == nil {
-		return
-	}
-	m.persisted.drifted, m.persisted.driftTruncated = 0, 0
-	if *m.persisted == (persistedCounts{}) {
-		m.persisted = nil
-	}
-}
-
-// undecided counts the tags of declared whose drift cannot be told yet: a tag a container
-// runs, neither digest-pinned nor unparseable, with no upstream digest known, whether its
-// check failed or did not run yet.
-func undecided(declared map[string]declaredImage, upstream map[string]string) int32 {
-	var n int32
-	for ref, d := range declared {
-		if _, err := imagepath.Parse(ref); err != nil || !d.running || pinned(ref) {
-			continue
-		}
-		if _, known := upstream[ref]; !known {
-			n++
-		}
-	}
-	return n
-}
-
-// verdictsOf returns the verdicts and the upstream digests of the tracked images, read
-// together so that a check landing meanwhile is in both or in neither, and forgets those of
-// the images no longer tracked.
-func (m *monitorMemory) verdictsOf(tracked []string) (map[string]verdict, map[string]string) {
+// verdictsOf returns the verdicts of the tracked images, and forgets those of the images no
+// longer tracked.
+func (m *monitorMemory) verdictsOf(tracked []string) map[string]verdict {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	keep := make(map[string]bool, len(tracked))
 	out := make(map[string]verdict, len(tracked))
-	upstream := make(map[string]string, len(tracked))
 	for _, ref := range tracked {
 		keep[ref] = true
 		if v, ok := m.verdicts[ref]; ok {
 			out[ref] = v
-		}
-		if digest, ok := m.upstream[ref]; ok {
-			upstream[ref] = digest
 		}
 	}
 	for ref := range m.verdicts {
@@ -242,12 +185,7 @@ func (m *monitorMemory) verdictsOf(tracked []string) (map[string]verdict, map[st
 			delete(m.anonymous, ref)
 		}
 	}
-	for ref := range m.upstream {
-		if !keep[ref] {
-			delete(m.upstream, ref)
-		}
-	}
-	return out, upstream
+	return out
 }
 
 // setDeclaring records the pods declaring each tracked image, for the checks to read their
@@ -466,9 +404,6 @@ func (c monitorChecker) Checked(ref string, response pacing.Response) {
 			next.since = previous.since
 			next.denied = previous.denied
 		}
-	} else if response.Result != nil {
-		// Drift detection reads the digest of this same answer: it sends no request of its own.
-		memory.upstream[ref] = response.Result.Descriptor.Digest.String()
 	}
 	memory.verdicts[ref] = next
 	memory.mu.Unlock()

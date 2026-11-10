@@ -198,7 +198,7 @@ task acceptance-apply -- --kubeconfig <path> --context <name> --file test/accept
 - `ImagesUnavailable` `True`, reason `ChecksFailed`; `Ready` `True`, reason `IsReady`;
 - `status.checks.registries` with an entry for the host of `<public-repo>` and one for `kuik-test.invalid`;
 - `kuik_image_origin_unavailable` for the image that fails, and no such series for the `<public-repo>` one;
-- since 3.0.0-alpha.5, no drift on a fixed tag with `driftDetection` at its default (`true`): `status.images.origin.drifted` 0, no `status.driftedImages`, no `ImagesDrifted` condition (absent: kuik removes an anomaly condition once it no longer holds), and no `ImageTagDrifted` or `ImageClusterSkew` event ([Events](../../docs/v3/observability.md#events)). A drift reported here means upstream rebuilt `1.31.6-alpine`, or a node whose runtime reports a platform manifest or a config digest in `imageID` ([ImageMonitor fields](../../docs/crds.md#fields-2)): check the digests before calling it a bug.
+- no drift detection any more: no `status.images.origin.drifted`, no `status.driftedImages`, no `ImagesDrifted` condition ([ImageMonitor](../../docs/crds.md#imagemonitor)).
 
 **Prepare**: the fixture of [scenario 3](#3-an-onfailure-alternative-reroutes-a-pod-whose-origin-is-down), then [`12-monitor.yaml`](./fixtures/12-monitor.yaml):
 
@@ -214,7 +214,6 @@ task acceptance-apply -- --kubeconfig <path> --context <name> --file test/accept
 - conditions: `task acceptance-get -- --kubeconfig <path> --context <name> imagemonitor/kuik-test-monitor --jsonpath '{range .status.conditions[*]}{.type} {.status} {.reason}{"\n"}{end}'`
 - rings: `task acceptance-get -- --kubeconfig <path> --context <name> imagemonitor/kuik-test-monitor --jsonpath '{.status.checks.registries}'`
 - metric: `task acceptance-inspect -- --kubeconfig <path> --context <name> --metrics 'kuik_image_origin_unavailable.*kuik-test-monitor'`
-- drift (since 3.0.0-alpha.5): `task acceptance-get -- --kubeconfig <path> --context <name> imagemonitor/kuik-test-monitor --jsonpath '{.status.images.origin.drifted}{"\n"}{.status.driftedImages}{"\n"}'`, and the events of `task acceptance-inspect -- --kubeconfig <path> --context <name> --grep kuik-test-monitor`
 
 **Explore**: delete the pod `origin-up` (`task acceptance-delete -- --kubeconfig <path> --context <name> pod/origin-up`): its image must move to `status.retainedImages` with `unusedSince` and a digest, and count as `retained` ([status](../../docs/v3/status.md#imagemonitor)). Does a `cycleDuration` appear once a lap completes, and is it close to what the shared windows of that host allow?
 

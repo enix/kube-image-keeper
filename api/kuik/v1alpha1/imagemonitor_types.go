@@ -25,23 +25,12 @@ type ImageMonitorSpec struct {
 	// +optional
 	UnusedImageRetention *metav1.Duration `json:"unusedImageRetention,omitempty"`
 
-	// driftDetection reports the tracked tags whose upstream digest differs from the one
-	// running in the cluster.
-	// +kubebuilder:default=true
-	// +optional
-	DriftDetection *bool `json:"driftDetection,omitempty"`
-
 	// monitorAlternatives also monitors the alternatives kuik would offer for each tracked
 	// image, from ImageAlternative entries only: a mirror destination is verified by the
 	// mirror's own self-check, and entries marked unavailable are never tracked.
 	// +kubebuilder:default=false
 	// +optional
 	MonitorAlternatives *bool `json:"monitorAlternatives,omitempty"`
-}
-
-// DetectsDrift applies the default: drift detection is on unless set to false.
-func (s *ImageMonitorSpec) DetectsDrift() bool {
-	return s.DriftDetection == nil || *s.DriftDetection
 }
 
 // MonitorsAlternatives applies the default: alternatives are not monitored unless set to true.
@@ -73,14 +62,9 @@ type ImageCounts struct {
 	Unavailable int32 `json:"unavailable"`
 }
 
-// OriginImageCounts are the gauges of the origin population, which alone can drift: an
-// alternative is checked, never compared to what runs.
+// OriginImageCounts are the gauges of the origin population.
 type OriginImageCounts struct {
 	ImageCounts `json:",inline"`
-
-	// drifted counts the tags whose running digest differs from the upstream one, under
-	// driftDetection.
-	Drifted int32 `json:"drifted"`
 }
 
 // MonitorImages groups the two populations an ImageMonitor tracks.
@@ -141,33 +125,6 @@ type UnavailableAlternative struct {
 	Since metav1.Time `json:"since"`
 }
 
-// RunningDigest is one digest running for a tag, with how many pods reference it.
-type RunningDigest struct {
-	// digest running in the cluster.
-	Digest string `json:"digest"`
-
-	// pods counts the pods running it.
-	Pods int32 `json:"pods"`
-}
-
-// MonitorDriftedImage is a tracked tag whose running digest differs from the upstream one.
-type MonitorDriftedImage struct {
-	// ref is the origin reference.
-	Ref string `json:"ref"`
-
-	// upstreamDigest is the digest the upstream tag points at now.
-	UpstreamDigest string `json:"upstreamDigest"`
-
-	// since is when the drift was first observed. Stamped once, never refreshed.
-	Since metav1.Time `json:"since"`
-
-	// runningDigests lists every digest currently running for the tag: pods pulled at
-	// different times may run different ones.
-	// +listType=map
-	// +listMapKey=digest
-	RunningDigests []RunningDigest `json:"runningDigests"`
-}
-
 // ImageMonitorStatus defines the observed state of ImageMonitor.
 type ImageMonitorStatus struct {
 	// images are gauges on the two populations this monitor tracks.
@@ -192,12 +149,6 @@ type ImageMonitorStatus struct {
 	// +listType=atomic
 	UnavailableAlternatives []UnavailableAlternative `json:"unavailableAlternatives,omitempty"`
 
-	// driftedImages lists the tracked tags whose running digest differs from the upstream
-	// one. Capped, see ListCapacityPressure.
-	// +optional
-	// +listType=atomic
-	DriftedImages []MonitorDriftedImage `json:"driftedImages,omitempty"`
-
 	// checks is the health of the check schedule, one ring per registry host.
 	// +optional
 	Checks *ChecksStatus `json:"checks,omitempty"`
@@ -208,8 +159,8 @@ type ImageMonitorStatus struct {
 	Truncated map[string]int32 `json:"truncated,omitempty"`
 
 	// conditions report the state of the resource. Ready is the only one that is True when
-	// things are well; ImagesUnavailable, AlternativesUnavailable, ImagesDrifted and
-	// ListCapacityPressure each name an anomaly and stay True as long as it lasts.
+	// things are well; ImagesUnavailable, AlternativesUnavailable and ListCapacityPressure
+	// each name an anomaly and stay True as long as it lasts.
 	// +listType=map
 	// +listMapKey=type
 	// +optional
@@ -221,12 +172,11 @@ type ImageMonitorStatus struct {
 // +kubebuilder:resource:scope=Cluster
 // +kubebuilder:printcolumn:name="Tracked",type=integer,JSONPath=`.status.images.origin.tracked`
 // +kubebuilder:printcolumn:name="Unavailable",type=integer,JSONPath=`.status.images.origin.unavailable`
-// +kubebuilder:printcolumn:name="Drifted",type=integer,JSONPath=`.status.images.origin.drifted`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // ImageMonitor checks the availability of the images of the pods it selects, and reports the
-// ones that fail or drift.
+// ones that fail.
 type ImageMonitor struct {
 	metav1.TypeMeta `json:",inline"`
 

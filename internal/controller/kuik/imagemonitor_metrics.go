@@ -17,14 +17,11 @@ type monitorMetrics struct {
 	images            *imagemetrics.Exporter
 	originUnavailable *prometheus.GaugeVec
 	altUnavailable    *prometheus.GaugeVec
-	clusterSkew       *prometheus.GaugeVec
 
 	mu sync.Mutex
 	// failing are the label values of the kuik_image_origin_unavailable series of each
 	// monitor, so that an image answering again deletes its series.
 	failing map[string]map[[3]string]bool
-	// skewed are the images each monitor has a kuik_image_cluster_skew_digests series for.
-	skewed map[string]map[string]bool
 	// failingAlternatives are the label values of the kuik_image_alternative_unavailable series
 	// of each monitor.
 	failingAlternatives map[string]map[alternativeFailure]bool
@@ -48,16 +45,11 @@ func newMonitorMetrics(registerer prometheus.Registerer) (*monitorMetrics, error
 			Help: "1 while a monitored alternative is failing its availability check. `image` is the alternative's own reference, " +
 				"`derived_from` the origin it would have served, `via` the resource that offered it",
 		}, []string{seriesKind, seriesName, seriesImage, seriesRegistry, seriesDerivedFrom, seriesVia, seriesReason}),
-		clusterSkew: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "kuik_image_cluster_skew_digests",
-			Help: "Number of distinct digests running for one image reference. Present only while pods disagree, so its value is always 2 or more",
-		}, []string{seriesKind, seriesName, seriesImage, seriesRegistry}),
 		failing:             map[string]map[[3]string]bool{},
-		skewed:              map[string]map[string]bool{},
 		failingAlternatives: map[string]map[alternativeFailure]bool{},
 		alternatives:        map[string]bool{},
 	}
-	for _, c := range []prometheus.Collector{m.originUnavailable, m.altUnavailable, m.clusterSkew} {
+	for _, c := range []prometheus.Collector{m.originUnavailable, m.altUnavailable} {
 		if err := registerer.Register(c); err != nil {
 			return nil, err
 		}
@@ -65,28 +57,14 @@ func newMonitorMetrics(registerer prometheus.Registerer) (*monitorMetrics, error
 	return m, nil
 }
 
-// report exports the origin counts of the monitor name, one kuik_image_origin_unavailable
-// series per failing image, one kuik_image_drifted series per drifted tag and one
-// kuik_image_cluster_skew_digests series per tag pods run at several digests, deleting the
-// series of the anomalies that ended: deleting rather than zeroing resolves an alert at once.
-func (m *monitorMetrics) report(name string, counts imagemetrics.Counts, failing map[string]kuikv1alpha1.CheckFailureReason, drifted []string, skew map[string]int) {
+// report exports the origin counts of the monitor name and one kuik_image_origin_unavailable
+// series per failing image, deleting the series of the failures that ended: deleting rather
+// than zeroing resolves an alert at once.
+func (m *monitorMetrics) report(name string, counts imagemetrics.Counts, failing map[string]kuikv1alpha1.CheckFailureReason) {
 	m.images.SetCounts(kindImageMonitor, name, imagemetrics.ReferenceOrigin, counts)
-	m.images.SetDrifted(kindImageMonitor, name, drifted)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	skewed := map[string]bool{}
-	for image, digests := range skew {
-		skewed[image] = true
-		m.clusterSkew.WithLabelValues(kindImageMonitor, name, image, registryOf(image)).Set(float64(digests))
-	}
-	for image := range m.skewed[name] {
-		if !skewed[image] {
-			m.clusterSkew.DeleteLabelValues(kindImageMonitor, name, image, registryOf(image))
-		}
-	}
-	m.skewed[name] = skewed
-
 	current := map[[3]string]bool{}
 	for image, reason := range failing {
 		labels := [3]string{image, registryOf(image), string(reason)}
@@ -150,11 +128,9 @@ func registryOf(image string) string {
 func (m *monitorMetrics) forget(name string) {
 	m.images.Forget(kindImageMonitor, name)
 	m.originUnavailable.DeletePartialMatch(prometheus.Labels{seriesKind: kindImageMonitor, seriesName: name})
-	m.clusterSkew.DeletePartialMatch(prometheus.Labels{seriesKind: kindImageMonitor, seriesName: name})
 	m.altUnavailable.DeletePartialMatch(prometheus.Labels{seriesKind: kindImageMonitor, seriesName: name})
 	m.mu.Lock()
 	delete(m.failing, name)
-	delete(m.skewed, name)
 	delete(m.failingAlternatives, name)
 	delete(m.alternatives, name)
 	m.mu.Unlock()

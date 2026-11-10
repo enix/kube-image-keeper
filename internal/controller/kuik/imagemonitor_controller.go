@@ -107,7 +107,7 @@ type monitorMemory struct {
 	// rings are the registry hosts the monitor holds a check ring on.
 	rings map[string]bool
 
-	// mu guards what the checks write, from verdicts to upstream.
+	// mu guards what the checks write, from verdicts to anonymous.
 	mu sync.Mutex
 	// verdicts are the outcome of the last check of each tracked image.
 	verdicts map[string]verdict
@@ -122,14 +122,7 @@ type monitorMemory struct {
 	secretErrs map[string]error
 	// anonymous records, per image, whether its last check sent no credential.
 	anonymous map[string]bool
-	// upstream is, per image, the digest its last successful check read: a failed check keeps
-	// the one before.
-	upstream map[string]string
 
-	// drifts are the tags reported drifted.
-	drifts map[string]driftState
-	// undigested are the tags logged once as running without a registry digest.
-	undigested map[string]bool
 	// unusable are the alternatives AlternativeUnusable announced, while they keep failing with
 	// Unauthorized.
 	unusable map[string]bool
@@ -393,7 +386,7 @@ func (r *ImageMonitorReconciler) track(ctx context.Context, im *kuikv1alpha1.Ima
 	}
 	r.turnRings(ctx, im, memory, ringed)
 	// The counts come from the verdicts in memory, never from the list that samples them.
-	all, upstream := memory.verdictsOf(ringed)
+	all := memory.verdictsOf(ringed)
 	verdicts := make(map[string]verdict, len(tracked))
 	for _, ref := range tracked {
 		if v, ok := all[ref]; ok {
@@ -426,42 +419,21 @@ func (r *ImageMonitorReconciler) track(ctx context.Context, im *kuikv1alpha1.Ima
 	unavailable = capped.Cap(pass, listUnavailableImages, unavailable,
 		func(e kuikv1alpha1.UnavailableImage) metav1.Time { return e.Since },
 		func(e kuikv1alpha1.UnavailableImage) string { return e.Ref })
-	// The drift count and series come from memory, never from the list that samples them.
-	drifted := r.drift(ctx, im, memory, declared, upstream, now)
-	driftedCount := int32(len(drifted))
-	listed := capped.Cap(pass, listDriftedImages, drifted,
-		func(e kuikv1alpha1.MonitorDriftedImage) metav1.Time { return e.Since },
-		func(e kuikv1alpha1.MonitorDriftedImage) string { return e.Ref })
 	// A restart reads back only the capped lists: until every image a ring can check has a
-	// verdict again, the images they left out may still fail or drift, so the report never goes
-	// below what the status persisted, within what the images with no verdict yet can account
-	// for. A reference that does not parse is on no ring and never gets a verdict: it holds
-	// nothing.
+	// verdict again, the images they left out may still fail, so the report never goes below
+	// what the status persisted, within what the images with no verdict yet can account for. A
+	// reference that does not parse is on no ring and never gets a verdict: it holds nothing.
 	checked := checkable(tracked)
-	if !im.Spec.DetectsDrift() {
-		// No drift is reported: what the status persisted of it is never held, nor once
-		// detection is turned back on.
-		memory.forgetHeldDrift()
-	}
-	// A tag the status listed as drifted is decided already: only the tags whose drift cannot
-	// be told yet may stand for the ones the list left out.
-	pending := undecided(declared, upstream)
-	if held, ok := memory.held(checked, pending); ok {
+	if held, ok := memory.held(checked); ok {
 		unknown := int32(max(len(checked)-len(verdicts), 0))
 		counts.Unavailable = max(counts.Unavailable, min(held.unavailable, counts.Unavailable+unknown))
 		pass.Hold(listUnavailableImages, min(held.truncated, max(counts.Unavailable-int32(len(unavailable)), 0)))
-		driftedCount = max(driftedCount, min(held.drifted, driftedCount+pending))
-		pass.Hold(listDriftedImages, min(held.driftTruncated, pending, max(driftedCount-int32(len(listed)), 0)))
 	}
 
 	next.RetainedImages = retained
 	next.UnavailableImages = unavailable
 	if len(unavailable) == 0 {
 		next.UnavailableImages = nil
-	}
-	next.DriftedImages = listed
-	if len(listed) == 0 {
-		next.DriftedImages = nil
 	}
 	next.Images = &kuikv1alpha1.MonitorImages{Origin: &kuikv1alpha1.OriginImageCounts{ImageCounts: kuikv1alpha1.ImageCounts{
 		Tracked:     counts.Running + counts.Standby + counts.Retained,
@@ -470,7 +442,7 @@ func (r *ImageMonitorReconciler) track(ctx context.Context, im *kuikv1alpha1.Ima
 		Retained:    counts.Retained,
 		Available:   counts.Available,
 		Unavailable: counts.Unavailable,
-	}, Drifted: driftedCount}}
+	}}}
 	listedAlts := checkedAlts.capped(pass, memory, alternatives)
 	next.UnavailableAlternatives = nil
 	var altCounts *imagemetrics.Counts
@@ -485,10 +457,8 @@ func (r *ImageMonitorReconciler) track(ctx context.Context, im *kuikv1alpha1.Ima
 		kuikv1alpha1.ReasonChecksFailed, fmt.Sprintf("%d images failing their check", counts.Unavailable), im.Generation)
 	condition.SetAnomaly(&next.Conditions, kuikv1alpha1.ConditionAlternativesUnavailable, checkedAlts.counts.Unavailable > 0,
 		kuikv1alpha1.ReasonChecksFailed, fmt.Sprintf("%d alternatives failing their check", checkedAlts.counts.Unavailable), im.Generation)
-	condition.SetAnomaly(&next.Conditions, kuikv1alpha1.ConditionImagesDrifted, driftedCount > 0,
-		kuikv1alpha1.ReasonUpstreamDigestMoved, fmt.Sprintf("%d tags whose upstream digest moved", driftedCount), im.Generation)
 	next.Truncated = pass.End(&next.Conditions, im.Generation)
-	r.metrics.report(im.Name, counts, failing, refsOf(drifted), skewOf(drifted))
+	r.metrics.report(im.Name, counts, failing)
 	r.metrics.reportAlternatives(im.Name, altCounts, checkedAlts.failing)
 	return requeue, reported{declared: digests, offered: offeredTo}, r.fallbackSecrets(ctx, memory)
 }
@@ -510,13 +480,6 @@ type declaredImage struct {
 	// digest is what the most recently started of those containers ran, started when.
 	digest    string
 	startedAt time.Time
-	// runningDigests counts, per digest, the pods with a container carrying the reference
-	// itself that runs it. A container whose image is not pulled yet runs none.
-	runningDigests map[string]int32
-	// undigested is a pod with a container carrying the reference itself whose imageID holds
-	// no registry digest: an image the node had before any pull (a preloaded, `kind load` or
-	// `ctr import` image) reports a bare config digest. Nil when there is none.
-	undigested *corev1.Pod
 }
 
 // declaredOrigins returns the origins the containers of pods declare: the origin of a
@@ -532,9 +495,6 @@ func declaredOrigins(pods []*corev1.Pod) map[string]declaredImage {
 			statuses[st.Name] = st
 		}
 		origins := map[string]bool{}
-		// runs are the digests this pod runs each live image at, so that a pod counts once per
-		// digest however many of its containers run it.
-		runs := map[string]map[string]bool{}
 		for _, c := range attribution.Containers(pod) {
 			declared[c.Origin] = declaredImage{}
 			if !origins[c.Origin] {
@@ -547,26 +507,7 @@ func declaredOrigins(pods []*corev1.Pod) map[string]declaredImage {
 			if ok && (l.digest == "" || startedAt.After(l.startedAt)) {
 				l.digest, l.startedAt = digest, startedAt
 			}
-			if !ok && statuses[c.Name].ImageID != "" && l.undigested == nil {
-				l.undigested = pod
-			}
-			if ok {
-				if runs[c.Image] == nil {
-					runs[c.Image] = map[string]bool{}
-				}
-				runs[c.Image][digest] = true
-			}
 			live[c.Image] = l
-		}
-		for image, digests := range runs {
-			l := live[image]
-			if l.runningDigests == nil {
-				l.runningDigests = map[string]int32{}
-			}
-			for digest := range digests {
-				l.runningDigests[digest]++
-			}
-			live[image] = l
 		}
 	}
 	for origin := range declared {
@@ -610,8 +551,7 @@ func (r *ImageMonitorReconciler) memory(name string, uid types.UID) *monitorMemo
 	if !ok {
 		m = &monitorMemory{
 			uid: uid, rings: map[string]bool{}, verdicts: map[string]verdict{}, secretErrs: map[string]error{},
-			anonymous: map[string]bool{}, upstream: map[string]string{}, drifts: map[string]driftState{}, undigested: map[string]bool{},
-			unusable: map[string]bool{},
+			anonymous: map[string]bool{}, unusable: map[string]bool{},
 		}
 		r.monitors[name] = m
 	}
