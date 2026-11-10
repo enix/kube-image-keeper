@@ -23,7 +23,7 @@ This page lists what the current version of kuik does not do yet, and how to wor
 
 ## Monitoring
 
-- **Drift digests**: drift compares the digest the container runtime reports with the registry's: a runtime that reports a platform or config digest shows a tag as drifted, and a preloaded image is never checked for drift, see the [ImageMonitor reference](./crds.md#imagemonitor).
+- **No drift detection**: an `ImageMonitor` does not tell when a tag moves upstream under the pods that run it, since Kubernetes exposes no reliable way to know which digest a container runs ([kubernetes#115199](https://github.com/kubernetes/kubernetes/issues/115199)). An `ImageMirror` under `driftPolicy: Warn` tells when a copied tag moves, see the [ImageMonitor reference](./crds.md#imagemonitor).
 - **Retention after a restart**: an image whose last pod goes away while no reconciler runs (restart, leader change) is not retained by an `ImageMonitor`, see the [ImageMonitor reference](./crds.md#imagemonitor).
 
 ## Registries

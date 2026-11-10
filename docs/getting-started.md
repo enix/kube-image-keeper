@@ -70,8 +70,8 @@ kuik checks one image per registry per minute, so as not to exhaust any rate lim
 
 ```bash
 kubectl get imagemonitors
-# NAME             TRACKED   UNAVAILABLE   DRIFTED   READY   AGE
-# cluster-images   13        0             0         True    4m
+# NAME             TRACKED   UNAVAILABLE   READY   AGE
+# cluster-images   13        0             True    4m
 ```
 
 `TRACKED` is the number of distinct images your pods run, `UNAVAILABLE` those that can no longer be pulled. `UNAVAILABLE 0` means nothing failed among the images checked so far: on a real cluster, wait for a full round on each registry (`status.checks.registries[].cycleDuration`) before relying on it. That list is what you need before a maintenance or an upgrade: see [Detect missing images before an outage](./use-cases/detect-missing-images-before-outage.md).

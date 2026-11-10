@@ -76,12 +76,12 @@ The monitor only reads: it never changes a pod.
 
 ## Check the result
 
-The monitor counts the images it tracks, the unavailable ones and the drifted ones:
+The monitor counts the images it tracks and the unavailable ones:
 
 ```bash
 kubectl get imagemonitors
-# NAME             TRACKED   UNAVAILABLE   DRIFTED   READY   AGE
-# cluster-images   214       3             1         True    5d
+# NAME             TRACKED   UNAVAILABLE   READY   AGE
+# cluster-images   214       3             True    5d
 ```
 
 The unavailable ones, with their reason, since when, and how many pods run them:
@@ -144,5 +144,4 @@ The other series, and the events, are listed in [Events, metrics and logs](../ob
 
 ## Good to know
 
-- Under `driftDetection` (on by default), the monitor also reports the tags whose upstream digest moved away from the one your pods run: a rescheduled pod would run different code. They are listed in `status.driftedImages`, and emit an `ImageTagDrifted` event.
 - A monitor finds the problem; it does not fix it. To keep a copy of your images that pods fall back to, add an [`ImageMirror`](./protect-images-from-garbage-collection.md), or route to an existing copy with an [`ImageAlternative`](./overcome-public-registry-limitations.md).
