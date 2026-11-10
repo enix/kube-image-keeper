@@ -21,8 +21,10 @@ func loggerOptions() zap.Options {
 	}
 }
 
-// startUp loads the global config at path, the first step of every process.
-func startUp(log logr.Logger, _ processName, path, clusterResourceNamespace string) (*config.Config, error) {
+// startUp logs the start of the process, its first line, then loads the global config at
+// path.
+func startUp(log logr.Logger, proc processName, path, clusterResourceNamespace string) (*config.Config, error) {
+	logStarting(log, proc)
 	// The file is required: a process does not start on a config nobody validated.
 	cfg, err := config.Load(path)
 	if err != nil {
