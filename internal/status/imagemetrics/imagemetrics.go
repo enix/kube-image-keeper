@@ -1,7 +1,7 @@
-// Package imagemetrics exports the image series an ImageMonitor and an ImageMirror both
-// produce: kuik_images_tracked, kuik_images_checked and kuik_image_drifted. One definition
-// serves both controllers, so the two register the same collectors. See
-// docs/v3/observability.md, "Aggregates" and "Anomalies signal by presence".
+// Package imagemetrics exports the image series of the ImageMonitor and ImageMirror
+// controllers: kuik_images_tracked and kuik_images_checked, which both produce, and
+// kuik_image_drifted, which only an ImageMirror produces. One definition serves both
+// controllers, so the two register the same collectors. See docs/observability.md, "Metrics".
 package imagemetrics
 
 import (
@@ -49,8 +49,9 @@ type resource struct{ kind, name string }
 // New returns an exporter on registerer, reusing the collectors another controller registered
 // there.
 func New(registerer prometheus.Registerer) (*Exporter, error) {
-	// The HELP texts are those of docs/v3/observability.md, word for word: the two
-	// controllers register the same definition.
+	// The HELP texts are those of docs/v3/observability.md, word for word, but for
+	// kuik_image_drifted, which no longer covers an ImageMonitor: the two controllers register
+	// the same definition.
 	tracked, err := register(registerer, prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "kuik_images_tracked",
 		Help: "References a resource tracks, by what the cluster does with them",
@@ -67,8 +68,8 @@ func New(registerer prometheus.Registerer) (*Exporter, error) {
 	}
 	drifted, err := register(registerer, prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "kuik_image_drifted",
-		Help: "1 while the digest a resource accounts for differs from the upstream digest of that tag. " +
-			"`image` is the origin reference in both cases",
+		Help: "1 while the upstream digest of a tag an ImageMirror copied moved away from the copy. " +
+			"`image` is the origin reference",
 	}, []string{labelKind, labelName, labelImage, labelRegistry}))
 	if err != nil {
 		return nil, err
