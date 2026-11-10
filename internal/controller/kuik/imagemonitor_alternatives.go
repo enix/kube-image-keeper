@@ -351,7 +351,7 @@ func (r *ImageMonitorReconciler) announceUnusable(ctx context.Context, im *kuikv
 		memory.unusable[ref] = true
 		origin := slices.Min(slices.Collect(maps.Keys(alternatives[ref].origins)))
 		via := viaOf(alternatives[ref].origins[origin][0])
-		logf.FromContext(ctx).Info("Found alternative refused with Unauthorized", "image", ref, "resource", via)
+		logf.FromContext(ctx).Info("Found alternative refused with Unauthorized", "image", ref, "via", via)
 		r.recorder.Eventf(im, nil, corev1.EventTypeWarning, eventAlternativeUnusable, "Check",
 			"The registry refused %s, offered by %s for %s, with Unauthorized: it cannot be offered as a candidate. "+
 				"Declare its credential in the auth of the entry or in fallbackAuth", ref, via, origin)

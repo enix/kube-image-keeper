@@ -203,8 +203,14 @@ Deployed by the chart, each process writes one JSON object per line on its stand
 ```
 
 - `level`, `ts` (ISO 8601), `logger` and `msg` come first, then the key-value pairs of the line.
+  `logger` is `setup` for the start-up lines, and the lowercase kind (`imagealternative`,
+  `imagemirror`, `imagemonitor`) for the reconciler's lines about a resource. A line with no
+  logger name, such as a line of a library kuik runs on, has no `logger`.
 - The keys are stable: `image`, `registry`, `resource` (`<kind>/<name>`), `reason`, and a
   Kubernetes object under its lowercase kind (`pod`, `secret`) as `{"name":"...","namespace":"..."}`.
+  Every reconciler line about a resource carries `resource`; a check or a copy also carries the
+  `image` and the `registry` it reads. An alternative names the `ImageAlternative` offering it
+  under `via`, as the `kuik_image_alternative_unavailable` series does.
 - The first line of a process is `Starting manager`, with the same build labels as
   `kuik_build_info`.
 - Every deletion kuik makes itself is logged at `info`; what the garbage collector removes
