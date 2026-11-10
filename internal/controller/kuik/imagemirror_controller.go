@@ -326,7 +326,7 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		st.mu.Unlock()
 		r.turnRings(&im, st, desired)
-		r.owe(&im, st, st.owed(desired, inventoried), sources)
+		r.owe(&im, st, st.owed(st.copying(desired, live), inventoried), sources)
 		// The next try of a deletion the destination refused comes on its own.
 		nextPass = untilTry(&im, st, r.clock.Now(), nextPass)
 	}
@@ -351,7 +351,8 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		func(e kuikv1alpha1.MirrorDriftedImage) metav1.Time { return e.Since },
 		func(e kuikv1alpha1.MirrorDriftedImage) string { return e.Ref })
 	next.Checks = r.checks(&im)
-	next.FailedImageCopies = r.reportFailures(&im, st, desired)
+	// A retained reference the mirror copies no more has no failing copy either.
+	next.FailedImageCopies = r.reportFailures(&im, st, st.copying(desired, live))
 	next.FailedImageCopies = capped.Cap(pass, "failedImageCopies", next.FailedImageCopies,
 		func(e kuikv1alpha1.FailedImageCopy) metav1.Time { return e.Since },
 		func(e kuikv1alpha1.FailedImageCopy) string { return e.Ref })

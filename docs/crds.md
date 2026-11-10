@@ -253,6 +253,8 @@ The mirror's own `destination.path` is excluded on top of this list, which is wh
 > [!WARNING]
 > Excluding an image, or narrowing a selector, also removes the copy already made: the tags enter `status.pendingDeletion` and are deleted once `cleanup.retention` has elapsed. `cleanup.enabled: false` is what stops it.
 
+An image no selected pod runs any more, its last pod gone or a narrowed selector, is retained for `cleanup.retention`: it is copied again if it disappears from the destination, but an image not copied yet when it is retained is never copied, and leaves `status.failedImageCopies`.
+
 ### Destination requirements
 
 The destination must conform to the OCI Distribution spec, accept arbitrarily nested repository paths, and refuse a manifest whose blobs it does not hold. With `cleanup.enabled`, it must also support tag deletion (`DELETE /v2/<name>/manifests/<tag>`) and run its own garbage collection of untagged manifests: by default kuik deletes tags only, never manifests or blobs. A registry that rejects tag deletion flips the `Ready` condition to `False` with reason `RegistryDeleteUnsupported`; on a destination the `ImageMirror` is the only writer of, [`cleanup.deleteByDigest`](#deleting-by-digest) works around it.

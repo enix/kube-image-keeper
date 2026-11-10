@@ -865,6 +865,22 @@ func (st *mirrorState) owed(desired []imagepath.Reference, inventoried func(imag
 	})
 }
 
+// copying are the references of desired the mirror may copy: the live ones, and the retained
+// ones the destination is known to have held, lost or resynced since. A retained reference is
+// never copied for the first time: no selected pod runs it, so nothing would pull the copy.
+func (st *mirrorState) copying(desired, live []imagepath.Reference) []imagepath.Reference {
+	running := make(map[string]bool, len(live))
+	for _, ref := range live {
+		running[ref.String()] = true
+	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return slices.DeleteFunc(slices.Clone(desired), func(ref imagepath.Reference) bool {
+		key := ref.String()
+		return !running[key] && !st.recopy[key] && !st.writeBack[key] && !st.resync[key]
+	})
+}
+
 // anomalies are snapshots of the failing copies and of the drifted tags.
 func (st *mirrorState) anomalies() (map[string]copyFailure, []string) {
 	st.mu.Lock()
