@@ -400,7 +400,6 @@ func main() {
 		}
 	}
 
-	logStarting(setupLog, proc.name)
 	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "Failed to run manager")
 		os.Exit(1)
