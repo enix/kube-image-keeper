@@ -70,6 +70,7 @@ func main() {
 	var metricsCertPath, metricsCertName, metricsCertKey string
 	var webhookCertPath, webhookCertName, webhookCertKey string
 	var webhookPort int
+	var shutdownDelay time.Duration
 	var enableLeaderElection bool
 	var probeAddr string
 	var secureMetrics bool
@@ -104,6 +105,9 @@ func main() {
 		fs.StringVar(&webhookCertName, "webhook-cert-name", "tls.crt", "The name of the webhook certificate file.")
 		fs.StringVar(&webhookCertKey, "webhook-cert-key", "tls.key", "The name of the webhook key file.")
 		fs.IntVar(&webhookPort, "webhook-port", 9443, "Port the webhook server listens on.")
+		fs.DurationVar(&shutdownDelay, "shutdown-delay", 0,
+			"How long the webhook keeps serving after the stop signal, unready, so that its pod leaves "+
+				"the Service endpoints before it stops listening.")
 	}
 
 	opts := loggerOptions()
@@ -337,6 +341,11 @@ func main() {
 		}
 		onConfigChange = append(onConfigChange, syncer.SetConfig)
 	case webhookProcess:
+		// The webhook keeps serving after the stop signal until its pod has left the Service:
+		// a webhook that stops listening first lets the API server admit pods unrouted.
+		var shuttingDown healthz.Checker
+		ctx, shuttingDown = delayShutdown(ctx, shutdownDelay, clock.RealClock{})
+		readyChecks["shutdown"] = shuttingDown
 		// The webhook never creates the ConfigMap: it waits for the reconciler's, and stays
 		// unready until it reads it.
 		clusterID := clusterid.Await(mgr.GetAPIReader(), clusterResourceNamespace)

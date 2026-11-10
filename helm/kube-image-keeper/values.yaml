@@ -87,6 +87,11 @@ webhook:
   # -- Namespace selector of the MutatingWebhookConfiguration: which namespaces the webhook
   # rewrites pods in
   namespaceSelector: {}
+  # -- Seconds a stopping webhook pod keeps answering, unready, before it stops listening. A
+  # deleted pod stays a Service endpoint until every kube-proxy has seen it go, and the pods
+  # created meanwhile would be admitted unrouted: raise it on a cluster where endpoint updates
+  # take longer. The pod's termination grace period is this delay plus 10 seconds.
+  shutdownDelaySeconds: 10
   image:
     # -- Image repository of the webhook pods
     # @default -- the root `image.repository`

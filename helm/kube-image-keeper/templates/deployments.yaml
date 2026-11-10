@@ -61,7 +61,8 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml $v.podSecurityContext | nindent 8 }}
-      terminationGracePeriodSeconds: 10
+      {{- /* The webhook serves through its shutdown delay first, then gets the 10 seconds of the others to stop. */}}
+      terminationGracePeriodSeconds: {{ add 10 (ternary (int $.Values.webhook.shutdownDelaySeconds) 0 $process.servesWebhook) }}
       containers:
         - name: {{ $process.name }}
           securityContext:
@@ -81,6 +82,7 @@ spec:
             {{- if $process.servesWebhook }}
             - -webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
             - -webhook-port=9443
+            - -shutdown-delay={{ int $.Values.webhook.shutdownDelaySeconds }}s
             {{- end }}
             - -zap-log-level={{ $v.verbosity }}
             - -config=/etc/kuik/config.yaml
