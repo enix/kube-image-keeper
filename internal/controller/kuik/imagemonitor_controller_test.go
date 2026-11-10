@@ -73,10 +73,10 @@ func monitorStatusOf(name string) kuikv1alpha1.ImageMonitorStatus {
 }
 
 // originOf returns the origin counts of the monitor, zero when it reports none.
-func originOf(name string) kuikv1alpha1.OriginImageCounts {
+func originOf(name string) kuikv1alpha1.ImageCounts {
 	s := monitorStatusOf(name)
 	if s.Images == nil || s.Images.Origin == nil {
-		return kuikv1alpha1.OriginImageCounts{}
+		return kuikv1alpha1.ImageCounts{}
 	}
 	return *s.Images.Origin
 }
@@ -1177,7 +1177,7 @@ var _ = Describe("ImageMonitor", func() {
 		}
 
 		// availability reconciles until the image has a verdict, and returns the origin counts.
-		availability := func() kuikv1alpha1.OriginImageCounts {
+		availability := func() kuikv1alpha1.ImageCounts {
 			GinkgoHelper()
 			Eventually(func() int32 {
 				reconcileIt()

@@ -62,16 +62,11 @@ type ImageCounts struct {
 	Unavailable int32 `json:"unavailable"`
 }
 
-// OriginImageCounts are the gauges of the origin population.
-type OriginImageCounts struct {
-	ImageCounts `json:",inline"`
-}
-
 // MonitorImages groups the two populations an ImageMonitor tracks.
 type MonitorImages struct {
 	// origin are the origin references declared by the selected pods.
 	// +optional
-	Origin *OriginImageCounts `json:"origin,omitempty"`
+	Origin *ImageCounts `json:"origin,omitempty"`
 
 	// alternatives are the candidates ImageAlternative entries would offer for them, under
 	// monitorAlternatives.
