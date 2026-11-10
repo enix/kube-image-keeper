@@ -44,6 +44,8 @@ const (
 	labelReason     = "reason"
 	labelImage      = "image"
 	labelOperation  = "operation"
+	labelResult     = "result"
+	operationCopy   = "Copy"
 	// statusSubResource is the subresource a status write goes to.
 	statusSubResource = "status"
 )
@@ -587,7 +589,7 @@ func (h *mirrorHarness) fallBack(alternative *registrytest.Registry) {
 func (h *mirrorHarness) queued(reg *registrytest.Registry) bool {
 	scheduling := prometheus.NewRegistry()
 	scheduling.MustRegister(h.scheduler.Collector())
-	_, ok := gauge(scheduling, "kuik_registry_interval_seconds", map[string]string{labelRegistry: reg.Host(), "operation": "Copy"})
+	_, ok := gauge(scheduling, "kuik_registry_interval_seconds", map[string]string{labelRegistry: reg.Host(), labelOperation: operationCopy})
 	return ok
 }
 

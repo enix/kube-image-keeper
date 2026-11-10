@@ -3004,8 +3004,25 @@ var _ = Describe("ImageMirror Controller", func() {
 			h.mirror()
 			h.copyAll(1)
 			Expect(counter(h.metrics, "kuik_registry_requests_total", map[string]string{
-				labelRegistry: src.Host(), labelOperation: "Copy", "result": "Ok",
+				labelRegistry: src.Host(), labelOperation: operationCopy, labelResult: "Ok",
 			})).To(BeNumerically(">=", 1))
+		})
+
+		It("counts the source request of a copy refused at its first request under operation Copy, never Check", func() {
+			gone := h.source()
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: gone.Host() + "/acme/gone:v1"})
+			h.mirror()
+			h.reconcile()
+			h.window()
+
+			Eventually(func() float64 {
+				return counter(h.metrics, "kuik_registry_requests_total", map[string]string{
+					labelRegistry: gone.Host(), labelOperation: operationCopy, labelResult: string(kuikv1alpha1.CheckManifestNotFound),
+				})
+			}).Should(BeNumerically(">=", 1))
+			Expect(counter(h.metrics, "kuik_registry_requests_total", map[string]string{
+				labelRegistry: gone.Host(), labelOperation: "Check",
+			})).To(BeZero())
 		})
 
 		It("counts kuik_mirror_tags_deleted_total by Unused and Orphan", func() {
