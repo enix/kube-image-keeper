@@ -1396,6 +1396,53 @@ var _ = Describe("ImageMirror Controller", func() {
 			Consistently(h.copied(destinationTag(src, "acme/job"))).WithTimeout(time.Second).ShouldNot(Succeed())
 		})
 
+		It("copies no more, and reports no failing copy of, the image of a pod a narrowed selector drops while its copy fails", func() {
+			src := h.source()
+			src.Push("acme/app:v1", registrytest.Image())
+			rejectPushes(h.destination)
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+			h.mirror()
+			h.reconcile()
+			h.window()
+			Eventually(func() []kuikv1alpha1.FailedImageCopy {
+				h.reconcile()
+				return h.status().FailedImageCopies
+			}).Should(HaveLen(1))
+
+			var im kuikv1alpha1.ImageMirror
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: h.name}, &im)).To(Succeed())
+			im.Spec.NamespaceSelector = &metav1.LabelSelector{MatchLabels: map[string]string{testLabel: h.name, "tier": "kept"}}
+			Expect(k8sClient.Update(ctx, &im)).To(Succeed())
+			h.reconcile()
+			Expect(h.status().PendingDeletion).To(ContainElement(HaveField("Origin", src.Host()+"/acme/app:v1")))
+			Expect(h.status().FailedImageCopies).To(BeEmpty())
+
+			acceptPushes(h.destination)
+			for range 3 {
+				h.window()
+				h.reconcile()
+			}
+			Consistently(h.copied(destinationTag(src, "acme/app"))).WithTimeout(time.Second).ShouldNot(Succeed())
+		})
+
+		It("never copies for the first time a reference retained before its copy", func() {
+			src := h.source()
+			src.Push("acme/job:v1", registrytest.Image())
+			pod := createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/job:v1"})
+			h.mirror()
+			h.reconcile()
+
+			setPhase(pod, corev1.PodSucceeded)
+			h.reconcile()
+			Expect(h.status().PendingDeletion).To(ContainElement(HaveField("Origin", src.Host()+"/acme/job:v1")))
+			for range 3 {
+				h.window()
+				h.reconcile()
+			}
+			Consistently(h.copied(destinationTag(src, "acme/job"))).WithTimeout(time.Second).ShouldNot(Succeed())
+			Expect(src.Requests(http.MethodGet, "/manifests/")).To(BeEmpty())
+		})
+
 		It("emits ImageDeletionFailed when the destination refuses a deletion", func() {
 			h.mirror(withRetention(0))
 			ref := h.orphan("old", own)
