@@ -1009,7 +1009,7 @@ var _ = Describe("ImageMonitor", func() {
 			window()
 			verdicts(1)
 			Expect(counter(registry, "kuik_registry_requests_total", map[string]string{
-				labelRegistry: src.Host(), labelOperation: "Check", "result": "Ok",
+				labelRegistry: src.Host(), labelOperation: "Check", labelResult: "Ok",
 			})).To(BeNumerically(">=", 1))
 		})
 
