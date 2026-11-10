@@ -7,5 +7,4 @@ metadata:
   name: imagemonitor-sample
 spec:
   unusedImageRetention: 168h
-  driftDetection: true
   monitorAlternatives: false

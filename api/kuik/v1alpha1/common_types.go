@@ -175,8 +175,6 @@ const (
 	ConditionImagesUnavailable = "ImagesUnavailable"
 	// ConditionAlternativesUnavailable is True when a monitored alternative fails its check.
 	ConditionAlternativesUnavailable = "AlternativesUnavailable"
-	// ConditionImagesDrifted is True when a tracked tag moved upstream.
-	ConditionImagesDrifted = "ImagesDrifted"
 )
 
 // Condition reasons, about a resource rather than about a request.
@@ -193,7 +191,6 @@ const (
 	ReasonAllCandidatesFailed       = "AllCandidatesFailed"
 	ReasonMissingImages             = "MissingImages"
 	ReasonChecksFailed              = "ChecksFailed"
-	ReasonUpstreamDigestMoved       = "UpstreamDigestMoved"
 )
 
 // CheckFailureReason is what a failed availability check observed on one image.
