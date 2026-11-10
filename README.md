@@ -59,7 +59,7 @@ This branch holds **kuik v3**, a rewrite released as betas since [3.0.0-beta.1](
 | [Image routing](./docs/crds.md#imagealternative) (`ImageAlternative`, mutating webhook) | Available since 3.0.0-alpha.2 |
 | [Pull secret injection](./docs/concepts/pull-secrets.md) (secret syncer) | Available since 3.0.0-alpha.3 |
 | [Image copy](./docs/crds.md#imagemirror) (`ImageMirror`) | Available since 3.0.0-alpha.4 |
-| [Image monitoring](./docs/crds.md#imagemonitor) (`ImageMonitor`) | Tracking and checks available since 3.0.0-alpha.4, drift and alternatives since 3.0.0-alpha.5 |
+| [Image monitoring](./docs/crds.md#imagemonitor) (`ImageMonitor`) | Tracking and checks available since 3.0.0-alpha.4, alternatives since 3.0.0-alpha.5 |
 | [Admission validation](https://github.com/enix/kube-image-keeper/issues/719) | Available since 3.0.0-alpha.5 |
 | Credentials from a cloud provider (`auth.provider`) | Accepted and validated, but not used yet: kuik skips it and tries the next credential. Planned for v3.1 ([#747](https://github.com/enix/kube-image-keeper/issues/747)) |
 | Plain-HTTP alternatives and mirror destinations (`insecure`) | Available since 3.0.0-alpha.2 for `ImageAlternative`, since 3.0.0-alpha.4 for `ImageMirror` |

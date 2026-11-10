@@ -59,8 +59,8 @@ digest, is kept, and the next resource to reach that image reuses it instead of 
 
 2 monitors tracking the same 1000 images on `interval: 1m` lap in 1000 minutes, not 2000: the
 registry sees the 1000 images once per lap, whatever the number of resources tracking them. An
-`ImageMonitor` with `driftDetection` and an `ImageMirror` with `driftPolicy: Sync` on the same tags
-share the same requests too.
+`ImageMonitor` and an `ImageMirror` with `driftPolicy: Sync` on the same tags share the same
+requests too.
 
 A resource reuses only a response newer than its own previous read of that image, so a reused
 answer is never older than its lap: the freshness its status reports still holds.
