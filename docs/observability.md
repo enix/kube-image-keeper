@@ -62,7 +62,7 @@ or alert on `kuik_image_origin_unavailable`.
 | `ImageRecopied` | Warning | A copy the destination held went missing and was copied again: something outside kuik deleted it while pods may be routed to it |
 | `ImageResynced` | Normal | Under `driftPolicy: Sync`, a destination tag was moved onto the upstream's new digest |
 | `CopyOutOfDate` | Warning | Under `driftPolicy: Warn`, the upstream tag moved away from the copy, which is left as it is. Once per drift |
-| `ImageCopyFailed` | Warning | Copies failed since the last status write. Failures sharing a reason and a registry make one event, naming the image, or how many images failed under their common prefix |
+| `ImageCopyFailed` | Warning | A copy failed, retries included. Failures reported in the same status write that share a reason and the registry of their image make one event, naming the image, or how many images failed under their common prefix. Copies are paced one image per `copy.interval` and host, and each failure is reported as it happens: expect about one event per failed copy, at most one per `copy.interval` and host |
 | `ImageUnrecoverable` | Warning | No source can supply an image any more (`SourceNotFound` on the origin and every alternative). Pods still running it do so from a node cache. Once, when the copy starts failing that way |
 | `OrphanTagFound` | Warning | The sweep found a tag of this cluster no tracked image accounts for. It is deleted once its retention elapsed. Once per tag |
 | `ImageDeleted` | Normal | A tag was deleted after its retention elapsed, or was already gone. Under `cleanup.deleteByDigest`, also for each tag of a manifest deleted with another tag of this cluster in the same pass |

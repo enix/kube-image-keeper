@@ -101,7 +101,7 @@ kubectl get pod <pod> -o jsonpath='{.metadata.annotations.kuik\.enix\.io/rewrite
 # {"app":{"by":"ImageMirror/local-registry","origin":"gitlab.example.com/team/app:1.4","rewrittenTo":"registry.local.example.com/kuik/gitlab.example.com/team/app:1.4_focused-turing-7f3a","policy":"Always"}}
 ```
 
-The first copy of an image emits an `ImageCopied` event on the mirror. Failures emit `ImageCopyFailed`, one event per reason and registry. Alert on [`kuik_image_copy_failed`](../observability.md#anomalies).
+The first copy of an image emits an `ImageCopied` event on the mirror. Each failed copy emits `ImageCopyFailed`: copies are paced, so expect at most one per `copy.interval` and registry. Alert on [`kuik_image_copy_failed`](../observability.md#anomalies).
 
 ## Good to know
 
