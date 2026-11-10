@@ -121,9 +121,27 @@ An `AnonymousAccessDenied` event on the monitor says that a registry refused an 
 
 ## An `ImageMirror` stays `Terminating`
 
-A deleted `ImageMirror` waits for the copies still running, which ends within a copy timeout. Beyond that, it stays `Terminating` while **it cannot delete its tags**, with `cleanup.enabled`: the `manage` credential cannot be read, the destination refuses tag deletion, or manifest deletion under `cleanup.deleteByDigest`, or the destination cannot be reached or refuses the credential (shown only in the reconciler logs). A destination that refuses the deletion sets `Ready` to `False` with the reason `RegistryDeleteUnsupported`, its message naming which deletion was refused, and emits an `ImageDeletionFailed` event on each try.
+The `DeletionBlocked` condition says what holds it, its reason naming the hold and its message the way out:
 
-To release it while leaving the tags in place, set `cleanup.enabled: false` on it. When the destination refuses tag deletion and the `ImageMirror` is its only writer, `cleanup.deleteByDigest: true` lets the cleanup through instead. When it refuses manifest deletion under `cleanup.deleteByDigest`, allow manifest deletion on the registry (on the CNCF `distribution` registry, `storage.delete.enabled`), or set `cleanup.enabled: false`. See [Deleting an ImageMirror](../crds.md#deleting-an-imagemirror), and [Harbor as an ImageMirror destination](./harbor-destination.md) for a Harbor destination.
+```bash
+kubectl get imagemirror <name> -o jsonpath='{.status.conditions[?(@.type=="DeletionBlocked")]}'
+```
+
+A deleted `ImageMirror` waits for the copies still running (`CopiesInFlight`), which ends within a copy timeout. Beyond that, it stays `Terminating` while:
+
+1. **A live pod runs one of its copies** (`PodsRunningCopies`), whatever its `imagePullPolicy`. Since Kubernetes 1.35 the kubelet checks the pull Secret again at every container start, restarts included: once the `ImageMirror` and its injected pull Secrets are gone, a crashed or OOM-killed container of that pod could not start again. The message gives how many pods hold it and names up to 5 of them; a Normal `WaitingForPods` event fires when the wait starts and each time that count changes, and the reconciler logs `Held a deleted ImageMirror: live pods run its copies` with `count` and `pods`:
+
+   ```bash
+   kubectl get events --field-selector involvedObject.kind=ImageMirror,involvedObject.name=<name>,reason=WaitingForPods
+   ```
+
+   Roll those workloads (`kubectl rollout restart deployment/<name>`): the new pods go through the webhook again, which no longer offers the deleted `ImageMirror`, and the `ImageMirror` goes once the old pods are gone.
+2. **It cannot delete its tags**, with `cleanup.enabled`: the `manage` credential cannot be read (`ManageCredentialUnreadable`), the destination refuses tag deletion, or manifest deletion under `cleanup.deleteByDigest` (`DestinationRefusedDeletion`), or the destination cannot be reached or refuses the credential (shown only in the reconciler logs). A destination that refuses the deletion also sets `Ready` to `False` with the reason `RegistryDeleteUnsupported`, its message naming which deletion was refused, and emits an `ImageDeletionFailed` event on each try.
+
+> [!CAUTION]
+> Never remove the `kuik.enix.io/mirror-cleanup` finalizer by hand: the pods still running the copies lose their pull Secret, and the tags of this cluster stay behind with no inventory left.
+
+To release it while leaving the tags in place, set `cleanup.enabled: false` on it: it still waits for the pods running its copies. When the destination refuses tag deletion and the `ImageMirror` is its only writer, `cleanup.deleteByDigest: true` lets the cleanup through instead. When it refuses manifest deletion under `cleanup.deleteByDigest`, allow manifest deletion on the registry (on the CNCF `distribution` registry, `storage.delete.enabled`), or set `cleanup.enabled: false`. See [Deleting an ImageMirror](../crds.md#deleting-an-imagemirror), and [Harbor as an ImageMirror destination](./harbor-destination.md) for a Harbor destination.
 
 ## A status list is truncated
 

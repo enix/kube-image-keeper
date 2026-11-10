@@ -283,14 +283,25 @@ These `HEAD`s go to the destination only, and only when a deletion is due, at mo
 
 ### Deleting an ImageMirror
 
-A deleted `ImageMirror` stops routing new pods and copying images at once, waits for the copies still running, then is released:
+A deleted `ImageMirror` stops routing new pods and copying images at once, waits for the copies still running, then stays `Terminating` until kuik has released it:
 
-- With `cleanup.enabled`, it first deletes every tag of this cluster in `status.repositories`, whatever their retention, by digest under [`cleanup.deleteByDigest`](#deleting-by-digest). It stays `Terminating` while the `manage` credential cannot be read, or while the destination refuses the deletion: released, it would take with it the only inventory of the tags left behind.
-- With `cleanup.enabled: false`, it is released at once, its tags left in place.
+1. While a live pod runs an image under `destination.path`, whatever its `imagePullPolicy`, it waits, keeping its [injected pull Secrets](./concepts/pull-secrets.md), which go with it. Since Kubernetes 1.35 the kubelet checks, at every container start, restarts included, that the pod's pull credentials match the ones that pulled the image ([KEP-2535](https://github.com/kubernetes/enhancements/issues/2535), on by default): without the Secret, or once the tag is deleted, a crashed or OOM-killed container of that pod could not start again. A recreated pod goes through the webhook again, which no longer offers the deleted mirror: roll those workloads (`kubectl rollout restart`) to release it. A Normal `WaitingForPods` event fires when this wait starts and each time the count of those pods changes.
+2. With `cleanup.enabled`, it then deletes every tag of this cluster in `status.repositories`, whatever their retention, by digest under [`cleanup.deleteByDigest`](#deleting-by-digest). It stays `Terminating` while the `manage` credential cannot be read, or while the destination refuses the deletion: released, it would take with it the only inventory of the tags left behind. With `cleanup.enabled: false`, it is released, its tags left in place.
 
-It never waits for the pods running its copies: a recreated pod goes through the webhook again, which no longer offers the deleted mirror, and a restarted container reuses the image of its node. Only a container with `imagePullPolicy: Always` pulls again, and fails until its pod is recreated: the reconciler logs how many live pods do so when it releases the `ImageMirror`, see [Known limits](./known-limits.md#mirroring). The injected pull Secrets go with it.
+While held, the `DeletionBlocked` condition is `True`, its reason naming the current hold, its message the way out:
 
-While held, it retries after 10 seconds, doubling up to 30 minutes. A destination that never accepts the deletion holds the mirror for good: each try emits `ImageDeletionFailed`, and `Ready` goes `False` with reason `RegistryDeleteUnsupported`. Set `cleanup.enabled: false`, before deleting it or while it is held, to release it and leave the tags in place; when the destination refuses tag deletion and the `ImageMirror` is its only writer, `cleanup.deleteByDigest: true` lets the cleanup through instead.
+| Reason | Holds while |
+| ------ | ----------- |
+| `CopiesInFlight` | copies of the `ImageMirror` still run, within a copy timeout |
+| `PodsRunningCopies` | live pods run its copies; the message gives their count and names up to 5 of them |
+| `ManageCredentialUnreadable` | the `manage` credential cannot be read, with `cleanup.enabled` |
+| `DestinationRefusedDeletion` | the destination refuses tag deletion, or manifest deletion under `cleanup.deleteByDigest`, with `cleanup.enabled`; `Ready` is also `False` with reason `RegistryDeleteUnsupported` |
+
+The condition follows the hold at each try. It is not set while the destination cannot be reached or refuses the credential: the reconciler logs show it.
+
+Never remove the `kuik.enix.io/mirror-cleanup` finalizer by hand: the tags of this cluster stay behind, and the pods still running the copies lose their pull Secret.
+
+While held, it retries after 10 seconds, doubling up to 30 minutes, and sooner when a pod goes. A destination that never accepts the deletion holds the mirror for good: each try emits `ImageDeletionFailed`, and `Ready` goes `False` with reason `RegistryDeleteUnsupported`. Set `cleanup.enabled: false`, before deleting it or while it is held, to release it once no pod runs its copies and leave the tags in place; when the destination refuses tag deletion and the `ImageMirror` is its only writer, `cleanup.deleteByDigest: true` lets the cleanup through instead.
 
 ### Status
 
@@ -306,7 +317,7 @@ The copy side first, then the routing side, which is field for field an [`ImageA
 | `status.repositories[]` | Destination repositories this mirror wrote to, for the cleanup sweep. Not capped |
 | `status.checks.registries[]` | Health of the drift check rings, one per source host, under `Warn` or `Sync`. The destination never appears here |
 | `status.pods`, `status.containers`, `status.activeFallbacks[]`, `status.noAlternatives[]`, `status.concededRewrites[]`, `status.staleRewrites[]` | The routing side, absent under `rewritePolicy: None` |
-| `status.conditions` | `Ready`, `DestinationOutOfSync`, `FallbackActive`, `AlternativesExhausted`, `ListCapacityPressure` |
+| `status.conditions` | `Ready`, `DestinationOutOfSync`, `FallbackActive`, `AlternativesExhausted`, `ListCapacityPressure`, and `DeletionBlocked` while a deleted `ImageMirror` is held, see [Deleting an ImageMirror](#deleting-an-imagemirror) |
 
 ## ImageMonitor
 
