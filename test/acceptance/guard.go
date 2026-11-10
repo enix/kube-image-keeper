@@ -295,7 +295,7 @@ func (e *env) apply(ctx context.Context, obj client.Object, createOnly bool) err
 		return fmt.Errorf("%s is being deleted: wait for it to go, then apply", describe(obj))
 	}
 	// The file knows nothing of what others set: kuik's finalizer on an ImageMirror holds it
-	// until its tags are deleted, and dropping it would skip their deletion.
+	// until no pod runs its copies and its tags are deleted, and dropping it would skip both.
 	obj.SetFinalizers(live.GetFinalizers())
 	obj.SetAnnotations(labels.Merge(live.GetAnnotations(), obj.GetAnnotations()))
 	obj.SetOwnerReferences(live.GetOwnerReferences())
