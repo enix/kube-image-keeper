@@ -7,6 +7,7 @@ import (
 	"go.uber.org/zap/zapcore"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
+	"github.com/enix/kube-image-keeper/internal/config"
 	"github.com/enix/kube-image-keeper/internal/info"
 )
 
@@ -18,6 +19,17 @@ func loggerOptions() zap.Options {
 		StacktraceLevel: zapcore.DPanicLevel,
 		TimeEncoder:     zapcore.ISO8601TimeEncoder,
 	}
+}
+
+// startUp loads the global config at path, the first step of every process.
+func startUp(log logr.Logger, _ processName, path, clusterResourceNamespace string) (*config.Config, error) {
+	// The file is required: a process does not start on a config nobody validated.
+	cfg, err := config.Load(path)
+	if err != nil {
+		return nil, err
+	}
+	log.Info("Loaded global config", "path", path, "clusterResourceNamespace", clusterResourceNamespace)
+	return cfg, nil
 }
 
 // logStarting logs the start of the manager with the build information, the same labels as
