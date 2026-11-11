@@ -459,14 +459,35 @@ var _ = Describe("Pod routing", Ordered, func() {
 
 			setConfig(mergeConfig(original, "webhook:\n  availabilityCheck:\n    timeout: banana\n"))
 
-			for pod, count := range errorsBefore {
-				Eventually(func() (float64, error) {
+			// One kubelet update of the mounted ConfigMap raises several file events, all at once:
+			// the rejected edit counts once on each replica, whatever their number.
+			reloadErrors := func(pod string) func() (float64, error) {
+				return func() (float64, error) {
 					counts, err := webhookMetric("kuik_config_reload_errors_total")
 					return counts[pod], err
-				}, "3m").Should(BeNumerically(">", count), "the webhook pod %s did not count the rejected reload", pod)
+				}
+			}
+			for pod, count := range errorsBefore {
+				Eventually(reloadErrors(pod), "3m").Should(Equal(count+1),
+					"the webhook pod %s did not count the rejected reload once", pod)
+			}
+			for pod, count := range errorsBefore {
+				Consistently(reloadErrors(pod), "15s").Should(Equal(count+1),
+					"the webhook pod %s counted the rejected reload more than once", pod)
 			}
 			Expect(webhookRestarts()).To(Equal(before))
 			Expect(replicasRouting()).To(everyReplica(BeFalse()), "a replica left the previously loaded config")
+
+			By("writing a valid config back")
+			// Routing again proves each replica loaded it, and the update events that come before
+			// the swap are read while the rejected file is still the mounted one.
+			setConfig(original)
+			Eventually(replicasRouting, "3m").Should(everyReplica(BeTrue()))
+			Expect(webhookMetric("kuik_config_reload_errors_total")).To(HaveLen(len(errorsBefore)))
+			for pod, count := range errorsBefore {
+				Expect(reloadErrors(pod)()).To(Equal(count+1),
+					"the webhook pod %s counted a rejected reload for the valid config written back", pod)
+			}
 		})
 	})
 })
