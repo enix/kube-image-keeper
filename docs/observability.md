@@ -181,7 +181,9 @@ The reconciler and the webhook export this counter, each for the requests it sen
 | `kuik_registry_requests_total{registry, operation, result}` | counter | Requests kuik sent to a source registry, by `operation` (`Check`, `Copy`, every request of a copy, the source check it opens with included) and outcome: `Ok`, `ManifestNotFound`, `Unauthorized`, `QuotaExceeded`, `Unreachable`. A mirror destination is not counted |
 
 A rising `QuotaExceeded` on one `registry` says that host rate-limits kuik; `operation` says
-whether the checks or the copies are refused.
+whether the checks or the copies are refused. A host that rations requests per second, refusing
+copies after their first few requests, calls for a
+[`requestInterval`](./concepts/pacing.md#spacing-the-requests).
 
 ### Pull secrets
 

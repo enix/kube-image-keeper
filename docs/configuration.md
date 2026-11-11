@@ -62,13 +62,21 @@ A key left out takes the default below.
 | `webhook.availabilityCheck.demoteKnownFailures` | `true` | Try last a candidate the background loops report failing, see [`rewritePolicy`](./crds.md#rewritepolicy) |
 | `registries.default.check` | `interval: 1m`, `timeout: 10s` | Pace of the background checks against every host |
 | `registries.default.copy` | `interval: 3m`, `timeout: 0` | Pace of the copies from every host. A `timeout` of `0` means no bound |
+| `registries.default.requestInterval` | `0` | Least gap between 2 HTTP requests the reconciler sends to a source host, for a registry that rations requests per second, see [Spacing the requests](./concepts/pacing.md#spacing-the-requests). `0` sends them at once. Set it per host as `registries.<host>.requestInterval` |
 | `registries.<host>` | `registries.default` | Pace of one host, field by field: a host block overrides the fields it names and inherits the others. `index.docker.io` and `docker.io` are the same host |
 | `fallbackAuth` | none | Credentials the reconciler reads an image with when no custom resource declares any, see [Registry credentials](#registry-credentials) |
 | `tls.<host>.caSecretRef` | none | A Secret of the cluster resource namespace whose PEM bundle kuik adds to the system trust store for that host: `name`, and `key` (default `ca.crt`). See [Registry TLS](#registry-tls) |
 | `tls.<host>.insecureSkipVerify` | `false` | Reach that host over HTTPS without verifying its certificate, as `curl -k`. Exclusive with `caSecretRef` |
 
-Intervals are at least `5s`. Timeouts are positive, except `copy.timeout`, which may be `0`.
+Intervals are at least `5s`, except `requestInterval`, which may be `0` or any positive
+duration. Timeouts are positive, except `copy.timeout`, which may be `0`.
 Durations are written with their unit (`30s`, `10m`, `1h`).
+
+kuik does not check that `check.timeout` leaves room for `requestInterval`: size the
+`check.timeout` of a paced host to at least 6 times its `requestInterval` per credential tried.
+A check sends up to 3 requests per credential, and a copy of the same host may take a turn
+before each of them. Give it more for an index that nests another index, or to leave room for
+retries. A timeout too short for the wait fails the checks of that host as `Unreachable`.
 
 How `registries` paces each host, and what a reload does to it, is explained in
 [Registry pacing](./concepts/pacing.md).
