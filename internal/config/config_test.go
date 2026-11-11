@@ -199,7 +199,21 @@ registries:
 secretSyncer:
   onFailureGrace: 0s
 `),
+		Entry("when a requestInterval is negative", minimal+`
+registries:
+  quay.io:
+    requestInterval: -1s
+`),
 	)
+
+	It("accepts a requestInterval below the 5s minimum of the window intervals", func() {
+		cfg := mustLoad(minimal + `
+registries:
+  quay.io:
+    requestInterval: 1s
+`)
+		Expect(cfg.Registries.For("quay.io").RequestInterval).To(Equal(time.Second))
+	})
 
 	It("applies a secretSyncer.onFailureGrace of 15m to a file that leaves it out", func() {
 		Expect(mustLoad(minimal).SecretSyncer.OnFailureGrace.Duration).To(Equal(15 * time.Minute))
@@ -253,6 +267,31 @@ registries:
 	It("applies a docker.io block to index.docker.io", func() {
 		cfg := mustLoad(specExample)
 		Expect(cfg.Registries.For("index.docker.io").Copy.Interval).To(Equal(10 * time.Minute))
+	})
+
+	It("leaves requests unpaced on a host when no block sets requestInterval", func() {
+		cfg := mustLoad(specExample)
+		Expect(cfg.Registries.For("public.ecr.aws").RequestInterval).To(BeZero())
+		Expect(cfg.Registries.For("ghcr.io").RequestInterval).To(BeZero())
+	})
+
+	It("inherits requestInterval from default and lets a host block override it, 0 included", func() {
+		cfg := mustLoad(minimal + `
+registries:
+  default:
+    requestInterval: 1s
+  quay.io:
+    requestInterval: 0
+  ghcr.io:
+    requestInterval: 500ms
+  docker.io:
+    copy:
+      interval: 10m
+`)
+		Expect(cfg.Registries.For("quay.io").RequestInterval).To(BeZero())
+		Expect(cfg.Registries.For("ghcr.io").RequestInterval).To(Equal(500 * time.Millisecond))
+		Expect(cfg.Registries.For("docker.io").RequestInterval).To(Equal(time.Second))
+		Expect(cfg.Registries.For("registry.k8s.io").RequestInterval).To(Equal(time.Second))
 	})
 })
 
