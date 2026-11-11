@@ -1093,6 +1093,345 @@ var _ = Describe("ImageMonitor", func() {
 		})
 	})
 
+	// Every registry of these specs serves plain HTTP on loopback, where go-containerregistry
+	// falls back to plain HTTP whatever insecure says: the tls entry the reconciler holds for
+	// each refuses that fallback, so that only a check declared insecure reaches it.
+	Context("the transport of an origin", func() {
+		const (
+			password = "s3cr3t"
+			// transportLabel selects the pods an ImageAlternative of these specs applies to.
+			transportLabel = "transport"
+			plainHTTP      = "http"
+		)
+		var (
+			fallbackAuth []auth.FallbackAuthEntry
+			// stopScheduler stops the scheduler, as a process ending would.
+			stopScheduler context.CancelFunc
+			// tlsHosts are the registries the reconciler holds a tls entry for.
+			tlsHosts []*registrytest.Registry
+		)
+
+		// start builds a reconciler checking with fallbackAuth, holding a tls entry for each of
+		// tlsHosts, on a scheduler of its own paced every minute on the fake clock, as a new
+		// process would.
+		start := func() {
+			GinkgoHelper()
+			if stopScheduler != nil {
+				stopScheduler()
+			}
+			cfg := mirrorConfig()
+			cfg.FallbackAuth = fallbackAuth
+			scheduler := pacing.New(clock, cfg)
+			schedulerCtx, stop := context.WithCancel(ctx)
+			go func() { _ = scheduler.Start(schedulerCtx) }()
+			DeferCleanup(stop)
+			stopScheduler = stop
+			registry = prometheus.NewRegistry()
+			var err error
+			reconciler, err = NewImageMonitorReconciler(k8sClient, k8sClient.Scheme(), ImageMonitorOptions{
+				APIReader:                k8sClient,
+				ClusterResourceNamespace: installNamespace,
+				Recorder:                 recorder,
+				Registerer:               registry,
+				Clock:                    clock,
+				Scheduler:                scheduler,
+				Registry:                 tlsClient(tlsHosts...),
+				Config:                   cfg,
+			})
+			Expect(err).NotTo(HaveOccurred())
+		}
+		BeforeEach(func() {
+			fallbackAuth, stopScheduler, tlsHosts = nil, nil, nil
+			createNamespace(installNamespace, nil)
+		})
+
+		// serve starts a registry holding acme/app:v1, requiring the credentials of registryUser
+		// when protected, closed when the spec ends, with a tls entry in the next reconciler.
+		serve := func(protected bool) *registrytest.Registry {
+			GinkgoHelper()
+			var opts []registrytest.Option
+			if protected {
+				opts = append(opts, registrytest.WithBasicAuth(registryUser, password))
+			}
+			src := registrytest.New(opts...)
+			DeferCleanup(src.Close)
+			src.Push("acme/app:v1", registrytest.Image())
+			src.Reset()
+			tlsHosts = append(tlsHosts, src)
+			return src
+		}
+
+		app := func(src *registrytest.Registry) string {
+			return src.Host() + "/acme/app:v1"
+		}
+
+		// secure is the entry naming acme/app on src, not insecure.
+		secure := func(src *registrytest.Registry) kuikv1alpha1.Alternative {
+			return kuikv1alpha1.Alternative{Repository: src.Host() + "/acme/app"}
+		}
+
+		// declare creates an ImageAlternative of entries applying to the namespaces the monitor
+		// selects, shaped by mutate.
+		declare := func(entries []kuikv1alpha1.Alternative, mutate ...func(*kuikv1alpha1.ImageAlternative)) *kuikv1alpha1.ImageAlternative {
+			GinkgoHelper()
+			ia := &kuikv1alpha1.ImageAlternative{
+				ObjectMeta: metav1.ObjectMeta{Name: unique("ia")},
+				Spec: kuikv1alpha1.ImageAlternativeSpec{
+					NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{testLabel: name}},
+					Alternatives:      entries,
+				},
+			}
+			for _, m := range mutate {
+				m(ia)
+			}
+			Expect(k8sClient.Create(ctx, ia)).To(Succeed())
+			return ia
+		}
+		// insecureFor declares src insecure, next to an alternative no check reads.
+		insecureFor := func(src *registrytest.Registry, mutate ...func(*kuikv1alpha1.ImageAlternative)) *kuikv1alpha1.ImageAlternative {
+			GinkgoHelper()
+			return declare([]kuikv1alpha1.Alternative{appEntry(src), {Repository: "alternative.invalid/acme/app"}}, mutate...)
+		}
+		toLabelled := func(ia *kuikv1alpha1.ImageAlternative) {
+			ia.Spec.PodSelector = &metav1.LabelSelector{MatchLabels: map[string]string{transportLabel: plainHTTP}}
+		}
+		// keep runs, in ns, an image of a registry no tls entry names, which keeps the selection
+		// non-empty once the other pods are gone.
+		keep := func(ns string) {
+			GinkgoHelper()
+			keeper := registrytest.New()
+			DeferCleanup(keeper.Close)
+			keeper.Push("acme/keeper:v1", registrytest.Image())
+			runningPod(ns, []container{running(appContainer, keeper.Host()+"/acme/keeper:v1")})
+		}
+
+		window := func() {
+			GinkgoHelper()
+			Eventually(clock.HasWaiters).Should(BeTrue())
+			clock.Step(time.Minute)
+		}
+
+		// verdicts reconciles until the monitor counts n origins with a verdict, and returns the
+		// origin counts.
+		verdicts := func(n int32) kuikv1alpha1.ImageCounts {
+			GinkgoHelper()
+			Eventually(func() int32 {
+				reconcileIt()
+				return originOf(name).Available + originOf(name).Unavailable
+			}).Should(Equal(n))
+			return originOf(name)
+		}
+
+		// reasonOf is the reason unavailableImages gives ref, empty when it lists it not.
+		reasonOf := func(ref string) kuikv1alpha1.CheckFailureReason {
+			for _, e := range monitorStatusOf(name).UnavailableImages {
+				if e.Ref == ref {
+					return e.Reason
+				}
+			}
+			return ""
+		}
+
+		It("checks an origin the entry it matches declares insecure over plain HTTP, even when its host has a tls entry and alternatives are not monitored", func() {
+			src := serve(false)
+			start()
+			newMonitor(name)
+			insecureFor(src)
+			runningPod(selectedNamespace(), []container{running(appContainer, app(src))})
+			reconcileIt()
+			window()
+			Expect(verdicts(1).Available).To(Equal(int32(1)))
+		})
+
+		It("never checks an origin declared insecure with the auth of the entry it matches", func() {
+			src := serve(true)
+			start()
+			newMonitor(name)
+			entry := appEntry(src)
+			entry.Auth = &kuikv1alpha1.Auth{SecretRef: &kuikv1alpha1.SecretReference{Name: createCredentials(src.Host(), registryUser, password)}}
+			declare([]kuikv1alpha1.Alternative{entry, {Repository: "alternative.invalid/acme/app"}})
+			runningPod(selectedNamespace(), []container{running(appContainer, app(src))})
+			reconcileIt()
+			window()
+			// Reached over plain HTTP, and refused: no credential was sent.
+			Expect(verdicts(1).Unavailable).To(Equal(int32(1)))
+			Expect(reasonOf(app(src))).To(Equal(kuikv1alpha1.CheckUnauthorized))
+		})
+
+		It("sends the pull secrets of its pods and fallbackAuth over plain HTTP for an origin declared insecure that no secure entry offers", func() {
+			withPullSecret, withFallback := serve(true), serve(true)
+			fallbackAuth = []auth.FallbackAuthEntry{{
+				RepositoryGroup: withFallback.Host(),
+				SecretRef:       &kuikv1alpha1.SecretReference{Name: createCredentials(withFallback.Host(), registryUser, password)},
+			}}
+			start()
+			newMonitor(name)
+			insecureFor(withPullSecret)
+			insecureFor(withFallback)
+			ns := selectedNamespace()
+			runningPod(ns, []container{running(appContainer, app(withPullSecret))},
+				withPullSecrets(pullSecret(ns, withPullSecret.Host(), password)))
+			runningPod(ns, []container{running(appContainer, app(withFallback))})
+			reconcileIt()
+			window()
+			Expect(verdicts(2).Available).To(Equal(int32(2)))
+		})
+
+		// The check reaches the registry over plain HTTP once HTTPS gave no answer, but with none of
+		// the shared credentials: the registry refuses it.
+		It("keeps the pull secrets and fallbackAuth of an origin declared insecure on HTTPS while another ImageAlternative offers it through a secure entry", func() {
+			src, other := serve(true), serve(false)
+			fallbackAuth = []auth.FallbackAuthEntry{{
+				RepositoryGroup: src.Host(),
+				SecretRef:       &kuikv1alpha1.SecretReference{Name: createCredentials(src.Host(), registryUser, password)},
+			}}
+			start()
+			monitorAlternatives := true
+			newMonitor(name, func(im *kuikv1alpha1.ImageMonitor) { im.Spec.MonitorAlternatives = &monitorAlternatives })
+			insecureFor(src)
+			declare([]kuikv1alpha1.Alternative{secure(other), secure(src)})
+			ns := selectedNamespace()
+			runningPod(ns, []container{running(appContainer, app(src))}, withPullSecrets(pullSecret(ns, src.Host(), password)))
+			runningPod(ns, []container{running(appContainer, app(other))})
+			reconcileIt()
+			window()
+			Eventually(func() kuikv1alpha1.CheckFailureReason {
+				reconcileIt()
+				return reasonOf(app(src))
+			}).Should(Equal(kuikv1alpha1.CheckUnauthorized))
+			Expect(src.Requests("", "")).NotTo(ContainElement(HaveField("Authorized", BeTrue())))
+		})
+
+		It("reaches over plain HTTP an origin declared insecure that another ImageAlternative offers through a secure entry, when it gives no answer over HTTPS", func() {
+			src, other := serve(false), serve(false)
+			start()
+			monitorAlternatives := true
+			newMonitor(name, func(im *kuikv1alpha1.ImageMonitor) { im.Spec.MonitorAlternatives = &monitorAlternatives })
+			insecureFor(src)
+			declare([]kuikv1alpha1.Alternative{secure(other), secure(src)})
+			ns := selectedNamespace()
+			runningPod(ns, []container{running(appContainer, app(src))})
+			runningPod(ns, []container{running(appContainer, app(other))})
+			reconcileIt()
+			window()
+			// other, offered securely only, stays on HTTPS and fails; src answers over plain HTTP.
+			Expect(verdicts(2).Available).To(Equal(int32(1)))
+			Expect(reasonOf(app(src))).To(BeEmpty())
+			Expect(reasonOf(app(other))).To(Equal(kuikv1alpha1.CheckUnreachable))
+		})
+
+		It("checks an origin over plain HTTP when the ImageAlternative declaring it insecure applies to one of the pods declaring it only", func() {
+			src := serve(false)
+			start()
+			newMonitor(name)
+			insecureFor(src, toLabelled)
+			ns := selectedNamespace()
+			// The pod the ImageAlternative leaves out comes first by name.
+			runningPod(ns, []container{running(appContainer, app(src))}, withPodName("a-"+unique("pod")))
+			runningPod(ns, []container{running(appContainer, app(src))}, withPodName("b-"+unique("pod")),
+				withPodLabels(map[string]string{transportLabel: plainHTTP}))
+			reconcileIt()
+			window()
+			Expect(verdicts(1).Available).To(Equal(int32(1)))
+		})
+
+		// A guard: it passes before origins took the transport of their entries, and pins that
+		// the selectors of the ImageAlternative bound it.
+		It("keeps checking an origin over HTTPS when the ImageAlternative declaring it insecure applies to none of the pods declaring it", func() {
+			src := serve(false)
+			start()
+			newMonitor(name)
+			insecureFor(src, toLabelled)
+			runningPod(selectedNamespace(), []container{running(appContainer, app(src))})
+			reconcileIt()
+			window()
+			Expect(verdicts(1).Unavailable).To(Equal(int32(1)))
+			Expect(reasonOf(app(src))).To(Equal(kuikv1alpha1.CheckUnreachable))
+		})
+
+		It("keeps checking a retained origin over the transport its pods were offered", func() {
+			offered, leftOut := serve(false), serve(false)
+			start()
+			newMonitor(name)
+			insecureFor(offered, toLabelled)
+			insecureFor(leftOut, toLabelled)
+			ns := selectedNamespace()
+			keep(ns)
+			first := runningPod(ns, []container{running(appContainer, app(offered))}, withPodLabels(map[string]string{transportLabel: plainHTTP}))
+			second := runningPod(ns, []container{running(appContainer, app(leftOut))})
+			reconcileIt()
+			deletePod(first)
+			deletePod(second)
+			reconcileIt()
+			Expect(monitorStatusOf(name).RetainedImages).To(HaveLen(2))
+			window()
+			// The keeper and the origin its pods were offered over plain HTTP answer; the other
+			// stays on HTTPS, though unscoped its ImageAlternative would declare it insecure.
+			counts := verdicts(3)
+			Expect(counts.Available).To(Equal(int32(2)))
+			Expect(reasonOf(app(leftOut))).To(Equal(kuikv1alpha1.CheckUnreachable))
+		})
+
+		It("checks a retained origin over HTTPS again once no ImageAlternative declares it insecure", func() {
+			src := serve(false)
+			start()
+			newMonitor(name)
+			ia := insecureFor(src)
+			ns := selectedNamespace()
+			keep(ns)
+			pod := runningPod(ns, []container{running(appContainer, app(src))})
+			reconcileIt()
+			deletePod(pod)
+			reconcileIt()
+			window()
+			Expect(verdicts(2).Available).To(Equal(int32(2)))
+
+			Expect(k8sClient.Delete(ctx, ia)).To(Succeed())
+			Eventually(func() kuikv1alpha1.CheckFailureReason {
+				reconcileIt()
+				if clock.HasWaiters() {
+					clock.Step(time.Minute)
+				}
+				return reasonOf(app(src))
+			}).Should(Equal(kuikv1alpha1.CheckUnreachable))
+		})
+
+		It("takes the transport of an origin from a static pod and from a container under imagePullPolicy Never", func() {
+			static, never := serve(false), serve(false)
+			start()
+			newMonitor(name)
+			insecureFor(static)
+			insecureFor(never)
+			ns := selectedNamespace()
+			runningPod(ns, []container{running(appContainer, app(static))}, asStaticPod())
+			runningPod(ns, []container{running(appContainer, app(never))}, withPullPolicy(appContainer, corev1.PullNever))
+			reconcileIt()
+			window()
+			Expect(verdicts(2).Available).To(Equal(int32(2)))
+		})
+
+		It("checks a retained origin over plain HTTP after a restart when any ImageAlternative declares it insecure, whatever its selectors", func() {
+			src := serve(false)
+			start()
+			newMonitor(name)
+			insecureFor(src, toLabelled)
+			ns := selectedNamespace()
+			keep(ns)
+			pod := runningPod(ns, []container{running(appContainer, app(src))})
+			reconcileIt()
+			deletePod(pod)
+			reconcileIt()
+			Expect(monitorStatusOf(name).RetainedImages).To(ConsistOf(HaveField("Ref", app(src))))
+
+			// A new process never saw its pods: it matches every ImageAlternative, whatever it
+			// selects.
+			start()
+			reconcileIt()
+			window()
+			Expect(verdicts(2).Available).To(Equal(int32(2)))
+		})
+	})
+
 	Context("credentials", func() {
 		const (
 			user     = registryUser
