@@ -96,6 +96,8 @@ type Registries struct {
 // RegistryPacing is one block of `registries`. Every field is a pointer: a field left out
 // inherits from `default`, and `copy.timeout: 0` means no bound.
 type RegistryPacing struct {
+	// RequestInterval is the least gap between 2 HTTP requests the reconciler sends to the
+	// host as a source; 0 sends them at once.
 	RequestInterval *Duration `json:"requestInterval,omitempty"`
 	Check           *Window   `json:"check,omitempty"`
 	Copy            *Window   `json:"copy,omitempty"`
@@ -109,6 +111,7 @@ type Window struct {
 
 // Pacing is the resolved pace of a host, `default` merged field by field.
 type Pacing struct {
+	// RequestInterval is the least gap between 2 source requests to the host; 0 for none.
 	RequestInterval time.Duration
 	Check           ResolvedWindow
 	Copy            ResolvedWindow
@@ -156,6 +159,9 @@ func (r Registries) For(host string) Pacing {
 }
 
 func (b RegistryPacing) applyTo(p *Pacing) {
+	if b.RequestInterval != nil {
+		p.RequestInterval = b.RequestInterval.Duration
+	}
 	b.Check.applyTo(&p.Check)
 	b.Copy.applyTo(&p.Copy)
 }
@@ -287,7 +293,7 @@ func rejectClusterID(data []byte) error {
 }
 
 func (c *Config) validate() error {
-	errs := make([]error, 0, 5+len(c.Registries.Hosts)+len(c.FallbackAuth))
+	errs := make([]error, 0, 6+len(c.Registries.Hosts)+len(c.FallbackAuth))
 	errs = append(errs,
 		checkInterval("mirror.destinationScan.interval", c.Mirror.DestinationScan.Interval),
 		checkPositive("webhook.availabilityCheck.timeout", c.Webhook.AvailabilityCheck.Timeout),
@@ -307,6 +313,11 @@ func (c *Config) validate() error {
 
 func (b RegistryPacing) validate(key string) error {
 	var errs []error
+	// 0 means no pacing. Not a window interval, so the 5s minimum does not apply. Nothing checks
+	// that check.timeout leaves room for the wait: a too long interval times the checks out.
+	if b.RequestInterval != nil && b.RequestInterval.Duration < 0 {
+		errs = append(errs, fmt.Errorf("%s.requestInterval must not be negative", key))
+	}
 	if b.Check != nil {
 		if b.Check.Interval != nil {
 			errs = append(errs, checkInterval(key+".check.interval", *b.Check.Interval))
