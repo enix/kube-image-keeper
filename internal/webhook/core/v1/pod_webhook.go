@@ -200,6 +200,7 @@ func (d *PodCustomDefaulter) defaultPod(ctx context.Context, pod *corev1.Pod, dr
 		if _, ok := originalImages[name]; ok {
 			continue
 		}
+		originalImages[name] = pod.Spec.InitContainers[i].Image
 		containers = append(containers, Container{
 			Container:    &pod.Spec.InitContainers[i],
 			IsInit:       true,
