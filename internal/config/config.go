@@ -96,8 +96,9 @@ type Registries struct {
 // RegistryPacing is one block of `registries`. Every field is a pointer: a field left out
 // inherits from `default`, and `copy.timeout: 0` means no bound.
 type RegistryPacing struct {
-	Check *Window `json:"check,omitempty"`
-	Copy  *Window `json:"copy,omitempty"`
+	RequestInterval *Duration `json:"requestInterval,omitempty"`
+	Check           *Window   `json:"check,omitempty"`
+	Copy            *Window   `json:"copy,omitempty"`
 }
 
 // Window is the pace of one loop against a host.
@@ -108,8 +109,9 @@ type Window struct {
 
 // Pacing is the resolved pace of a host, `default` merged field by field.
 type Pacing struct {
-	Check ResolvedWindow
-	Copy  ResolvedWindow
+	RequestInterval time.Duration
+	Check           ResolvedWindow
+	Copy            ResolvedWindow
 }
 
 // ResolvedWindow is a window with every field set. A zero copy Timeout means no bound.
