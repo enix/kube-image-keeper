@@ -28,3 +28,4 @@ This page lists what the current version of kuik does not do yet, and how to wor
 ## Registries
 
 - **Node runtime**: the `tls` key and `insecure: true` configure kuik only: configure the nodes' container runtime for the same hosts, or pods fail to pull, see [Registry TLS](./configuration.md#registry-tls).
+- **Request interval and check timeout**: kuik does not check that `check.timeout` leaves room for `requestInterval`: a too large interval makes every check of that host time out as `Unreachable`. Give a paced host a `check.timeout` of at least 6 times its `requestInterval` per credential tried, see [Spacing the requests](./concepts/pacing.md#spacing-the-requests).

@@ -84,12 +84,77 @@ destination is no re-copy and waits for its turn.
 `copy.timeout: 0`, the default, lets a copy take as long as it needs: a copy that outlasts its
 `copy.interval` already shows as copy windows going unused while images are pending.
 
+## Spacing the requests
+
+A window bounds the images kuik reads, not the HTTP requests one image takes: a check sends up to
+3 (the ping, a token, the manifest `HEAD`), and a copy one per manifest and blob, a multi-arch
+image several dozen in a row. A registry that rations requests per second refuses the rest with a
+`429`. `requestInterval` spaces them: each request the reconciler sends to the source host waits
+until `requestInterval` has passed since the previous one.
+
+- **What waits**: every request to the source host itself, from checks and copies alike: the
+  ping, a token asked to that host, manifests, child manifests and blobs.
+- **What does not**: a request to another host (a blob redirected to a CDN, a token service such
+  as `auth.docker.io`), every request to a mirror destination, and the webhook's active check.
+- **No burst**: one request per gap, never several at once. The requests that wait go in the
+  order they asked: once the one ahead of it has left or given up, a request leaves as soon as
+  `requestInterval` has passed since the last request sent. The checks and copies of every
+  resource on that host share one series.
+- **Default ports**: the `registries` block is looked up with the host exactly as the image
+  writes it, as for `check` and `copy`: an image on `registry.example:443` takes the
+  `requestInterval` of a `registry.example:443` block, not of `registry.example`. The requests
+  themselves queue together whether they name the default port or not, `:443` over HTTPS and
+  `:80` over plain HTTP: a blob redirected to the source host with its port written out still
+  waits its turn. When images write a host both ways, give both blocks the same
+  `requestInterval`, or write the block as the images write the host: a spelling that resolves
+  to `0` sends its requests at once, even while those of the other spelling wait.
+- **One request at a time per copy**: a copy from a paced host reads and writes its blobs one by
+  one instead of several in parallel, so a check of the same host waits behind at most one request
+  of the copy before each of its own: its 3 requests wait up to 2 turns each. An index that nests
+  another index is the exception: its copy can have 2 source requests in flight.
+- **The wait counts against the timeouts**: it runs within `check.timeout` and `copy.timeout`. A
+  request still waiting when its timeout ends is never sent, and the check or copy fails as that
+  timeout does. `kuik_registry_requests_total` counts attempts, not HTTP requests: an attempt
+  none of whose requests was sent is not counted, but a check whose ping was sent and whose
+  `HEAD` gave up waiting is. The request that gives up leaves the queue, and the next one goes
+  `requestInterval` after the last request sent: only requests sent count, so a timeout never
+  lets the host burst.
+- **Size `check.timeout` for the wait**: kuik does not check that it leaves room for
+  `requestInterval`. Give a paced host a `check.timeout` of at least 6 times its
+  `requestInterval` per credential tried, since a check tries each credential of the host in
+  turn, up to 3 requests each, all within one `check.timeout`. Give it more for an index that
+  nests another index, or to leave room for retries. A timeout too short for the wait fails the
+  checks of that host as `Unreachable`.
+
+The kubelet paces image pulls per node with a token bucket (`registryPullQPS`, `registryBurst`).
+kuik spaces requests instead, with no burst on purpose: the burst a registry allows is left to the
+nodes' own pulls.
+
+For example, `public.ecr.aws` allows about 1 anonymous request per second, with a burst of about
+10. A copy of a multi-arch image such as `busybox` sends some 60 requests, so it fails with
+`QuotaExceeded` after about 10 of them. With:
+
+```yaml
+registries:
+  public.ecr.aws:
+    requestInterval: 1s
+```
+
+the same copy succeeds in about a minute. The `copy.timeout` of that host must allow it: the
+default, `0`, sets no bound.
+
 ## Changing the pace
 
 The config is reloaded in place. A reload that changes the `check.interval` of a host restarts the
 check windows of that host only, the first one a full new `interval` after the reload, as a start
 does; `copy.interval` does the same for its copy windows. Every other series keeps its times, a
 changed `timeout` applies from the next image without moving any window, and no cursor moves.
+
+A changed `requestInterval` applies at once, to the requests already waiting too: each one waits
+the new gap after the last request sent, so a lower one lets them go sooner, a higher one later,
+and `0` sends every waiting request at once. They keep their order. A copy already running keeps
+its parallelism, one request at a time or several, until it ends or tries its next destination
+credential.
 
 Editing the config in a loop therefore never bursts a registry: each change pushes the next window
 further away.
