@@ -90,8 +90,11 @@ type mirrorState struct {
 	// those Sync copies again.
 	drifted map[string]driftEntry
 	resync  map[string]bool
-	// declaring is, for every desired reference, the pod whose pull secrets read it.
+	// declaring is, for every desired reference, the pod whose pull secrets read its origin.
 	declaring map[string]*corev1.Pod
+	// origins is, for every desired reference, the config its origin is read with: the next
+	// reconcile keeps its transport for a reference no pod declares any more.
+	origins map[string]routing.Config
 
 	// live are the references the selected pods ran at the last reconcile, nil before the
 	// first one: what tells which reference lost its last pod.
@@ -284,9 +287,13 @@ type driftEntry struct {
 type copySource struct {
 	origin     imagepath.Reference
 	candidates []routing.Candidate
-	// pod declares the reference: its pull secrets are part of each candidate's credentials.
-	pod  *corev1.Pod
-	next int
+	// pod declares the reference: its pull secrets are part of each alternative's credentials.
+	pod *corev1.Pod
+	// originPod declares the reference too: its pull secrets are part of the origin's
+	// credentials. It is a pod the insecure declaration of the origin applies to, when the
+	// origin is read over plain HTTP because of a pod declaring it, pod otherwise.
+	originPod *corev1.Pod
+	next      int
 	// unanswered is the last failure of the candidates tried since the first one that was not
 	// a missing manifest, nil while every one answered that.
 	unanswered *copyFailure
@@ -396,27 +403,65 @@ func (r *ImageMirrorReconciler) owe(im *kuikv1alpha1.ImageMirror, st *mirrorStat
 	r.scheduler.SetCopyQueues(owner, set)
 }
 
+// setSources records, for every desired reference, the pod whose pull secrets read it and the
+// config its origin is read with, for the drift checks.
+func (st *mirrorState) setSources(sources map[string]*copySource) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.declaring = map[string]*corev1.Pod{}
+	st.origins = map[string]routing.Config{}
+	for ref, source := range sources {
+		st.declaring[ref] = source.originPod
+		if i := slices.IndexFunc(source.candidates, func(c routing.Candidate) bool { return c.Resource == nil }); i >= 0 {
+			st.origins[ref] = source.candidates[i].Config
+		}
+	}
+}
+
+// sameCandidates reports whether a and b read the same references over the same transports: a
+// candidate a copy failed to read over HTTPS is read again once it is declared insecure.
 func sameCandidates(a, b []routing.Candidate) bool {
-	return slices.EqualFunc(a, b, func(x, y routing.Candidate) bool { return x.Reference == y.Reference })
+	return slices.EqualFunc(a, b, sameCandidate)
+}
+
+// sameCandidate reports whether x and y read the same reference over the same transport.
+func sameCandidate(x, y routing.Candidate) bool {
+	return x.Reference == y.Reference && x.Config.Insecure == y.Config.Insecure
+}
+
+// originTransports tells, for every desired reference of the last reconcile, whether its origin
+// was read over plain HTTP.
+func (st *mirrorState) originTransports() map[string]bool {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	transports := make(map[string]bool, len(st.origins))
+	for ref, config := range st.origins {
+		transports[ref] = config.Insecure
+	}
+	return transports
 }
 
 // copySources lists, for every desired reference of im, the candidates it may be read from:
 // the origin, then each ImageAlternative entry covering it, in their order at admission. An
 // origin matching an entry marked unavailable goes last, as at admission. A reference a pod
-// declares is read in the scope of that pod.
-func (r *ImageMirrorReconciler) copySources(ctx context.Context, desired []imagepath.Reference, pods []*corev1.Pod) (map[string]*copySource, error) {
+// declares is read in the scope of that pod. previous tells whether the origin of each desired
+// reference of the last reconcile was read over plain HTTP.
+func (r *ImageMirrorReconciler) copySources(ctx context.Context, desired []imagepath.Reference, pods []*corev1.Pod, previous map[string]bool) (map[string]*copySource, error) {
 	var alternatives kuikv1alpha1.ImageAlternativeList
 	if err := r.List(ctx, &alternatives); err != nil {
 		return nil, err
 	}
 	index := routing.NewIndex(alternatives.Items, nil)
+	everyPod := routing.NewIndex(unscoped(alternatives.Items), nil)
 	unavailable := unavailableEntries(alternatives.Items)
 	declaring := map[string]*corev1.Pod{}
+	everyDeclaring := map[string][]*corev1.Pod{}
 	for _, pod := range pods {
 		for _, c := range containersOf(pod) {
 			if _, ok := declaring[c]; !ok {
 				declaring[c] = pod
 			}
+			everyDeclaring[c] = append(everyDeclaring[c], pod)
 		}
 	}
 	namespaceLabels, err := r.namespaceLabels(ctx)
@@ -436,6 +481,33 @@ func (r *ImageMirrorReconciler) copySources(ctx context.Context, desired []image
 		candidates := slices.DeleteFunc(index.Candidates(req, opts).Candidates, func(c routing.Candidate) bool {
 			return c.Resource != nil && marked(unavailable, c)
 		})
+		// One copy serves every pod declaring the image: the origin is read over plain HTTP when
+		// an ImageAlternative applying to any of them declares it so. A reference no pod declares
+		// any more keeps the transport the previous reconcile read it with while an
+		// ImageAlternative still declares its origin insecure, whatever its selectors; one the
+		// previous reconcile did not know, after a restart, takes it from every ImageAlternative,
+		// whatever its selectors. Read over plain HTTP for a pod, the origin is read with the pull
+		// secrets of that pod: those of a pod the declaration does not apply to never cross plain
+		// HTTP.
+		originPod := pod
+		if i := slices.IndexFunc(candidates, func(c routing.Candidate) bool { return c.Resource == nil }); i >= 0 {
+			declarers := everyDeclaring[ref.String()]
+			insecure := false
+			for _, p := range declarers {
+				scoped := routing.Request{Image: ref, PodLabels: p.Labels, NamespaceLabels: namespaceLabels[p.Namespace]}
+				if index.OriginConfig(scoped).Insecure {
+					insecure, originPod = true, p
+					break
+				}
+			}
+			if len(declarers) == 0 {
+				insecure = everyPod.OriginConfig(routing.Request{Image: ref}).Insecure
+				if was, ok := previous[ref.String()]; ok {
+					insecure = insecure && was
+				}
+			}
+			candidates[i].Config.Insecure = insecure
+		}
 		// At admission an Always alternative comes before the origin; a copy reads the
 		// origin first, unless an entry marked unavailable sent it last.
 		if !demoted(alternatives.Items, unavailable, ref, pod, req.NamespaceLabels) {
@@ -444,7 +516,7 @@ func (r *ImageMirrorReconciler) copySources(ctx context.Context, desired []image
 				candidates = slices.Insert(slices.Delete(candidates, i, i+1), 0, origin)
 			}
 		}
-		sources[ref.String()] = &copySource{origin: ref, candidates: candidates, pod: pod}
+		sources[ref.String()] = &copySource{origin: ref, candidates: candidates, pod: pod, originPod: originPod}
 	}
 	return sources, nil
 }
@@ -565,7 +637,11 @@ func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
 	}
 	defer r.wake(c.name)
 
-	sourceEndpoint, err := r.sourceEndpoint(ctx, candidate, source.pod)
+	pod := source.pod
+	if candidate.Resource == nil {
+		pod = source.originPod
+	}
+	sourceEndpoint, err := r.sourceEndpoint(ctx, candidate, pod)
 	if err == nil {
 		_, err = r.registry.CheckCopySource(ctx, sourceEndpoint)
 	}
@@ -653,7 +729,7 @@ func (r *ImageMirrorReconciler) giveWay(st *mirrorState, ref string, tried routi
 	// A reconcile during the attempt replaced the sources: the current one is moved on, unless
 	// its candidates changed meanwhile and it no longer stands on the one tried.
 	source, ok := st.sources[ref]
-	if !ok || source.candidates[source.next].Reference != tried.Reference {
+	if !ok || !sameCandidate(source.candidates[source.next], tried) {
 		return nil
 	}
 	// A lap over the candidates starts again from the first one, after a success too.

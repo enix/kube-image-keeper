@@ -313,19 +313,14 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			// The next pass is an interval after this one, a pass a try ran included.
 			_, nextPass = r.passDue(st, r.clock.Now())
 		}
-		sources, err := r.copySources(ctx, desired, pods)
+		sources, err := r.copySources(ctx, desired, pods, st.originTransports())
 		if err != nil {
 			return ctrl.Result{}, err
 		}
 		repository := func(ref imagepath.Reference) string {
 			return destinationRepository(&im, ref, clusterID)
 		}
-		st.mu.Lock()
-		st.declaring = map[string]*corev1.Pod{}
-		for ref, copySource := range sources {
-			st.declaring[ref] = copySource.pod
-		}
-		st.mu.Unlock()
+		st.setSources(sources)
 		r.turnRings(&im, st, desired)
 		r.owe(&im, st, st.owed(st.copying(desired, live), repository, im.Status.Repositories), sources)
 		// The next try of a deletion the destination refused comes on its own.

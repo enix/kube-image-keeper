@@ -48,23 +48,28 @@ func (r *ImageMonitorReconciler) alternativeOffers(ctx context.Context) (*altern
 	for _, ns := range namespaces.Items {
 		namespaceLabels[ns.Name] = ns.Labels
 	}
-	unscoped := make([]kuikv1alpha1.ImageAlternative, 0, len(alternatives.Items))
-	for _, ia := range alternatives.Items {
+	return &alternativeOffers{
+		scoped:     routing.NewIndex(alternatives.Items, nil),
+		unscoped:   routing.NewIndex(unscoped(alternatives.Items), nil),
+		namespaces: namespaceLabels,
+	}, nil
+}
+
+// unscoped returns copies of alternatives whose selectors select every pod, for a reference no
+// pod declares any more. A selector that does not parse keeps the resource out everywhere, as
+// it does at admission.
+func unscoped(alternatives []kuikv1alpha1.ImageAlternative) []kuikv1alpha1.ImageAlternative {
+	all := make([]kuikv1alpha1.ImageAlternative, 0, len(alternatives))
+	for _, ia := range alternatives {
 		ia := *ia.DeepCopy()
-		// A selector that does not parse keeps the resource out everywhere, as it does at
-		// admission.
 		_, errPods := selector(ia.Spec.PodSelector)
 		_, errNamespaces := selector(ia.Spec.NamespaceSelector)
 		if errPods == nil && errNamespaces == nil {
 			ia.Spec.PodSelector, ia.Spec.NamespaceSelector = nil, nil
 		}
-		unscoped = append(unscoped, ia)
+		all = append(all, ia)
 	}
-	return &alternativeOffers{
-		scoped:     routing.NewIndex(alternatives.Items, nil),
-		unscoped:   routing.NewIndex(unscoped, nil),
-		namespaces: namespaceLabels,
-	}, nil
+	return all
 }
 
 // monitoredAlternative is one alternative a monitor tracks.
