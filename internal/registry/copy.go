@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/google/go-containerregistry/pkg/name"
@@ -54,7 +55,7 @@ func (c *Client) Copy(ctx context.Context, src, dst Endpoint, tags []string) (v1
 		return v1.Hash{}, err
 	}
 
-	watch := &failureWatch{next: c.transportFor(srcRef.Context().Registry, src.Insecure)}
+	watch := &failureWatch{next: c.sourceTransport(srcRef.Context().Registry, src.Insecure)}
 	source, err := c.readSource(ctx, srcRef, src, watch)
 	if err != nil {
 		return v1.Hash{}, err
@@ -63,7 +64,14 @@ func (c *Client) Copy(ctx context.Context, src, dst Endpoint, tags []string) (v1
 	_, errs, stopped := c.tryUntilStopped(ctx, c.transportFor(dstRepo.Registry, dst.Insecure), dst.Auth, func(a attempt) error {
 		// Each attempt starts clean: a source failure of an earlier one says nothing of it.
 		watch.reset()
-		err := writeDestination(srcRef, source, dstRepo, tags, a.options, watch)
+		options := a.options
+		// A paced source serves one request at a time anyway: reading its blobs in parallel
+		// would only queue them, each holding a slot a check of the same host then waits
+		// behind. Read per attempt, so a reload applies from the next one.
+		if c.pacer.paces(tlsKey(srcRef.Context().RegistryStr())) {
+			options = append(slices.Clone(options), remote.WithJobs(1))
+		}
+		err := writeDestination(srcRef, source, dstRepo, tags, options, watch)
 		if _, ok := errors.AsType[*sourceError](err); ok {
 			return &stopAttempts{err}
 		}

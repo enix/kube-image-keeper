@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"sync/atomic"
 	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -249,6 +250,19 @@ func main() {
 			os.Exit(1)
 		}
 		mirrorRegistry, monitorRegistry := registry.NewClient(), registry.NewClient()
+		// One pacer for both clients: each source host has one series of requests, whichever
+		// loop sends them. It reads the requestInterval of the current config.
+		var pacedConfig atomic.Pointer[config.Config]
+		pacedConfig.Store(globalConfig)
+		requestPacer := registry.NewRequestPacer(clock.RealClock{}, func(host string) time.Duration {
+			return pacedConfig.Load().Registries.For(host).RequestInterval
+		})
+		mirrorRegistry.SetRequestPacer(requestPacer)
+		monitorRegistry.SetRequestPacer(requestPacer)
+		onConfigChange = append(onConfigChange, func(cfg *config.Config) {
+			pacedConfig.Store(cfg)
+			requestPacer.Reload()
+		})
 		trust, err := setupRegistryTLS(mgr, secrets, clusterResourceNamespace, globalConfig, mirrorRegistry, monitorRegistry)
 		if err != nil {
 			setupLog.Error(err, "Failed to set up the registry TLS settings")

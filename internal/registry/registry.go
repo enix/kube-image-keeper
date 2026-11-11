@@ -98,6 +98,8 @@ func (e Endpoint) nameOptions() []name.Option {
 type Client struct {
 	// router applies the TLS settings of each request host.
 	router *tlsRouter
+	// pacer spaces the source requests, nil for none.
+	pacer *RequestPacer
 }
 
 // NewClient returns a Client that verifies every host against the system trust store until
