@@ -39,9 +39,10 @@ Where a resource's candidates sit relative to the original image when the webhoo
 | ----- | ------- | ----- |
 | `OnFailure` | Default. The original image is tried first, the resource's candidates are fallbacks | `ImageAlternative`, `ImageMirror` |
 | `Always` | The resource's candidates are tried ahead of the original, to bypass a quota, latency or network cost | `ImageAlternative`, `ImageMirror` |
+| `Required` | The mirror's candidate is tried ahead of everything and the original never is: when no candidate answers, the container is rewritten to the mirror anyway and waits for the copy, for a cluster that must not depend on the upstream | `ImageMirror` only |
 | `None` | Never routes. The mirror copies images without ever rewriting a pod | `ImageMirror` only |
 
-When several resources cover one image, their candidates are merged in one list: `Always` mirrors, then `Always` alternatives, then the original, then `OnFailure` alternatives, then `OnFailure` mirrors, resources sorted by name within each band.
+When several resources cover one image, their candidates are merged in one list: `Always` mirrors, then `Always` alternatives, then the original, then `OnFailure` alternatives, then `OnFailure` mirrors, resources sorted by name within each band. A `Required` mirror sits with the `Always` mirrors, ignores `imagePullPolicy: Always`, and leaves the original out of the list; its pull Secret lands as under `Always`. See [`rewritePolicy: Required`](./v3/spec.md#rewritepolicy-required).
 
 With [`webhook.availabilityCheck.demoteKnownFailures`](./configuration.md#keys) (on by default), the webhook then moves to the end of the list the candidates the background loops report failing:
 
@@ -196,7 +197,7 @@ spec:
   namespaceSelector: {}
   excludeImages:
   - ghcr.io/foo-bar/**
-  rewritePolicy: OnFailure    # OnFailure | Always | None
+  rewritePolicy: OnFailure    # OnFailure | Always | Required | None
   destination:
     path: registry.tld/mirror/
     insecure: false
@@ -222,7 +223,7 @@ spec:
 | `spec.podSelector` | | Pods this resource applies to. Empty matches every pod |
 | `spec.namespaceSelector` | | Namespaces this resource applies to. Empty matches every namespace |
 | `spec.excludeImages[]` | | Globs of images to keep out of the mirror: no copy, no candidate, no tag at the destination. See [excluding images](#excluding-images) |
-| `spec.rewritePolicy` | | `OnFailure` (default), `Always` or `None`, see [`rewritePolicy`](#rewritepolicy) |
+| `spec.rewritePolicy` | | `OnFailure` (default), `Always`, `Required` or `None`, see [`rewritePolicy`](#rewritepolicy) |
 | `spec.destination.path` | ✅ | Registry path the **full** original reference is appended to, hostname included: `registry.tld/mirror/` turns `docker.io/library/nginx:1.27` into `registry.tld/mirror/docker.io/library/nginx:1.27_<clusterID>`. The registry must accept deeply nested repository paths. Immutable: the tags written under a previous path could never be cleaned up |
 | `spec.destination.insecure` | | kuik pushes to and reads this registry over HTTP |
 | `spec.destination.manage.auth` | | Controller credential at the destination: pushes, self-check reads, tag listings and deletions. Needs read as well as write. Its `injectPullSecret` is ignored |

@@ -151,9 +151,20 @@ func imageMirror(name string, policy kuikv1alpha1.RewritePolicy, destination *re
 // mirrored is the reference an ImageMirror to destination serves origin's repository at,
 // pushed there so that the mirror candidate answers.
 func mirrored(destination, origin *registrytest.Registry) string {
-	path := "mirror/" + strings.Replace(origin.Host(), ":", "_", 1) + "/" + repository + "_" + clusterID
+	path := mirrorPath(origin)
 	destination.Push(path, image)
 	return destination.Host() + "/" + path
+}
+
+// mirrorRef is the reference an ImageMirror to destination serves origin's repository at,
+// not pushed: the copy has not landed yet.
+func mirrorRef(destination, origin *registrytest.Registry) string {
+	return destination.Host() + "/" + mirrorPath(origin)
+}
+
+// mirrorPath is the path of origin's repository under an ImageMirror's destination.
+func mirrorPath(origin *registrytest.Registry) string {
+	return "mirror/" + strings.Replace(origin.Host(), ":", "_", 1) + "/" + repository + "_" + clusterID
 }
 
 // requestsServed sums the kuik_registry_requests_total series of host on the metrics registry

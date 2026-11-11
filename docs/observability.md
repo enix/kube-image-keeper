@@ -82,7 +82,7 @@ alone, since an `ImageAlternative` and an `ImageMirror` may share a name.
 | `kuik_routing_containers{kind, name, state}` | gauge | Containers of the pods a resource selects, by `state`: `untouched`, `rewritten`, `conceded`, `stale`, `noAlternatives`, the fields of `status.containers` |
 | `kuik_routing_pods_tracked{kind, name}` | gauge | Live pods the resource selects, static pods aside: kuik never routes them |
 | `kuik_routing_pods_rewritten{kind, name}` | gauge | Live pods carrying at least one standing rewrite by the resource |
-| `kuik_routing_rewrites_total{kind, name, policy}` | counter | Container images rewritten at admission, by `policy` (`Always`, `OnFailure`). Exported by the webhook |
+| `kuik_routing_rewrites_total{kind, name, policy}` | counter | Container images rewritten at admission, by `policy` (`Always`, `OnFailure`, `Required`). Exported by the webhook |
 | `kuik_routing_alternatives_exhausted_total{kind, name}` | counter | Containers left untouched at admission because no candidate answered, counted once per resource that offered one. Exported by the webhook |
 
 `sum without(state) (kuik_routing_containers)` is `status.containers.tracked`. Selectors may

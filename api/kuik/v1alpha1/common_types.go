@@ -31,6 +31,10 @@ const (
 	RewritePolicyOnFailure RewritePolicy = "OnFailure"
 	// RewritePolicyAlways tries the resource's candidates ahead of the original image.
 	RewritePolicyAlways RewritePolicy = "Always"
+	// RewritePolicyRequired tries the mirror's candidate ahead of everything and never routes
+	// to the original image: when no candidate answers, the container is still rewritten to
+	// the mirror's candidate, and pulls once the copy lands. Only meaningful on an ImageMirror.
+	RewritePolicyRequired RewritePolicy = "Required"
 	// RewritePolicyNone never routes to the resource's candidates. Only meaningful on an
 	// ImageMirror, which then copies without ever rewriting.
 	RewritePolicyNone RewritePolicy = "None"

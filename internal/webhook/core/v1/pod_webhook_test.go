@@ -25,6 +25,7 @@ import (
 const (
 	onFailure = kuikv1alpha1.RewritePolicyOnFailure
 	always    = kuikv1alpha1.RewritePolicyAlways
+	required  = kuikv1alpha1.RewritePolicyRequired
 )
 
 var _ = Describe("Pod webhook", func() {
@@ -425,6 +426,74 @@ var _ = Describe("Pod webhook", func() {
 			Expect(admitted.Spec.Containers[0].Image).To(Equal(ref(origin)))
 			Expect(noAlternatives(admitted)[appContainer]).To(ConsistOf("ImageAlternative/library", "ImageMirror/prod-mirror"))
 			Expect(admitted.Annotations).NotTo(HaveKey(AnnotationRewrites))
+		})
+	})
+
+	Context("an ImageMirror under rewritePolicy Required", func() {
+		var destination *registrytest.Registry
+		// waiting is the reference the mirror serves origin's image at once copied.
+		var waiting string
+
+		BeforeEach(func() {
+			destination = newRegistry()
+			waiting = mirrorRef(destination, origin)
+			d.SetResources(nil, []kuikv1alpha1.ImageMirror{imageMirror("prod-mirror", required, destination)})
+		})
+
+		It("rewrites to the copy without probing the original", func() {
+			copied := mirrored(destination, origin)
+			admitted := admit(d, namespace, newPod(namespace, ref(origin)))
+			Expect(admitted.Spec.Containers[0].Image).To(Equal(copied))
+			Expect(rewrites(admitted, AnnotationRewrites)[appContainer].Policy).To(Equal("Required"))
+			Expect(manifestHeads(origin)).To(BeZero())
+		})
+
+		It("rewrites to the mirror before the copy exists, recording the origin it copies, instead of leaving the original", func() {
+			admitted := admit(d, namespace, newPod(namespace, ref(origin)))
+			Expect(admitted.Spec.Containers[0].Image).To(Equal(waiting))
+			Expect(rewrites(admitted, AnnotationRewrites)).To(Equal(map[string]Rewrite{
+				appContainer: {
+					By:          "ImageMirror/prod-mirror",
+					Origin:      ref(origin),
+					RewrittenTo: waiting,
+					Policy:      "Required",
+				},
+			}))
+			Expect(admitted.Annotations).NotTo(HaveKey(AnnotationNoAlternatives))
+			Expect(manifestHeads(origin)).To(BeZero())
+		})
+
+		It("serves an alternative that answers rather than waiting for the copy, never the original", func() {
+			// library lists origin and alt: the origin's own entry is the original, left out.
+			d.SetResources([]kuikv1alpha1.ImageAlternative{library},
+				[]kuikv1alpha1.ImageMirror{imageMirror("prod-mirror", required, destination)})
+			admitted := admit(d, namespace, newPod(namespace, ref(origin)))
+			Expect(admitted.Spec.Containers[0].Image).To(Equal(ref(alt)))
+			Expect(rewrites(admitted, AnnotationRewrites)[appContainer].By).To(Equal("ImageAlternative/library"))
+			Expect(manifestHeads(origin)).To(BeZero())
+		})
+
+		It("counts the rewrite under policy Required and no exhausted alternatives", func() {
+			rewritten := RewritesTotal.WithLabelValues("ImageMirror", "prod-mirror", "Required")
+			exhausted := AlternativesExhaustedTotal.WithLabelValues("ImageMirror", "prod-mirror")
+			rewrittenBefore, exhaustedBefore := testutil.ToFloat64(rewritten), testutil.ToFloat64(exhausted)
+			admit(d, namespace, newPod(namespace, ref(origin)))
+			Expect(testutil.ToFloat64(rewritten)).To(Equal(rewrittenBefore + 1))
+			Expect(testutil.ToFloat64(exhausted)).To(Equal(exhaustedBefore))
+		})
+
+		It("logs a rewrite to the copy at V(1), and one placed before the copy exists at Info", func() {
+			_, lines := admitLogged(d, namespace, newPod(namespace, ref(origin)))
+			line := decision(lines, appContainer)
+			Expect(line).To(HaveKeyWithValue("msg", msgRewrote))
+			Expect(line).To(HaveKeyWithValue("level", "info"))
+			Expect(line).To(HaveKeyWithValue("policy", "Required"))
+
+			mirrored(destination, origin)
+			d := newDefaulter(testConfig())
+			d.SetResources(nil, []kuikv1alpha1.ImageMirror{imageMirror("prod-mirror", required, destination)})
+			_, lines = admitLogged(d, namespace, newPod(namespace, ref(origin)))
+			Expect(decision(lines, appContainer)).To(HaveKeyWithValue("level", "debug"))
 		})
 	})
 

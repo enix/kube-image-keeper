@@ -112,8 +112,9 @@ type ImageMirrorSpec struct {
 
 	// rewritePolicy says where the mirrored image sits relative to the original: OnFailure
 	// puts it last, behind the original and every alternative, Always puts it ahead of
-	// everything, None never routes to it and only copies.
-	// +kubebuilder:validation:Enum=OnFailure;Always;None
+	// everything, Required puts it ahead of everything and never routes to the original, even
+	// before the copy exists, None never routes to it and only copies.
+	// +kubebuilder:validation:Enum=OnFailure;Always;Required;None
 	// +kubebuilder:default=OnFailure
 	// +optional
 	RewritePolicy RewritePolicy `json:"rewritePolicy,omitempty"`

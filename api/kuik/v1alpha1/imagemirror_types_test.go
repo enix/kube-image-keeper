@@ -58,7 +58,13 @@ var _ = Describe("ImageMirror", func() {
 			Expect(k8sClient.Create(ctx, im)).To(Succeed())
 		})
 
-		It("rejects a rewritePolicy outside OnFailure, Always and None", func() {
+		It("accepts Required as rewritePolicy, to never route to the original", func() {
+			im := newImageMirror("registry.tld/mirror/")
+			im.Spec.RewritePolicy = RewritePolicyRequired
+			Expect(k8sClient.Create(ctx, im)).To(Succeed())
+		})
+
+		It("rejects a rewritePolicy outside OnFailure, Always, Required and None", func() {
 			im := newImageMirror("registry.tld/mirror/")
 			im.Spec.RewritePolicy = "Sometimes"
 			Expect(apierrors.IsInvalid(k8sClient.Create(ctx, im))).To(BeTrue())

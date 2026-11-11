@@ -237,8 +237,11 @@ spec:
   # Where the mirrored image sits relative to the original, see "Candidate ordering"
   #   OnFailure: Default. Last resort, behind the original and any alternatives
   #   Always: Ahead of everything (bypass quota, latency, network cost, …)
+  #   Required: Ahead of everything, and never the original: a container waits for the copy
+  #     rather than pull from the upstream (clusters that must not depend on it), see
+  #     "rewritePolicy: Required"
   #   None: Only copy image to mirror, never use it for routing (archiving, compliance, security scan, …)
-  rewritePolicy: OnFailure    # OnFailure (default) | Always | None
+  rewritePolicy: OnFailure    # OnFailure (default) | Always | Required | None
 
   destination:
     path: registry.tld/mirror/
@@ -748,7 +751,8 @@ Whether kuik copies a pull secret into the pod namespace, so the kubelet can pul
 Set to `true` with a `provider`, kuik materializes, **renews** and injects a docker-registry secret —
 the cross-cloud case, and what makes the short-lived tokens of cloud-provider registries usable.
 
-**Where the Secret lands depends on `rewritePolicy`, and under `Always` it does not wait for a pod.**
+**Where the Secret lands depends on `rewritePolicy`, and under `Always` (or an `ImageMirror`'s
+`Required`) it does not wait for a pod.**
 Under `OnFailure` a rewrite only happens when an origin fails, so the need is discovered: the Secret
 appears in a namespace once a pod there has actually been rewritten. Under `Always` the *need* is
 known in advance — the resource's candidates are probed ahead of the original for every matched pod
@@ -849,6 +853,9 @@ list:
   under its own `destination.path` ([Mirror loop prevention](#mirror-loop-prevention))
 - an `ImageAlternative` entry marked [`unavailable: true`](#unavailable) contributes **no**
   candidate; it only ever served to match the image
+- an `ImageMirror` under `rewritePolicy: Required` puts its candidate in the `Always` mirror band
+  and **leaves the original out of the list**, along with any alternative candidate producing the
+  original's own reference, see [`rewritePolicy: Required`](#rewritepolicy-required)
 - candidates are **deduplicated on (reference, resolved config), keeping the first occurrence**
 - CRs of the same kind and policy are sorted **by name**, so overlapping configurations produce a
   deterministic candidate order
@@ -880,6 +887,9 @@ So for that container, and only for it, an `ImageMirror`'s `rewritePolicy: Alway
 its candidate goes to the `OnFailure` mirror band at the end of the list, where it is still the
 safety net if nothing upstream answers. `ImageAlternative` entries are unaffected — an alternative
 is an upstream, and resolves the tag exactly as the original would.
+
+An `ImageMirror` under `rewritePolicy: Required` is not demoted: its operator has said the
+original must not be pulled, so there is nothing upstream to re-resolve the tag against.
 
 [`webhook.demoteMirrorWithPullPolicyAlways: false`](#global-config) turns this off. The case it
 exists for is the `AlwaysPullImages` admission plugin, which sets `imagePullPolicy: Always` on every
@@ -916,7 +926,40 @@ additionally sends candidates an `ImageMonitor` or an `ImageMirror` reports fail
 the list, where they are still probed if everything above them fails.
 
 The first candidate to answer `Available` is the retained reference. When none answers, the pod is
-left untouched (it still starts if the image is in the node's cache).
+left untouched (it still starts if the image is in the node's cache), unless an `ImageMirror` under
+[`rewritePolicy: Required`](#rewritepolicy-required) offered a candidate: the container is then
+rewritten to it all the same.
+
+### `rewritePolicy: Required`
+
+`Always` keeps the original as a fallback, so a mirror that does not answer yet, its copy still
+waiting or its registry down, lets the pod pull from the upstream. For a cluster that must not
+depend on the upstream at all, that fallback is the problem: an outage or a rate limit there must
+not decide what a pod runs, and a pod that cannot be served from the mirror is better waiting than
+silently pulling from the public registry.
+
+Under `rewritePolicy: Required`, only on an `ImageMirror`:
+
+- the mirror's candidate sits in the `Always` mirror band, whatever the container's
+  `imagePullPolicy`, and the **original is left out** of the candidate list, never probed nor
+  placed. The other candidates keep their bands: an `ImageAlternative` entry that answers is still
+  served, ahead of waiting for the copy, since its operator declared it equivalent
+- when **no candidate answers**, the container is **rewritten to the mirror's candidate anyway**
+  and recorded in `kuik.enix.io/rewrites` with `policy: Required`, instead of being left on its
+  original. The runtime then retries the pull with its usual back-off until the copy lands. The
+  mirror copies the `origin` of that record ([What an `ImageMirror` copies](#what-an-imagemirror-copies)),
+  so the first pod of a new image is what triggers its copy, as under the other policies
+- when several mirrors under `Required` offer a candidate, the first of the list is the one placed
+- a mirror candidate [`demoteKnownFailures`](#demoteknownfailures-reusing-what-the-loops-already-know)
+  moves for a failed copy keeps `policy: Required`: the original is not there to be served first
+- its pull Secret lands as under `Always`: in every namespace its `namespaceSelector` selects, pod
+  or no pod, since a container may be rewritten to the mirror before any pull succeeds
+
+The price is availability: the first pod of a new image waits for its copy (a window of its source
+host, then the copy itself, plus the runtime's back-off), and a pod whose copy fails stays in
+`ImagePullBackOff` until it succeeds, where `Always` would have fallen back to the upstream. An
+image the mirror does not cover (`excludeImages`, its own `destination.path`) is routed as if the
+mirror did not exist, the original included.
 
 ### Digest-pinned images
 
@@ -990,7 +1033,9 @@ been admitted, and the copy then waits for a window of its source host ([Schedul
 So the first pod of a new image is never served by the mirror: under `rewritePolicy: Always` it
 probes the mirror candidate, gets `ManifestNotFound` and falls back to the upstream, which is also
 what [`demoteKnownFailures`](#demoteknownfailures-reusing-what-the-loops-already-know) reorders on
-until the copy lands. A mirror protects the pulls after the first one.
+until the copy lands. A mirror protects the pulls after the first one. Under
+[`rewritePolicy: Required`](#rewritepolicy-required) there is no fallback to the upstream: the
+first pod is rewritten to the mirror and waits for the copy.
 
 When the origin is unreachable at copy time, the controller may pull the bytes from any
 `ImageAlternative` entry covering that image, skipping the entries marked
