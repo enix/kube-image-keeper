@@ -58,9 +58,14 @@ func (c *Client) check(ctx context.Context, image Endpoint, operation string) (*
 		return nil, err
 	}
 	host := registryLabel(ref)
+	base := c.sourceTransport(ref.Context().Registry, image.Insecure)
+	if operation == "" {
+		// A mirror destination is never paced.
+		base = c.transportFor(ref.Context().Registry, image.Insecure)
+	}
 
 	var descriptor *v1.Descriptor
-	auth, errs := c.tryThrough(ctx, c.transportFor(ref.Context().Registry, image.Insecure), image.Auth, func(a attempt) error {
+	auth, errs := c.tryThrough(ctx, base, image.Auth, func(a attempt) error {
 		d, err := remote.Head(ref, a.options...)
 		if isRateLimited(a.headers.headers()) {
 			err = errors.Join(errRateLimited, err)
