@@ -1045,6 +1045,36 @@ var _ = Describe("ImageMirror Controller", func() {
 				h.reconcile()
 				Expect(destinationHeads()).To(BeNumerically(">", heads))
 			})
+
+			It("copies into a repository this process recorded once the destination answers again, without waiting for the next pass", func() {
+				src := h.source()
+				src.Push("acme/app:v1", registrytest.Image())
+				createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+				h.mirror()
+				h.destination.Intercept(registrytest.Status("", "/", http.StatusInternalServerError, nil))
+				h.reconcile()
+				Expect(h.status().SelfChecked).To(BeNil())
+				// The copy records its repository before it fails to push.
+				h.window()
+				Eventually(func() []kuikv1alpha1.FailedImageCopy {
+					h.reconcile()
+					return h.status().FailedImageCopies
+				}).WithTimeout(30 * time.Second).Should(HaveLen(1))
+				Expect(h.status().Repositories).To(ContainElement(h.destinationRepository(src, "acme/app")))
+
+				acceptPushes(h.destination)
+				// 10 windows are 10 minutes, well before the interrupted pass runs again.
+				windows := 0
+				Eventually(func() error {
+					if windows == 10 {
+						return StopTrying("not copied within 10 copy windows")
+					}
+					windows++
+					h.reconcile()
+					h.window()
+					return h.copied(destinationTag(src, "acme/app"))()
+				}).WithTimeout(time.Minute).WithPolling(100 * time.Millisecond).Should(Succeed())
+			})
 		})
 
 		It("re-copies a manifest missing from the destination and emits ImageRecopied", func() {
