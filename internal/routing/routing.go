@@ -308,7 +308,7 @@ func (i *Index) Candidates(req Request, opts Options) Result {
 	i.alternativeCandidates(req, &b)
 	i.mirrorCandidates(req, opts, &b)
 
-	original := Candidate{Reference: req.Image.String()}
+	original := Candidate{Reference: req.Image.String(), Config: i.OriginConfig(req)}
 	list := slices.Concat(b.alwaysMirror, b.alwaysAlternative)
 	if !b.demoteOriginal {
 		list = append(list, original)
@@ -329,6 +329,23 @@ func (i *Index) Candidates(req Request, opts Options) Result {
 	result := Result{Offering: offering(list)}
 	result.Candidates, result.Demoted = demoteKnownFailures(candidates, reporters)
 	return result
+}
+
+// OriginConfig is what the original of req is probed and pulled with: plain HTTP when, in any
+// ImageAlternative applying to the pod, the most specific entry it matches is insecure. Several
+// resources declaring one registry differently reach it over HTTP, as a node whose runtime is
+// configured for HTTP anywhere does. An entry marked unavailable gives nothing, and no entry
+// ever gives its auth: the kubelet pulls the original with the pod's own pull secrets.
+func (i *Index) OriginConfig(req Request) Config {
+	matches := imagepath.MostSpecificPerOwner(i.entries.Match(req.Image), func(r entryRef) int { return r.alternative })
+	for _, m := range matches {
+		alt := i.alternatives[m.Value.alternative]
+		spec := alt.entries[m.Value.entry].spec
+		if spec.Insecure && !spec.Unavailable && alt.scope.applies(req) {
+			return Config{Insecure: true}
+		}
+	}
+	return Config{}
 }
 
 // demoteKnownFailures moves the candidates of list a status lists failing, those with a

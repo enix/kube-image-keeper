@@ -83,8 +83,10 @@ func (c driftChecker) Check(ctx context.Context, ref string) pacing.Response {
 	st := c.r.state(c.name)
 	st.mu.Lock()
 	pod := st.declaring[ref]
+	// The origin is read over the transport the copy reads it with, never with an entry's auth.
+	config := routing.Config{Insecure: st.origins[ref].Insecure}
 	st.mu.Unlock()
-	endpoint, err := c.r.sourceEndpoint(ctx, routing.Candidate{Reference: ref}, pod)
+	endpoint, err := c.r.sourceEndpoint(ctx, routing.Candidate{Reference: ref, Config: config}, pod)
 	if err != nil {
 		return pacing.Response{Err: err}
 	}

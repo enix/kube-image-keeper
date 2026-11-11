@@ -237,8 +237,9 @@ config:
   unreachable (`Unreachable`, or `SourceUnreachable` / `DestinationUnreachable` on a copy), with
   an error naming the Secret in the logs. kuik never falls back to a weaker verification
 - An `ImageAlternative` alternative or an `ImageMirror` destination with `insecure: true` still
-  reaches its registry over plain HTTP, and ignores the `tls` entry of its host. Other entries on
-  the same host keep the `tls` entry
+  reaches its registry over plain HTTP, and ignores the `tls` entry of its host. So does an origin
+  whose matching `ImageAlternative` entry is `insecure: true` (see
+  [`insecure`](./crds.md#fields)). Other entries on the same host keep the `tls` entry
 
 > [!IMPORTANT]
 > The `tls` key configures kuik only. The container runtime of each node pulls the images
