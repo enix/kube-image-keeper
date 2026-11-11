@@ -30,9 +30,8 @@ import (
 // reference the webhook returned. The routing rules themselves are covered by the envtest suite of
 // internal/webhook/core/v1.
 //
-// The registry that answers is registry.k8s.io, over HTTPS: an origin on a plain HTTP registry is
-// always probed over HTTPS today, whatever the insecure flag of the entry it matches. Unreachable
-// registries are .invalid hosts, which fail fast and the same way everywhere.
+// The registry that answers is registry.k8s.io, over HTTPS. Unreachable registries are .invalid
+// hosts, which fail fast and the same way everywhere.
 
 // routingNamespace holds the pods of the routing specs; only its label lets the resources apply
 const routingNamespace = "kuik-e2e-routing"
