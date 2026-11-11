@@ -85,6 +85,28 @@ func dependencies(cfg *config.Config) Dependencies {
 	}
 }
 
+// newTLSDefaulter returns a webhook like newDefaulter whose registry client holds a tls entry
+// for the host of each of hosts. go-containerregistry speaks plain HTTP to a loopback registry
+// whatever insecure says; a tls entry refuses that fallback, so that only an endpoint declared
+// insecure reaches those hosts in clear.
+func newTLSDefaulter(cfg *config.Config, hosts ...*registrytest.Registry) *PodDefaulter {
+	deps := dependencies(cfg)
+	registryClient := registry.NewClient()
+	settings := map[string]registry.TLSHost{}
+	for _, h := range hosts {
+		settings[h.Host()] = registry.TLSHost{InsecureSkipVerify: true}
+	}
+	registryClient.SetTLS(settings)
+	deps.Registry = registryClient
+	return NewPodDefaulter(deps)
+}
+
+// insecure marks entry insecure.
+func insecure(entry kuikv1alpha1.Alternative) kuikv1alpha1.Alternative {
+	entry.Insecure = true
+	return entry
+}
+
 // newRegistry starts a registry serving repository, closed when the spec ends. It forgets
 // the requests of the push, so that a spec counts those of the admission alone.
 func newRegistry(opts ...registrytest.Option) *registrytest.Registry {

@@ -63,6 +63,8 @@ type mirrorHarness struct {
 	stop        context.CancelFunc
 	destination *registrytest.Registry
 	reconciler  *ImageMirrorReconciler
+	// tls are the registries withTLS gave a tls entry, which a restart keeps.
+	tls []*registrytest.Registry
 }
 
 // mirrorConfig is a config whose source registries open a window every minute, and whose
@@ -136,8 +138,45 @@ func (h *mirrorHarness) withListCapacity(capacity int) {
 	h.reconciler.Elected(h.clock.Now().Add(-time.Minute))
 }
 
+// withTLS builds the reconciler again on a registry client holding a tls entry for the host of
+// each of hosts, holding the lease. Its series go to a new registry.
+func (h *mirrorHarness) withTLS(hosts ...*registrytest.Registry) {
+	GinkgoHelper()
+	h.tls = hosts
+	h.metrics = prometheus.NewRegistry()
+	var err error
+	h.reconciler, err = NewImageMirrorReconciler(k8sClient, k8sClient.Scheme(), ImageMirrorOptions{
+		APIReader:                k8sClient,
+		ClusterResourceNamespace: installNamespace,
+		Recorder:                 h.recorder,
+		Registerer:               h.metrics,
+		Scheduler:                h.scheduler,
+		Registry:                 tlsClient(hosts...),
+		Config:                   h.config,
+		ClusterID:                mirrorClusterID,
+		Clock:                    h.clock,
+	})
+	Expect(err).NotTo(HaveOccurred())
+	h.reconciler.Elected(h.clock.Now().Add(-time.Minute))
+}
+
+// tlsClient is a registry client holding a tls entry for the host of each of hosts.
+// go-containerregistry speaks plain HTTP to a loopback registry whatever insecure says; a tls
+// entry refuses that fallback, so that only an endpoint declared insecure reaches those hosts
+// in clear.
+func tlsClient(hosts ...*registrytest.Registry) *kuikregistry.Client {
+	registryClient := kuikregistry.NewClient()
+	settings := map[string]kuikregistry.TLSHost{}
+	for _, h := range hosts {
+		settings[h.Host()] = kuikregistry.TLSHost{InsecureSkipVerify: true}
+	}
+	registryClient.SetTLS(settings)
+	return registryClient
+}
+
 // restart replaces the scheduler and the reconciler with new ones on the same objects, as a
-// new process would: nothing of the previous memory survives. Its series go to a new registry.
+// new process would: nothing of the previous memory survives, the tls entries of withTLS
+// apart. Its series go to a new registry.
 func (h *mirrorHarness) restart() {
 	GinkgoHelper()
 	h.stop()
@@ -154,13 +193,21 @@ func (h *mirrorHarness) restart() {
 		Recorder:                 h.recorder,
 		Registerer:               h.metrics,
 		Scheduler:                h.scheduler,
-		Registry:                 kuikregistry.NewClient(),
+		Registry:                 h.registryClient(),
 		Config:                   h.config,
 		ClusterID:                mirrorClusterID,
 		Clock:                    h.clock,
 	})
 	Expect(err).NotTo(HaveOccurred())
 	h.reconciler.Elected(h.clock.Now())
+}
+
+// registryClient is a registry client holding the tls entries of withTLS, if any.
+func (h *mirrorHarness) registryClient() *kuikregistry.Client {
+	if len(h.tls) == 0 {
+		return kuikregistry.NewClient()
+	}
+	return tlsClient(h.tls...)
 }
 
 // withStatusConflict builds the reconciler again on a client whose next status write of an
@@ -659,9 +706,10 @@ func createCredentials(host, user, password string) string {
 }
 
 // alternativeTo creates an ImageAlternative selecting the namespaces of the mirror under
-// test, whose entries are the repository acme/app on each registry, in order.
-func (h *mirrorHarness) alternativeTo(entries ...kuikv1alpha1.Alternative) {
-	h.alternativeWithPolicy("", entries...)
+// test, whose entries are the repository acme/app on each registry, in order, and returns its
+// name.
+func (h *mirrorHarness) alternativeTo(entries ...kuikv1alpha1.Alternative) string {
+	return h.alternativeWithPolicy("", entries...)
 }
 
 // alwaysAlternativeTo is alternativeTo with rewritePolicy Always: at admission its
@@ -670,15 +718,17 @@ func (h *mirrorHarness) alwaysAlternativeTo(entries ...kuikv1alpha1.Alternative)
 	h.alternativeWithPolicy(kuikv1alpha1.RewritePolicyAlways, entries...)
 }
 
-func (h *mirrorHarness) alternativeWithPolicy(policy kuikv1alpha1.RewritePolicy, entries ...kuikv1alpha1.Alternative) {
+func (h *mirrorHarness) alternativeWithPolicy(policy kuikv1alpha1.RewritePolicy, entries ...kuikv1alpha1.Alternative) string {
+	name := unique("ia")
 	Expect(k8sClient.Create(ctx, &kuikv1alpha1.ImageAlternative{
-		ObjectMeta: metav1.ObjectMeta{Name: unique("ia")},
+		ObjectMeta: metav1.ObjectMeta{Name: name},
 		Spec: kuikv1alpha1.ImageAlternativeSpec{
 			NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{testLabel: h.name}},
 			RewritePolicy:     policy,
 			Alternatives:      entries,
 		},
 	})).To(Succeed())
+	return name
 }
 
 // appEntry is the entry naming the repository acme/app on reg.

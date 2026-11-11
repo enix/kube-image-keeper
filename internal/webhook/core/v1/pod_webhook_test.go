@@ -172,6 +172,34 @@ var _ = Describe("Pod webhook", func() {
 			Expect(admitted.Spec.Containers[0].Image).To(Equal(ref(alt)))
 		})
 
+		It("keeps the container on an origin served over plain HTTP that the entry it matches declares insecure, even when its host has a tls entry", func() {
+			d = newTLSDefaulter(testConfig(), origin)
+			d.SetResources([]kuikv1alpha1.ImageAlternative{
+				alternative("library", onFailure, insecure(group(origin)), group(alt)),
+			}, nil)
+			pod := newPod(namespace, ref(origin))
+			Expect(admit(d, namespace, pod)).To(Equal(pod))
+			Expect(manifestHeads(alt)).To(BeZero())
+		})
+
+		It("probes an origin declared insecure with the pod's pull secrets over plain HTTP, never with the auth of the entry it matches", func() {
+			private := newRegistry(registrytest.WithBasicAuth(registryUser, registryPassword))
+			createDockerConfigSecret(clusterResourceNamespace, "entry-creds", private.Host())
+			createDockerConfigSecret(namespace, podCreds, private.Host())
+			d = newTLSDefaulter(testConfig(), private)
+			d.SetResources([]kuikv1alpha1.ImageAlternative{
+				alternative("library", onFailure, insecure(withAuth(group(private), secretAuth("entry-creds"))), group(alt)),
+			}, nil)
+
+			By("leaving the origin to a pod with no pull secret")
+			Expect(admit(d, namespace, newPod(namespace, ref(private))).Spec.Containers[0].Image).To(Equal(ref(alt)))
+
+			By("keeping a pod whose pull secret the origin accepts")
+			pod := newPod(namespace, ref(private))
+			pod.Spec.ImagePullSecrets = []corev1.LocalObjectReference{{Name: podCreds}}
+			Expect(admit(d, namespace, pod).Spec.Containers[0].Image).To(Equal(ref(private)))
+		})
+
 		It("probes a candidate only once every candidate before it has failed", func() {
 			var mu sync.Mutex
 			var originAnswered, altAsked time.Time

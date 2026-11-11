@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
+	"github.com/enix/kube-image-keeper/internal/auth"
 	"github.com/enix/kube-image-keeper/internal/config"
 	kuikregistry "github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/enix/kube-image-keeper/internal/registry/pacing"
@@ -521,6 +522,167 @@ var _ = Describe("ImageMirror Controller", func() {
 
 			Eventually(h.copied(destinationTag(origin, "acme/app"))).Should(Succeed())
 			Expect(alternative.Requests("", "/manifests/")).To(BeEmpty())
+		})
+
+		It("reads an origin the entry it matches declares insecure over plain HTTP, even when its host has a tls entry", func() {
+			// The alternative holds nothing: only the origin can feed the copy.
+			origin, alternative := h.source(), h.source()
+			origin.Push("acme/app:v1", registrytest.Image())
+			h.withTLS(origin)
+			h.alternativeTo(appEntry(origin), appEntry(alternative))
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: origin.Host() + "/acme/app:v1"})
+			h.mirror()
+			h.reconcile()
+			h.window()
+
+			Eventually(h.copied(destinationTag(origin, "acme/app"))).Should(Succeed())
+		})
+
+		It("reads an origin over plain HTTP when the ImageAlternative declaring it insecure applies to one of the pods declaring it only", func() {
+			origin, alternative := h.source(), h.source()
+			origin.Push("acme/app:v1", registrytest.Image())
+			h.withTLS(origin)
+			Expect(k8sClient.Create(ctx, &kuikv1alpha1.ImageAlternative{
+				ObjectMeta: metav1.ObjectMeta{Name: unique("ia")},
+				Spec: kuikv1alpha1.ImageAlternativeSpec{
+					PodSelector:       &metav1.LabelSelector{MatchLabels: map[string]string{"transport": "http"}},
+					NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{testLabel: h.name}},
+					Alternatives:      []kuikv1alpha1.Alternative{appEntry(origin), appEntry(alternative)},
+				},
+			})).To(Succeed())
+			ns := h.namespace()
+			// The pod the ImageAlternative leaves out comes first by name.
+			for _, pod := range []struct {
+				name   string
+				labels map[string]string
+			}{{"a-" + unique("pod"), nil}, {"b-" + unique("pod"), map[string]string{"transport": "http"}}} {
+				Expect(k8sClient.Create(ctx, &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{Name: pod.name, Namespace: ns, Labels: pod.labels},
+					Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: appContainer, Image: origin.Host() + "/acme/app:v1"}}},
+				})).To(Succeed())
+			}
+			h.mirror()
+			h.reconcile()
+			h.window()
+
+			Eventually(h.copied(destinationTag(origin, "acme/app"))).Should(Succeed())
+		})
+
+		It("reads an origin declared insecure for one of the pods declaring it only with the pull secrets of that pod, never with those of the others", func() {
+			const password, other = "s3cr3t", "other"
+			origin, alternative := h.source(registrytest.WithBasicAuth(registryUser, password)), h.source()
+			origin.Push("acme/app:v1", registrytest.Image())
+			var otherSent atomic.Bool
+			origin.Intercept(func(_ http.ResponseWriter, r *http.Request) bool {
+				if _, sent, ok := r.BasicAuth(); ok && sent == other {
+					otherSent.Store(true)
+				}
+				return false
+			})
+			h.withTLS(origin)
+			selected := map[string]string{"credentials": "selected"}
+			Expect(k8sClient.Create(ctx, &kuikv1alpha1.ImageAlternative{
+				ObjectMeta: metav1.ObjectMeta{Name: unique("ia")},
+				Spec: kuikv1alpha1.ImageAlternativeSpec{
+					PodSelector:       &metav1.LabelSelector{MatchLabels: selected},
+					NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{testLabel: h.name}},
+					Alternatives:      []kuikv1alpha1.Alternative{appEntry(origin), appEntry(alternative)},
+				},
+			})).To(Succeed())
+			ns := h.namespace()
+			// The pod the ImageAlternative leaves out comes first by name, with a pull secret of
+			// its own.
+			for _, pod := range []struct {
+				name     string
+				labels   map[string]string
+				password string
+			}{{"a-" + unique("pod"), nil, other}, {"b-" + unique("pod"), selected, password}} {
+				Expect(k8sClient.Create(ctx, &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{Name: pod.name, Namespace: ns, Labels: pod.labels},
+					Spec: corev1.PodSpec{
+						Containers:       []corev1.Container{{Name: appContainer, Image: origin.Host() + "/acme/app:v1"}},
+						ImagePullSecrets: []corev1.LocalObjectReference{{Name: pullSecret(ns, origin.Host(), pod.password)}},
+					},
+				})).To(Succeed())
+			}
+			h.mirror()
+			h.reconcile()
+			h.window()
+
+			Eventually(h.copied(destinationTag(origin, "acme/app"))).Should(Succeed())
+			Expect(otherSent.Load()).To(BeFalse())
+		})
+
+		It("reads an origin it failed to read over HTTPS again, over plain HTTP, once the entry it matches is declared insecure", func() {
+			// The alternative holds nothing: only the origin can feed the copy.
+			origin, alternative := h.source(), h.source()
+			origin.Push("acme/app:v1", registrytest.Image())
+			h.withTLS(origin)
+			secure := appEntry(origin)
+			secure.Insecure = false
+			name := h.alternativeTo(secure, appEntry(alternative))
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: origin.Host() + "/acme/app:v1"})
+			h.mirror()
+			h.fallBack(alternative)
+
+			var ia kuikv1alpha1.ImageAlternative
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, &ia)).To(Succeed())
+			ia.Spec.Alternatives[0].Insecure = true
+			Expect(k8sClient.Update(ctx, &ia)).To(Succeed())
+			h.reconcile()
+			h.window()
+
+			Eventually(h.copied(destinationTag(origin, "acme/app"))).Should(Succeed())
+		})
+
+		It("reads an origin declared insecure with the pull secrets of the pod declaring it, never with the auth of the entry it matches", func() {
+			const password = "s3cr3t"
+			origin, alternative := h.source(registrytest.WithBasicAuth(registryUser, password)), h.source()
+			origin.Push("acme/app:v1", registrytest.Image())
+			origin.Push("acme/tool:v1", registrytest.Image())
+			h.withTLS(origin)
+			entry := kuikv1alpha1.Alternative{RepositoryGroup: origin.Host() + "/acme", Insecure: true}
+			entry.Auth = &secretAuth(createCredentials(origin.Host(), registryUser, password)).Auth
+			h.alternativeTo(entry, kuikv1alpha1.Alternative{RepositoryGroup: alternative.Host() + "/acme", Insecure: true})
+			ns := h.namespace()
+			// app is declared by a pod with no pull secret, tool by one whose pull secret the origin
+			// accepts.
+			createPod(ns, unique("pod"), container{name: appContainer, image: origin.Host() + "/acme/app:v1"})
+			withSecret := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{Name: unique("pod"), Namespace: ns},
+				Spec: corev1.PodSpec{
+					Containers:       []corev1.Container{{Name: appContainer, Image: origin.Host() + "/acme/tool:v1"}},
+					ImagePullSecrets: []corev1.LocalObjectReference{{Name: pullSecret(ns, origin.Host(), password)}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, withSecret)).To(Succeed())
+			h.mirror()
+
+			Eventually(func() bool {
+				h.reconcile()
+				h.window()
+				return h.copied(destinationTag(origin, "acme/tool"))() == nil && slices.ContainsFunc(h.status().FailedImageCopies,
+					func(e kuikv1alpha1.FailedImageCopy) bool { return e.Ref == origin.Host()+"/acme/app:v1" })
+			}).WithTimeout(30 * time.Second).WithPolling(50 * time.Millisecond).Should(BeTrue())
+			Expect(h.copied(destinationTag(origin, "acme/app"))()).NotTo(Succeed())
+		})
+
+		It("reads an origin declared insecure with its fallbackAuth credential over plain HTTP", func() {
+			const password = "s3cr3t"
+			origin := h.source(registrytest.WithBasicAuth(registryUser, password))
+			origin.Push("acme/app:v1", registrytest.Image())
+			h.config.FallbackAuth = []auth.FallbackAuthEntry{{
+				RepositoryGroup: origin.Host(),
+				SecretRef:       &kuikv1alpha1.SecretReference{Name: createCredentials(origin.Host(), registryUser, password)},
+			}}
+			h.withTLS(origin)
+			h.alternativeTo(appEntry(origin), kuikv1alpha1.Alternative{Repository: "never-read.invalid/acme/app", Insecure: true})
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: origin.Host() + "/acme/app:v1"})
+			h.mirror()
+			h.reconcile()
+			h.window()
+
+			Eventually(h.copied(destinationTag(origin, "acme/app"))).Should(Succeed())
 		})
 
 		It("reads the alternatives after the origin in the order the ImageAlternative declares them, skipping the ones marked unavailable", func() {
@@ -1280,6 +1442,21 @@ var _ = Describe("ImageMirror Controller", func() {
 			Expect(ok).To(BeTrue())
 		})
 
+		It("re-reads an origin the entry it matches declares insecure over plain HTTP, even when its host has a tls entry", func() {
+			src = h.source()
+			src.Push("acme/app:v1", registrytest.Image())
+			h.withTLS(src)
+			h.alternativeTo(appEntry(src), kuikv1alpha1.Alternative{Repository: "never-read.invalid/acme/app", Insecure: true})
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+			h.mirror(withDrift(kuikv1alpha1.DriftPolicyWarn))
+			h.copyAll(1)
+			src.Reset()
+			upstream := drifted()
+
+			checkWindow()
+			Expect(h.status().DriftedImages).To(ConsistOf(HaveField("UpstreamDigest", upstream.String())))
+		})
+
 		It("reports a moved upstream digest in driftedImages and emits CopyOutOfDate under Warn, leaving the copy as it is", func() {
 			mirrored(withDrift(kuikv1alpha1.DriftPolicyWarn), "acme/app")
 			copiedDigest := destinationDigest(destinationTag(src, "acme/app"))
@@ -1448,6 +1625,73 @@ var _ = Describe("ImageMirror Controller", func() {
 			h.reconcile()
 			h.window()
 			Eventually(h.copied(destinationTag(src, "acme/job"))).Should(Succeed())
+		})
+
+		Context("whose origin an ImageAlternative applying to its pods declares insecure", func() {
+			var src *registrytest.Registry
+			var alternative string
+
+			// retained copies acme/job:v1 of src, which only plain HTTP reaches, for a pod the
+			// ImageAlternative applies to, then lets the pod end: the reference is retained, and no
+			// selector of the ImageAlternative matches it any more.
+			retained := func() {
+				GinkgoHelper()
+				src = h.source()
+				src.Push("acme/job:v1", registrytest.Image())
+				h.withTLS(src)
+				alternative = h.alternativeTo(kuikv1alpha1.Alternative{RepositoryGroup: src.Host() + "/acme", Insecure: true},
+					kuikv1alpha1.Alternative{RepositoryGroup: "never-read.invalid/acme", Insecure: true})
+				pod := createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/job:v1"})
+				h.mirror()
+				h.copyAll(1)
+				setPhase(pod, corev1.PodSucceeded)
+				h.reconcile()
+				Expect(h.status().PendingDeletion).To(ContainElement(HaveField("Origin", src.Host()+"/acme/job:v1")))
+			}
+
+			// lost deletes the copy from the destination and lets a pass find it lost, then opens
+			// the window of its re-copy.
+			lost := func() {
+				GinkgoHelper()
+				h.deleteManifest(destinationTag(src, "acme/job"))
+				h.pass()
+				h.reconcile()
+				h.window()
+			}
+
+			It("re-copies a retained reference missing from the destination over plain HTTP", func() {
+				retained()
+				lost()
+				Eventually(h.copied(destinationTag(src, "acme/job"))).Should(Succeed())
+			})
+
+			It("re-copies a retained reference over plain HTTP after a restart, from an ImageAlternative whose selectors match no pod", func() {
+				retained()
+				h.restart()
+				h.reconcile()
+				h.pass()
+				h.reconcile()
+				Expect(h.copied(destinationTag(src, "acme/job"))()).To(Succeed())
+
+				lost()
+				Eventually(h.copied(destinationTag(src, "acme/job"))).Should(Succeed())
+			})
+
+			It("re-copies a retained reference over HTTPS once no ImageAlternative declares its origin insecure", func() {
+				retained()
+				var ia kuikv1alpha1.ImageAlternative
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: alternative}, &ia)).To(Succeed())
+				ia.Spec.Alternatives[0].Insecure = false
+				Expect(k8sClient.Update(ctx, &ia)).To(Succeed())
+				h.reconcile()
+
+				lost()
+				Eventually(func() []kuikv1alpha1.FailedImageCopy {
+					h.reconcile()
+					return h.status().FailedImageCopies
+				}).Should(ContainElement(HaveField("Ref", src.Host()+"/acme/job:v1")))
+				Expect(h.copied(destinationTag(src, "acme/job"))()).NotTo(Succeed())
+			})
 		})
 
 		It("copies no more a reference whose retention elapsed while its tag was missing from the destination", func() {

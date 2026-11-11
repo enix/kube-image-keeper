@@ -417,6 +417,53 @@ var _ = Describe("Candidates", func() {
 			index := NewIndex(alternatives(alternative("library", onFailure, entry, group(ecrLibrary))), nil)
 			Expect(candidate(index.Candidates(request(nginx), options), dockerNginx).Config.Auth).To(BeNil())
 		})
+
+		Context("the original's transport", func() {
+			// original is the config of the original candidate of nginx under crs.
+			original := func(crs ...kuikv1alpha1.ImageAlternative) Config {
+				GinkgoHelper()
+				return candidate(NewIndex(crs, nil).Candidates(request(nginx), options), dockerNginx).Config
+			}
+
+			It("carries the insecure of the most specific entry the original matches, never its auth", func() {
+				entry := insecure(group(dockerLibrary))
+				entry.Auth = secretAuth("dockerhub-creds")
+				Expect(original(alternative(libraryName, onFailure, entry, group(ecrLibrary)))).
+					To(Equal(Config{Insecure: true}))
+			})
+
+			It("carries insecure when any ImageAlternative's most specific entry matching the original declares it", func() {
+				secure := alternative("a", onFailure, group(dockerLibrary), group(ecrLibrary))
+				declaring := alternative("b", onFailure, insecure(group(dockerLibrary)), group(gcrLibrary))
+				Expect(original(secure, declaring).Insecure).To(BeTrue())
+				Expect(original(declaring, secure).Insecure).To(BeTrue())
+			})
+
+			It("takes no insecure from a less specific entry of an ImageAlternative whose most specific match is secure", func() {
+				cr := alternative(libraryName, onFailure, insecure(group(dockerIO)), group(dockerLibrary), group(ecrLibrary))
+				Expect(original(cr).Insecure).To(BeFalse())
+				By("taking it from that entry for an image it is the most specific match of")
+				result := NewIndex(alternatives(cr), nil).Candidates(request("docker.io/acme/app:v1"), options)
+				Expect(candidate(result, "docker.io/acme/app:v1").Config.Insecure).To(BeTrue())
+			})
+
+			It("takes no insecure from an ImageAlternative whose selectors leave the pod out", func() {
+				cr := alternative(libraryName, onFailure, insecure(group(dockerLibrary)), group(ecrLibrary))
+				cr.Spec.PodSelector = &metav1.LabelSelector{MatchLabels: map[string]string{podLabel: "api"}}
+				Expect(original(cr).Insecure).To(BeFalse())
+				By("taking it once the selectors apply to the pod")
+				cr.Spec.PodSelector = &metav1.LabelSelector{MatchLabels: map[string]string{podLabel: podLabelValue}}
+				Expect(original(cr).Insecure).To(BeTrue())
+			})
+
+			It("takes no insecure from a matching entry marked unavailable", func() {
+				Expect(original(alternative(libraryName, onFailure, unavailable(insecure(group(dockerLibrary))), group(ecrLibrary))).
+					Insecure).To(BeFalse())
+				By("taking it from the same entry once it is no longer marked unavailable")
+				Expect(original(alternative(libraryName, onFailure, insecure(group(dockerLibrary)), group(ecrLibrary))).
+					Insecure).To(BeTrue())
+			})
+		})
 	})
 
 	Context("deduplication", func() {
@@ -517,6 +564,12 @@ func tableReferences(names []string) []string {
 	return refs
 }
 
+// The label request gives its pod.
+const (
+	podLabel      = "app"
+	podLabelValue = "web"
+)
+
 // request is a container of image with imagePullPolicy IfNotPresent, in a labelled pod and
 // namespace.
 func request(image string) Request {
@@ -526,7 +579,7 @@ func request(image string) Request {
 	return Request{
 		Image:           ref,
 		PullPolicy:      corev1.PullIfNotPresent,
-		PodLabels:       map[string]string{"app": "web"},
+		PodLabels:       map[string]string{podLabel: podLabelValue},
 		NamespaceLabels: map[string]string{"team": "a"},
 	}
 }
@@ -617,6 +670,11 @@ func group(path string) kuikv1alpha1.Alternative {
 
 func unavailable(entry kuikv1alpha1.Alternative) kuikv1alpha1.Alternative {
 	entry.Unavailable = true
+	return entry
+}
+
+func insecure(entry kuikv1alpha1.Alternative) kuikv1alpha1.Alternative {
+	entry.Insecure = true
 	return entry
 }
 
