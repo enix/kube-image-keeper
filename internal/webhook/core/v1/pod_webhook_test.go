@@ -2,6 +2,7 @@ package v1
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 	"strings"
 	"time"
@@ -104,6 +105,50 @@ var _ = Describe("Pod Webhook", func() {
 			By("preserving the original-images annotation (proves the mirror guard did not fire)")
 			Expect(pod.Annotations).To(HaveKeyWithValue("kuik.enix.io/original-images", `{"app":"docker.io/library/nginx:1.27"}`))
 		})
+	})
+})
+
+var _ = Describe("original-images annotation", func() {
+	// Digest-pinned images are recorded in the annotation, then filtered out before any
+	// image set is listed, so defaultPod returns without needing a client.
+	const (
+		appImage  = "docker.io/library/nginx@sha256:0000000000000000000000000000000000000000000000000000000000000001"
+		initImage = "docker.io/library/busybox@sha256:0000000000000000000000000000000000000000000000000000000000000002"
+	)
+
+	newPod := func(annotations map[string]string) *corev1.Pod {
+		return &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "with-init", Annotations: annotations},
+			Spec: corev1.PodSpec{
+				InitContainers: []corev1.Container{{Name: "setup", Image: initImage}},
+				Containers:     []corev1.Container{{Name: "app", Image: appImage}},
+			},
+		}
+	}
+
+	It("records the original image of init containers under an init: key", func() {
+		pod := newPod(nil)
+		d := &PodCustomDefaulter{Config: &config.Config{}}
+		Expect(d.defaultPod(context.Background(), pod, true)).To(Succeed())
+
+		var originalImages map[string]string
+		Expect(json.Unmarshal([]byte(pod.Annotations["kuik.enix.io/original-images"]), &originalImages)).To(Succeed())
+		Expect(originalImages).To(Equal(map[string]string{
+			"app":        appImage,
+			"init:setup": initImage,
+		}))
+	})
+
+	It("keeps an init container's recorded original image when the pod is defaulted again", func() {
+		pod := newPod(map[string]string{
+			"kuik.enix.io/original-images": `{"app":"` + appImage + `","init:setup":"docker.io/library/busybox:1.36"}`,
+		})
+		d := &PodCustomDefaulter{Config: &config.Config{}}
+		Expect(d.defaultPod(context.Background(), pod, true)).To(Succeed())
+
+		var originalImages map[string]string
+		Expect(json.Unmarshal([]byte(pod.Annotations["kuik.enix.io/original-images"]), &originalImages)).To(Succeed())
+		Expect(originalImages).To(HaveKeyWithValue("init:setup", "docker.io/library/busybox:1.36"))
 	})
 })
 
