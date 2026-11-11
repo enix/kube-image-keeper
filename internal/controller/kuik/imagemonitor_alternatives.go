@@ -363,16 +363,61 @@ func (r *ImageMonitorReconciler) announceUnusable(ctx context.Context, im *kuikv
 	}
 }
 
-// setAlternatives records the alternatives and the origins tracked, for the checks to read
-// their credentials over the right transport.
-func (m *monitorMemory) setAlternatives(alternatives map[string]*monitoredAlternative, origins []string) {
+// setAlternatives records the alternatives and the origins tracked, and which of those origins
+// are reached over plain HTTP, for the checks to read their credentials over the right
+// transport.
+func (m *monitorMemory) setAlternatives(alternatives map[string]*monitoredAlternative, origins []string, insecure map[string]bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.alternatives = alternatives
 	m.origins = make(map[string]bool, len(origins))
+	m.insecureOrigins = make(map[string]bool, len(origins))
 	for _, ref := range origins {
 		m.origins[ref] = true
+		if insecure[ref] {
+			m.insecureOrigins[ref] = true
+		}
 	}
+}
+
+// insecureOrigins tells, for every origin the containers of pods declare and every retained
+// one, whether it is reached over plain HTTP, as the webhook probes it. An origin a pod declares
+// is, when for any pod declaring it the most specific entry it matches in an ImageAlternative
+// applying to that pod is insecure: one check serves every pod, as a node whose runtime is
+// configured for HTTP serves every pod. Static pods and imagePullPolicy Never count: the
+// transport describes the registry, not a rewrite. A retained origin keeps the transport it had
+// at the previous report, in previous, while an ImageAlternative still declares it insecure,
+// whatever its selectors; one previous never saw, after a restart, takes it from every
+// ImageAlternative, whatever its selectors.
+func (o *alternativeOffers) insecureOrigins(pods []*corev1.Pod, retained []kuikv1alpha1.RetainedImage, previous map[string]bool) map[string]bool {
+	insecure := map[string]bool{}
+	for _, pod := range pods {
+		for _, c := range attribution.Containers(pod) {
+			if insecure[c.Origin] {
+				continue
+			}
+			insecure[c.Origin] = false
+			origin, err := imagepath.Parse(c.Origin)
+			if err != nil {
+				continue
+			}
+			req := routing.Request{Image: origin, PodLabels: pod.Labels, NamespaceLabels: o.namespaces[pod.Namespace]}
+			insecure[c.Origin] = o.scoped.OriginConfig(req).Insecure
+		}
+	}
+	for _, e := range retained {
+		insecure[e.Ref] = false
+		origin, err := imagepath.Parse(e.Ref)
+		if err != nil {
+			continue
+		}
+		declared := o.unscoped.OriginConfig(routing.Request{Image: origin}).Insecure
+		if was, ok := previous[e.Ref]; ok {
+			declared = declared && was
+		}
+		insecure[e.Ref] = declared
+	}
+	return insecure
 }
 
 // capped returns the unavailableAlternatives entries the cap of pass keeps. The list is a sample

@@ -293,6 +293,7 @@ func (c monitorChecker) Check(ctx context.Context, ref string) pacing.Response {
 	// when it is an origin too.
 	pods := slices.Clone(memory.declaring[ref])
 	isOrigin := memory.origins[ref]
+	insecureOrigin := memory.insecureOrigins[ref]
 	var sources []alternativeSource
 	if a, ok := memory.alternatives[ref]; ok {
 		sources = a.sources()
@@ -318,6 +319,11 @@ func (c monitorChecker) Check(ctx context.Context, ref string) pacing.Response {
 			}
 		}
 		entries = append(entries, entry)
+	}
+	// An origin an ImageAlternative declares insecure is offered over plain HTTP, with no entry
+	// auth: it keeps the credentials of its pods.
+	if isOrigin && insecureOrigin {
+		entries = append(entries, entryCredentials[authn.Authenticator]{insecure: true})
 	}
 	var auths []authn.Authenticator
 	// The pods declaring an image often share their pull secrets: each is tried once.
@@ -363,12 +369,18 @@ func (c monitorChecker) Check(ctx context.Context, ref string) pacing.Response {
 		result *registry.CheckResult
 		sent   int
 	)
-	for _, attempt := range checkPlan(entries, auths, isOrigin) {
+	plan := checkPlan(entries, auths, isOrigin && !insecureOrigin)
+	for i, attempt := range plan {
 		creds := distinct(attempt.auths)
 		sent += len(creds)
 		result, err = c.r.registry.Check(ctx, registry.Endpoint{Reference: ref, Insecure: attempt.insecure, Auth: creds})
-		// The next transport is tried only when this one refused every credential it was sent.
-		if err == nil || checkFailure(err) != kuikv1alpha1.CheckUnauthorized {
+		// The next transport is tried when this one refused every credential it was sent, or did
+		// not answer at all, as a registry serving plain HTTP alone does over HTTPS. The plain
+		// HTTP attempt that follows carries none of the credentials this one held.
+		if err == nil || i+1 == len(plan) {
+			break
+		}
+		if reason := checkFailure(err); reason != kuikv1alpha1.CheckUnauthorized && reason != kuikv1alpha1.CheckUnreachable {
 			break
 		}
 	}

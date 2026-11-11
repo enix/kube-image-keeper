@@ -95,6 +95,9 @@ type monitorMemory struct {
 	// offered are the alternatives each origin was offered at the previous report, kept for an
 	// origin while it is retained.
 	offered offered
+	// transports tell, per origin tracked at the previous report, whether it was reached over
+	// plain HTTP, kept for an origin while it is retained.
+	transports map[string]bool
 	// emptySeen is set when the previous report found no pod while images were tracked.
 	emptySeen bool
 	// uid is the UID of the monitor this memory belongs to.
@@ -116,8 +119,11 @@ type monitorMemory struct {
 	// alternatives are the alternatives tracked, whose entries and origins a check reads the
 	// credentials of. Each report replaces the map whole.
 	alternatives map[string]*monitoredAlternative
-	// origins are the origins tracked, which a check reads over HTTPS as their pods pull them.
+	// origins are the origins tracked, which a check reads as their pods pull them.
 	origins map[string]bool
+	// insecureOrigins are the origins tracked an ImageAlternative declares insecure, which a
+	// check reads over plain HTTP.
+	insecureOrigins map[string]bool
 	// secretErrs are the fallbackAuth Secrets the last check of an image could not read.
 	secretErrs map[string]error
 	// anonymous records, per image, whether its last check sent no credential.
@@ -268,15 +274,17 @@ func (r *ImageMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			return ctrl.Result{RequeueAfter: emptyCacheWait}, nil
 		}
 		memory.emptySeen = false
-		var offers *alternativeOffers
-		if im.Spec.MonitorsAlternatives() {
-			if offers, err = r.alternativeOffers(ctx); err != nil {
-				return ctrl.Result{}, err
-			}
+		// The ImageAlternatives give the transport of every origin, and the alternatives of a
+		// monitor that monitors them.
+		offers, err := r.alternativeOffers(ctx)
+		if err != nil {
+			return ctrl.Result{}, err
 		}
 		var seen reported
 		requeue, seen, notReady = r.track(ctx, &im, &next, memory, pods, offers)
-		remember = func() { memory.declared, memory.offered = seen.declared, seen.offered }
+		remember = func() {
+			memory.declared, memory.offered, memory.transports = seen.declared, seen.offered, seen.transports
+		}
 	}
 
 	// A process that selects nothing yet holds no ring: the persisted cursors stay, for the
@@ -299,10 +307,10 @@ func (r *ImageMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	return ctrl.Result{RequeueAfter: requeue}, nil
 }
 
-// track writes into next the origins pods declare, the images kept for retention and, when
-// offers is set, the alternatives offered for them. It returns when the next retained image
-// expires, zero when none is retained, and what the report saw, for the memory once next is
-// written.
+// track writes into next the origins pods declare, the images kept for retention and, when im
+// monitors alternatives, the alternatives offers holds for them. It returns when the next
+// retained image expires, zero when none is retained, and what the report saw, for the memory
+// once next is written.
 func (r *ImageMonitorReconciler) track(ctx context.Context, im *kuikv1alpha1.ImageMonitor, next *kuikv1alpha1.ImageMonitorStatus, memory *monitorMemory, pods []*corev1.Pod, offers *alternativeOffers) (time.Duration, reported, *condition.NotReady) {
 	log := logf.FromContext(ctx)
 	now := r.clock.Now()
@@ -366,12 +374,14 @@ func (r *ImageMonitorReconciler) track(ctx context.Context, im *kuikv1alpha1.Ima
 		declaring[ref] = d.pods
 	}
 	memory.setDeclaring(declaring)
+	monitorsAlternatives := im.Spec.MonitorsAlternatives()
 	var alternatives map[string]*monitoredAlternative
 	var offeredTo offered
-	if offers != nil {
+	if monitorsAlternatives {
 		alternatives, offeredTo = offers.of(pods, retained, memory.offered)
 	}
-	memory.setAlternatives(alternatives, tracked)
+	transports := offers.insecureOrigins(pods, retained, memory.transports)
+	memory.setAlternatives(alternatives, tracked, transports)
 	// A reference both an origin and an alternative sits once in its ring, and is checked once
 	// for both.
 	ringed := slices.Clone(tracked)
@@ -396,7 +406,7 @@ func (r *ImageMonitorReconciler) track(ctx context.Context, im *kuikv1alpha1.Ima
 	r.announceDenied(im, memory, verdicts)
 	// An alternative is counted by its own verdict, never among the origins.
 	var checkedAlts alternativeReport
-	if offers != nil {
+	if monitorsAlternatives {
 		checkedAlts = checkAlternatives(alternatives, all)
 	}
 	r.announceUnusable(ctx, im, memory, alternatives, all)
@@ -446,7 +456,7 @@ func (r *ImageMonitorReconciler) track(ctx context.Context, im *kuikv1alpha1.Ima
 	listedAlts := checkedAlts.capped(pass, memory, alternatives)
 	next.UnavailableAlternatives = nil
 	var altCounts *imagemetrics.Counts
-	if offers != nil {
+	if monitorsAlternatives {
 		altCounts = &checkedAlts.counts
 		next.Images.Alternatives = alternativesStatus(checkedAlts.counts)
 		if len(listedAlts) > 0 {
@@ -460,7 +470,7 @@ func (r *ImageMonitorReconciler) track(ctx context.Context, im *kuikv1alpha1.Ima
 	next.Truncated = pass.End(&next.Conditions, im.Generation)
 	r.metrics.report(im.Name, counts, failing)
 	r.metrics.reportAlternatives(im.Name, altCounts, checkedAlts.failing)
-	return requeue, reported{declared: digests, offered: offeredTo}, r.fallbackSecrets(ctx, memory)
+	return requeue, reported{declared: digests, offered: offeredTo, transports: transports}, r.fallbackSecrets(ctx, memory)
 }
 
 // reported is what one report saw, for the memory once its status is written.
@@ -469,6 +479,8 @@ type reported struct {
 	declared map[string]string
 	// offered are the alternatives each tracked origin was offered.
 	offered offered
+	// transports tell, per tracked origin, whether it is reached over plain HTTP.
+	transports map[string]bool
 }
 
 // declaredImage is an origin some selected pod declares.
