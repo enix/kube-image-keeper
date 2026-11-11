@@ -317,8 +317,8 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		inventoried := func(ref imagepath.Reference) bool {
-			return slices.Contains(im.Status.Repositories, destinationRepository(&im, ref, clusterID))
+		repository := func(ref imagepath.Reference) string {
+			return destinationRepository(&im, ref, clusterID)
 		}
 		st.mu.Lock()
 		st.declaring = map[string]*corev1.Pod{}
@@ -327,7 +327,7 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		st.mu.Unlock()
 		r.turnRings(&im, st, desired)
-		r.owe(&im, st, st.owed(st.copying(desired, live), inventoried), sources)
+		r.owe(&im, st, st.owed(st.copying(desired, live), repository, im.Status.Repositories), sources)
 		// The next try of a deletion the destination refused comes on its own.
 		nextPass = untilTry(&im, st, r.clock.Now(), nextPass)
 	}

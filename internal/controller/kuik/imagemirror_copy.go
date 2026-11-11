@@ -48,6 +48,9 @@ type mirrorState struct {
 	queues map[string]bool
 	// seeded is set once the memory took over what the status held before this process.
 	seeded bool
+	// inherited are the repositories status.repositories listed at the first reconcile of this
+	// process: only those wait for its first pass, the ones it records itself never do.
+	inherited map[string]bool
 	// stopping is set once the mirror is deleted: no copy starts any more. inFlight counts the
 	// copies running.
 	stopping bool
@@ -721,6 +724,10 @@ func (st *mirrorState) seed(im *kuikv1alpha1.ImageMirror) {
 		return
 	}
 	st.seeded = true
+	st.inherited = make(map[string]bool, len(im.Status.Repositories))
+	for _, repository := range im.Status.Repositories {
+		st.inherited[repository] = true
+	}
 	for _, e := range im.Status.FailedImageCopies {
 		at := e.Since.Time
 		if e.LastAttempt != nil {
@@ -863,16 +870,18 @@ func liveImages(pods []*corev1.Pod) []string {
 // owed are the references of desired the destination is not known to hold yet. A reference
 // the last pass found counts as held only in a repository status.repositories lists: an
 // unlisted one would never be swept, so it is copied again, which records it. Until a first
-// pass of this process completes, a reference of a listed repository waits for it: copying
-// it blind could move a tag driftPolicy Warn keeps. A tag Sync resyncs is owed again whatever
-// the destination holds.
-func (st *mirrorState) owed(desired []imagepath.Reference, inventoried func(imagepath.Reference) bool) []imagepath.Reference {
+// pass of this process completes, a reference of a repository a previous process listed
+// waits for it: copying it blind could move a tag driftPolicy Warn keeps. A repository this
+// process recorded holds only what it copied, which it knows: it never waits. A tag Sync
+// resyncs is owed again whatever the destination holds. repository is the destination
+// repository of a reference, listed the repositories status.repositories lists.
+func (st *mirrorState) owed(desired []imagepath.Reference, repository func(imagepath.Reference) string, listed []string) []imagepath.Reference {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	return slices.DeleteFunc(slices.Clone(desired), func(ref imagepath.Reference) bool {
-		key := ref.String()
-		held := st.present[key] || st.lastPass.IsZero()
-		return !st.resync[key] && (st.copied[key] || (held && inventoried(ref)))
+		key, repo := ref.String(), repository(ref)
+		held := st.present[key] || (st.lastPass.IsZero() && st.inherited[repo])
+		return !st.resync[key] && (st.copied[key] || (held && slices.Contains(listed, repo)))
 	})
 }
 
