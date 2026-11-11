@@ -23,6 +23,7 @@ This page lists what the current version of kuik does not do yet, and how to wor
 ## Monitoring
 
 - **No drift detection**: an `ImageMonitor` does not tell when a tag moves upstream under the pods that run it, since Kubernetes exposes no reliable way to know which digest a container runs ([kubernetes#115199](https://github.com/kubernetes/kubernetes/issues/115199)). An `ImageMirror` under `driftPolicy: Warn` tells when a copied tag moves, see the [ImageMonitor reference](./crds.md#imagemonitor).
+- **One verdict per image, whatever the transport**: the check of an image serves every `ImageMonitor` and every `ImageMirror` drift check that tracks it, though an origin's transport depends on the pods that declare it. When an `ImageAlternative` with selectors declares an origin `insecure` for the pods of one monitor and not for those of another, both report the verdict of whichever checked last, over plain HTTP or HTTPS. Give such an `ImageAlternative` selectors that cover every pod declaring the origin, see the [ImageMonitor reference](./crds.md#imagemonitor).
 - **Retention after a restart**: an image whose last pod goes away while no reconciler runs (restart, leader change) is not retained by an `ImageMonitor`, see the [ImageMonitor reference](./crds.md#imagemonitor).
 
 ## Registries

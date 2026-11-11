@@ -20,7 +20,9 @@ type checkAttempt[T any] struct {
 // secrets of the pods, fallbackAuth). When an entry is insecure, a second request goes over
 // plain HTTP with the auth of the insecure entries, and the shared credentials only when no
 // secure entry offers the reference: an all-insecure registry answers on plain HTTP alone, as
-// the webhook probes that candidate. An origin is offered securely: its pods pull it over HTTPS.
+// the webhook probes that candidate. An origin is offered as its pods pull it: securely, with
+// origin set, unless an ImageAlternative declares it insecure, which the caller passes as an
+// insecure entry with no auth.
 func checkPlan[T any](entries []entryCredentials[T], shared []T, origin bool) []checkAttempt[T] {
 	var secure, insecure []T
 	offeredSecurely, offeredInsecurely := origin || len(entries) == 0, false
