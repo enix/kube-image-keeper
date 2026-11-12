@@ -316,12 +316,23 @@ func (h *mirrorHarness) source(opts ...registrytest.Option) *registrytest.Regist
 
 // window moves the clock to the next window of every host paced every minute.
 func (h *mirrorHarness) window() {
-	h.clock.Step(time.Minute)
+	GinkgoHelper()
+	h.step(time.Minute)
 }
 
 // pass moves the clock to the next destination pass.
 func (h *mirrorHarness) pass() {
-	h.clock.Step(h.config.Mirror.DestinationScan.Interval.Duration)
+	GinkgoHelper()
+	h.step(h.config.Mirror.DestinationScan.Interval.Duration)
+}
+
+// step moves the clock by d once the scheduler waits for its next window, whatever is in
+// flight. A reconcile that changed its queues or rings has it re-arm its timer: a clock moved
+// meanwhile would arm it a full window later and lose the window.
+func (h *mirrorHarness) step(d time.Duration) {
+	GinkgoHelper()
+	Eventually(h.scheduler.Waiting).Should(BeTrue())
+	h.clock.Step(d)
 }
 
 // passNow makes the next reconcile run a destination pass without moving the clock, so that no
