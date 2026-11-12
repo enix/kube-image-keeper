@@ -59,7 +59,7 @@ export function slackMessage(notes, release, { slackify, chunkifyArray }) {
   let blocks = [header];
   for (const part of sections(slackMarkdown(notes))) {
     // slackify-markdown escapes the # of the pull request numbers, and Slack shows the backslash.
-    const text = slackify(part).replaceAll("\\#", "#").trim();
+    const text = linkRefs(slackify(part).replaceAll("\\#", "#"), repoUrl).trim();
     if (text !== "") {
       blocks.push(...chunks(text, chunkifyArray).map(section));
     }
@@ -110,6 +110,46 @@ export function sections(markdown) {
 
 // A line all in bold: a heading, a summary or a group title of the notes.
 const title = /^​?\*[^*\n]+\*​?$/;
+
+// What a reference never touches: inline code and the links of the Slack text.
+const protectedSpan = /(`[^`\n]*`|<[^<>\n]*>)/;
+// A commit sha, letters and digits both, so a number or a word is never taken for one.
+const sha = /(?<![\w-])(?=[0-9a-f]*[a-f])(?=[0-9a-f]*\d)[0-9a-f]{7,40}(?![\w-])/g;
+// #N, or owner/repo#N.
+const ref = /(?<![\w&/#.-])(?:([\w.-]+\/[\w.-]+))?#(\d+)(?!\w)/g;
+
+// The Slack text with its references as links, as GitHub autolinks them in the release body: #N
+// and owner/repo#N to the issue (GitHub redirects /issues/N to the pull request when N is one),
+// and a commit sha inside parentheses to the commit. Code, existing links and titles are left
+// as they are.
+export function linkRefs(text, repoUrl) {
+  const { origin, pathname } = new URL(repoUrl);
+  const repoPath = pathname.replace(/^\/|\/$/g, "");
+  const plain = (s, fn) =>
+    s
+      .split(protectedSpan)
+      .map((part, i) => (i % 2 === 1 ? part : fn(part)))
+      .join("");
+  let fenced = false;
+  return text
+    .split("\n")
+    .map((line) => {
+      if (line.trimStart().startsWith("```")) {
+        fenced = !fenced;
+        return line;
+      }
+      if (fenced || title.test(line)) {
+        return line;
+      }
+      const withShas = plain(line, (s) =>
+        s.replace(/\([^()]*\)/g, (group) => group.replace(sha, (c) => `<${origin}/${repoPath}/commit/${c}|${c}>`)),
+      );
+      return plain(withShas, (s) =>
+        s.replace(ref, (match, repo, n) => `<${origin}/${repo ?? repoPath}/issues/${n}|${match}>`),
+      );
+    })
+    .join("\n");
+}
 
 // The Slack text of a section in pieces of at most MAX_TEXT characters, cut between its items: a
 // line indented under the previous one (a bullet's continuation, a nested list) stays with it, and
