@@ -853,13 +853,6 @@ var _ = Describe("ImageMirror Controller", func() {
 		})
 
 		Context("when a copy keeps failing", func() {
-			// inFlight counts the copies of the mirror under test still running.
-			inFlight := func() int {
-				st := h.reconciler.state(h.name)
-				st.mu.Lock()
-				defer st.mu.Unlock()
-				return st.inFlight
-			}
 			// attempts opens the windows from to to, reconciling before each, and checks that
 			// each source received the manifest HEAD of acme/app:v1 an attempt opens with at
 			// the windows of want, one list per source, each attempt over before the next
@@ -881,7 +874,10 @@ var _ = Describe("ImageMirror Controller", func() {
 						expected[i] = len(slices.DeleteFunc(slices.Clone(windows), func(at int) bool { return at > w }))
 					}
 					Eventually(counts).Should(Equal(expected), "after window %d", w)
-					Eventually(inFlight).Should(BeZero())
+					// Over once the scheduler recorded its end, after the copier returned: until
+					// then its host takes no window, and a clock moved meanwhile would date the
+					// backoff of a failure a window late.
+					Eventually(h.scheduler.InFlight).Should(BeZero())
 				}
 				Consistently(counts).Should(Equal(expected))
 			}
