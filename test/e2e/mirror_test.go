@@ -5,6 +5,9 @@ package e2e
 import (
 	"encoding/json"
 	"fmt"
+	"math"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -45,6 +48,9 @@ var (
 	refusingRegistry = destinationRegistry{
 		name: "registry-nodelete", refuseDeletes: true, secret: "e2e-mirror-manage-nodelete",
 	}
+	// sourceRegistry is the plain HTTP origin of the httpOrigin pods, seeded by seedMirror; its
+	// proxy logs when each request came, which shows the requestInterval of its host
+	sourceRegistry = destinationRegistry{name: "registry-source", refuseDeletes: true, secret: "e2e-mirror-manage-source"}
 )
 
 // host names the registry through the cluster DNS: go-containerregistry speaks plain HTTP to a
@@ -84,6 +90,33 @@ const (
 	// downMirror routes the pods of mirrorNamespace labelled downPodLabel to a destination that
 	// does not resolve
 	downMirror = "e2e-mirror-down"
+	// heldMirror routes the pods of mirrorNamespace to its copies on deletingRegistry, with
+	// cleanup, and is deleted while a pod runs one of them
+	heldMirror = "e2e-mirror-held"
+	// seedMirror copies the pause image to sourceRegistry, then goes, leaving its tag as the
+	// image of the httpOrigin pods
+	seedMirror = "e2e-mirror-seed"
+	// pacedMirror copies the image of the httpOrigin pods from sourceRegistry to deletingRegistry
+	pacedMirror = "e2e-mirror-paced"
+)
+
+const (
+	// httpOriginNamespace holds the pods whose origin is sourceRegistry; its label is what only
+	// httpOriginAlternative, httpOriginMonitor and pacedMirror select
+	httpOriginNamespace = "kuik-e2e-http-origin"
+	// httpOriginLabel is the namespace label of httpOriginNamespace
+	httpOriginLabel = "kuik.enix.io/e2e-http-origin"
+	// httpOriginAlternative declares sourceRegistry insecure, or not, for the pods of
+	// httpOriginNamespace
+	httpOriginAlternative = "e2e-http-origin"
+	// httpOriginMonitor monitors the pods of httpOriginNamespace
+	httpOriginMonitor = "e2e-http-origin"
+	// httpOriginSecret is the pull Secret of the pods of httpOriginNamespace, the read credential
+	// of sourceRegistry
+	httpOriginSecret = "e2e-http-origin"
+	// sourceRequestInterval is the requestInterval test/e2e/values.yaml sets on the host of
+	// sourceRegistry
+	sourceRequestInterval = time.Second
 )
 
 // downPodLabel is the pod label downMirror selects: the running pause pod lacks it
@@ -93,10 +126,12 @@ const downPodLabel = "kuik.enix.io/e2e-mirror-down"
 // DELETE but a manifest's by digest gets 400 UNSUPPORTED, as Harbor answers a tag deletion
 // (goharbor/harbor#24213), and any other request reaches the registry unchanged, Host and port
 // included, so that the upload locations and the Basic challenge it returns name the proxy.
-// Bodies stream both ways, unbounded.
+// Bodies stream both ways, unbounded. Each request is logged as proxyLogLine reads it.
 const refusingProxyConfig = `
 events {}
 http {
+  log_format timed '$msec $request_time $remote_addr $request_method $uri $status';
+  access_log /dev/stdout timed;
   map "$request_method:$uri" $refused {
     default 0;
     "~^DELETE:/v2/.+/manifests/sha256:" 0;
@@ -222,6 +257,13 @@ spec:
 // destination, with its manage credential. It never routes: the kubelet cannot pull from a plain
 // HTTP registry the node runtime does not know.
 func mirrorManifest(name string, destination destinationRegistry, repository string, insecure bool) string {
+	return selectingMirrorManifest(name, mirrorLabel, destination, repository, insecure)
+}
+
+// selectingMirrorManifest is mirrorManifest copying the pods of the namespaces labelled
+// `<namespaceLabel>: "true"`.
+func selectingMirrorManifest(name, namespaceLabel string, destination destinationRegistry, repository string,
+	insecure bool) string {
 	return fmt.Sprintf(`
 apiVersion: kuik.enix.io/v1alpha1
 kind: ImageMirror
@@ -239,15 +281,16 @@ spec:
       auth:
         secretRef:
           name: %s
-`, name, mirrorLabel, destination.host(), repository, insecure, destination.secret)
+`, name, namespaceLabel, destination.host(), repository, insecure, destination.secret)
 }
 
 // alwaysMirrorManifest is an ImageMirror routing the pods of mirrorNamespace to its copies under
 // path, over plain HTTP, reading the destination with secret for the pushes and the webhook's
-// checks alike. It injects no pull Secret and cleans nothing up: no node can pull from the
-// destination anyway, and the registry goes with its namespace. A podLabel restricts it to the
-// pods carrying `<podLabel>: "true"`; empty, it applies to every pod of the namespace.
-func alwaysMirrorManifest(name, path, secret, podLabel string) string {
+// checks alike. It injects no pull Secret, since no node can pull from the destination anyway,
+// and deletes its tags once deleted only under cleanup: the registry goes with its namespace. A
+// podLabel restricts it to the pods carrying `<podLabel>: "true"`; empty, it applies to every pod
+// of the namespace.
+func alwaysMirrorManifest(name, path, secret, podLabel string, cleanup bool) string {
 	return fmt.Sprintf(`
 apiVersion: kuik.enix.io/v1alpha1
 kind: ImageMirror
@@ -261,7 +304,7 @@ spec:
   podSelector:
     matchLabels: {%[5]s}
   cleanup:
-    enabled: false
+    enabled: %[6]t
   destination:
     path: %[3]s
     insecure: true
@@ -274,7 +317,7 @@ spec:
         secretRef:
           name: %[4]s
         injectPullSecret: false
-`, name, mirrorLabel, path, secret, trueLabel(podLabel))
+`, name, mirrorLabel, path, secret, trueLabel(podLabel), cleanup)
 }
 
 var _ = Describe("Image mirroring", Ordered, func() {
@@ -342,16 +385,22 @@ var _ = Describe("Image mirroring", Ordered, func() {
 		// registry still answers, then drop what holds it, or the CRD uninstall of the suite
 		// would wait on it. The deletion spec is what checks the finalizer.
 		// refusedMirror is gone unless its spec failed, and its destination never lets it go.
-		// The routing specs delete their mirrors themselves, unless they failed.
-		_, _ = kubectl("delete", "imagemirrors", copyMirror, httpMirror, refusedMirror, digestMirror, routedMirror,
-			downMirror, "--ignore-not-found", "--wait=false")
-		_, _ = kubectl("wait", "--for=delete", "imagemirror/"+copyMirror, "imagemirror/"+httpMirror, "--timeout=50s")
-		for _, name := range []string{copyMirror, httpMirror, refusedMirror, digestMirror, routedMirror, downMirror} {
+		// The routing specs and the seeding of the plain HTTP origin delete their mirrors
+		// themselves, unless they failed.
+		mirrors := []string{copyMirror, httpMirror, refusedMirror, digestMirror, routedMirror, downMirror, heldMirror,
+			seedMirror, pacedMirror}
+		deletion := append([]string{"delete", "imagemirrors"}, mirrors...)
+		_, _ = kubectl(append(deletion, "--ignore-not-found", "--wait=false")...)
+		_, _ = kubectl("wait", "--for=delete", "imagemirror/"+copyMirror, "imagemirror/"+httpMirror,
+			"imagemirror/"+pacedMirror, "--timeout=50s")
+		for _, name := range mirrors {
 			_, _ = kubectl("patch", "imagemirror", name, "--type=merge", "-p", `{"metadata":{"finalizers":null}}`)
 		}
-		_, _ = kubectl("delete", "ns", mirrorNamespace, registryNamespace, "--wait=false")
-		_, _ = kubectl("delete", "secret", deletingRegistry.secret, refusingRegistry.secret, "-n", namespace,
-			"--ignore-not-found")
+		_, _ = kubectl("delete", "imagemonitor", httpOriginMonitor, "--ignore-not-found")
+		_, _ = kubectl("delete", "imagealternative", httpOriginAlternative, "--ignore-not-found")
+		_, _ = kubectl("delete", "ns", mirrorNamespace, httpOriginNamespace, registryNamespace, "--wait=false")
+		_, _ = kubectl("delete", "secret", deletingRegistry.secret, refusingRegistry.secret, sourceRegistry.secret,
+			"-n", namespace, "--ignore-not-found")
 	})
 
 	Context("with a plain HTTP destination registry in the cluster", func() {
@@ -458,7 +507,7 @@ var _ = Describe("Image mirroring", Ordered, func() {
 	// never that the pod starts.
 	Context("with an Always ImageMirror", func() {
 		It("routes a new pod to its copy once the copy exists, recording the rewrite in kuik.enix.io/rewrites", func() {
-			routed := alwaysMirrorManifest(routedMirror, deletingRegistry.host()+"/routed/", deletingRegistry.secret, "")
+			routed := alwaysMirrorManifest(routedMirror, deletingRegistry.host()+"/routed/", deletingRegistry.secret, "", false)
 			Expect(kubectlStdin(routed, "apply", "-f", "-")).Error().NotTo(HaveOccurred())
 			DeferCleanup(kubectl, "delete", "imagemirror", routedMirror, "--ignore-not-found")
 
@@ -487,7 +536,7 @@ var _ = Describe("Image mirroring", Ordered, func() {
 			// Its podSelector leaves the running pause pod out: no copy fails before the pod is admitted,
 			// so the webhook judges the destination by its own check, never by failedImageCopies.
 			down := alwaysMirrorManifest(downMirror, "kuik-e2e-mirror-down.invalid/routed/", deletingRegistry.secret,
-				downPodLabel)
+				downPodLabel, false)
 			Expect(kubectlStdin(down, "apply", "-f", "-")).Error().NotTo(HaveOccurred())
 			DeferCleanup(kubectl, "delete", "imagemirror", downMirror, "--ignore-not-found")
 
@@ -509,6 +558,161 @@ var _ = Describe("Image mirroring", Ordered, func() {
 			Expect(kubectl("get", "pod", "down", "-n", mirrorNamespace,
 				"-o", "jsonpath={.spec.containers[0].image}")).To(Equal(mirroredImage))
 			Expect(kuikAnnotationsIn(mirrorNamespace, "down")).To(BeEmpty())
+		})
+
+		It("holds a deleted ImageMirror while a live pod runs one of its copies, then deletes its tags once the pod is gone",
+			func() {
+				held := alwaysMirrorManifest(heldMirror, deletingRegistry.host()+"/held/", deletingRegistry.secret, "", true)
+				Expect(kubectlStdin(held, "apply", "-f", "-")).Error().NotTo(HaveOccurred())
+
+				By("routing a new pod to the copy of the running pod's image")
+				Eventually(deletingRegistry.tags, "4m").WithArguments("held/registry.k8s.io/pause").
+					Should(ContainElement(pauseTag + "_" + clusterID))
+				copied := deletingRegistry.host() + "/held/registry.k8s.io/pause:" + pauseTag + "_" + clusterID + "@" + pauseDigest
+				Eventually(mirrorReplicaPatches).WithArguments(mirroredImage).Should(everyReplica(ContainSubstring(copied)))
+				Expect(kubectlStdin(mirrorPodManifest("held", mirroredImage), "create", "-f", "-")).
+					Error().NotTo(HaveOccurred())
+				DeferCleanup(kubectl, "delete", "pod", "held", "-n", mirrorNamespace, "--ignore-not-found")
+				Expect(kubectl("get", "pod", "held", "-n", mirrorNamespace,
+					"-o", "jsonpath={.spec.containers[0].image}")).To(Equal(copied))
+				// No node pulls from the in-cluster destination: the pod stays Pending in
+				// ImagePullBackOff, which is live, as a pod whose image is being pulled.
+
+				ready := `jsonpath={.status.conditions[?(@.type=="Ready")].status} ` +
+					`{.status.conditions[?(@.type=="Ready")].reason}`
+				before, err := kubectl("get", "imagemirror", heldMirror, "-o", ready)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(strings.TrimSpace(before)).NotTo(BeEmpty())
+
+				_, err = kubectl("delete", "imagemirror", heldMirror, "--wait=false")
+				Expect(err).NotTo(HaveOccurred())
+
+				By("holding the mirror with DeletionBlocked True, reason PodsRunningCopies, naming the pod")
+				Eventually(kubectl).WithArguments("get", "imagemirror", heldMirror,
+					"-o", `jsonpath={.status.conditions[?(@.type=="DeletionBlocked")].status} `+
+						`{.status.conditions[?(@.type=="DeletionBlocked")].reason}`).
+					Should(Equal("True PodsRunningCopies"))
+				Expect(kubectl("get", "imagemirror", heldMirror,
+					"-o", `jsonpath={.status.conditions[?(@.type=="DeletionBlocked")].message}`)).
+					To(ContainSubstring(mirrorNamespace + "/held"))
+				Expect(kubectl("get", "imagemirror", heldMirror, "-o", ready)).To(Equal(before))
+
+				By("emitting a Normal WaitingForPods event on the mirror")
+				// The mirror is cluster-scoped: its events land in the default namespace.
+				Eventually(kubectl).WithArguments("get", "events", "-A",
+					"--field-selector", "reason=WaitingForPods,involvedObject.name="+heldMirror,
+					"-o", "jsonpath={.items[*].type}").Should(Equal("Normal"))
+				Expect(deletingRegistry.tags("held/registry.k8s.io/pause")).To(ContainElement(pauseTag + "_" + clusterID))
+
+				By("releasing the mirror and deleting its tags once the pod is gone")
+				_, err = kubectl("delete", "pod", "held", "-n", mirrorNamespace)
+				Expect(err).NotTo(HaveOccurred())
+				// The pod's deletion wakes the held mirror, sooner than its backoff.
+				Eventually(kubectl).WithArguments("get", "imagemirror", heldMirror, "--ignore-not-found", "-o", "name").
+					Should(BeEmpty())
+				Expect(deletingRegistry.tags("held/registry.k8s.io/pause")).To(BeEmpty())
+			})
+	})
+
+	// No node pulls from sourceRegistry either: the pods of httpOriginNamespace stay Pending, and
+	// these specs check what kuik decides about their origin. go-containerregistry speaks plain HTTP
+	// to a private IP on its own: the origin is named through the cluster DNS, so that only the
+	// insecure of the entry it matches lets kuik reach it.
+	Context("with an origin on a plain HTTP registry addressed by its DNS name", func() {
+		var originImage string
+
+		BeforeAll(func() {
+			By("deploying the origin registry with its write credential")
+			Expect(kubectlStdin(sourceRegistry.manifest(), "apply", "-f", "-")).Error().NotTo(HaveOccurred())
+			Eventually(kubectl).WithArguments("rollout", "status", "deployment/"+sourceRegistry.name, "-n", registryNamespace,
+				"--timeout=30s").Should(ContainSubstring("successfully rolled out"))
+			_, err := kubectl("create", "secret", "docker-registry", sourceRegistry.secret, "-n", namespace,
+				"--docker-server="+sourceRegistry.host(), "--docker-username="+registryUser,
+				"--docker-password="+registryPassword)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("seeding it with a copy of the running pause pod's image, left in place")
+			seed := mirrorManifest(seedMirror, sourceRegistry, "origin", true) + "  cleanup:\n    enabled: false\n"
+			Expect(kubectlStdin(seed, "apply", "-f", "-")).Error().NotTo(HaveOccurred())
+			Eventually(sourceRegistry.tags, "4m").WithArguments("origin/registry.k8s.io/pause").
+				Should(ContainElement(pauseTag + "_" + clusterID))
+			// Gone before a pod runs its copy, which would hold it, and before the specs read the
+			// origin's requests: its writes there are a destination's, never paced.
+			_, err = kubectl("delete", "imagemirror", seedMirror)
+			Expect(err).NotTo(HaveOccurred())
+			originImage = sourceRegistry.host() + "/origin/registry.k8s.io/pause:" + pauseTag + "_" + clusterID
+
+			By("running a pod on that origin, with its read credential as pull Secret")
+			_, err = kubectl("create", "ns", httpOriginNamespace)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = kubectl("label", "ns", httpOriginNamespace, httpOriginLabel+"=true")
+			Expect(err).NotTo(HaveOccurred())
+			_, err = kubectl("create", "secret", "docker-registry", httpOriginSecret, "-n", httpOriginNamespace,
+				"--docker-server="+sourceRegistry.host(), "--docker-username="+registryUser,
+				"--docker-password="+registryPassword)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(kubectlStdin(httpOriginPodManifest("http-origin", originImage), "create", "-f", "-")).
+				Error().NotTo(HaveOccurred())
+		})
+
+		It("leaves a pod on its origin when the ImageAlternative entry the origin matches is insecure", func() {
+			By("failing the origin over HTTPS while the entry is secure")
+			// The alternative does not answer either: each replica names the ImageAlternative among
+			// the resources whose candidates all failed.
+			Expect(kubectlStdin(httpOriginAlternativeManifest(false), "apply", "-f", "-")).Error().NotTo(HaveOccurred())
+			Eventually(httpOriginReplicaPatches).WithArguments(originImage).
+				Should(everyReplica(ContainSubstring("ImageAlternative/" + httpOriginAlternative)))
+
+			By("answering over plain HTTP once the entry is insecure")
+			Expect(kubectlStdin(httpOriginAlternativeManifest(true), "apply", "-f", "-")).Error().NotTo(HaveOccurred())
+			Eventually(httpOriginReplicaPatches).WithArguments(originImage).
+				Should(everyReplica(Not(ContainSubstring("kuik.enix.io"))))
+		})
+
+		It("reports the origin available when the ImageAlternative entry it matches is insecure", func() {
+			Expect(kubectlStdin(httpOriginAlternativeManifest(true), "apply", "-f", "-")).Error().NotTo(HaveOccurred())
+			Expect(kubectlStdin(httpOriginMonitorManifest, "apply", "-f", "-")).Error().NotTo(HaveOccurred())
+
+			// The reconciler checks it on its own windows, 10s apart on the e2e release.
+			Eventually(kubectl).WithTimeout(4*time.Minute).WithArguments("get", "imagemonitor", httpOriginMonitor,
+				"-o", "jsonpath={.status.images.origin.available}/{.status.images.origin.tracked}").Should(Equal("1/1"))
+		})
+
+		It("spaces the requests the reconciler sends to the origin's host by its requestInterval", func() {
+			Expect(kubectlStdin(httpOriginAlternativeManifest(true), "apply", "-f", "-")).Error().NotTo(HaveOccurred())
+			before, err := sourceRegistry.requests()
+			Expect(err).NotTo(HaveOccurred())
+
+			By("copying the image from the origin")
+			paced := selectingMirrorManifest(pacedMirror, httpOriginLabel, deletingRegistry, "paced", true)
+			Expect(kubectlStdin(paced, "apply", "-f", "-")).Error().NotTo(HaveOccurred())
+			copied := "paced/" + strings.Replace(sourceRegistry.host(), ":", "_", 1) + "/origin/registry.k8s.io/pause"
+			Eventually(deletingRegistry.tags, "4m").WithArguments(copied).
+				Should(ContainElement(pauseTag + "_" + clusterID + "_" + clusterID))
+
+			By("reading when each request of the reconciler reached the origin since")
+			after, err := sourceRegistry.requests()
+			Expect(err).NotTo(HaveOccurred())
+			output, err := kubectl("get", "pods", "-l", processSelector("reconciler"), "-n", namespace,
+				"-o", "jsonpath={.items[*].status.podIP}")
+			Expect(err).NotTo(HaveOccurred())
+			reconcilers := strings.Fields(output)
+			var sent []proxyRequest
+			for _, request := range after[len(before):] {
+				if slices.Contains(reconcilers, request.Client) {
+					sent = append(sent, request)
+				}
+			}
+			slices.SortFunc(sent, func(a, b proxyRequest) int { return a.Start.Compare(b.Start) })
+			// The copy's blob reads are among them: the checks of httpOriginMonitor share the series.
+			Expect(sent).To(ContainElement(HaveField("URI", ContainSubstring("/blobs/"))))
+			Expect(len(sent)).To(BeNumerically(">=", 4))
+			// A few milliseconds of network between the reconciler and the proxy, at most.
+			const jitter = 100 * time.Millisecond
+			for i := 1; i < len(sent); i++ {
+				Expect(sent[i].Start.Sub(sent[i-1].Start)).To(BeNumerically(">=", sourceRequestInterval-jitter),
+					"%s %s then %s %s", sent[i-1].Method, sent[i-1].URI, sent[i].Method, sent[i].URI)
+			}
 		})
 	})
 })
@@ -576,4 +780,98 @@ func (r destinationRegistry) tags(repository string) ([]string, error) {
 		return nil, err
 	}
 	return strings.Fields(output), nil
+}
+
+// proxyRequest is one request the proxy of a registry logged.
+type proxyRequest struct {
+	// Start is when the proxy read its first bytes
+	Start time.Time
+	// Client is the IP address it came from
+	Client string
+	Method string
+	URI    string
+}
+
+// requests lists the requests the proxy in front of the registry logged, in the order they
+// ended. The registry must refuse deletes: only those run behind the proxy.
+func (r destinationRegistry) requests() ([]proxyRequest, error) {
+	output, err := kubectl("logs", "-n", registryNamespace, "deploy/"+r.name, "-c", "proxy")
+	if err != nil {
+		return nil, err
+	}
+	var requests []proxyRequest
+	for _, line := range utils.GetNonEmptyLines(output) {
+		// The format timed of refusingProxyConfig; nginx's own messages share the stream.
+		fields := strings.Fields(line)
+		if len(fields) != 6 {
+			continue
+		}
+		end, endErr := strconv.ParseFloat(fields[0], 64)
+		took, tookErr := strconv.ParseFloat(fields[1], 64)
+		if endErr != nil || tookErr != nil {
+			continue
+		}
+		requests = append(requests, proxyRequest{
+			Start:  time.UnixMilli(int64(math.Round((end - took) * 1000))),
+			Client: fields[2],
+			Method: fields[3],
+			URI:    fields[4],
+		})
+	}
+	return requests, nil
+}
+
+// httpOriginAlternativeManifest is httpOriginAlternative, offering an alternative that does not
+// answer for the image of the httpOrigin pods, its entry for that image marked insecure or not.
+// Under OnFailure the origin is tried first.
+func httpOriginAlternativeManifest(insecure bool) string {
+	return fmt.Sprintf(`
+apiVersion: kuik.enix.io/v1alpha1
+kind: ImageAlternative
+metadata:
+  name: %s
+spec:
+  rewritePolicy: OnFailure
+  namespaceSelector:
+    matchLabels:
+      %s: "true"
+  alternatives:
+    - repository: %s/origin/registry.k8s.io/pause
+      insecure: %t
+    - repository: kuik-e2e-http-origin.invalid/pause
+`, httpOriginAlternative, httpOriginLabel, sourceRegistry.host(), insecure)
+}
+
+// httpOriginMonitorManifest is httpOriginMonitor.
+var httpOriginMonitorManifest = fmt.Sprintf(`
+apiVersion: kuik.enix.io/v1alpha1
+kind: ImageMonitor
+metadata:
+  name: %s
+spec:
+  namespaceSelector:
+    matchLabels:
+      %s: "true"
+`, httpOriginMonitor, httpOriginLabel)
+
+// httpOriginPodManifest is a pod of httpOriginNamespace running image in one container named
+// pause, with the read credential of sourceRegistry as pull Secret.
+func httpOriginPodManifest(name, image string) string {
+	return pausePodManifest(httpOriginNamespace, name, image) +
+		"  imagePullSecrets:\n    - name: " + httpOriginSecret + "\n"
+}
+
+// httpOriginReplicaPatches returns, for each webhook pod, the JSON patch it answers for an
+// httpOrigin pod running image, asked directly through the API server's proxy. No pod is
+// created.
+func httpOriginReplicaPatches(image string) (map[string]string, error) {
+	responses, err := replicaResponses(httpOriginNamespace, httpOriginPodManifest("replica-probe", image))
+	if err != nil {
+		return nil, err
+	}
+	patches := map[string]string{}
+	for pod, response := range responses {
+		patches[pod] = string(response.Patch)
+	}
+	return patches, nil
 }
