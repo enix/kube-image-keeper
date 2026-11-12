@@ -87,12 +87,15 @@ describe("the Slack message of a release", () => {
       }
     });
 
-    it("turns each summary into a title line in bold", () => {
-      const summaries = [...beta5.matchAll(/<summary>(.*?)<\/summary>/g)].map((m) => m[1]);
-      assert.ok(summaries.length > 0, "the notes have no summary");
+    it("drops each summary line, so a section heading is directly followed by its bullets", () => {
       const all = texts(message).flatMap(lines);
-      for (const summary of summaries) {
-        assert.ok(all.includes(`*${summary}*`), `no title *${summary}*`);
+      for (const summary of [...beta5.matchAll(/<summary>(.*?)<\/summary>/g)].map((m) => m[1])) {
+        assert.ok(!all.some((line) => line.includes(summary)), `the summary ${summary} is left`);
+      }
+      for (const heading of ["Features", "Fixes"]) {
+        const at = all.indexOf(`*${heading}*`);
+        assert.ok(at >= 0, `no heading *${heading}*`);
+        assert.match(all.slice(at + 1).find((line) => line.trim() !== ""), /^•/, `*${heading}* is not followed by a bullet`);
       }
     });
 
