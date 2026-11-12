@@ -1,0 +1,44 @@
+## ✨ Highlights
+
+- **Deleted ImageMirror waits for its pods again**: a deleted `ImageMirror` is kept while live pods run its copies, since Kubernetes 1.35 re-checks a restarted container's pull Secret, and the new `DeletionBlocked` condition says why it stays `Terminating`.
+- **Paced requests per host**: `registries.<host>.requestInterval` spaces every request kuik sends to a rate-limited source, and the chart paces `public.ecr.aws` at 1 second by default.
+- **HTTP origins**: an origin matched by an `ImageAlternative` entry with `insecure: true` is now probed, checked and copied over HTTP, like the nodes pull it.
+
+## ⚠️ Breaking changes
+
+- `ImageMonitor` no longer detects drift or skew: Kubernetes exposes no reliable way to know which digest a container runs. Remove `spec.driftDetection` from your `ImageMonitor` manifests (strict validation refuses it), and drop the alerts and dashboards on its `ImagesDrifted` condition, its `ImageTagDrifted` and `ImageClusterSkew` events, `kuik_image_cluster_skew_digests` and its `kuik_image_drifted` series. `ImageMirror` keeps its `driftPolicy`, see the [known limits](https://kuik.enix.io/known-limits/). (#846, closes #843)
+
+## 📋 Changelog
+
+Changes since [3.0.0-beta.4](https://github.com/enix/kube-image-keeper/releases/tag/v3.0.0-beta.4).
+
+### Features
+
+<details><summary>2 new features</summary>
+
+- **Registries**: `registries.<host>.requestInterval` sets a minimum gap between 2 requests the reconciler sends to a source host, checks and copies alike; a copy from a paced host reads one request at a time. (#854, closes #841)
+- **Chart**: The chart's default configuration paces `public.ecr.aws` at 1 request per second, its anonymous quota. (#854)
+
+</details>
+
+### Fixes
+
+<details><summary>9 fixes</summary>
+
+- **Monitoring**: An `ImageMonitor` checks an origin matched by an `ImageAlternative` entry with `insecure: true` over HTTP instead of reporting it unreachable (broken since 3.0.0-beta.1). (#856)
+- **Configuration**: The global config is loaded once per ConfigMap update, so one rejected edit counts once in `kuik_config_reload_errors_total` and its fix not at all (broken since 3.0.0-beta.1). (#840, closes #834)
+- **Observability**: A copy refused at its source check counts under `operation="Copy"` of `kuik_registry_requests_total`, `Starting manager` is the first log line of every process, and reconciler lines carry the documented `logger`, `resource` and `registry` keys (broken since 3.0.0-beta.1). (#847, closes #833)
+
+**Routing**
+
+- The webhook keeps serving for `webhook.shutdownDelaySeconds` (default 10) after its stop signal, so pods created while a webhook pod stops are no longer admitted unrouted (broken since 3.0.0-beta.1). (#844, closes #837)
+- An origin matched by an `ImageAlternative` entry with `insecure: true` is probed over HTTP instead of being judged unreachable, so its pod is no longer rewritten while the origin works (broken since 3.0.0-beta.1). (#856)
+
+**Mirroring**
+
+- A deleted `ImageMirror` waits again while live pods run its copies, so a container restarted in place no longer fails to pull once its injected pull Secret is gone; `DeletionBlocked` gives the reason of every hold (broken since 3.0.0-beta.4). (#849, closes #832)
+- A copy into a destination unreachable at the mirror's first pass resumes once the destination answers, instead of waiting up to `mirror.destinationScan.interval` (broken since 3.0.0-beta.1). (#855)
+- An interrupted destination pass waits for `mirror.destinationScan.interval`, or a spec change, instead of reading the destination again at every reconcile (broken since 3.0.0-beta.1). (#848, closes #810)
+- An `ImageMirror` no longer copies an image no selected pod runs any more after its selector is narrowed (broken since 3.0.0-beta.1). (#845, closes #828)
+
+</details>

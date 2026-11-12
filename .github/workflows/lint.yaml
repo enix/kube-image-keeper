@@ -61,3 +61,6 @@ jobs:
 
       - name: Run markdownlint
         run: task lint-markdown
+
+      - name: Check the Slack message of a release
+        run: task test-release
