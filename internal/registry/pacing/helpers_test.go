@@ -91,15 +91,15 @@ func run(cfg *config.Config) *harness {
 // loop is waited for first: until it has opened the windows due, nothing is in flight yet.
 func (h *harness) settle() {
 	GinkgoHelper()
-	Eventually(h.s.waiting).Should(BeTrue())
-	Eventually(h.s.inFlight).Should(BeZero())
+	Eventually(h.s.Waiting).Should(BeTrue())
+	Eventually(h.s.InFlight).Should(BeZero())
 }
 
 // step moves the clock by d once the scheduler waits for its next window, whatever is in
 // flight.
 func (h *harness) step(d time.Duration) {
 	GinkgoHelper()
-	Eventually(h.s.waiting).Should(BeTrue())
+	Eventually(h.s.Waiting).Should(BeTrue())
 	h.clk.Step(d)
 }
 
