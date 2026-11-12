@@ -102,6 +102,10 @@ type Result struct {
 	Offering []Resource
 	// Demoted are the candidates sent to the end of the list as known failures, in order.
 	Demoted []Demotion
+	// Required is the candidate to place when none answers: the first candidate of an
+	// ImageMirror under rewritePolicy Required, nil when no such mirror offers one. The
+	// original is then absent from Candidates.
+	Required *Candidate
 }
 
 // Demotion is a candidate a status lists failing, sent to the end of the list.
@@ -300,6 +304,9 @@ type bands struct {
 	alwaysMirror, alwaysAlternative, onFailureAlternative, onFailureMirror []Candidate
 	// demoteOriginal sends the original to the end: it matched an entry marked unavailable.
 	demoteOriginal bool
+	// dropOriginal leaves the original out: an ImageMirror under rewritePolicy Required
+	// offers a candidate.
+	dropOriginal bool
 }
 
 // Candidates returns the candidate list of a container.
@@ -310,13 +317,18 @@ func (i *Index) Candidates(req Request, opts Options) Result {
 
 	original := Candidate{Reference: req.Image.String()}
 	list := slices.Concat(b.alwaysMirror, b.alwaysAlternative)
-	if !b.demoteOriginal {
+	if !b.demoteOriginal && !b.dropOriginal {
 		list = append(list, original)
 	}
 	list = append(list, b.onFailureAlternative...)
 	list = append(list, b.onFailureMirror...)
-	if b.demoteOriginal {
+	if b.demoteOriginal && !b.dropOriginal {
 		list = append(list, original)
+	}
+	if b.dropOriginal {
+		// An alternative entry may produce the original's own reference: it is the original
+		// all the same.
+		list = slices.DeleteFunc(list, func(c Candidate) bool { return c.Reference == original.Reference })
 	}
 	// A known failure is decided before deduplication: the original deduplicated away behind
 	// an alternative entry producing its reference is still known to fail.
@@ -328,13 +340,20 @@ func (i *Index) Candidates(req Request, opts Options) Result {
 	candidates, reporters := deduplicate(list, known)
 	result := Result{Offering: offering(list)}
 	result.Candidates, result.Demoted = demoteKnownFailures(candidates, reporters)
+	if k := slices.IndexFunc(result.Candidates, func(c Candidate) bool {
+		return c.Policy == kuikv1alpha1.RewritePolicyRequired
+	}); k >= 0 {
+		required := result.Candidates[k]
+		result.Required = &required
+	}
 	return result
 }
 
 // demoteKnownFailures moves the candidates of list a status lists failing, those with a
 // reporter, to the end, both parts keeping their order. Nothing is dropped. A demoted
 // candidate of an Always band is served only once the original failed, a fallback: it takes
-// the OnFailure policy, as an Always mirror demoted for imagePullPolicy Always does. See
+// the OnFailure policy, as an Always mirror demoted for imagePullPolicy Always does. A demoted
+// Required candidate keeps its policy: the original is not in the list to serve before it. See
 // docs/v3/spec.md, "demoteKnownFailures: reusing what the loops already know".
 func demoteKnownFailures(list []Candidate, reporters []*Resource) ([]Candidate, []Demotion) {
 	kept := make([]Candidate, 0, len(list))
@@ -426,7 +445,9 @@ func (i *Index) alternativeCandidates(req Request, b *bands) {
 }
 
 // mirrorCandidates adds the destination reference of every ImageMirror applying to the pod,
-// but under rewritePolicy None, for an excluded image or one under its own destination.
+// but under rewritePolicy None, for an excluded image or one under its own destination. A
+// mirror under rewritePolicy Required joins the Always band whatever the pull policy, and
+// leaves the original out of the list.
 func (i *Index) mirrorCandidates(req Request, opts Options, b *bands) {
 	demote := opts.DemoteMirrorWithPullPolicyAlways && req.PullPolicy == corev1.PullAlways
 	for _, m := range i.mirrors {
@@ -445,10 +466,15 @@ func (i *Index) mirrorCandidates(req Request, opts Options, b *bands) {
 		if m.spec.Destination.Pull != nil {
 			c.Config.Auth = &m.spec.Destination.Pull.Auth
 		}
-		if policy == kuikv1alpha1.RewritePolicyAlways && !demote {
+		switch {
+		case policy == kuikv1alpha1.RewritePolicyRequired:
+			c.Policy = kuikv1alpha1.RewritePolicyRequired
+			b.alwaysMirror = append(b.alwaysMirror, c)
+			b.dropOriginal = true
+		case policy == kuikv1alpha1.RewritePolicyAlways && !demote:
 			c.Policy = kuikv1alpha1.RewritePolicyAlways
 			b.alwaysMirror = append(b.alwaysMirror, c)
-		} else {
+		default:
 			b.onFailureMirror = append(b.onFailureMirror, c)
 		}
 	}

@@ -131,6 +131,17 @@ var _ = Describe("Needed namespaces", func() {
 		)
 	})
 
+	It("needs every namespace the namespaceSelector selects for an ImageMirror under rewritePolicy Required, with no pod in it", func() {
+		// A container is rewritten to the mirror before its copy lands, so the Secret has to be
+		// there ahead of any pod, as under Always.
+		cr := mirror(kuikv1alpha1.RewritePolicyRequired, secretRef("mirror"))
+		cr.Spec.NamespaceSelector = &metav1.LabelSelector{MatchLabels: map[string]string{teamLabel: "a"}}
+		r := FromImageMirror(cr)
+
+		Expect(r.Needed(teamA, nil)).NotTo(BeEmpty())
+		Expect(r.Needed(teamB, nil)).To(BeEmpty())
+	})
+
 	It("needs no namespace for an ImageMirror under rewritePolicy None", func() {
 		r := FromImageMirror(mirror(kuikv1alpha1.RewritePolicyNone, secretRef("mirror")))
 		pod := rewrittenPod("ImageMirror/"+crName, "registry.tld/mirror/quay.io/acme/foo:1_c", "registry.tld/mirror/quay.io/acme/foo:1_c")

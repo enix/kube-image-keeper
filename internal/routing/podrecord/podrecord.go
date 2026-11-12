@@ -27,7 +27,7 @@ type Rewrite struct {
 	Origin string `json:"origin"`
 	// RewrittenTo is the reference kuik placed.
 	RewrittenTo string `json:"rewrittenTo"`
-	// Policy is `Always` or `OnFailure`.
+	// Policy is `Always`, `OnFailure` or `Required`.
 	Policy string `json:"policy"`
 }
 

@@ -184,6 +184,73 @@ var _ = Describe("Candidates", func() {
 		})
 	})
 
+	Context("with an ImageMirror under rewritePolicy Required", func() {
+		It("offers its candidate alone, leaving the original out", func() {
+			result := NewIndex(nil, mirrors(prodMirror(required))).Candidates(request(nginx), options)
+			Expect(references(result)).To(Equal([]string{mirrorNginx}))
+			Expect(result.Required).NotTo(BeNil())
+			Expect(result.Required.Reference).To(Equal(mirrorNginx))
+			Expect(result.Required.Policy).To(Equal(kuikv1alpha1.RewritePolicyRequired))
+		})
+
+		DescribeTable("keeps the alternatives behind its candidate, without the original",
+			func(alternativePolicy string) {
+				index := NewIndex(alternatives(library(alternativePolicy)), mirrors(prodMirror(required)))
+				Expect(references(index.Candidates(request(nginx), options))).To(Equal([]string{mirrorNginx, ecrNginx, gcrNginx}))
+			},
+			Entry("OnFailure alternative", onFailure),
+			Entry("Always alternative", always),
+		)
+
+		It("leaves out an alternative candidate that produces the original's own reference", func() {
+			// The first entry is the match, so its duplicate is offered, and rewrites nginx to
+			// itself.
+			dup := alternative("dup", onFailure, group(dockerLibrary), group(dockerLibrary))
+			index := NewIndex(alternatives(dup), mirrors(prodMirror(required)))
+			Expect(references(index.Candidates(request(nginx), options))).To(Equal([]string{mirrorNginx}))
+		})
+
+		It("leaves the original out when an entry marked unavailable would demote it", func() {
+			gone := alternative("gone", onFailure, group(ecrLibrary), unavailable(group(dockerLibrary)))
+			index := NewIndex(alternatives(gone), mirrors(prodMirror(required)))
+			Expect(references(index.Candidates(request(nginx), options))).To(Equal([]string{mirrorNginx, ecrNginx}))
+		})
+
+		It("keeps its candidate first for a container with imagePullPolicy Always", func() {
+			index := NewIndex(alternatives(library(onFailure)), mirrors(prodMirror(required)))
+			Expect(references(index.Candidates(pullAlways(request(nginx)), options))).
+				To(Equal([]string{mirrorNginx, ecrNginx, gcrNginx}))
+		})
+
+		It("puts its candidate ahead of an Always mirror, both in the first band sorted by name", func() {
+			index := NewIndex(nil, mirrors(otherMirror("archive", always), prodMirror(required)))
+			Expect(references(index.Candidates(request(nginx), options))).To(Equal([]string{archiveNginx, mirrorNginx}))
+		})
+
+		It("keeps the original for an image matching its excludeImages", func() {
+			m := prodMirror(required)
+			m.Spec.ExcludeImages = []string{"docker.io/library/**"}
+			result := NewIndex(nil, mirrors(m)).Candidates(request(nginx), options)
+			Expect(references(result)).To(Equal([]string{dockerNginx}))
+			Expect(result.Required).To(BeNil())
+		})
+
+		It("keeps its policy and stays the required candidate when its copy is reported failed", func() {
+			index := NewIndex(alternatives(library(onFailure)), mirrors(failedCopies(prodMirror(required), dockerNginx)))
+			result := index.Candidates(request(nginx), options)
+			Expect(references(result)).To(Equal([]string{ecrNginx, gcrNginx, mirrorNginx}))
+			Expect(candidate(result, mirrorNginx).Policy).To(Equal(kuikv1alpha1.RewritePolicyRequired))
+			Expect(result.Required.Reference).To(Equal(mirrorNginx))
+		})
+
+		It("reports no required candidate under the other policies", func() {
+			for _, policy := range []string{onFailure, always} {
+				result := NewIndex(nil, mirrors(prodMirror(policy))).Candidates(request(nginx), options)
+				Expect(result.Required).To(BeNil(), "under %s", policy)
+			}
+		})
+	})
+
 	Context("for a container with imagePullPolicy Always", func() {
 		It("moves an Always ImageMirror candidate to the OnFailure mirror band", func() {
 			index := NewIndex(alternatives(library(onFailure)), mirrors(prodMirror(always)))
@@ -478,6 +545,7 @@ var _ = Describe("Candidates", func() {
 const (
 	always    = "Always"
 	onFailure = "OnFailure"
+	required  = "Required"
 	dockerIO  = "docker.io"
 	ecr       = "ecr"
 	gcr       = "gcr"
