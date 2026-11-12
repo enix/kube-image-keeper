@@ -22,6 +22,7 @@ policies:
           - e2e
           - helm
           - metrics
+          - migration
           - mirroring
           - monitoring
           - pacing
