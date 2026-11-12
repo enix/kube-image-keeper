@@ -1,9 +1,21 @@
 # Chart values of the e2e release, on top of the chart's defaults (task deploy HELM_VALUES=...).
 # The monitoring specs wait for the background checks of a registry, one window apart: 10s
 # instead of the default 1m (5s is the minimum) cuts that wait. Every host the suite's monitors
-# and mirrors check is registry.k8s.io or a .invalid host, so the faster pace reaches no rate limit.
+# and mirrors check is registry.k8s.io, a .invalid host or a registry of the cluster, so the
+# faster pace reaches no rate limit.
 config:
   registries:
     default:
       check:
         interval: 10s
+    # The plain HTTP origin of mirror_test.go, whose spec reads how far apart its requests come
+    # (sourceRequestInterval). Set at install: a reload of the global config shows in no
+    # behaviour a spec could wait on. A copy window every 5s instead of 3m, and room in the check
+    # timeout for 3 requests a turn apart per credential tried.
+    registry-source.kuik-e2e-registry.svc.cluster.local:5000:
+      requestInterval: 1s
+      check:
+        interval: 10s
+        timeout: 30s
+      copy:
+        interval: 5s
