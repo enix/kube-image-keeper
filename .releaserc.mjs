@@ -7,6 +7,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+// Imports node built-ins only: an error at load would make semantic-release silently fall back
+// on its default configuration.
+import { onSuccessFunction } from "./.github/release-slack.mjs";
+
 // conventional-commits-parser builds its note regex case-insensitively by default, and
 // matches it at the start of every line of the body. Any wrapped line starting with the
 // words "breaking change" is then read as a breaking-change footer. Keep the default
@@ -101,7 +105,10 @@ export default {
         packageName: "kube-image-keeper",
         notifyOnSuccess: true,
         notifyOnFail: false,
-        markdownReleaseNotes: true,
+        // The whole message, notes included, in one block per section of the notes
+        // (.github/release-slack.mjs). The notes go out whole: the plugin's unsafeMaxLength
+        // truncation applies to the notes of its own message only.
+        onSuccessFunction,
       },
     ],
   ],

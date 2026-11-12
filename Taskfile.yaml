@@ -142,6 +142,19 @@ tasks:
       - sh .claude/hooks/implementer-guard.test.sh
       - sh hack/coderabbit-slot.test.sh
 
+  test-release:
+    desc: Check the Slack message of a release (.github/release-slack.mjs) with the semantic-release-slack-bot the Release workflow installs, downloaded from npm into a temporary directory (Node.js >= 22)
+    cmds:
+      # The plugin of the workflow's extra_plugins, its install scripts skipped and without its
+      # semantic-release peer: the test only loads its converter and chunkifier.
+      - |
+        set -e
+        dir=$(mktemp -d)
+        trap 'rm -rf "$dir"' EXIT
+        bot=$(awk '/extra_plugins: \|/ { f = 1; next } f && /semantic-release-slack-bot@/ { print $1; exit }' .github/workflows/release.yaml)
+        npm install --silent --ignore-scripts --legacy-peer-deps --no-audit --no-fund --prefix "$dir" "$bot"
+        RELEASE_SLACK_BOT_FROM="$dir/index.js" node --test .github/release-slack.test.mjs
+
   lint-config:
     desc: Verify the golangci-lint configuration
     deps: [tools:golangci-lint]
