@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
 
-import { MAX_BLOCKS, MAX_TEXT, onSuccessFunction, slackBot, slackMessage } from "./release-slack.mjs";
+import { linkRefs, MAX_BLOCKS, MAX_TEXT, onSuccessFunction, slackBot, slackMessage } from "./release-slack.mjs";
 
 const from = process.env.RELEASE_SLACK_BOT_FROM;
 if (!from) {
@@ -68,9 +68,17 @@ describe("the Slack message of a release", () => {
     });
 
     it("shows the pull request numbers without a backslash", () => {
+      assert.doesNotMatch(texts(message).join("\n"), /\\#/);
+    });
+
+    it("links every pull request and issue of the notes, and leaves none bare", () => {
       const all = texts(message).join("\n");
-      assert.match(all, /\(#\d+/);
-      assert.doesNotMatch(all, /\\#/);
+      const refs = [...beta5.matchAll(/(?<![\w/])#(\d+)/g)].map((m) => m[1]);
+      assert.ok(refs.length > 0, "the notes have no reference");
+      for (const n of refs) {
+        assert.ok(all.includes(`<https://github.com/enix/kube-image-keeper/issues/${n}|#${n}>`), `#${n} is not a link`);
+      }
+      assert.doesNotMatch(all.replace(/<[^<>\n]*>/g, ""), /#\d/);
     });
 
     it("never ends a block on a title", () => {
@@ -135,6 +143,44 @@ describe("the Slack message of a release", () => {
       assert.equal(message.blocks.at(-2).text.text.replaceAll("​", ""), `*Section ${MAX_BLOCKS - 3}*\n\n•   An item.`);
       assert.equal(message.blocks.at(-1).text.text, `<${releaseUrl}|Full notes on GitHub>`);
       checkLimits(message);
+    });
+  });
+
+  describe("the references of the notes", () => {
+    const repoUrl = "https://github.com/enix/kube-image-keeper";
+    const link = (text) => linkRefs(text, repoUrl);
+
+    it("links #N to the issue of the repository", () => {
+      assert.equal(link("A fix. (#856, closes #843)"), `A fix. (<${repoUrl}/issues/856|#856>, closes <${repoUrl}/issues/843|#843>)`);
+    });
+
+    it("links owner/repo#N to the issue of that repository", () => {
+      assert.equal(
+        link("Fixed upstream. (google/go-containerregistry#2012)"),
+        "Fixed upstream. (<https://github.com/google/go-containerregistry/issues/2012|google/go-containerregistry#2012>)",
+      );
+    });
+
+    it("links a commit sha in parentheses to the commit", () => {
+      assert.equal(
+        link("A fix. (93ea119a, #856)"),
+        `A fix. (<${repoUrl}/commit/93ea119a|93ea119a>, <${repoUrl}/issues/856|#856>)`,
+      );
+    });
+
+    it("leaves a sha outside parentheses, a number and a word alone", () => {
+      const text = "Commit 93ea119a, version 1234567 (1234567, deadbeef, cafe)";
+      assert.equal(link(text), text);
+    });
+
+    it("leaves a # in inline code, in a link, in a word and in a title alone", () => {
+      const text = "Run `kubectl get #5` and see <https://example.com/#7|the anchor #7>, issue#8.\n*Fixes #9*";
+      assert.equal(link(text), text);
+    });
+
+    it("leaves a code block alone", () => {
+      const text = "```\nfoo #5 (93ea119a)\n```";
+      assert.equal(link(text), text);
     });
   });
 
