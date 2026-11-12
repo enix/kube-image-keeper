@@ -78,6 +78,10 @@ A check sends up to 3 requests per credential, and a copy of the same host may t
 before each of them. Give it more for an index that nests another index, or to leave room for
 retries. A timeout too short for the wait fails the checks of that host as `Unreachable`.
 
+The Helm chart sets `registries.public.ecr.aws.requestInterval` to `1s` (the `config` value):
+ECR Public allows about 1 anonymous request per second. The config you set in the chart values
+merges over it, and can set it to another duration or to `0`.
+
 How `registries` paces each host, and what a reload does to it, is explained in
 [Registry pacing](./concepts/pacing.md).
 
