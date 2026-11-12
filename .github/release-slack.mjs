@@ -1,7 +1,7 @@
 // The Slack message announcing a release, given to semantic-release-slack-bot as its
 // onSuccessFunction (.releaserc.mjs). The plugin's own message puts the whole notes in one
 // section block, truncated at 2900 characters, and shows the <details> and <summary> tags of the
-// GitHub body as raw text. This one turns the summaries into titles and gives each section of
+// GitHub body as raw text. This one drops them, summaries included, and gives each section of
 // the notes its own blocks, so the notes go out whole; the GitHub body is left as it is.
 
 import { createRequire } from "node:module";
@@ -78,12 +78,12 @@ function section(text) {
   return { type: "section", text: { type: "mrkdwn", text } };
 }
 
-// The notes without the HTML Slack cannot show: a <details> block opens and a <summary> is a title
-// in bold on its own line.
+// The notes without the HTML Slack cannot show: a <details> block opens and its <summary> is
+// dropped, since Slack cannot collapse the list and the summary only counts its items.
 export function slackMarkdown(notes) {
   return notes
     .replace(/<\/?details>/g, "\n")
-    .replace(/<summary>(.*?)<\/summary>/gs, (_, title) => `\n\n**${title.trim()}**\n\n`)
+    .replace(/<summary>(.*?)<\/summary>/gs, "\n\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -108,7 +108,7 @@ export function sections(markdown) {
   return result.filter((s) => s.trim() !== "");
 }
 
-// A line all in bold: a heading, a summary or a group title of the notes.
+// A line all in bold: a heading or a group title of the notes.
 const title = /^​?\*[^*\n]+\*​?$/;
 
 // What a reference never touches: inline code and the links of the Slack text.
