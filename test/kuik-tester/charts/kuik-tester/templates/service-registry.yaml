@@ -1,0 +1,15 @@
+{{- $fullname := include "kuik-tester.fullname" . -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-registry
+  labels:
+    {{- include "kuik-tester.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "kuik-tester.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: registry
+      port: 8080
+      targetPort: registry

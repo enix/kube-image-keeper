@@ -1,8 +1,9 @@
 version: 2
 # The entries that target main add the e2e-ready label: a label added by Dependabot triggers
 # the E2E workflow, one added from a workflow with GITHUB_TOKEN would not. Setting labels
-# replaces the default ones, so each entry lists them again. Except for major updates and the
-# kubernetes group, the PRs are then merged automatically once the required checks pass, see
+# replaces the default ones, so each entry lists them again. Except for major updates, the
+# kubernetes group and kuik-tester, the PRs are then merged automatically once the required
+# checks pass, see
 # .github/workflows/dependabot.yaml.
 updates:
   - package-ecosystem: "github-actions"
@@ -98,6 +99,52 @@ updates:
   - package-ecosystem: "docker"
     open-pull-requests-limit: 1
     directory: "/"
+    schedule:
+      interval: "monthly"
+    labels:
+      - "dependencies"
+      - "docker"
+      - "e2e-ready"
+    groups:
+      all:
+        applies-to: version-updates
+        patterns:
+          - "*"
+      security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+
+  # kuik-tester, the nested module of test/kuik-tester (notes/0017). Its updates are left to a
+  # human review: no required check builds it, and its Docker updates bump the pinned Go release,
+  # which changes every synthetic digest it serves. See .github/workflows/dependabot.yaml.
+  - package-ecosystem: "gomod"
+    open-pull-requests-limit: 1
+    directory: "/test/kuik-tester"
+    schedule:
+      interval: "monthly"
+    labels:
+      - "dependencies"
+      - "go"
+      - "e2e-ready"
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+
+  - package-ecosystem: "docker"
+    open-pull-requests-limit: 1
+    directory: "/test/kuik-tester"
     schedule:
       interval: "monthly"
     labels:

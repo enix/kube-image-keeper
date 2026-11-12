@@ -1,0 +1,38 @@
+{{define "dest"}}<section id="dest-{{.Host}}">
+<h2>{{.Host}}</h2>
+{{if .Err}}<div class="err">{{.Err}}</div>{{end}}
+{{if .Msg}}<div class="ok">{{.Msg}}</div>{{end}}
+<table><thead><tr><th>Repo</th><th>Tag</th><th>Digest</th><th></th></tr></thead><tbody>
+{{range $r := .Repos}}{{range .Tags}}
+<tr data-ref="{{$r.Name}}:{{.Tag}}"><td>{{$r.Name}}</td><td>{{.Tag}}</td><td><code>{{shortDigest .Digest}}</code></td>
+<td>
+<form class="inl" hx-post="/ui/destinations/{{$.Host}}/delete-tag" hx-target="closest section" hx-swap="outerHTML" hx-confirm="Delete tag {{$r.Name}}:{{.Tag}} on {{$.Host}}?">
+<input type="hidden" name="repo" value="{{$r.Name}}"><input type="hidden" name="tag" value="{{.Tag}}"><button>delete tag</button></form>
+<form class="inl" hx-post="/ui/destinations/{{$.Host}}/delete-manifest" hx-target="closest section" hx-swap="outerHTML" hx-confirm="Delete manifest {{shortDigest .Digest}} of {{$r.Name}} on {{$.Host}}?">
+<input type="hidden" name="repo" value="{{$r.Name}}"><input type="hidden" name="digest" value="{{.Digest}}"><button>delete manifest</button></form>
+</td></tr>
+{{end}}{{else}}<tr><td colspan="4" class="muted">Empty.</td></tr>{{end}}
+</tbody></table>
+<form class="inline" hx-post="/ui/destinations/{{.Host}}/tag" hx-target="closest section" hx-swap="outerHTML">
+<label>repo <input name="repo" required title="Repository on the backend"></label>
+<label>source tag or digest <input name="src" required title="Existing tag, or a digest, to point the new tag at"></label>
+<label>new tag <input name="newTag" required title="Tag to create or move"></label>
+<button>Tag</button></form>
+<form class="inline" hx-post="/ui/destinations/{{.Host}}/push" hx-target="closest section" hx-swap="outerHTML">
+<label>repo <input name="repo" required title="Repository on the backend"></label>
+<label>tag <input name="tag" required title="Tag to push"></label>
+<label>content key <input name="contentKey" placeholder="repo" title="Content key of the synthetic image; empty means the repository"></label>
+<label>generation <input name="generation" size="4" placeholder="1" title="Generation of the content; empty means 1"></label>
+<button>Push synthetic</button></form>
+<form class="inline" hx-post="/ui/destinations/{{.Host}}/purge" hx-target="closest section" hx-swap="outerHTML" hx-confirm="Delete every tag under this prefix on {{.Host}}?">
+<label>prefix <input name="prefix" required title="Repository path prefix, no glob: every tag under it is deleted"></label>
+<button title="Delete every tag under the prefix">Purge prefix</button></form>
+{{if .Tags}}<form class="inline" hx-post="/ui/destinations/{{.Host}}/purge-all" hx-target="closest section" hx-swap="outerHTML" hx-confirm="Delete all {{count .Tags "tag" "tags"}} in {{count (len .Repos) "repository" "repositories"}} of {{.Host}}?">
+<button title="Delete every tag of every repository of the backend">Purge all repositories</button></form>{{end}}
+</section>{{end}}
+
+{{define "content"}}
+<h1>Destinations</h1>
+<p class="lead">Act on the backend of each proxy host directly: these actions never appear in the request log. Invalid input changes nothing; a backend error is shown in the section.</p>
+{{range .}}{{template "dest" .}}{{else}}<p class="muted">No proxy host configured.</p>{{end}}
+{{end}}

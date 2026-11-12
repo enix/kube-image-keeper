@@ -1,0 +1,30 @@
+{{define "err"}}<div class="err">{{.}}</div>{{end}}
+{{define "okmsg"}}<div class="ok">{{.}}</div>{{end}}
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} - kuik-tester</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/htmx.min.js"></script>
+<script src="/static/app.js" defer></script>
+{{block "head" .Data}}{{end}}
+</head>
+<body>
+<nav>
+<strong>kuik-tester</strong>
+<a href="/"{{if eq .Nav "images"}} class="cur"{{end}}>Images</a>
+<a href="/rules"{{if eq .Nav "rules"}} class="cur"{{end}}>Rules</a>
+<a href="/settings"{{if eq .Nav "settings"}} class="cur"{{end}}>Settings</a>
+<a href="/destinations"{{if eq .Nav "destinations"}} class="cur"{{end}}>Destinations</a>
+<a href="/requests"{{if eq .Nav "requests"}} class="cur"{{end}}>Requests</a>
+<a href="/state"{{if eq .Nav "state"}} class="cur"{{end}}>State</a>
+<a href="https://github.com/enix/kube-image-keeper/blob/main/test/kuik-tester/README.md" target="_blank" rel="noopener">Docs</a>
+</nav>
+<main>
+<div id="msg" aria-live="polite"></div>
+{{template "content" .Data}}
+</main>
+</body>
+</html>{{end}}

@@ -1,0 +1,40 @@
+{{- include "kuik-tester.validate" . -}}
+{{- $fullname := include "kuik-tester.fullname" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "kuik-tester.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    baseDomain: {{ .Values.baseDomain | quote }}
+    registryAddr: ":8080"
+    adminAddr: ":8081"
+    {{- if .Values.plainHTTP.enabled }}
+    plainHTTPAddr: ":5000"
+    plainHTTPHost: {{ .Values.plainHTTP.hostLabel | quote }}
+    {{- end }}
+    {{- if .Values.tls.secretName }}
+    tlsCertFile: /etc/kuik-tester-tls/tls.crt
+    tlsKeyFile: /etc/kuik-tester-tls/tls.key
+    {{- end }}
+    {{- if .Values.proxies }}
+    proxies:
+    {{- range .Values.proxies }}
+      - name: {{ .name | quote }}
+        backend: {{ .backend | default (printf "http://%s-zot:5000" $fullname) | quote }}
+    {{- end }}
+    {{- else }}
+    proxies: []
+    {{- end }}
+    trustedProxies:
+    {{- range .Values.trustedProxies }}
+      - {{ . | quote }}
+    {{- else }} []
+    {{- end }}
+    {{- if .Values.persistence.enabled }}
+    statePath: /var/lib/kuik-tester/state.json
+    {{- end }}
+    logSize: {{ .Values.logSize }}
+    expireAfter: {{ .Values.expireAfter | quote }}

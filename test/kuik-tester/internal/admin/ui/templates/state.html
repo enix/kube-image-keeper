@@ -1,0 +1,41 @@
+{{define "sets"}}<div id="sets"{{if .OOB}} hx-swap-oob="true"{{end}}>
+{{if .Sets}}<table>
+<tr><th>Set</th><th>Objects</th><th></th></tr>
+{{range .Sets}}<tr data-set="{{.Name}}" data-objects="{{.Objects}}">
+<td>{{.Name}}</td><td>{{.Objects}}</td>
+<td><a href="/api/v1/export?set={{.Name}}" title="Download the objects of this set as YAML">Export</a>
+<form class="inline" hx-post="/ui/sets/delete" hx-target="#sets" hx-swap="outerHTML" hx-confirm="Delete every object of set {{.Name}}?">
+<input type="hidden" name="name" value="{{.Name}}">
+<button title="Delete every object of this set">Delete</button>
+</form></td>
+</tr>
+{{end}}</table>
+{{else}}<p class="muted">No set in use.</p>{{end}}
+</div>{{end}}
+{{define "imported"}}{{template "okmsg" .Msg}}{{template "sets" .}}{{end}}
+{{define "purgeword"}}<input id="purge-word" name="confirm" value="" placeholder="purge" autocomplete="off" required{{if .OOB}} hx-swap-oob="true"{{end}} title="Type the word purge to confirm">{{end}}
+{{define "purged"}}{{template "okmsg" .Msg}}{{range .Warns}}<div class="warn">{{.}}</div>{{end}}{{template "sets" .}}{{template "purgeword" .}}{{end}}
+{{define "content"}}
+<h1>State</h1>
+<p class="lead">Export and import the rules and settings as YAML.</p>
+<h2>Export</h2>
+<p><a href="/api/v1/export">Download the settings as YAML</a> (rules, aliases, divergents, platforms, users, grants, host auth, quotas).</p>
+<h2>Sets</h2>
+<p class="lead">A set groups the objects one test or fixture created; deleting it removes them in one go. Merging adds the document's objects on top, tagged with the set; replacing loads the document as the whole settings.</p>
+{{template "sets" .}}
+<h2>Import</h2>
+<p class="lead">Merge the YAML into a named set, or replace every rule and setting with it. A rejected import changes nothing.</p>
+<form hx-post="/ui/sets/import" hx-target="#msg" hx-swap="innerHTML">
+<textarea name="yaml" rows="16" class="wide" required title="YAML document, as downloaded from the export"></textarea>
+<input name="set" placeholder="set name" title="Set name: letters, digits, _ . -, up to 64 characters">
+<button title="Add the objects of the YAML on top, tagged with the set; a user, host auth or quota of the same key is replaced">Merge into set</button>
+<button type="button" hx-post="/ui/state/import" hx-validate="true" hx-confirm="Replace every rule and setting with this YAML?" title="Replace all the settings, every set included, with this YAML">Replace everything</button>
+</form>
+<h2>Reset</h2>
+<p class="lead">Deletes every rule, setting, set, image, logged request and stat; with the box ticked, every repository of every proxy backend too. This cannot be undone.</p>
+<form hx-post="/ui/state/purge" hx-target="#msg" hx-swap="innerHTML">
+<label><input type="checkbox" name="backends" value="1" title="Also delete every tag of every repository of every proxy backend"> also purge proxy backends</label>
+{{template "purgeword" .}}
+<button title="Type purge in the field to confirm">Purge everything</button>
+</form>
+{{end}}

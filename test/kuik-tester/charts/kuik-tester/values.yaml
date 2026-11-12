@@ -1,0 +1,117 @@
+image:
+  # -- Image built from `test/kuik-tester/Dockerfile` (`task tester:image`).
+  repository: quay.io/enix/kuik-tester
+  # -- Image tag. Empty means the chart appVersion.
+  # @default -- the chart appVersion
+  tag: ""
+  # -- Image pull policy of the tester container.
+  pullPolicy: IfNotPresent
+  # -- Names of docker-registry Secrets, in the release namespace, used to pull the tester image (not the zot one).
+  pullSecrets: []
+
+# -- Every `<label>.<baseDomain>` host is a synthetic registry or a proxy.
+baseDomain: kt.example.com
+
+# -- Hosts forwarding to a real registry, as a list of `{name, backend}`. An empty `backend` means the in-chart zot Service (rendering fails when `zot.enabled` is false). A `name` may be a `path.Match` pattern without a dot (`mirror-*`): the exact name wins, then the first matching pattern.
+# @default -- `mirror`, `mirror-*`, `nodelete` and `nodelete-*`, all on the in-chart zot Service
+proxies:
+  - name: mirror
+    backend: ""
+  - name: mirror-*
+    backend: ""
+  - name: nodelete
+    backend: ""
+  - name: nodelete-*
+    backend: ""
+
+# -- CIDRs whose `X-Forwarded-*` headers are trusted (client IP, Bearer realm scheme). Set it to the narrowest CIDR holding the Ingress controller pods: their node subnet with hostNetwork, else the pod CIDR (e.g. `[10.244.0.0/16]`), which also trusts every other pod. Empty trusts nobody: behind an Ingress the Bearer realms are `http://` and per-IP quotas see the controller.
+trustedProxies: []
+
+# -- Size of the request log ring buffer (at least 1).
+logSize: 10000
+
+# -- How long seen or resolved images (with their generations and digests) and logged requests are kept without being seen again, as a Go duration (`168h`, `90m`) or a number of days (`7d`). Older ones are dropped. `0` keeps everything.
+expireAfter: 7d
+
+# TLS terminated by the binary on :8080 (kind e2e without an Ingress).
+tls:
+  # -- Secret with `tls.crt` and `tls.key`. When set, the binary terminates TLS on :8080. Rendering fails when `ingress.registry.enabled` is also true.
+  secretName: ""
+
+# State file (rules, synthetic content) kept across restarts.
+persistence:
+  # -- Keep the state file on a PVC.
+  enabled: true
+  # -- Size of the state PVC.
+  size: 1Gi
+  # -- Storage class of the state PVC. Empty means the cluster default.
+  storageClass: ""
+
+# Extra plain-HTTP registry on :5000, behind a Service of its own.
+plainHTTP:
+  # -- Serve an extra plain-HTTP registry on :5000.
+  enabled: false
+  # -- Host label served by the plain-HTTP listener (a synthetic host or a proxy name).
+  hostLabel: http
+  service:
+    # -- Service type: `LoadBalancer`, `NodePort` or `ClusterIP`.
+    type: LoadBalancer
+    # -- Service port.
+    port: 5000
+    # -- Fixed node port (`NodePort` or `LoadBalancer`); `0` lets Kubernetes allocate one. Fix it when containerd hosts.toml or the kuik config name `<nodeIP>:<nodePort>`.
+    nodePort: 0
+
+ingress:
+  registry:
+    # -- Create the Ingress for `*.<baseDomain>`.
+    enabled: true
+    # -- `ingressClassName` of the registry Ingress, omitted when empty.
+    className: ""
+    # -- Annotations of the registry Ingress.
+    annotations: {}
+    # -- TLS Secret for `*.<baseDomain>`.
+    tlsSecretName: ""
+  # The admin API and UI have no authentication. Keep this off unless the
+  # Ingress sits on a private class or carries allowlist/auth annotations.
+  admin:
+    # -- Create the Ingress for the admin API and UI, which have no authentication of their own. Enable it only on a private Ingress class or with allowlist and auth annotations.
+    enabled: false
+    # -- `ingressClassName` of the admin Ingress, omitted when empty.
+    className: ""
+    # -- Annotations of the admin Ingress.
+    annotations: {}
+    # -- Host of the admin Ingress.
+    # @default -- `admin.<baseDomain>`
+    host: ""
+    # -- TLS Secret for the admin host.
+    tlsSecretName: ""
+
+networkPolicy:
+  # -- Create a NetworkPolicy on the tester pod and, with the in-chart zot (`zot.enabled`), one on zot. The tester policy lets everyone reach the registry ports (8080, and 5000 with `plainHTTP.enabled`) and restricts the admin port (8081) to `adminFrom`. The zot policy lets only the tester pod reach zot on 5000. No egress rule is set. The CNI plugin must enforce NetworkPolicy, or this has no effect.
+  enabled: false
+  # -- Peers (`podSelector`, `namespaceSelector`, `ipBlock`) allowed on the admin port. Empty means only `kubectl port-forward` (it does not go through the pod network) and the kubelet probes (they come from the node, which most CNI plugins let through; add the node CIDR as an `ipBlock` if yours does not; zot's own probes on port 5000 come from the node too and are covered by the same caveat). Must name the Ingress controller when `ingress.admin.enabled` is true.
+  adminFrom: []
+
+zot:
+  # -- Deploy zot as the default proxy backend.
+  enabled: true
+  # -- zot image.
+  image: ghcr.io/project-zot/zot-minimal:v2.1.21
+  # -- zot `storage.gcDelay`.
+  gcDelay: 5m
+  # -- zot `storage.gcInterval`.
+  gcInterval: 10m
+  # -- zot `storage.retention.delay`.
+  retentionDelay: 5m
+  persistence:
+    # -- PVC for zot data, `emptyDir` otherwise.
+    enabled: true
+    # -- Size of the zot PVC.
+    size: 5Gi
+    # -- Storage class of the zot PVC. Empty means the cluster default.
+    storageClass: ""
+  # -- Resources of the zot container.
+  resources: {}
+
+# -- Resources of the tester container.
+resources: {}

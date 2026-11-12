@@ -62,6 +62,9 @@ test/e2e/                     End-to-end suite, runs on a Kind cluster
 test/acceptance/              Acceptance of a release on a cluster where kuik runs: user stories (scenarios.md),
                               YAML fixtures and a program that applies and prints test objects, never asserts
                               (see its README)
+test/kuik-tester/             kuik-tester, a synthetic OCI registry and fault-injecting proxy for the
+                              tests, with its chart and image: a nested Go module, `task tester:*`
+                              (see its README and notes/0017)
 hack/                         Developer tools run with go run (the test outline, the values check,
                               the release notes renderer), and the CodeRabbit review wait and slot
                               ledger of the pull-request skill

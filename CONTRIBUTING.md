@@ -65,7 +65,7 @@ The automated review (CodeRabbit) runs once, when the pull request is opened; co
 
 `Conform`, `Test` and `E2E` are required checks. A pull request that changes no file the e2e suite depends on passes `E2E` without running it and needs no label. Otherwise the suite, which takes minutes on a Kind cluster, runs once, on the branch as it will merge: add the `e2e-ready` label once the pull request is reviewed, its e2e specs are pushed and it holds only commits meant for `main`. Until then, `E2E` fails at once and says what is missing: a branch carrying `fixup!` commits does not run the suite until they are folded and force-pushed.
 
-Dependabot pull requests that target `main` carry the `e2e-ready` label from the start, and a workflow approves them and enables auto-merge: they are merged once the required checks pass. Major updates, the `kubernetes` group and the pull requests that target a maintenance branch are reviewed and merged by hand.
+Dependabot pull requests that target `main` carry the `e2e-ready` label from the start, and a workflow approves them and enables auto-merge: they are merged once the required checks pass. Major updates, the `kubernetes` group, the updates of kuik-tester (no required check builds it, and a Go release changes every synthetic digest it serves) and the pull requests that target a maintenance branch are reviewed and merged by hand.
 
 ### Commit scopes
 
@@ -76,9 +76,9 @@ Scopes in commit messages are optional, but when used they must belong to the li
 | Feature | `mirroring`, `routing`, `monitoring` | Describe *what* the change affects functionally (e.g. `feat(routing): ...`). |
 | Component | `auth`, `metrics`, `registry`, `helm`, `config`, `secret-syncer`, `pacing` | A distinct code area with its own concerns: credentials and secrets handling, the metrics surface, `internal/registry/`, `helm/kube-image-keeper/`, the global config file (`internal/config/`, its ConfigMap, `docs/configuration.md`), the secret syncer process and the pull secrets it materialises and renews, the pace of the reads kuik makes from registries (`registries.<host>.check` and `copy` in the global config). |
 | Origin | `deps` | Dependency updates (e.g. `build(deps): ...`). |
-| Tooling | `e2e`, `claude` | Project tooling, not kuik itself: the end-to-end suite under `test/e2e/` with its CI job and label, the shared Claude Code configuration under `.claude/` (skills, agents, rules, hooks). |
+| Tooling | `e2e`, `tester`, `claude` | Project tooling, not kuik itself: the end-to-end suite under `test/e2e/` with its CI job and label, kuik-tester under `test/kuik-tester/` (the fault-injecting registry, its chart and image), the shared Claude Code configuration under `.claude/` (skills, agents, rules, hooks). |
 
-**Tooling scopes and types.** The tooling scopes, `claude` and `e2e`, never take `feat` or `fix`: use `chore`, `docs` for a skill or rule whose change is text only, `ci` or `test` (for example `test(e2e): ...`, `chore(claude): ...`). semantic-release lists `feat` and `fix` commits in the release notes and bumps the version on them, and the tooling changes no product behaviour. `task check-commits` rejects them.
+**Tooling scopes and types.** The tooling scopes, `claude`, `e2e` and `tester`, never take `feat` or `fix`: use `chore`, `docs` for a skill or rule whose change is text only, `ci` or `test` (for example `test(e2e): ...`, `test(tester): ...`, `chore(claude): ...`). semantic-release lists `feat` and `fix` commits in the release notes and bumps the version on them, and the tooling changes no product behaviour. `task check-commits` rejects them.
 
 **Picking a scope.** Prefer a feature scope over an architectural one. `fix(routing): ...` is more informative than `fix(controller): ...` because the reader learns *what* changed, not where the code happens to live. If no scope fits cleanly, omit it; scopes are optional. If a change crosses feature boundaries, consider splitting it into several commits.
 
@@ -136,6 +136,10 @@ The notes have no known limits section: [`docs/known-limits.md`](./docs/known-li
 - Stable: fast-forward `X.Y.x-stable` to the head of `X.Y.x`, then dispatch the workflow on `X.Y.x-stable`.
 
 A maintenance line only ships fixes. `X.Y.x-stable` and `X.Y.x-rc` are regular release branches for semantic-release, so nothing caps their computed version natively; the Release workflow enforces the line instead, and fails when the computed version escapes `X.Y.*` (which would mean a stray `feat` or breaking-change commit landed on the line).
+
+### Releasing kuik-tester
+
+kuik-tester (`test/kuik-tester/`, [0017](./notes/0017-kuik-tester.md)) is released apart from kuik: dispatch the [Tester release workflow](./.github/workflows/tester-release.yaml) on `main` with the version, `X.Y.Z` or `X.Y.Z-pre` without a leading `v`, major 0 or 1 (a v2 needs the `/v2` suffix in the module path first). It runs the Tester checks, pushes `quay.io/enix/kuik-tester:<version>` (and `latest` when it is the highest stable version) and the chart `oci://quay.io/enix/charts/kuik-tester`, then tags the commit `test/kuik-tester/v<version>`, the Go version of the nested module. No GitHub release, notes or announcement; semantic-release ignores the tag. A run that fails before the tag is dispatched again with the same version.
 
 ## Cutting a maintenance branch
 

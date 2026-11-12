@@ -1,0 +1,149 @@
+name: Tester release
+
+# Publishes kuik-tester apart from kuik, by hand (notes/0017): dispatched on main with a version,
+# it runs the Tester checks, pushes the image and the chart to quay.io, then tags the commit
+# test/kuik-tester/v<version>, the Go version of the nested module. No GitHub release, no notes,
+# no announcement; semantic-release and the v* tag lookups of kuik never see that tag.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to publish, X.Y.Z or X.Y.Z-pre, without a leading v
+        required: true
+        type: string
+
+concurrency:
+  group: tester-release
+  cancel-in-progress: false
+
+# Writes go through their own secrets, as in the Release workflow: QUAY_* for quay.io,
+# RELEASE_GITHUB_TOKEN for the tag. The workflow token only reads this repository.
+permissions:
+  contents: read
+
+env:
+  VERSION: ${{ inputs.version }}
+  TAG: test/kuik-tester/v${{ inputs.version }}
+  IMAGE: quay.io/enix/kuik-tester
+  CHART_REPOSITORY: oci://quay.io/enix/charts
+
+jobs:
+  version:
+    name: Check the version
+    runs-on: ubuntu-latest
+    outputs:
+      latest: ${{ steps.check.outputs.latest }}
+    steps:
+      # Semantic Versioning 2.0.0 without build metadata, as Helm and Go modules read it.
+      - name: Check the branch, the version and the tag
+        id: check
+        env:
+          REF: ${{ github.ref }}
+          REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          if [ "$REF" != refs/heads/main ]; then
+            echo "::error::Dispatch the Tester release on main, not $REF"
+            exit 1
+          fi
+          number='(0|[1-9][0-9]*)'
+          identifier='(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)'
+          if ! printf '%s\n' "$VERSION" | grep -Eq "^$number\.$number\.$number(-$identifier(\.$identifier)*)?\$"; then
+            echo "::error::$VERSION is not a version X.Y.Z or X.Y.Z-pre, without a leading v"
+            exit 1
+          fi
+          # From v2 on, Go wants the module path to end in /vN, and go.mod has no such suffix:
+          # go get would refuse the tag while the image and the chart were published.
+          case "$VERSION" in
+            0.*|1.*) ;;
+            *)
+              echo "::error::$VERSION needs the module path test/kuik-tester/v${VERSION%%.*} in go.mod first"
+              exit 1
+              ;;
+          esac
+          # Without --exit-code, git ls-remote exits 0 when no tag matches: anything but 0 is an
+          # error, never "absent".
+          status=0
+          tags=$(git ls-remote --tags "$REPOSITORY_URL" 'refs/tags/test/kuik-tester/v*') || status=$?
+          if [ "$status" != 0 ]; then
+            echo "::error::Could not list the kuik-tester tags (git ls-remote exited with $status)"
+            exit 1
+          fi
+          if printf '%s\n' "$tags" | grep -q "[[:space:]]refs/tags/$TAG\$"; then
+            echo "::error::$TAG already exists: kuik-tester $VERSION is published"
+            exit 1
+          fi
+          # latest follows the highest stable version: a pre-release, or a stable version lower
+          # than one already published, leaves it where it is.
+          latest=false
+          case "$VERSION" in
+            *-*) ;;
+            *)
+              highest=$( { printf '%s\n' "$tags" | sed -n 's|.*refs/tags/test/kuik-tester/v\([0-9.]*\)$|\1|p'; echo "$VERSION"; } | sort -V | tail -n 1)
+              [ "$highest" = "$VERSION" ] && latest=true
+              ;;
+          esac
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+
+  checks:
+    name: Checks
+    needs: version
+    uses: ./.github/workflows/tester.yaml
+    permissions:
+      contents: read
+
+  publish:
+    name: Publish
+    needs:
+      - version
+      - checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to quay.io
+        uses: docker/login-action@v4
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_ROBOT_TOKEN }}
+
+      - name: Generate image metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=${{ inputs.version }}
+            type=raw,value=latest,enable=${{ needs.version.outputs.latest == 'true' }}
+
+      # The synthetic images exist for these two platforms only (internal/synth).
+      - name: Build and push the image
+        uses: docker/build-push-action@v7
+        with:
+          context: test/kuik-tester
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Package and push the chart
+        env:
+          QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
+          QUAY_ROBOT_TOKEN: ${{ secrets.QUAY_ROBOT_TOKEN }}
+        run: |
+          helm package test/kuik-tester/charts/kuik-tester --version "$VERSION" --app-version "$VERSION"
+          printf '%s' "$QUAY_ROBOT_TOKEN" | helm registry login quay.io --username "$QUAY_USERNAME" --password-stdin
+          helm push "kuik-tester-$VERSION.tgz" "$CHART_REPOSITORY"
+
+      # Last: the tag exists only once the image and the chart are published, so a failed run
+      # is dispatched again with the same version.
+      - name: Tag the commit
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
+        run: gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$TAG" -f "sha=$GITHUB_SHA" > /dev/null

@@ -1,0 +1,26 @@
+apiVersion: v2
+name: kuik-tester
+description: Synthetic OCI registry and proxy with fault injection, for testing kuik.
+type: application
+# networking.k8s.io/v1 Ingress with pathType and ingressClassName is GA from 1.19.
+kubeVersion: ">=1.19.0-0"
+# version and appVersion are set by the release pipeline
+version: 0.0.0
+appVersion: 0.0.0
+home: https://github.com/enix/kube-image-keeper
+icon: https://raw.githubusercontent.com/enix/kube-image-keeper/main/docs/assets/logo.svg
+sources:
+  - https://github.com/enix/kube-image-keeper
+maintainers:
+  - name: Enix
+    email: contact@enix.fr
+    url: https://github.com/enixsas
+  - name: Paul Laffitte
+    email: paul.laffitte@enix.fr
+    url: https://github.com/paullaffitte
+  - name: David Donchez
+    email: david.donchez@enix.fr
+    url: https://github.com/donch
+  - name: Aurélien Dunand
+    email: aurelien.dunand@enix.fr
+    url: https://github.com/Tassatux
