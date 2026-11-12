@@ -232,16 +232,18 @@ func New(clk clock.Clock, cfg *config.Config) *Scheduler {
 	}
 }
 
-// waiting reports whether the scheduler waits for its next window, so that a test can move
-// a fake clock without racing it.
-func (s *Scheduler) waiting() bool {
+// Waiting reports whether the scheduler waits for its next window, its timer armed, so that a
+// test can move a fake clock without racing it: a clock moved while the loop re-arms its timer
+// after a change of its rings or queues would miss the window. It is a test hook.
+func (s *Scheduler) Waiting() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.idle && (s.due.IsZero() || s.clk.Now().Before(s.due))
 }
 
-// inFlight is the number of checks and copies running.
-func (s *Scheduler) inFlight() int {
+// InFlight is the number of checks and copies running, counted out once the scheduler has
+// recorded their end: the busy host and the backoff of a failed copy. It is a test hook.
+func (s *Scheduler) InFlight() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.running
