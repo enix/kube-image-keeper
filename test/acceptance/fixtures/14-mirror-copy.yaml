@@ -2,6 +2,8 @@
 # Test 14: an ImageMirror that copies for real under --mirror-prefix, a path the user dedicates
 # to the test, with the push Secret kuik-test-mirror-push the user created in the kuik
 # namespace. rewritePolicy None: it copies and never routes, so its pod stays on its origin.
+# cleanup.deleteByDigest: the test is the only writer of that path, and Harbor, the registry of
+# Enix's preprod, refuses tag deletion: by tag, the deleted CR would stay held.
 apiVersion: kuik.enix.io/v1alpha1
 kind: ImageMirror
 metadata:
@@ -15,6 +17,8 @@ spec:
     matchLabels:
       kuik-test/routing: mirror-copy
   rewritePolicy: None
+  cleanup:
+    deleteByDigest: true
   destination:
     path: ${MIRROR_PREFIX}
     manage:
