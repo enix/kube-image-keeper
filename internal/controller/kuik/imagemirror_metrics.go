@@ -100,14 +100,6 @@ func (m *mirrorMetrics) report(kind, name string, counts kuikv1alpha1.CopyCounts
 	})
 	m.images.SetDrifted(kind, name, drifted)
 	m.orphanTags.WithLabelValues(kind, name).Set(float64(counts.OrphanTags))
-	// Touch every reason so its series exists at 0 before its first copy or deletion:
-	// increase() and rate() ignore the first sample of a series, so a series born at 1 loses it.
-	for _, reason := range []string{copyInitial, copyRecopy, copyResync} {
-		m.copies.WithLabelValues(kind, name, reason)
-	}
-	for _, reason := range []string{deletedUnused, deletedOrphan} {
-		m.deleted.WithLabelValues(kind, name, reason)
-	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -123,6 +115,18 @@ func (m *mirrorMetrics) report(kind, name string, counts kuikv1alpha1.CopyCounts
 		}
 	}
 	m.failing[name] = current
+}
+
+// touchCounters creates every reason of the copy and deletion counters of the mirror name at
+// 0, before its first copy or deletion: increase() and rate() ignore the first sample of a
+// series, so a series born at 1 loses it.
+func (m *mirrorMetrics) touchCounters(kind, name string) {
+	for _, reason := range []string{copyInitial, copyRecopy, copyResync} {
+		m.copies.WithLabelValues(kind, name, reason)
+	}
+	for _, reason := range []string{deletedUnused, deletedOrphan} {
+		m.deleted.WithLabelValues(kind, name, reason)
+	}
 }
 
 // copied counts one copy of the mirror name, and observes how long it took when enabled.
