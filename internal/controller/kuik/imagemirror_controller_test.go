@@ -3640,6 +3640,55 @@ var _ = Describe("ImageMirror Controller", func() {
 			Eventually(func() bool { checkWindow(); return drifted() }).Should(BeFalse())
 		})
 
+		It("exports every reason of kuik_mirror_copies_total and kuik_mirror_tags_deleted_total at 0 before its first copy or deletion", func() {
+			h.mirror()
+			h.reconcile()
+
+			for metric, reasons := range map[string][]string{
+				"kuik_mirror_copies_total":       {copyInitial, copyRecopy, copyResync},
+				"kuik_mirror_tags_deleted_total": {deletedUnused, deletedOrphan},
+			} {
+				for _, reason := range reasons {
+					value, ok := counterSeries(h.metrics, metric, mirrorLabels(map[string]string{labelReason: reason}))
+					Expect(ok).To(BeTrue(), "%s{reason=%q} is not exported", metric, reason)
+					Expect(value).To(BeZero())
+				}
+			}
+		})
+
+		It("drops its kuik_mirror_copies_total and kuik_mirror_tags_deleted_total series, the reasons still at 0 included, once the ImageMirror is deleted", func() {
+			reasons := map[string][]string{
+				"kuik_mirror_copies_total":       {copyInitial, copyRecopy, copyResync},
+				"kuik_mirror_tags_deleted_total": {deletedUnused, deletedOrphan},
+			}
+			exported := func(metric, reason string) bool {
+				_, ok := counterSeries(h.metrics, metric, mirrorLabels(map[string]string{labelReason: reason}))
+				return ok
+			}
+			h.mirror()
+			h.reconcile()
+			for metric, rs := range reasons {
+				for _, reason := range rs {
+					Expect(exported(metric, reason)).To(BeTrue(), "%s{reason=%q}", metric, reason)
+				}
+			}
+
+			Expect(k8sClient.Delete(ctx, &kuikv1alpha1.ImageMirror{ObjectMeta: metav1.ObjectMeta{Name: h.name}})).To(Succeed())
+			Eventually(func() bool {
+				h.reconcile()
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: h.name}, &kuikv1alpha1.ImageMirror{})
+				return apierrors.IsNotFound(err)
+			}).Should(BeTrue())
+			// The deletion of the object triggers one more reconcile, which finds it gone.
+			h.reconcile()
+
+			for metric, rs := range reasons {
+				for _, reason := range rs {
+					Expect(exported(metric, reason)).To(BeFalse(), "%s{reason=%q}", metric, reason)
+				}
+			}
+		})
+
 		It("counts kuik_mirror_copies_total by Initial, Recopy and Resync", func() {
 			src := h.source()
 			src.Push("acme/app:v1", registrytest.Image())
@@ -3717,6 +3766,40 @@ var _ = Describe("ImageMirror Controller", func() {
 			}
 			Expect(deleted("Unused")).To(Equal(1.0))
 			Expect(deleted("Orphan")).To(Equal(1.0))
+		})
+
+		It("exports kuik_mirror_tags_deleted_total at 0 before the first deletion after a restart", func() {
+			src := h.source()
+			src.Push("acme/job:v1", registrytest.Image())
+			pod := createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/job:v1"})
+			h.mirror(withRetention(0))
+			h.orphan("old", "v1_"+mirrorClusterID)
+			h.copyAll(1)
+			setPhase(pod, corev1.PodSucceeded)
+			h.reconcile()
+
+			// The first reconcile of the new process sweeps before it writes the status.
+			h.restart()
+			h.pass()
+			entered, release := h.blockOn(http.MethodDelete, "/manifests/")
+			swept := make(chan struct{})
+			go func() {
+				defer GinkgoRecover()
+				defer close(swept)
+				h.reconcile()
+			}()
+			Eventually(entered).Should(BeClosed())
+			for _, reason := range []string{deletedUnused, deletedOrphan} {
+				value, ok := counterSeries(h.metrics, "kuik_mirror_tags_deleted_total", mirrorLabels(map[string]string{labelReason: reason}))
+				Expect(ok).To(BeTrue(), "kuik_mirror_tags_deleted_total{reason=%q} is not exported during the first sweep", reason)
+				Expect(value).To(BeZero())
+			}
+
+			release()
+			Eventually(swept).Should(BeClosed())
+			for _, reason := range []string{deletedUnused, deletedOrphan} {
+				Expect(counter(h.metrics, "kuik_mirror_tags_deleted_total", mirrorLabels(map[string]string{labelReason: reason}))).To(Equal(1.0))
+			}
 		})
 
 		It("observes kuik_mirror_copy_duration_seconds only when metrics.copyDuration is enabled", func() {
