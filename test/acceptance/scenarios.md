@@ -8,7 +8,7 @@ The numbering has gaps on purpose: the scenarios the e2e suite or envtest cover 
 
 In every command, `<path>` is the kubeconfig file and `<name>` its context. `<kuik-namespace>` is the namespace kuik is installed in, `kuik-system` by default: add `--kuik-namespace <kuik-namespace>` to a task when it differs, and `--release <release>` when its Helm release is not `kube-image-keeper`. Every read goes through `acceptance-get` or `acceptance-inspect`, which never print a Secret's data, and every config change through `acceptance-config`: a run needs no `kubectl`. `acceptance-get` prints `NotFound: ...` for a missing object and exits 0.
 
-`<public-repo>` is the repository the test pods pull anonymously, `quay.io/nginx/nginx-unprivileged` by default. On a cluster where a real ImageAlternative or ImageMirror covers it, every routing scenario shows that resource at work instead of the test one: pass `--public-repo <repo>` to `setup` and every `apply`, a repository holding a copy of `nginx-unprivileged:1.31.6-alpine` that no resource of the cluster covers (`task acceptance-get -- --kubeconfig <path> --context <name> imagealternative`, then `imagemirror`, lists what they cover). On a cluster whose egress IP is shared, prefer a registry without an anonymous pull quota: the tests check and copy it every minute.
+`<public-repo>` is the repository the test pods pull anonymously, `quay.io/nginx/nginx-unprivileged` by default. On a cluster where a real ImageAlternative or ImageMirror covers it, every routing scenario shows that resource at work instead of the test one: pass `--public-repo <repo>` to `setup` and every `apply`, a repository holding a copy of `nginx-unprivileged:1.31.6-alpine` that no resource of the cluster covers (`task acceptance-get -- --kubeconfig <path> --context <name> imagealternative`, then `imagemirror`, lists what they cover). On a cluster whose egress IP is shared, prefer a registry without an anonymous pull quota: the tests check it every 3 minutes and copy it every 5 by default (5 and 15 for Docker Hub), and a `<public-repo>` on Docker Hub needs longer waits than the scenarios give.
 
 Apply the 2 test namespaces first, once per run:
 
@@ -206,7 +206,7 @@ task acceptance-apply -- --kubeconfig <path> --context <name> --file test/accept
 task acceptance-apply -- --kubeconfig <path> --context <name> --file test/acceptance/fixtures/12-monitor.yaml
 ```
 
-**Do**: wait 5 minutes: each registry opens one check window per minute by default, shared with the real ImageMonitors of that host ([Scheduling](../../docs/v3/spec.md#scheduling)).
+**Do**: wait 10 minutes: each registry opens one check window every 3 minutes by default, shared with the real ImageMonitors of that host ([Scheduling](../../docs/v3/spec.md#scheduling)).
 
 **Check**:
 
@@ -236,7 +236,7 @@ task acceptance-apply -- --kubeconfig <path> --context <name> --file test/accept
 task acceptance-apply -- --kubeconfig <path> --context <name> --private-repo <private-repo> --pull-auth <secret-name> --file test/acceptance/fixtures/13-anonymous-denied.yaml
 ```
 
-**Do**: wait 5 minutes.
+**Do**: wait 10 minutes: the private image waits for a check window of its host.
 
 **Check**:
 
@@ -267,7 +267,7 @@ task acceptance-apply -- --kubeconfig <path> --context <name> --private-repo <pr
 task acceptance-apply -- --kubeconfig <path> --context <name> --mirror-prefix <prefix> --file test/acceptance/fixtures/14-mirror-copy.yaml
 ```
 
-**Do**: wait 5 minutes: the copy waits for a copy window of the host of `<public-repo>`.
+**Do**: wait 10 minutes: the copy waits for a copy window of the host of `<public-repo>`, 5 minutes apart by default.
 
 **Check**:
 
@@ -369,7 +369,7 @@ task acceptance-apply -- --kubeconfig <path> --context <name> --file test/accept
 - on the webhook replica that served the admission of scenario 3, series for the host of `<public-repo>`, the candidate that answered;
 - no series with `registry="registry.invalid"`, on any pod: it is the destination of `kuik-test-mirror`, which kuik checks and pushes to, but a mirror destination is not counted. Series for `kuik-test.invalid`, a source of scenarios 3 and 12, are expected.
 
-**Prepare**: the fixture of [scenario 3](#3-an-onfailure-alternative-reroutes-a-pod-whose-origin-is-down) and [`06-mirror.yaml`](./fixtures/06-mirror.yaml), the copy of `kuik-test-mirror` attempted: it waits for a copy window of the host of `<public-repo>`, 3 minutes apart by default ([Scheduling](../../docs/v3/spec.md#scheduling)).
+**Prepare**: the fixture of [scenario 3](#3-an-onfailure-alternative-reroutes-a-pod-whose-origin-is-down) and [`06-mirror.yaml`](./fixtures/06-mirror.yaml), the copy of `kuik-test-mirror` attempted: it waits for a copy window of the host of `<public-repo>`, 5 minutes apart by default ([Scheduling](../../docs/v3/spec.md#scheduling)).
 
 **Do**: nothing.
 

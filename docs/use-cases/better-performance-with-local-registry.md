@@ -63,7 +63,7 @@ With `rewritePolicy: Always`, the webhook places the copy ahead of the original 
        retention: 168h
    ```
 
-5. Adjust the copy pace. kuik copies at most one image per source registry per `copy.interval`, 3 minutes by default, to keep its share of a rate limit small: 100 images from one registry take 5 hours. For a registry you own, which does not ration pulls, lower it in the chart values (see [Registry pacing](../concepts/pacing.md)):
+5. Adjust the copy pace. kuik copies at most one image per source registry per `copy.interval`, 5 minutes by default with the chart and 15 for Docker Hub, to keep its share of a rate limit small: 100 images from one registry take more than 8 hours. For a registry you own, which does not ration pulls, lower it in the chart values (see [Registry pacing](../concepts/pacing.md)):
 
    ```yaml
    # values.yaml

@@ -66,7 +66,7 @@ spec: {}
 EOF
 ```
 
-kuik checks one image per registry per minute, so as not to exhaust any rate limit: give it a few minutes. Then:
+kuik checks one image per registry every 3 minutes (5 for Docker Hub), so as not to exhaust any rate limit: give it a few minutes. Then:
 
 ```bash
 kubectl get imagemonitors
@@ -134,7 +134,7 @@ kubectl get imagealternatives
 # kuik-demo   OnFailure   True    True       1           1m
 ```
 
-After a minute or so, the monitor of step 2 lists the broken origin too, with the reason `Unreachable`:
+Within 3 minutes or so, the monitor of step 2 lists the broken origin too, with the reason `Unreachable`:
 
 ```bash
 kubectl get imagemonitor cluster-images -o jsonpath='{.status.unavailableImages}'

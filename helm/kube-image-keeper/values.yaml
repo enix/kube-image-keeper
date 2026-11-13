@@ -344,14 +344,31 @@ secretAccess:
 # `mirror`, `webhook`, `registries`, `fallbackAuth`, `tls`); a key left out takes its default. A
 # file that does not validate is refused whole: at startup the process exits, on a reload
 # the previous config stays. See docs/configuration.md.
-# -- The global config file. The chart sets one key: `registries.public.ecr.aws.requestInterval`
-# of `1s`, since ECR Public allows about 1 anonymous request per second; every other key takes
-# its default. The config you set merges over it, key by key: set that key to another duration,
-# or to `0`, to override it. The cluster ID is not set here: the reconciler generates it on its
-# first start and keeps it in the ConfigMap kuik-cluster-id of the release namespace
+# -- The global config file. The chart set the default pace of every host to one check
+# every `3m` and one copy every `5m`, and Docker Hub, which rations anonymous pulls, to `5m`
+# and `15m`. It spaces the requests to each host of ECR Public by `1s`: it allows about 1
+# anonymous request per second. Every other key takes its default. The config you set merges
+# over it, key by key: set one of these keys to override it. A Docker Hub block named
+# `index.docker.io`, or with another case, replaces the chart's `docker.io` block whole
+# instead of merging over it; `docker.io: null` drops the chart's block. The cluster ID is not
+# set here: the reconciler generates it on its first start and keeps it in the ConfigMap
+# kuik-cluster-id of the release namespace
 config:
   registries:
+    default:
+      check:
+        interval: 3m
+      copy:
+        interval: 5m
+    docker.io:
+      check:
+        interval: 5m
+      copy:
+        interval: 15m
     public.ecr.aws:
+      requestInterval: 1s
+    # The dual-stack (IPv6) host of ECR Public, paced on its own
+    ecr-public.aws.com:
       requestInterval: 1s
 
 # What the chart ships for Prometheus and Grafana, chart-wide: the three processes export

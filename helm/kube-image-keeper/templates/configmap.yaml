@@ -2,7 +2,23 @@
 The global config file of the three processes. A clusterID left in the values from an older
 release fails the render here, before the processes refuse the file. A null or empty one, the
 way to clear it from the values a release reuses, is dropped from the file.
+
+A Docker Hub block the user wrote under another spelling (`index.docker.io`, another case)
+names the same host as the chart's `docker.io` block: the file would declare it twice and be
+refused, so the chart's block is dropped.
 */}}
+{{- $config := omit .Values.config "clusterID" }}
+{{- with $config.registries }}
+{{- $dockerHub := false }}
+{{- range $key, $_ := . }}
+{{- if and (ne $key "docker.io") (has (lower $key) (list "docker.io" "index.docker.io")) }}
+{{- $dockerHub = true }}
+{{- end }}
+{{- end }}
+{{- if $dockerHub }}
+{{- $_ := set $config "registries" (omit . "docker.io") }}
+{{- end }}
+{{- end }}
 {{- if .Values.config.clusterID }}
 {{- fail "config.clusterID is no longer a value: kuik generates the cluster ID and keeps it in ConfigMap kuik-cluster-id; to keep the value of an existing install, see docs/configuration.md#upgrading-from-a-configured-clusterid" }}
 {{- end }}
@@ -15,4 +31,4 @@ metadata:
     {{- include "kube-image-keeper.labels" . | nindent 4 }}
 data:
   config.yaml: |
-    {{- toYaml (omit .Values.config "clusterID") | nindent 4 }}
+    {{- toYaml $config | nindent 4 }}
