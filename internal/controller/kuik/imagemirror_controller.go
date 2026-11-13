@@ -274,6 +274,8 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		nextPass    time.Duration
 	)
 	scanner := pacing.Owner{Kind: resource.Kind, Name: resource.Name}
+	// Before the destination pass: its sweep may delete a tag before the status is written.
+	r.metrics.touchCounters(resource.Kind, resource.Name)
 	if blocked {
 		// A mirror that cannot write its destination scans it no more.
 		r.scheduler.RemoveDestinationScan(scanner)
