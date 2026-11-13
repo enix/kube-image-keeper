@@ -107,6 +107,9 @@ destination.
 
 `sum without(state) (kuik_images_tracked{reference="copy"})` is `status.images.copy.tracked`.
 
+`kuik_mirror_copies_total` and `kuik_mirror_tags_deleted_total` export every `reason` at 0 from
+the mirror's first status write, so `increase()` and `rate()` count its first copy or deletion.
+
 ### Monitor
 
 An `ImageMonitor` exports the origin references of the pods it selects, `status.images.origin`, and under `monitorAlternatives` their alternatives, `status.images.alternatives` (`reference="alternatives"`). Turning `monitorAlternatives` off deletes the `alternatives` series.
