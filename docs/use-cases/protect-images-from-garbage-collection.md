@@ -70,7 +70,7 @@ When no pod uses an image any more, its copy is kept for `cleanup.retention` (a 
        retention: 168h
    ```
 
-5. kuik copies at most one image per source registry per `copy.interval`, 3 minutes by default. For your own registry, which does not ration pulls, lower it so the first copies land quickly (see [Registry pacing](../concepts/pacing.md)):
+5. kuik copies at most one image per source registry per `copy.interval`, 5 minutes by default with the chart, 15 for Docker Hub. For your own registry, which does not ration pulls, lower it so the first copies land quickly (see [Registry pacing](../concepts/pacing.md)):
 
    ```yaml
    # values.yaml

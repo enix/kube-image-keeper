@@ -72,7 +72,7 @@ check waits until then, unless the PR changes no path the suite depends on.
 | A counter moved | The kuik counters are per replica: `webhookMetric` reads one on each webhook pod (`kubectl get --raw /api/v1/namespaces/<ns>/pods/<pod>:8080/proxy/metrics`). Compare pod by pod when every replica must move, as after a config reload; sum when any replica may serve the admission |
 | kuik left a pod untouched | Proves nothing alone. Order the specs so that a rewrite proves the webhook is called before any "untouched" spec |
 | A config change | `setConfig(mergeConfig(original, fragment))`: a YAML deep merge of the fragment onto the release's config, written with `kubectl patch` of the ConfigMap, never `helm upgrade`. On the e2e cluster the kubelet syncs it into the pods in about 10 to 15s; 3m stays the upper bound. Prove it loaded through behaviour: `webhook.availabilityCheck.timeout: 1ms` fails every probe, so a replica that loaded it stops rewriting |
-| Any wait | On behaviour (`replicasRouting`, an observed status), never on a period: the e2e cluster syncs ConfigMaps every 10s and the e2e release checks registries every 10s, while real clusters keep 1m, so a wait sized on those periods hides one that is too short |
+| Any wait | On behaviour (`replicasRouting`, an observed status), never on a period: the e2e cluster syncs ConfigMaps every 10s and the e2e release checks registries every 10s, while real clusters keep the chart's 3m, so a wait sized on those periods hides one that is too short |
 
 The suite needs internet access: images come from public registries. Kind gets
 `test/e2e/kind-config.yaml` only (the kubelet `syncFrequency` set to 10s) and containerd no

@@ -141,8 +141,10 @@ registries:
 ```
 
 the same copy succeeds in about a minute. The `copy.timeout` of that host must allow it: the
-default, `0`, sets no bound. The Helm chart sets this block by default; the config you set in the
-chart values merges over it.
+default, `0`, sets no bound. The Helm chart sets this block by default, and the same one for
+`ecr-public.aws.com`, the dual-stack (IPv6) host of ECR Public; the config you set in the chart
+values merges over it. Each host is paced on its own: images under both send up to 2 requests
+per second to ECR Public.
 
 ## Changing the pace
 

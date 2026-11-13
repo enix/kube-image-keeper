@@ -32,7 +32,7 @@ An [`ImageMonitor`](../crds.md#imagemonitor) tracks the images of the pods it se
 | `QuotaExceeded` | The registry rate-limits: kuik will check again on its next round |
 | `Unreachable` | The registry does not answer, or its TLS certificate is not trusted |
 
-Checks are paced per registry, one image per `check.interval` (1 minute by default), to keep kuik's share of a rate limit small: each image is checked once per round, and a monitor alone on a registry with 120 images takes 2 hours per round. Other resources reading the same registry, restarts and retained images make a round longer. See [Registry pacing](../concepts/pacing.md).
+Checks are paced per registry, one image per `check.interval` (3 minutes by default with the chart, 5 for Docker Hub), to keep kuik's share of a rate limit small: each image is checked once per round, and a monitor alone on a registry with 120 images takes 6 hours per round at 3 minutes, 10 hours on Docker Hub. Other resources reading the same registry, restarts and retained images make a round longer. See [Registry pacing](../concepts/pacing.md).
 
 The monitor only reads: it never changes a pod.
 

@@ -25,9 +25,9 @@ processes at `/etc/kuik/config.yaml`. The `--config` flag of each process names 
 # values.yaml
 config:
   registries:
-    docker.io:
+    private-registry.tld:
       copy:
-        interval: 10m
+        interval: 30s
   fallbackAuth:
   - repositoryGroup: private-registry.tld/project1
     secretRef:
@@ -78,9 +78,39 @@ A check sends up to 3 requests per credential, and a copy of the same host may t
 before each of them. Give it more for an index that nests another index, or to leave room for
 retries. A timeout too short for the wait fails the checks of that host as `Unreachable`.
 
-The Helm chart sets `registries.public.ecr.aws.requestInterval` to `1s` (the `config` value):
-ECR Public allows about 1 anonymous request per second. The config you set in the chart values
-merges over it, and can set it to another duration or to `0`.
+The Helm chart sets a slower pace than these defaults (the `config` value):
+
+```yaml
+registries:
+  default:
+    check:
+      interval: 3m
+    copy:
+      interval: 5m
+  docker.io:          # rations anonymous pulls
+    check:
+      interval: 5m
+    copy:
+      interval: 15m
+  public.ecr.aws:     # about 1 anonymous request per second
+    requestInterval: 1s
+  ecr-public.aws.com: # the dual-stack (IPv6) host of ECR Public
+    requestInterval: 1s
+```
+
+The config you set in the chart values merges over it, key by key, and can set any of these keys
+to another value. Three consequences:
+
+- The `docker.io` block sets both intervals, so a `registries.default` you set no longer reaches
+  Docker Hub: set `registries.docker.io` too, or drop the chart's block with `docker.io: null`.
+- A Docker Hub block you name `index.docker.io`, or `docker.io` with another case, replaces the
+  chart's `docker.io` block whole instead of merging over it: the keys you leave out take the
+  `default` pace. Name it `docker.io` to merge over the chart's block. Values that hold both a
+  `docker.io` and an `index.docker.io` block lose the `docker.io` one, yours included: keep a
+  single Docker Hub block.
+- Each ECR Public host is paced on its own: images under both send up to 2 requests per second
+  to ECR Public. Set `2s` on each host if you pull from both, with a `check.timeout` of at least
+  `12s`: 6 turns of `2s` exceed the default `10s`.
 
 How `registries` paces each host, and what a reload does to it, is explained in
 [Registry pacing](./concepts/pacing.md).
