@@ -503,6 +503,14 @@ func (h *mirrorHarness) inventory(repository string) {
 // series does not exist.
 func counter(registry *prometheus.Registry, metric string, labels map[string]string) float64 {
 	GinkgoHelper()
+	value, _ := counterSeries(registry, metric, labels)
+	return value
+}
+
+// counterSeries returns the value of the counter metric of registry carrying labels, and
+// whether that series exists.
+func counterSeries(registry *prometheus.Registry, metric string, labels map[string]string) (float64, bool) {
+	GinkgoHelper()
 	families, err := registry.Gather()
 	Expect(err).NotTo(HaveOccurred())
 	for _, f := range families {
@@ -520,10 +528,10 @@ func counter(registry *prometheus.Registry, metric string, labels map[string]str
 					continue series
 				}
 			}
-			return m.GetCounter().GetValue()
+			return m.GetCounter().GetValue(), true
 		}
 	}
-	return 0
+	return 0, false
 }
 
 // observations returns how many samples the histogram metric of registry holds, all series

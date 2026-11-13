@@ -3397,6 +3397,22 @@ var _ = Describe("ImageMirror Controller", func() {
 			Eventually(func() bool { checkWindow(); return drifted() }).Should(BeFalse())
 		})
 
+		It("exports every reason of kuik_mirror_copies_total and kuik_mirror_tags_deleted_total at 0 before its first copy or deletion", func() {
+			h.mirror()
+			h.reconcile()
+
+			for metric, reasons := range map[string][]string{
+				"kuik_mirror_copies_total":       {"Initial", "Recopy", "Resync"},
+				"kuik_mirror_tags_deleted_total": {"Unused", "Orphan"},
+			} {
+				for _, reason := range reasons {
+					value, ok := counterSeries(h.metrics, metric, mirrorLabels(map[string]string{labelReason: reason}))
+					Expect(ok).To(BeTrue(), "%s{reason=%q} is not exported", metric, reason)
+					Expect(value).To(BeZero())
+				}
+			}
+		})
+
 		It("counts kuik_mirror_copies_total by Initial, Recopy and Resync", func() {
 			src := h.source()
 			src.Push("acme/app:v1", registrytest.Image())
