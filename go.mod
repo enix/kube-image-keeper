@@ -7,14 +7,14 @@ require (
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/go-logr/logr v1.4.4
 	github.com/google/go-containerregistry v0.22.1
-	github.com/onsi/ginkgo/v2 v2.33.1
+	github.com/onsi/ginkgo/v2 v2.34.0
 	github.com/onsi/gomega v1.44.0
 	github.com/prometheus/client_golang v1.25.0
 	github.com/prometheus/client_model v0.6.3
 	go.uber.org/zap v1.28.0
 	golang.org/x/mod v0.42.0
 	golang.org/x/net v0.62.0
-	golang.org/x/sync v0.24.0
+	golang.org/x/sync v0.25.0
 	k8s.io/api v0.37.0
 	k8s.io/apimachinery v0.37.0
 	k8s.io/client-go v0.37.0
