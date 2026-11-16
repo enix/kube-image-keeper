@@ -136,7 +136,7 @@ webhooks:
       port: 9443
   failurePolicy: Ignore
   reinvocationPolicy: IfNeeded
-  name: mpod-v1.kb.io
+  name: pods.kuik.enix.io
   rules:
   - apiGroups:
     - ""

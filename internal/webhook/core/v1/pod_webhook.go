@@ -133,7 +133,7 @@ func admissionLog(base logr.Logger, req *admission.Request) logr.Logger {
 
 // The three settings below are prescribed by docs/v3/architecture.md, "The admission path":
 // fail open, CREATE only, reinvocable.
-// +kubebuilder:webhook:path=/mutate--v1-pod,mutating=true,failurePolicy=ignore,reinvocationPolicy=IfNeeded,sideEffects=None,groups="",resources=pods,verbs=create,versions=v1,name=mpod-v1.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate--v1-pod,mutating=true,failurePolicy=ignore,reinvocationPolicy=IfNeeded,sideEffects=None,groups="",resources=pods,verbs=create,versions=v1,name=pods.kuik.enix.io,admissionReviewVersions=v1
 
 // The webhook reads what it matches pods against and writes nothing: no status, no Secret,
 // no pod (the AdmissionReview carries it).
