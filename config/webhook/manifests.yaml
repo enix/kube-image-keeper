@@ -12,7 +12,7 @@ webhooks:
       namespace: system
       path: /mutate--v1-pod
   failurePolicy: Ignore
-  name: mpod-v1.kb.io
+  name: pods.kuik.enix.io
   reinvocationPolicy: IfNeeded
   rules:
   - apiGroups:

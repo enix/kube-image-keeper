@@ -76,6 +76,13 @@ of their process.
 Every series about a resource carries `kind` and `name`: aggregate on both, never on `name`
 alone, since an `ImageAlternative` and an `ImageMirror` may share a name.
 
+A call the webhook never answered (a timeout, a TLS error, no replica) is in none of these
+series: the API server admits the pod unchanged and is the only one to count it. Read its own
+metrics, under the name of the webhook:
+`apiserver_admission_webhook_fail_open_count{name="pods.kuik.enix.io"}` counts the calls that
+failed and were ignored, `apiserver_admission_webhook_request_total` with the same `name`
+counts every call, by `code`.
+
 ### Routing aggregates
 
 | Metric | Type | Value |
