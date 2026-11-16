@@ -1152,6 +1152,22 @@ var _ = Describe("ImageMirror Controller", func() {
 			Expect(v).To(BeNumerically("~", float64(h.clock.Now().Unix()), 1))
 		})
 
+		It("exports kuik_mirror_self_checked_timestamp_seconds from status.selfChecked after a restart whose first pass is interrupted", func() {
+			copiedApp()
+			h.reconcile()
+			before := h.status().SelfChecked
+			Expect(before).NotTo(BeNil())
+
+			h.restart()
+			h.destination.Intercept(registrytest.Status(http.MethodHead, "/manifests/", http.StatusInternalServerError, nil))
+			h.reconcile()
+
+			Expect(h.status().SelfChecked).To(Equal(before))
+			v, ok := gauge(h.metrics, "kuik_mirror_self_checked_timestamp_seconds", map[string]string{labelKind: routing.KindImageMirror, labelName: h.name})
+			Expect(ok).To(BeTrue())
+			Expect(v).To(BeNumerically("==", float64(before.Unix())))
+		})
+
 		It("leaves selfChecked as it was when a pass is interrupted", func() {
 			copiedApp()
 			h.reconcile()
@@ -2803,6 +2819,31 @@ var _ = Describe("ImageMirror Controller", func() {
 				h.reconcile()
 				Expect(gone()).To(BeFalse())
 				Expect(h.copied(destinationTag(src, "acme/app"))()).To(Succeed())
+			})
+
+			It("a mirror held by its finalizer after a restart exports the gauge from status.selfChecked", func() {
+				pod := routedToCopy()
+				h.reconcile()
+				before := h.status().SelfChecked
+				Expect(before).NotTo(BeNil())
+				deleteMirror()
+
+				h.restart()
+				h.reconcile()
+				Expect(gone()).To(BeFalse())
+				selfChecked := map[string]string{labelKind: routing.KindImageMirror, labelName: h.name}
+				v, ok := gauge(h.metrics, "kuik_mirror_self_checked_timestamp_seconds", selfChecked)
+				Expect(ok).To(BeTrue())
+				Expect(v).To(BeNumerically("==", float64(before.Unix())))
+
+				// Released, the mirror leaves no series behind.
+				Expect(k8sClient.Delete(ctx, pod)).To(Succeed())
+				Eventually(func() bool {
+					h.reconcile()
+					return gone()
+				}).Should(BeTrue())
+				_, ok = gauge(h.metrics, "kuik_mirror_self_checked_timestamp_seconds", selfChecked)
+				Expect(ok).To(BeFalse())
 			})
 
 			It("sets DeletionBlocked True with reason PodsRunningCopies, naming how many live pods hold it and up to 5 of them, and leaves Ready as it was", func() {
