@@ -19,8 +19,8 @@ sidebar automatically). The v2 user docs are served from the `2.3.x` branch, not
 from here.
 
 The user docs describe what the code on `main` does, nothing ahead of it: a behaviour is
-documented in the PR that wires it, never in an earlier one. This does not apply to
-`docs/v3/`, which states the target.
+documented in the PR that wires it, never in an earlier one. `docs/v3/` is the design decided
+before the implementation, kept as a historical record and never updated (see [its README](../../docs/v3/README.md)).
 
 `docs/v3/` (the design documents) is listed in `UNPUBLISHED_DOCS` of
 `website/scripts/sync-docs.mjs` and renders on GitHub only. `notes/` is never published.

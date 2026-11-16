@@ -7,8 +7,10 @@ Guidance for AI coding agents working on this repository.
 kube-image-keeper (kuik) v3: a Kubernetes operator for container image routing,
 mirroring and monitoring, rebuilt from a clean tree. The branch holds:
 
-- [`docs/v3/`](./docs/v3/) — the specification, source of truth for behaviour. Read
-  `spec.md` first, then `status.md`, the walkthroughs and `open-questions.md`.
+- [`docs/v3/`](./docs/v3/): the specification as decided before the implementation, a frozen
+  historical record never updated (see [its README](./docs/v3/README.md)). What kuik does is in
+  the user docs under [`docs/`](./docs/). Read `spec.md` first, then `status.md`, the
+  walkthroughs and `open-questions.md`.
 - [`notes/`](./notes/) — the engineering journal: decisions, analyses, process. Start
   with [`notes/README.md`](./notes/README.md); its index states each decision in one
   line. Open a note only when it matters for the task, never the whole folder.
@@ -18,9 +20,10 @@ mirroring and monitoring, rebuilt from a clean tree. The branch holds:
   release process. Follow it; it is not repeated here.
 
 Code, chart and tooling are re-added epic by epic
-([0002](./notes/0002-development-pipeline.md)), implementing the spec as written: a doubt
-about the spec is recorded and deferred, never a reason to edit `docs/v3/` or to stall
-([0010](./notes/0010-spec-as-is-until-the-alpha-runs.md)). v2 lives on the `2.3.x` maintenance
+([0002](./notes/0002-development-pipeline.md)), following the spec wherever the maintainers
+decided nothing else: a doubt about the spec is recorded and deferred, never a reason to edit
+`docs/v3/` or to stall ([0010](./notes/0010-spec-as-is-until-the-alpha-runs.md)). A behaviour
+the maintainers decided differently is documented in `docs/`, never in `docs/v3/`. v2 lives on the `2.3.x` maintenance
 branch: read it with `git show 2.3.x:<path>` and lift on purpose, never copy by reflex.
 [0001](./notes/0001-v2-reuse-analysis.md) lists what is worth lifting: `internal/registry`
 and its availability statuses, the config merge, `internal/info`, the envtest suite
@@ -135,9 +138,9 @@ acceptance effect leaves those files alone. New scenarios still go in their own 
 digests, timeouts), do the same or the closest possible, so kuik feels transparent: find
 what the kubelet does, cite it, and recommend it first. Follow it when the reasons are the
 same: the finalizer backoff of an ImageMirror keeps its 30-minute cap, since it waits for
-pods, not for a pull. Where `docs/v3/` decides otherwise, the spec stands
-([0010](./notes/0010-spec-as-is-until-the-alpha-runs.md)): recommend the kubelet behaviour
-to the maintainers, never edit the spec to get it.
+pods, not for a pull. Where `docs/v3/` decides otherwise and the maintainers decided nothing
+else, the spec stands: recommend the kubelet behaviour to the maintainers, never edit the spec
+to get it.
 
 ## Docs
 
