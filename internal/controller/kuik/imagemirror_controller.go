@@ -218,6 +218,9 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		return ctrl.Result{}, err
 	}
+	// Seeded before the deletion branch: a mirror held by its finalizer from the restart on
+	// would leave the self-check series absent.
+	r.seedSelfChecked(r.state(im.Name), &im)
 	if !im.DeletionTimestamp.IsZero() {
 		return r.finalize(ctx, &im, resource)
 	}
@@ -247,7 +250,6 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	st := r.state(im.Name)
-	st.seed(&im)
 	clusterID := r.clusterID
 	cleanup := im.Spec.Cleanup.IsEnabled()
 	// A sweep waiting for the copies to end to delete by digest has nothing to wait for any
@@ -399,6 +401,14 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	st.remember(live)
 	logf.FromContext(ctx).V(1).Info("Updated ImageMirror status")
 	return result, nil
+}
+
+// seedSelfChecked takes over status.selfChecked as the self-check gauge on the first reconcile
+// of a process: a destination unreachable from the restart on would leave the series absent.
+func (r *ImageMirrorReconciler) seedSelfChecked(st *mirrorState, im *kuikv1alpha1.ImageMirror) {
+	if st.seed(im) && im.Status.SelfChecked != nil {
+		r.metrics.selfChecked.WithLabelValues(routing.KindImageMirror, im.Name).Set(float64(im.Status.SelfChecked.Unix()))
+	}
 }
 
 func (r *ImageMirrorReconciler) forget(resource routing.Resource) {
