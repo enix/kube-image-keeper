@@ -50,7 +50,7 @@ const metricsPort = 8080
 const webhookServiceName = "kube-image-keeper-webhook"
 
 // mutatingWebhookName is the MutatingWebhookConfiguration cert-manager injects its CA into
-const mutatingWebhookName = "kube-image-keeper-mutating-webhook"
+const mutatingWebhookName = "kube-image-keeper-webhook"
 
 // certSecretName holds the webhook serving certificate issued by cert-manager
 const certSecretName = "kube-image-keeper-webhook-server-cert"

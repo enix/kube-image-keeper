@@ -71,6 +71,10 @@ const kuikAnnotationPrefix = "kuik.enix.io/"
 // failingTimeout is a global config fragment under which no probe can answer in time
 const failingTimeout = "webhook:\n  availabilityCheck:\n    timeout: 1ms\n"
 
+// podWebhookName is the name the chart registers the Pod webhook under, which the API server
+// labels its admission metrics with
+const podWebhookName = "pods.kuik.enix.io"
+
 // webhookPort and mutatePath are where each webhook pod serves the Pod admission
 const (
 	webhookPort = 9443
@@ -270,6 +274,22 @@ var _ = Describe("Pod routing", Ordered, func() {
 			Expect(kuikAnnotations("exhausted")).To(Equal(map[string]string{
 				"kuik.enix.io/no-alternatives": `{"pause":["ImageAlternative/` + exhaustedAlternative + `"]}`,
 			}))
+		})
+	})
+
+	Context("seen from the API server", func() {
+		// A call that fails (a timeout, a TLS error, no replica) is counted by the API server
+		// alone, under the name of the webhook: only a real API server tells which name the chart
+		// registered it under.
+		It("counts its calls to the Pod webhook under the name pods.kuik.enix.io", func() {
+			before, err := webhookCalls(podWebhookName)
+			Expect(err).NotTo(HaveOccurred())
+
+			createPod("counted", availableImage)
+
+			// The counters outlive a suite run on a reused cluster: only a count that grows
+			// tells this admission was counted under that name.
+			Eventually(webhookCalls).WithArguments(podWebhookName).Should(BeNumerically(">", before))
 		})
 	})
 
@@ -675,6 +695,31 @@ func webhookMetric(metric string) (map[string]float64, error) {
 		}
 	}
 	return counts, nil
+}
+
+// webhookCalls sums the series of apiserver_admission_webhook_request_total the API server
+// exposes for the webhook of that name: it counts each call it makes, whatever the answer. It
+// is 0 while the API server has no series under that name. Only a number is returned, never
+// the whole exposition, which a failure would print.
+func webhookCalls(name string) (float64, error) {
+	output, err := kubectl("get", "--raw", "/metrics")
+	if err != nil {
+		return 0, err
+	}
+	var calls float64
+	for line := range strings.SplitSeq(output, "\n") {
+		if !strings.HasPrefix(line, "apiserver_admission_webhook_request_total{") ||
+			!strings.Contains(line, fmt.Sprintf("name=%q", name)) {
+			continue
+		}
+		fields := strings.Fields(line)
+		v, err := strconv.ParseFloat(fields[len(fields)-1], 64)
+		if err != nil {
+			return 0, err
+		}
+		calls += v
+	}
+	return calls, nil
 }
 
 // replicasRouting tells, for each webhook pod, whether it rewrites a pod of unreachableOrigin.
