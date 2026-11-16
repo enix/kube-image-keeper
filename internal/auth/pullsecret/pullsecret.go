@@ -145,7 +145,7 @@ func selector(s *metav1.LabelSelector) labels.Selector {
 }
 
 // Needed returns the entries the pair (r, namespace) needs when the namespace is in scope:
-// under Always every injecting entry, under OnFailure the injecting entries that served a
+// under Always and Required every injecting entry, under OnFailure the injecting entries that served a
 // standing rewrite on a live pod of pods, once each. pods are the pods of namespace. A
 // namespace out of scope needs nothing, whatever its pods record: a record on a pod does not
 // prove the webhook wrote it there.
@@ -154,7 +154,7 @@ func (r Resource) Needed(namespace *corev1.Namespace, pods []*corev1.Pod) []Cred
 		return nil
 	}
 	switch r.Policy {
-	case kuikv1alpha1.RewritePolicyAlways:
+	case kuikv1alpha1.RewritePolicyAlways, kuikv1alpha1.RewritePolicyRequired:
 		var needed []Credential
 		for _, c := range r.credentials {
 			if c.SecretRef != "" {

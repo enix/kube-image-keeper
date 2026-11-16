@@ -57,7 +57,7 @@ var (
 	RewritesTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "kuik_routing_rewrites_total",
 		Help: "Container images rewritten at admission, by the routing resource that supplied the reference " +
-			"and the policy that placed it (Always, OnFailure)",
+			"and the policy that placed it (Always, OnFailure, Required)",
 	}, []string{"kind", "name", "policy"})
 	AlternativesExhaustedTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "kuik_routing_alternatives_exhausted_total",
@@ -432,13 +432,22 @@ func (a *pass) firstAvailable(ctx context.Context, candidates []routing.Candidat
 }
 
 // apply records the outcome of a resolution on its container, and logs it. The noise of the
-// line follows rewritePolicy as the Pod events do: a rewrite under Always is the steady state,
-// logged at V(1); one under OnFailure means the original failed, logged at Info. See
-// docs/v3/observability.md, "Noise is not configurable, it follows rewritePolicy".
+// line follows rewritePolicy as the Pod events do: a rewrite under Always or Required is the
+// steady state, logged at V(1); one under OnFailure means the original failed, logged at Info.
+// See docs/v3/observability.md, "Noise is not configurable, it follows rewritePolicy". When no
+// candidate answers and an ImageMirror under rewritePolicy Required offered one, that
+// candidate is placed all the same, and logged at Info: the container waits for the copy
+// instead of being left on its original image.
 func (a *pass) apply(ctx context.Context, p pending, retained int, originReason kuikv1alpha1.CheckFailureReason, r podrecord.Records) {
 	name := p.container.Name
 	log := containerLog(ctx, p.container)
-	if retained < 0 {
+	var c routing.Candidate
+	switch {
+	case retained >= 0:
+		c = p.result.Candidates[retained]
+	case p.result.Required != nil:
+		c = *p.result.Required
+	default:
 		offering := make([]string, 0, len(p.result.Offering))
 		for _, res := range p.result.Offering {
 			offering = append(offering, res.String())
@@ -452,7 +461,6 @@ func (a *pass) apply(ctx context.Context, p pending, retained int, originReason 
 		log.Info("Found no available candidate for container image", values...)
 		return
 	}
-	c := p.result.Candidates[retained]
 	if c.Resource == nil {
 		// The original answered: nothing happened, nothing is recorded.
 		log.V(1).Info("Kept container image")
@@ -472,7 +480,9 @@ func (a *pass) apply(ctx context.Context, p pending, retained int, originReason 
 	if originReason != "" {
 		values = append(values, "reason", originReason)
 	}
-	if c.Policy == kuikv1alpha1.RewritePolicyAlways {
+	// A Required candidate placed although it did not answer is no steady state: the pod waits
+	// for the copy.
+	if retained >= 0 && (c.Policy == kuikv1alpha1.RewritePolicyAlways || c.Policy == kuikv1alpha1.RewritePolicyRequired) {
 		log.V(1).Info("Rewrote container image", values...)
 	} else {
 		log.Info("Rewrote container image", values...)
