@@ -848,11 +848,12 @@ func (st *mirrorState) ended() bool {
 
 // seed takes over, on the first reconcile of a process, the failing copies the status of im
 // holds, as announced already: a restart keeps their since, their count and their events.
-func (st *mirrorState) seed(im *kuikv1alpha1.ImageMirror) {
+// It reports whether this call was the one that seeded.
+func (st *mirrorState) seed(im *kuikv1alpha1.ImageMirror) bool {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	if st.seeded {
-		return
+		return false
 	}
 	st.seeded = true
 	st.inherited = make(map[string]bool, len(im.Status.Repositories))
@@ -885,6 +886,7 @@ func (st *mirrorState) seed(im *kuikv1alpha1.ImageMirror) {
 		st.deleteUnsupported, st.refusedGeneration = true, ready.ObservedGeneration
 		st.manifestRefused = strings.HasPrefix(ready.Message, manifestRefusal)
 	}
+	return true
 }
 
 // failedRegistry is the side a failure of the status names: the destination for a push, the

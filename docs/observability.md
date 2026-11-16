@@ -130,7 +130,7 @@ destination.
 | `kuik_mirror_tags_orphan{kind, name}` | gauge | Tags of this cluster the sweep found that no tracked reference accounts for, held before deletion. Counted in tags |
 | `kuik_mirror_copies_total{kind, name, reason}` | counter | Images pushed to the destination, by `reason`: `Initial`, `Recopy` after a copy went missing, `Resync` after an upstream digest moved |
 | `kuik_mirror_tags_deleted_total{kind, name, reason}` | counter | Tags deleted once their retention elapsed, by `reason`: `Unused`, `Orphan` |
-| `kuik_mirror_self_checked_timestamp_seconds{kind, name}` | gauge | End of the last whole destination pass, `status.selfChecked` |
+| `kuik_mirror_self_checked_timestamp_seconds{kind, name}` | gauge | End of the last whole destination pass, `status.selfChecked`. Read back from the status at the first reconcile after a restart |
 | `kuik_mirror_copy_duration_seconds{kind, name}` | histogram | Seconds one copy took. Off by default: one series per bucket per mirror. Enable it with `metrics.copyDuration: true` in the [global config](./configuration.md) |
 
 `sum without(state) (kuik_images_tracked{reference="copy"})` is `status.images.copy.tracked`.
