@@ -45,6 +45,11 @@ func (r *ImageMirrorReconciler) turnRings(im *kuikv1alpha1.ImageMirror, st *mirr
 			delete(st.resync, ref)
 		}
 	}
+	for ref := range st.checked {
+		if !tracked[ref] {
+			delete(st.checked, ref)
+		}
+	}
 	gone := []string{}
 	for host := range st.rings {
 		if _, ok := rings[host]; !ok {
@@ -104,6 +109,7 @@ func (c driftChecker) Checked(ref string, response pacing.Response) {
 	st.mu.Lock()
 	copied := st.digests[ref]
 	upstream := response.Result.Descriptor.Digest.String()
+	st.checked[ref] = copied != ""
 	switch {
 	case copied == "":
 	case upstream == copied:
