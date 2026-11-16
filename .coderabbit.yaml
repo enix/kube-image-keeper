@@ -115,13 +115,14 @@ reviews:
 
   # Per-path guidance fed to the model alongside the diff. Keep these
   # short and load-bearing: long instructions get diluted. docs/v3 is the
-  # specification; flag code that contradicts it.
+  # design spec, a frozen historical record; docs/ says what kuik does.
   path_instructions:
     - path: "**"
       instructions: |
-        docs/v3 is frozen until the alpha runs (notes/0010); deviations
-        are tracked as amendments outside the repository. Never ask to
-        edit docs/v3 to match the code.
+        docs/v3 is the specification as decided before the implementation,
+        a frozen historical record that is never updated: what kuik does is
+        described in docs/. Flag code that contradicts docs/, or docs/v3
+        where docs/ says nothing else. Never ask to edit docs/v3.
 
     - path: "internal/webhook/**/*.go"
       instructions: |
@@ -184,6 +185,6 @@ reviews:
         syntax for Starlight. Flag ":::note" directives (the right form is
         a GitHub alert, "> [!NOTE]"), site routes like "/crds/" (the right
         form is a relative link, "./crds.md"), and a missing leading H1 or
-        frontmatter description. Outside docs/v3/ (the design spec, which
-        states the target), flag a page describing a behaviour the code
+        frontmatter description. Outside docs/v3/ (the design spec, a
+        frozen historical record), flag a page describing a behaviour the code
         does not have yet: docs ship with the PR that wires the behaviour.
