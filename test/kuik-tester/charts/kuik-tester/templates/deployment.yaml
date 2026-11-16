@@ -1,0 +1,90 @@
+{{- $fullname := include "kuik-tester.fullname" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "kuik-tester.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "kuik-tester.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kuik-tester.labels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- range . }}
+        - name: {{ . }}
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: kuik-tester
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["-config", "/etc/kuik-tester/config.yaml"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          ports:
+            - name: registry
+              containerPort: 8080
+            - name: admin
+              containerPort: 8081
+            {{- if .Values.plainHTTP.enabled }}
+            - name: plainhttp
+              containerPort: 5000
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: admin
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: admin
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/kuik-tester
+              readOnly: true
+            {{- if .Values.tls.secretName }}
+            - name: tls
+              mountPath: /etc/kuik-tester-tls
+              readOnly: true
+            {{- end }}
+            {{- if .Values.persistence.enabled }}
+            - name: state
+              mountPath: /var/lib/kuik-tester
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $fullname }}
+        {{- if .Values.tls.secretName }}
+        - name: tls
+          secret:
+            secretName: {{ .Values.tls.secretName }}
+        {{- end }}
+        {{- if .Values.persistence.enabled }}
+        - name: state
+          persistentVolumeClaim:
+            claimName: {{ $fullname }}-state
+        {{- end }}

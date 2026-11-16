@@ -1,0 +1,37 @@
+{{ define "chart.valuesTable" }}
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+{{- range .Values }}
+| {{ .Key }} | {{ .Type }} | {{ if .Default }}{{ .Default }}{{ else }}{{ .AutoDefault }}{{ end }} | {{ if .Description }}{{ .Description }}{{ else }}{{ .AutoDescription }}{{ end }} |
+{{- end }}
+{{- end -}}
+
+# kuik-tester Helm chart
+
+Deploys [kuik-tester](../../README.md), a synthetic OCI registry and proxy with fault
+injection, and an optional in-chart zot used as the backend of the proxy hosts.
+
+The chart is published as `oci://quay.io/enix/charts/kuik-tester` and deploys the image
+`quay.io/enix/kuik-tester` at the chart's `appVersion` by default.
+
+Installation, Ingress annotations, admin exposure and operational notes:
+[kuik-tester README](../../README.md#install-on-a-cluster).
+
+Objects (with `<fullname>` = `<release>-kuik-tester`, or the release name when it
+already contains `kuik-tester`):
+
+| Object | Purpose |
+| --- | --- |
+| Deployment, ConfigMap `<fullname>` | the tester (1 replica, `Recreate`); the pod restarts when the config changes |
+| Service `<fullname>-registry` (8080), `<fullname>-admin` (8081) | `ClusterIP` Services |
+| Service `<fullname>-plainhttp` | only when `plainHTTP.enabled` |
+| Ingress `<fullname>-registry` | `*.<baseDomain>` |
+| Ingress `<fullname>-admin` | `admin.<baseDomain>`, only when `ingress.admin.enabled` (off by default) |
+| PVC `<fullname>-state` | state file, when `persistence.enabled` |
+| Deployment, ConfigMap, Service, PVC `<fullname>-zot` | when `zot.enabled` |
+| NetworkPolicy `<fullname>`, `<fullname>-zot` | only when `networkPolicy.enabled` (the zot one when `zot.enabled` too) |
+
+The pod runs as UID/GID 65532 with `fsGroup: 65532`, so the state file is writable
+on a fresh volume.
+
+{{ template "chart.valuesSection" . }}

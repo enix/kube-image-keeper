@@ -1,0 +1,15 @@
+{{- $fullname := include "kuik-tester.fullname" . -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-admin
+  labels:
+    {{- include "kuik-tester.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "kuik-tester.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: admin
+      port: 8081
+      targetPort: admin

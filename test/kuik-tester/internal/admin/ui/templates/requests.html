@@ -1,0 +1,36 @@
+{{define "row"}}<tr><td><time datetime="{{iso .}}">{{iso .}}</time></td><td>{{.Host}}</td><td>{{.ClientIP}}</td><td>{{.User}}</td><td>{{.Caller}}</td><td>{{.Method}}</td><td>{{.Kind}}</td><td>{{.Repo}}</td><td>{{.Reference}}</td><td>{{.Status}}</td><td><code>{{.RuleID}}</code></td><td>{{if .Forwarded}}yes{{end}}</td></tr>{{end}}
+
+{{define "stats"}}<div id="stats">
+<table><thead><tr><th>Host</th><th>Kind</th><th>Method</th><th>Status</th><th>Count</th></tr></thead><tbody>
+{{range .}}<tr><td>{{.Host}}</td><td>{{.Kind}}</td><td>{{.Method}}</td><td>{{.Status}}</td><td>{{.Count}}</td></tr>
+{{else}}<tr><td colspan="5" class="muted">No request yet.</td></tr>{{end}}
+</tbody></table>
+<form hx-post="/ui/stats/reset" hx-target="#stats" hx-swap="outerHTML" hx-confirm="Reset the request statistics?"><button>Reset stats</button></form>
+</div>{{end}}
+
+{{define "head"}}<script src="/static/requests.js" defer></script>{{end}}
+
+{{define "content"}}
+<h1>Requests</h1>
+<p class="lead">Every request the registry listeners served, newest first, live. Caller is the class read from the User-Agent: kuik, containerd, crane or other; status 0 means no response was sent.</p>
+<form class="inline" method="get" action="/requests">
+<label>host <input name="host" value="{{.Host}}" size="10" title="Host label of the listener"></label>
+<label>repo <input name="repo" value="{{.Repo}}" size="14" title="Repository, exact"></label>
+<label>kind <select name="kind" title="Request kind"><option value="">any</option>{{$k := .Kind}}{{range kinds}}<option{{if eq (printf "%s" .) $k}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+<label>caller <input name="caller" value="{{.Caller}}" size="10" title="Caller class: kuik, containerd, crane or other"></label>
+<label>status <input name="status" value="{{.Status}}" size="4" title="HTTP status; 0 means no response was sent"></label>
+<label>since <input name="since" value="{{.Since}}" size="20" placeholder="RFC 3339" title="RFC 3339 time"></label>
+<button>Filter</button>
+</form>
+{{if .Err}}<div class="err">{{.Err}}</div>{{else}}
+<p class="muted"><span id="live-state">connecting</span>; newest first, at most {{.MaxRows}} rows.</p>
+<table id="live" data-stream="{{.Stream}}" data-max="{{.MaxRows}}">
+<thead><tr><th>Time</th><th>Host</th><th>Client</th><th>User</th><th>Caller</th><th>Method</th><th>Kind</th><th>Repo</th><th>Reference</th><th>Status</th><th>Rule</th><th>Fwd</th></tr></thead>
+<tbody>{{range .Entries}}{{template "row" .}}{{end}}</tbody>
+</table>
+{{if .Logged}}<form hx-post="/ui/log/purge" hx-target="#live tbody" hx-swap="innerHTML" hx-confirm="Delete all {{count .Logged "logged request" "logged requests"}}?">
+<button title="Empty the request log; the stats are kept">Purge the log</button></form>{{end}}
+{{end}}
+<h2>Stats</h2>
+{{template "stats" .Stats}}
+{{end}}

@@ -1,0 +1,28 @@
+# Example configuration for local runs. Every <label>.kt.localhost host is a
+# synthetic registry; *.localhost resolves to 127.0.0.1 on most systems.
+baseDomain: kt.localhost
+registryAddr: ":8080"
+adminAddr: ":8081"
+# Optional plain-HTTP listener. It has no usable Host, so every request on it
+# maps to the single host label plainHTTPHost (default "http").
+# plainHTTPAddr: ":5000"
+# plainHTTPHost: http
+# Serve the registry listener over TLS (both keys go together).
+# tlsCertFile: ./tls.crt
+# tlsKeyFile: ./tls.key
+# proxies:
+# - name: mirror
+#   backend: http://127.0.0.1:5001
+# CIDRs of the reverse proxies whose X-Forwarded-* headers are trusted (client
+# IP, scheme of the Bearer realm). List the Ingress controller here (its pod
+# CIDR or node subnet). Empty trusts nobody. Keep the CIDR narrow: a wider one
+# trusts more clients to set their own client IP.
+# trustedProxies:
+# - 10.244.0.0/16
+# statePath: ./state.json
+# Number of request log entries kept in memory (default 10000, at least 1).
+# logSize: 10000
+# How long seen images (with their generations and digests) and logged
+# requests are kept without being seen again: a Go duration (168h, 90m) or a
+# number of days (7d). 0 keeps everything. Default 7d.
+# expireAfter: 7d

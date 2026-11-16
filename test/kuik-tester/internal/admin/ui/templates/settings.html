@@ -1,0 +1,129 @@
+{{define "del"}}<form class="inl" hx-post="/ui/settings/{{.Kind}}/delete" hx-target="#s-{{.Kind}}" hx-swap="outerHTML" hx-confirm="Delete {{.What}}?">
+<input type="hidden" name="key" value="{{.Key}}"><button>delete</button></form>{{end}}
+{{define "purge"}}{{if .Count}}<form class="inl" hx-post="/ui/settings/{{.Kind}}/purge" hx-target="#s-{{.Kind}}" hx-swap="outerHTML" hx-confirm="Delete all {{count .Count .One .Many}}?">
+<button title="Delete every {{.One}}, the ones of a set included">Purge all {{.Many}}</button></form>{{end}}{{end}}
+{{define "set-users"}}<div id="s-users">
+<table><thead><tr><th>Name</th><th>Password</th><th>Set</th><th></th></tr></thead><tbody>
+{{range .Users}}<tr data-key="{{.Name}}"><td>{{.Name}}</td><td><code>{{.Password}}</code></td><td>{{.Set}}</td><td>{{template "del" (del "users" .Name (printf "user %s" .Name))}}</td></tr>
+{{else}}<tr><td colspan="4" class="muted">No user.</td></tr>{{end}}
+</tbody></table>
+{{template "purge" (purge "users" (len .Users) "user" "users")}}
+</div>{{end}}
+{{define "set-grants"}}<div id="s-grants">
+<table><thead><tr><th>Host</th><th>Repo</th><th>Actions</th><th>Users</th><th>Set</th><th></th></tr></thead><tbody>
+{{range .Grants}}<tr data-key="{{.ID}}"><td>{{.Host}}</td><td>{{.Repo}}</td><td>{{range .Actions}}{{.}} {{end}}</td><td>{{join .Users ", "}}</td><td>{{.Set}}</td><td>{{template "del" (del "grants" .ID (printf "grant on %s/%s" .Host .Repo))}}</td></tr>
+{{else}}<tr><td colspan="6" class="muted">No grant: every authenticated user may do anything.</td></tr>{{end}}
+</tbody></table>
+{{template "purge" (purge "grants" (len .Grants) "grant" "grants")}}
+</div>{{end}}
+{{define "set-hostauth"}}<div id="s-hostauth">
+<table><thead><tr><th>Host</th><th>Scheme</th><th>Set</th><th></th></tr></thead><tbody>
+{{range .HostAuth}}<tr data-key="{{.Host}}"><td>{{.Host}}</td><td>{{.Scheme}}</td><td>{{.Set}}</td><td>{{template "del" (del "hostauth" .Host (printf "host auth of %s" .Host))}}</td></tr>
+{{else}}<tr><td colspan="4" class="muted">No host auth: hosts are open.</td></tr>{{end}}
+</tbody></table>
+{{template "purge" (purge "hostauth" (len .HostAuth) "host auth entry" "host auth entries")}}
+</div>{{end}}
+{{define "set-aliases"}}<div id="s-aliases">
+<table><thead><tr><th>Host</th><th>From</th><th>To</th><th>Set</th><th></th></tr></thead><tbody>
+{{range .Aliases}}<tr data-key="{{.ID}}"><td>{{.Host}}</td><td>{{.From}}</td><td>{{.To}}</td><td>{{.Set}}</td><td>{{template "del" (del "aliases" .ID (printf "alias %s → %s" .From .To))}}</td></tr>
+{{else}}<tr><td colspan="5" class="muted">No alias.</td></tr>{{end}}
+</tbody></table>
+{{template "purge" (purge "aliases" (len .Aliases) "alias" "aliases")}}
+</div>{{end}}
+{{define "set-divergents"}}<div id="s-divergents">
+<table><thead><tr><th>Host</th><th>Repo</th><th>Salt</th><th>Set</th><th></th></tr></thead><tbody>
+{{range .Divergents}}<tr data-key="{{.ID}}"><td>{{.Host}}</td><td>{{.Repo}}</td><td>{{.Salt}}</td><td>{{.Set}}</td><td>{{template "del" (del "divergents" .ID (printf "divergent %s/%s" .Host .Repo))}}</td></tr>
+{{else}}<tr><td colspan="5" class="muted">No divergent.</td></tr>{{end}}
+</tbody></table>
+{{template "purge" (purge "divergents" (len .Divergents) "divergent" "divergents")}}
+</div>{{end}}
+{{define "set-platforms"}}<div id="s-platforms">
+<table><thead><tr><th>Host</th><th>Repo</th><th>Platforms</th><th>Set</th><th></th></tr></thead><tbody>
+{{range .Platforms}}<tr data-key="{{.ID}}"><td>{{.Host}}</td><td>{{.Repo}}</td><td>{{join .Platforms ", "}}</td><td>{{.Set}}</td><td>{{template "del" (del "platforms" .ID (printf "platform rule %s/%s" .Host .Repo))}}</td></tr>
+{{else}}<tr><td colspan="5" class="muted">No platform rule: every platform is served.</td></tr>{{end}}
+</tbody></table>
+{{template "purge" (purge "platforms" (len .Platforms) "platform rule" "platform rules")}}
+</div>{{end}}
+{{define "set-quotas"}}<div id="s-quotas" hx-get="/ui/settings/quota-usage" hx-trigger="every 2s" hx-swap="outerHTML">
+<table><thead><tr><th>Name</th><th>Limit</th><th>Window</th><th>Key</th><th>Kinds</th><th>Methods</th><th>Usage</th><th>Set</th><th></th></tr></thead><tbody>
+{{range .Quotas}}<tr data-key="{{.Name}}"><td>{{.Name}}</td><td>{{.Limit}}</td><td>{{.WindowSec}}s</td><td>{{.Key}}</td>
+<td>{{range .Kinds}}{{.}} {{end}}</td><td>{{join .Methods ", "}}</td>
+<td>{{range .Usage}}<div>{{.}}</div>{{else}}<span class="muted">unused</span>{{end}}</td><td>{{.Set}}</td>
+<td><form class="inl" hx-post="/ui/settings/quotas/reset" hx-target="#s-quotas" hx-swap="outerHTML">
+<input type="hidden" name="key" value="{{.Name}}"><button>reset</button></form>
+{{template "del" (del "quotas" .Name (printf "quota %s" .Name))}}</td></tr>
+{{else}}<tr><td colspan="9" class="muted">No quota.</td></tr>{{end}}
+</tbody></table>
+{{template "purge" (purge "quotas" (len .Quotas) "quota" "quotas")}}
+</div>{{end}}
+{{define "content"}}
+<h1>Settings</h1>
+<p class="lead">Properties of hosts and repositories, applied on every request whatever the rules. Objects are added and deleted, not edited; a user, a quota or the host auth of the same name or host is replaced.</p>
+<h2>Users</h2>
+<p class="lead">Accounts for Basic auth and Bearer tokens, valid on every host, proxies included. Passwords are shown in clear on purpose: kuik's pull secrets need them.</p>
+{{template "set-users" .}}
+<form class="inline" hx-post="/ui/settings/users/put" hx-target="#s-users" hx-swap="outerHTML">
+<label>name <input name="name" required title="User name, case sensitive"></label>
+<label>password <input name="password" required title="Password, stored and shown in clear"></label>
+<label>set <input name="set" title="Optional. Groups this object with others: the State page lists, exports and deletes sets"></label>
+<button>Add or replace user</button></form>
+<h2>Grants</h2>
+<p class="lead">Give users pull, push or delete on a host and repository glob. A repository matched by a grant is restricted to the users of the matching grants; the others stay open.</p>
+{{template "set-grants" .}}
+<form class="inline" hx-post="/ui/settings/grants/create" hx-target="#s-grants" hx-swap="outerHTML">
+<label>host <input name="host" title="Host label glob, the part before .&lt;baseDomain&gt;; empty matches every host"></label>
+<label>repo <input name="repo" title="Repository glob: * is one path segment, ** any number; empty matches every repository"></label>
+<label class="chk"><input type="checkbox" name="action" value="pull" title="Allow pull"> pull</label>
+<label class="chk"><input type="checkbox" name="action" value="push" title="Allow push"> push</label>
+<label class="chk"><input type="checkbox" name="action" value="delete" title="Allow delete"> delete</label>
+<label>users <input name="users" placeholder="alice, bob" title="Existing user names, comma separated"></label>
+<label>set <input name="set" title="Optional. Groups this object with others: the State page lists, exports and deletes sets"></label>
+<button>Add grant</button></form>
+<h2>Host auth</h2>
+<p class="lead">Basic is the default. A Bearer host serves its own /token endpoint and challenges every request without credentials, like Docker Hub.</p>
+{{template "set-hostauth" .}}
+<form class="inline" hx-post="/ui/settings/hostauth/put" hx-target="#s-hostauth" hx-swap="outerHTML">
+<label>host <input name="host" required title="Host label glob, the part before .&lt;baseDomain&gt;"></label>
+<label>scheme <select name="scheme" title="Auth scheme: basic, or bearer with a /token endpoint"><option>basic</option><option>bearer</option></select></label>
+<label>set <input name="set" title="Optional. Groups this object with others: the State page lists, exports and deletes sets"></label>
+<button>Set host auth</button></form>
+<h2>Aliases</h2>
+<p class="lead">Rewrite a repository prefix when computing the content key, so an alternative on another path serves the same image (alt1/mirror/acme serves acme).</p>
+{{template "set-aliases" .}}
+<form class="inline" hx-post="/ui/settings/aliases/create" hx-target="#s-aliases" hx-swap="outerHTML">
+<label>host <input name="host" title="Host label glob, the part before .&lt;baseDomain&gt;; empty matches every host"></label>
+<label>from <input name="from" required title="Repository prefix to rewrite, literal"></label>
+<label>to <input name="to" required title="Prefix it becomes, literal"></label>
+<label>set <input name="set" title="Optional. Groups this object with others: the State page lists, exports and deletes sets"></label>
+<button>Add alias</button></form>
+<h2>Divergents</h2>
+<p class="lead">Salt the content key of a host and repository glob: the same repo:tag serves other digests there.</p>
+{{template "set-divergents" .}}
+<form class="inline" hx-post="/ui/settings/divergents/create" hx-target="#s-divergents" hx-swap="outerHTML">
+<label>host <input name="host" title="Host label glob, the part before .&lt;baseDomain&gt;; empty matches every host"></label>
+<label>repo <input name="repo" title="Repository glob: * is one path segment, ** any number; empty matches every repository"></label>
+<label>salt <input name="salt" required title="Text mixed into the content key, literal"></label>
+<label>set <input name="set" title="Optional. Groups this object with others: the State page lists, exports and deletes sets"></label>
+<button>Add divergent</button></form>
+<h2>Platforms</h2>
+<p class="lead">Narrow the synthetic images of a host and repository glob to some platforms (first match wins); their digests change.</p>
+{{template "set-platforms" .}}
+<form class="inline" hx-post="/ui/settings/platforms/create" hx-target="#s-platforms" hx-swap="outerHTML">
+<label>host <input name="host" title="Host label glob, the part before .&lt;baseDomain&gt;; empty matches every host"></label>
+<label>repo <input name="repo" title="Repository glob: * is one path segment, ** any number; empty matches every repository"></label>
+<div title="Platforms to serve; at least one">platforms {{range platforms}}<label class="chk"><input type="checkbox" name="platform" value="{{.}}" title="Serve {{.}}"> {{.}}</label> {{end}}</div>
+<label>set <input name="set" title="Optional. Groups this object with others: the State page lists, exports and deletes sets"></label>
+<button>Add platform rule</button></form>
+<h2>Quotas</h2>
+<p class="lead">A limit per window, counted per key (global, client ip or user), by default on manifest GETs. It applies through a rule with the quota effect; manifest answers of a rule with a quota carry RateLimit-Limit and RateLimit-Remaining.</p>
+{{template "set-quotas" .}}
+<form class="inline" hx-post="/ui/settings/quotas/put" hx-target="#s-quotas" hx-swap="outerHTML">
+<label>name <input name="name" required title="Quota name, referenced by rules; the same name replaces the quota"></label>
+<label>limit <input name="limit" size="5" required title="Requests allowed per window"></label>
+<label>window (s) <input name="windowSec" size="5" required title="Window length, in seconds"></label>
+<label>key <select name="key" title="What is counted separately: global, ip (client ip) or user"><option>global</option><option>ip</option><option>user</option></select></label>
+<label>methods <input name="methods" placeholder="GET, HEAD" title="HTTP methods counted, comma separated; empty counts the default"></label>
+<div title="Request kinds counted; none checked counts the default">kinds {{range kinds}}<label class="chk"><input type="checkbox" name="kind" value="{{.}}" title="Count {{.}} requests"> {{.}}</label> {{end}}</div>
+<label>set <input name="set" title="Optional. Groups this object with others: the State page lists, exports and deletes sets"></label>
+<button>Add or replace quota</button></form>
+{{end}}

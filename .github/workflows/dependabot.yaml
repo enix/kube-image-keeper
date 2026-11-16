@@ -2,8 +2,8 @@ name: Dependabot
 
 # Approves the Dependabot pull requests that target main and enables auto-merge on them: GitHub
 # merges them by rebase once Conform, Test and E2E pass. Dependabot adds the e2e-ready label
-# itself, see .github/dependabot.yml. Major updates, the kubernetes group and maintenance
-# branches are left to a human review.
+# itself, see .github/dependabot.yml. Major updates, the kubernetes group, kuik-tester and
+# maintenance branches are left to a human review.
 on:
   pull_request:
     types:
@@ -33,14 +33,19 @@ jobs:
         uses: dependabot/fetch-metadata@v3
 
       # update-type is the highest change of the PR, so one major update in a group excludes it.
-      - name: Leave major updates and the kubernetes group to a review
+      # No required check builds kuik-tester (the Tester workflow is not one), so its updates
+      # would merge untested; its Docker updates also bump the pinned Go release, which changes
+      # every synthetic digest it serves (test/kuik-tester/Dockerfile).
+      - name: Leave major updates, the kubernetes group and kuik-tester to a review
         id: policy
         env:
           UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
           GROUP: ${{ steps.metadata.outputs.dependency-group }}
+          DIRECTORY: ${{ steps.metadata.outputs.directory }}
         run: |
-          if [ "$UPDATE_TYPE" = version-update:semver-major ] || [ "$GROUP" = kubernetes ]; then
-            echo "::notice::Left to a human review (update type: $UPDATE_TYPE, group: ${GROUP:-none})"
+          if [ "$UPDATE_TYPE" = version-update:semver-major ] || [ "$GROUP" = kubernetes ] ||
+            [ "$DIRECTORY" = /test/kuik-tester ]; then
+            echo "::notice::Left to a human review (update type: $UPDATE_TYPE, group: ${GROUP:-none}, directory: $DIRECTORY)"
             echo "auto-merge=false" >> "$GITHUB_OUTPUT"
           else
             echo "auto-merge=true" >> "$GITHUB_OUTPUT"

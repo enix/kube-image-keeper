@@ -1,0 +1,75 @@
+{{define "ruleslist"}}<div id="rules-list">
+<table>
+<thead><tr><th>#</th><th>On</th><th>Target</th><th>Effects</th><th>Set</th><th>Note</th><th></th></tr></thead>
+<tbody>
+{{range .Rules}}
+<tr data-rule="{{.ID}}" data-set="{{.Set}}"{{if not .Enabled}} class="off"{{end}}>
+<td>{{.Index}}</td>
+<td><form hx-post="/ui/rules/toggle" hx-target="#rules-list" hx-swap="outerHTML">
+<input type="hidden" name="id" value="{{.ID}}">
+<input type="hidden" name="enabled" value="{{if .Enabled}}false{{else}}true{{end}}">
+<button>{{if .Enabled}}enabled{{else}}disabled{{end}}</button></form></td>
+<td>{{targetStr .Target}}</td>
+<td>{{.Behaviour}}{{range .Warnings}}<div class="warn">{{.}}</div>{{end}}</td>
+<td>{{.Set}}</td>
+<td>{{.Note}}</td>
+<td><form hx-post="/ui/rules/move" hx-target="#rules-list" hx-swap="outerHTML">
+<input type="hidden" name="id" value="{{.ID}}">
+{{if gt .Index 0}}<button name="dir" value="up">up</button>{{end}}
+{{if not .Last}}<button name="dir" value="down">down</button>{{end}}
+</form>
+<button type="button" hx-get="/ui/rules/{{.ID}}/edit" hx-target="#rule-form" hx-swap="outerHTML">edit</button>
+<form hx-post="/ui/rules/delete" hx-target="#rules-list" hx-swap="outerHTML" hx-confirm="Delete rule {{.ID}}?">
+<input type="hidden" name="id" value="{{.ID}}"><button>delete</button></form></td>
+</tr>
+{{else}}<tr><td colspan="7" class="muted">No rule.</td></tr>{{end}}
+</tbody>
+</table>
+{{if .Rules}}<form hx-post="/ui/rules/purge" hx-target="#rules-list" hx-swap="outerHTML" hx-confirm="Delete all {{count (len .Rules) "rule" "rules"}}?">
+<button title="Delete every rule, the ones of a set included">Purge all rules</button></form>{{end}}
+</div>{{end}}
+{{define "ruleupdated"}}{{template "ruleslist" .}}{{template "ruleform" .Form}}{{end}}
+{{define "ruleform"}}{{$f := .}}<div id="rule-form"{{if .Edit}} data-mode="edit" data-rule="{{.Rule.ID}}"{{else}} data-mode="new"{{end}}{{if .OOB}} hx-swap-oob="true"{{end}}>
+<h2>{{if .Edit}}Edit rule <code>{{.Rule.ID}}</code>{{else}}New rule{{end}}</h2>
+<form class="grid" hx-post="{{if .Edit}}/ui/rules/{{.Rule.ID}}{{else}}/ui/rules{{end}}" hx-target="#rules-list" hx-swap="outerHTML">
+<fieldset><legend>Target (empty or glob matches anything)</legend>
+<label>host <input name="host" value="{{.Rule.Target.Host}}" title="Host label glob, the part before .&lt;baseDomain&gt;; empty matches every host"></label>
+<label>repo <input name="repo" value="{{.Rule.Target.Repo}}" title="Repository glob: * is one path segment, ** any number; empty matches every repository"></label>
+<label>tag <input name="tag" value="{{.Rule.Target.Tag}}" title="Tag glob; a pull by digest has no tag"></label>
+<label>caller <input name="caller" value="{{.Rule.Target.Caller}}" placeholder="anonymous or a user name" title="anonymous, or a user name; empty matches every caller"></label>
+<label>methods <input name="methods" value="{{.Methods}}" placeholder="GET, HEAD" title="HTTP methods, comma separated; empty matches all"></label>
+<div title="Request kinds; none checked matches all">kinds {{range kinds}}<label class="chk"><input type="checkbox" name="kind" value="{{.}}" title="Request kinds; none checked matches all"{{if hasKind $f.Rule.Target.Kinds .}} checked{{end}}> {{.}}</label> {{end}}</div>
+</fieldset>
+<fieldset><legend>Effects</legend>
+<label>status <input name="status" size="4" value="{{if .Rule.Effects.Status}}{{.Rule.Effects.Status}}{{end}}" title="HTTP status 400 to 599, answered with the matching OCI error"></label>
+<label>latency (ms) <input name="latencyMs" size="6" value="{{if .Rule.Effects.LatencyMS}}{{.Rule.Effects.LatencyMS}}{{end}}" title="Delay before the first byte, in milliseconds"></label>
+<label>quota <select name="quota" title="Count the matching requests against this quota (Settings); 429 when exhausted"><option value="">none</option>{{range .Quotas}}<option{{if eq .Name $f.Rule.Effects.Quota}} selected{{end}}>{{.Name}}</option>{{end}}</select></label>
+<label class="chk"><input type="checkbox" name="reset"{{if .Rule.Effects.Reset}} checked{{end}} title="Close the connection with a TCP RST: the client sees ECONNRESET"> reset connection</label>
+<label class="chk"><input type="checkbox" name="pass"{{if .Rule.Effects.Pass}} checked{{end}} title="No fault: exempts this target from a broader rule below; not with status or reset"> pass (exempt)</label>
+<label>headers (one <code>Name: value</code> per line)<textarea name="headers" rows="3" title="Extra response headers, one Name: value per line">{{range $n, $v := .Rule.Effects.Headers}}{{$n}}: {{$v}}
+{{end}}</textarea></label>
+</fieldset>
+<label>note <input name="note" value="{{.Rule.Note}}" title="Free text shown in the table"></label>
+<label>set <input name="set" value="{{.Rule.Set}}" title="Optional. Groups this object with others: the State page lists, exports and deletes sets"></label>
+<label class="chk"><input type="checkbox" name="enabled"{{if .Rule.Enabled}} checked{{end}} title="A disabled rule is kept but never matches"> enabled</label>
+<button>{{if .Edit}}Save rule{{else}}Create rule{{end}}</button>
+{{if .Edit}}<button type="button" hx-get="/ui/rules/form" hx-target="#rule-form" hx-swap="outerHTML">Cancel</button>{{end}}
+</form>
+</div>{{end}}
+{{define "content"}}
+<h1>Rules</h1>
+<p class="lead">Fault rules, in order: the first enabled rule that matches a request applies, and new rules go on top. A rule in a set goes away with the set (State page).</p>
+<details id="rules-help"><summary>How rules are evaluated</summary>
+<ol>
+<li>Classify: the path gives the request kind; an unknown endpoint answers 404.</li>
+<li>Identify the caller: invalid credentials answer 401 before any rule.</li>
+<li>Rules: the first enabled matching rule applies its effects in this order: headers (kept on whatever answer follows), latency, reset, status; a rule with only headers, latency, a quota or pass lets the request go on.</li>
+<li>Authorization: grants and the host's auth scheme; 401 without credentials, 403 without the right.</li>
+<li>Quota: the rule's quota counts the request, 429 when exhausted; a request refused at step 4 counts nothing.</li>
+<li>Serve the synthetic image, or forward to the proxy backend.</li>
+</ol>
+<p>Pass matches and stops the evaluation without a fault: put it above a broader rule to exempt a narrower target. Repo globs: * is one path segment, ** any number; a pull by digest has no tag and matches a tag pattern only when the kinds name manifest-by-digest.</p>
+</details>
+{{template "ruleslist" .}}
+{{template "ruleform" .Form}}
+{{end}}

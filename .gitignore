@@ -5,6 +5,9 @@
 *.so
 *.dylib
 bin/*
+# kuik-tester: its binary, and the sleep binaries of its synthetic images (task tester:bins)
+/test/kuik-tester/bin/
+/test/kuik-tester/internal/synth/bin/
 dist/
 # Task cache (https://taskfile.dev)
 .task/

@@ -1,0 +1,117 @@
+name: Tester
+
+# kuik-tester is a nested Go module (notes/0017): the Test and Lint workflows, which run on the
+# root module, never see it. One job, no paths filter on pull requests, so that it can be made a
+# required check: the job skips its steps itself when nothing it depends on changed, as E2E does.
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+    # Keep in sync with the list of the "Look for relevant changes" step below.
+    paths:
+      - test/kuik-tester/**
+      - .golangci.yml
+      - .custom-gcl.yml
+      - Taskfile.yaml
+      - .github/workflows/tester.yaml
+      - .github/actions/setup-task/**
+  # The Tester release workflow runs these checks before it publishes.
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  tester:
+    name: Tester
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v7
+        with:
+          # On a pull request, HEAD is the merge commit and HEAD^1 the base branch.
+          fetch-depth: ${{ github.event_name == 'pull_request' && '2' || '1' }}
+          persist-credentials: false
+
+      # Keep the list in sync with the paths filter of the push trigger above. A git error counts
+      # as a change, so the checks run.
+      - name: Look for relevant changes
+        id: changes
+        if: github.event_name == 'pull_request'
+        run: |
+          if git --glob-pathspecs diff --quiet HEAD^1 HEAD -- \
+            'test/kuik-tester/**' \
+            .golangci.yml \
+            .custom-gcl.yml \
+            Taskfile.yaml \
+            .github/workflows/tester.yaml \
+            '.github/actions/setup-task/**'
+          then
+            echo "::notice::No change can affect kuik-tester; skipping its checks."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Go
+        if: steps.changes.outputs.run != 'false'
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: test/kuik-tester/go.mod
+          cache-dependency-path: test/kuik-tester/go.sum
+
+      - name: Setup Task
+        if: steps.changes.outputs.run != 'false'
+        uses: ./.github/actions/setup-task
+
+      - name: Check go.mod and go.sum
+        if: steps.changes.outputs.run != 'false'
+        run: task tester:tidy
+
+      - name: Run go vet
+        if: steps.changes.outputs.run != 'false'
+        run: task tester:vet
+
+      - name: Run lint
+        if: steps.changes.outputs.run != 'false'
+        run: task tester:lint
+
+      - name: Run the specs
+        if: steps.changes.outputs.run != 'false'
+        run: task tester:test
+
+      - name: Run the specs of the embedded sleep binaries
+        if: steps.changes.outputs.run != 'false'
+        run: task tester:test-bins
+
+      # The zot of the dev stack (compose.yaml), the same version as the chart's zot.image.
+      - name: Start zot
+        if: steps.changes.outputs.run != 'false'
+        run: |
+          docker compose -f test/kuik-tester/compose.yaml up -d zot
+          for _ in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:5001/v2/ > /dev/null && exit 0
+            sleep 1
+          done
+          echo "::error::zot did not become ready"
+          exit 1
+
+      - name: Run the specs against zot
+        if: steps.changes.outputs.run != 'false'
+        run: task tester:test-integration ZOT_URL=http://127.0.0.1:5001
+
+      - name: Check the chart
+        if: steps.changes.outputs.run != 'false'
+        run: task tester:chart-test
+
+      # The image task needs a builder that handles several platforms. The Dockerfile
+      # cross-compiles and its final stage runs nothing: no QEMU.
+      - name: Set up Docker Buildx
+        if: steps.changes.outputs.run != 'false'
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build the image for both platforms
+        if: steps.changes.outputs.run != 'false'
+        run: task tester:image

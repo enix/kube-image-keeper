@@ -107,3 +107,7 @@ Rationale in [0005](./0005-decision-log-filter.md).
   the acceptance scenarios are the use cases of `docs/use-cases/`, played end to end on a real
   cluster with real registries; every precise behaviour, a bug fix's included, goes to the Kind
   e2e suite or envtest.
+- [0017 — kuik-tester: a fault-injecting registry for the tests, in test/kuik-tester](./0017-kuik-tester.md):
+  kuik-tester lives in `test/kuik-tester/` as a nested Go module with its own workflow and the
+  tooling scope `tester`, logs with slog, and is released by dispatch to quay.io, tagged
+  `test/kuik-tester/vX.Y.Z`, outside semantic-release.

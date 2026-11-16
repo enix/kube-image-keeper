@@ -1,0 +1,35 @@
+{{- if .Values.ingress.admin.enabled -}}
+{{- $fullname := include "kuik-tester.fullname" . -}}
+{{- $host := .Values.ingress.admin.host | default (printf "admin.%s" .Values.baseDomain) -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullname }}-admin
+  labels:
+    {{- include "kuik-tester.labels" . | nindent 4 }}
+  {{- with .Values.ingress.admin.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.admin.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with .Values.ingress.admin.tlsSecretName }}
+  tls:
+    - hosts:
+        - {{ $host | quote }}
+      secretName: {{ . }}
+  {{- end }}
+  rules:
+    - host: {{ $host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullname }}-admin
+                port:
+                  number: 8081
+{{- end }}

@@ -177,8 +177,9 @@ gh_outbound="gh[[:space:]]+${opts}(pr[[:space:]]+(create|merge|close|reopen|read
 gh_api="gh[[:space:]]+${opts}api[[:space:]][^;&|]*(-X|--method)[[:space:]=]*(POST|PATCH|PUT|DELETE)|gh[[:space:]]+${opts}api[[:space:]][^;&|]*(-f|-F|--field|--raw-field|--input)"
 # The Makefile forwards to task. run and its run:* subtasks use the current kubeconfig;
 # the e2e tasks create and delete a Kind cluster; acceptance-cleanup ends a release acceptance
-# (the other acceptance tasks only read, or write test objects through the program's guard).
-task_outbound="(task|make)[[:space:]]+${opts}(deploy|kind-deploy|undeploy|install|uninstall|docker-push|docker-buildx|run(:[a-z-]+)?|setup-test-e2e|test-e2e|cleanup-test-e2e|acceptance-cleanup)"
+# (the other acceptance tasks only read, or write test objects through the program's guard);
+# tester:image runs docker buildx, tester:test-integration writes to the registry of ZOT_URL.
+task_outbound="(task|make)[[:space:]]+${opts}(deploy|kind-deploy|undeploy|install|uninstall|docker-push|docker-buildx|run(:[a-z-]+)?|setup-test-e2e|test-e2e|cleanup-test-e2e|acceptance-cleanup|tester:image|tester:test-integration)"
 # The acceptance program run or built directly, around the tasks and the code they pin.
 go_acceptance="go[[:space:]]+(run|build)[[:space:]][^;&|]*test/acceptance"
 docker_push="docker[[:space:]]+${opts}((image|manifest)[[:space:]]+)?push|docker[[:space:]][^;&|]*--push(=[^[:space:]]*)?"
@@ -344,7 +345,7 @@ fi
 # settings.json, keep both in step. Only task names, VAR=value words, plain words after `--` and
 # a trailing 2>&1: nothing can ride along.
 if [ -n "${in_worktree:-}" ]; then
-  local_task='(test|test-short|test-outline|lint|lint-fix|lint-config|helm-lint|lint-values|manifests|generate|generate-helm-docs|build|fmt|vet|conform|check-commits|lint-hooks|lint-markdown|lint-markdown-fix|release-dry-run)'
+  local_task='(test|test-short|test-outline|lint|lint-fix|lint-config|helm-lint|lint-values|manifests|generate|generate-helm-docs|build|fmt|vet|conform|check-commits|lint-hooks|lint-markdown|lint-markdown-fix|release-dry-run|tester:(bins|build|test|test-bins|vet|lint|lint-fix|tidy|chart-docs|chart-test))'
   if printf '%s' "$cmd" | grep -Eq "^task([[:space:]]+${local_task})+([[:space:]]+[A-Z_][A-Z0-9_]*=[A-Za-z0-9,./:_@+=-]*)*([[:space:]]+--([[:space:]]+[A-Za-z0-9=,./:_@+-]+)*)?([[:space:]]+2>&1)?[[:space:]]*\$"; then
     jq -n '{
       hookSpecificOutput: {

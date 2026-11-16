@@ -1,0 +1,31 @@
+# Dev stack only (the Helm chart is the deployment path): kuik-tester in front
+# of a zot registry. Every port is bound to 127.0.0.1 because the admin has no
+# authentication of its own.
+# compose/zot-config.json mirrors the zot config of the chart (with shorter
+# GC delays); JSON has no comments, so keep both in sync when one changes.
+services:
+  kuik-tester:
+    build: .
+    image: kuik-tester:dev
+    depends_on:
+      - zot
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${KT_REGISTRY_PORT:-8080}:8080"
+      - "127.0.0.1:${KT_ADMIN_PORT:-8081}:8081"
+      - "127.0.0.1:${KT_PLAIN_PORT:-5000}:5000"
+    volumes:
+      - ./compose/config.yaml:/etc/kuik-tester/config.yaml:ro
+      # distroless nonroot owns /home/nonroot, so the fresh volume is writable by 65532.
+      - kt-state:/home/nonroot
+  zot:
+    image: ghcr.io/project-zot/zot-minimal:v2.1.21
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${KT_ZOT_PORT:-5001}:5000"
+    volumes:
+      - ./compose/zot-config.json:/etc/zot/config.json:ro
+      - zot-data:/var/lib/registry
+volumes:
+  kt-state:
+  zot-data:

@@ -28,4 +28,5 @@ policies:
           - registry
           - routing
           - secret-syncer
+          - tester
         descriptionLength: 800
