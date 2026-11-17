@@ -253,7 +253,7 @@ The mirror's own `destination.path` is excluded on top of this list, which is wh
 > [!WARNING]
 > Excluding an image, or narrowing a selector, also removes the copy already made: the tags enter `status.pendingDeletion` and are deleted once `cleanup.retention` has elapsed. `cleanup.enabled: false` is what stops it.
 
-An image no selected pod runs any more, its last pod gone or a narrowed selector, is retained for `cleanup.retention`: it is copied again if it disappears from the destination, but an image not copied yet when it is retained is never copied, and leaves `status.failedImageCopies`.
+An image no selected pod runs any more, its last pod gone or a narrowed selector, is retained for `cleanup.retention`: it is copied again if it disappears from the destination, but an image not copied yet when it is retained is never copied, and leaves `status.failedImageCopies`. If a selected pod starts using the image again after cleanup deleted its tag, it is copied again.
 
 ### Destination requirements
 
