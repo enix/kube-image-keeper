@@ -115,7 +115,7 @@ An `ImageMonitor` lists the images whose check fails in `status.unavailableImage
 | `QuotaExceeded` | The registry rate-limited the check | Raise the host's `check.interval` |
 | `Unreachable` | The registry did not answer: DNS, connection, TLS or timeout, or answered with a server error (5xx) | Check the network, and [Registry TLS](../configuration.md#registry-tls) |
 
-An `AnonymousAccessDenied` event on the monitor says that a registry refused an anonymous check: the image is likely private, and no credential covers it. Declare a `fallbackAuth` entry for it.
+An `AnonymousAccessDenied` event on the monitor says that a registry refused an anonymous check: the image is likely private, and no credential covers it. Declare a `fallbackAuth` entry for it. A private image no pod declares any more, kept in `status.retainedImages`, fails this way too: its pods are gone with their pull secrets, see [Known limits](../known-limits.md#monitoring).
 
 **The counts lag behind.** `available` plus `unavailable` stays below `tracked` until every image has been checked once: kuik checks one image per registry per `check.interval`. `status.checks.registries[].cycleDuration` is how long a full round takes on each registry.
 

@@ -101,7 +101,7 @@ status:
 
 Before a maintenance, wait until every image was checked at least once: `status.checks.registries[].cycleDuration` is the length of the last round on each registry.
 
-An image whose registry refuses an anonymous check emits an `AnonymousAccessDenied` event on the monitor: it is likely private, and no credential covers it. Declare one in `fallbackAuth`.
+An image whose registry refuses an anonymous check emits an `AnonymousAccessDenied` event on the monitor: it is likely private, and no credential covers it. Declare one in `fallbackAuth`. A private image fails this way too during its retention, once its last pod is gone with its pull secrets, see [Known limits](../known-limits.md#monitoring).
 
 ## Alert
 
