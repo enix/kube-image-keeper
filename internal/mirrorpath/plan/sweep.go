@@ -23,14 +23,28 @@ const DeletionBuffer = 10 * time.Second
 // Release records in pending the destination tags of released, the references whose last
 // pod went, with their origin and unusedSince set to now. A tag one of live still expects
 // is not recorded, and an entry whose tag live expects leaves pending. An entry already
-// recorded keeps its unusedSince.
-func Release(clusterID, path string, released, live []imagepath.Reference, _ func(imagepath.Reference) bool, pending []kuikv1alpha1.PendingDeletion, now time.Time) []kuikv1alpha1.PendingDeletion {
+// recorded keeps its unusedSince; an orphan one, without origin, gets the origin of the
+// reference released: the sweep may list the tag of a copy ending after a reconcile read the
+// ended copies, before the next one releases it.
+// held tells whether the destination holds the copy of a reference. One it does not hold is
+// not recorded: it has no tag to retain nor to delete, and an entry would keep it counted as
+// not copied yet for its whole retention, while nothing copies it any more.
+func Release(clusterID, path string, released, live []imagepath.Reference, held func(imagepath.Reference) bool, pending []kuikv1alpha1.PendingDeletion, now time.Time) []kuikv1alpha1.PendingDeletion {
 	expected := expectedTags(clusterID, path, live)
 	out := unexpected(pending, expected)
 	recorded := refsOf(out)
 	for _, ref := range released {
+		if !held(ref) {
+			continue
+		}
 		for _, tag := range destinationTags(clusterID, path, ref) {
-			if expected[tag] || recorded[tag] {
+			if expected[tag] {
+				continue
+			}
+			if recorded[tag] {
+				if i := slices.IndexFunc(out, func(e kuikv1alpha1.PendingDeletion) bool { return e.Ref == tag }); out[i].Origin == "" {
+					out[i].Origin = ref.String()
+				}
 				continue
 			}
 			recorded[tag] = true
@@ -38,6 +52,20 @@ func Release(clusterID, path string, released, live []imagepath.Reference, _ fun
 		}
 	}
 	return out
+}
+
+// Orphaned returns the references of live whose destination tag an orphan entry of pending
+// records, one without origin: the sweep listed that tag at the destination, and Release drops
+// the entry since live expects it. An entry with its origin tells nothing more: Release
+// recorded it from what held told. A pinned reference needs the entry of its anchor: its tag
+// alone may hold another digest.
+func Orphaned(clusterID, path string, live []imagepath.Reference, pending []kuikv1alpha1.PendingDeletion) []imagepath.Reference {
+	recorded := refsOf(slices.DeleteFunc(slices.Clone(pending), func(e kuikv1alpha1.PendingDeletion) bool { return e.Origin != "" }))
+	return slices.DeleteFunc(slices.Clone(live), func(ref imagepath.Reference) bool {
+		// The anchor of a pinned reference comes last.
+		tags := destinationTags(clusterID, path, ref)
+		return len(tags) == 0 || !recorded[tags[len(tags)-1]]
+	})
 }
 
 // Sweep is the tag sweep of one destination pass. See walkthrough 02, "C.3 Sweep the

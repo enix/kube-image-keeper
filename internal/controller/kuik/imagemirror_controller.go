@@ -257,13 +257,20 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	mirror := plan.Mirror{Path: im.Spec.Destination.Path, ExcludeImages: im.Spec.ExcludeImages, CleanupEnabled: cleanup}
 	live := plan.Desired(plan.Mirror{Path: mirror.Path, ExcludeImages: mirror.ExcludeImages}, pods, nil)
 	now := r.clock.Now()
+	repository := func(ref imagepath.Reference) string {
+		return destinationRepository(&im, ref, clusterID)
+	}
 	// A reference losing its last pod is held for its retention, which the sweep of the next
 	// pass would only notice an interval later. Live is remembered once the status holding the
-	// release is written: a lost write releases it again.
-	released := st.release(live)
+	// release is written: a lost write releases it again. A reference the destination never
+	// held is let go at once: it has no tag to retain.
+	released, landed := st.release(live)
 	var pending []kuikv1alpha1.PendingDeletion
 	if cleanup {
-		pending = plan.Release(clusterID, mirror.Path, released, live, nil, im.Status.PendingDeletion, now)
+		// An orphan entry Release drops, live expecting its tag again, tells the destination
+		// holds that tag.
+		st.foundOrphaned(plan.Orphaned(clusterID, mirror.Path, live, im.Status.PendingDeletion))
+		pending = plan.Release(clusterID, mirror.Path, released, live, st.holds(repository), im.Status.PendingDeletion, now)
 	}
 	// The live references plus the retained ones: reading the pods once is what a mirror
 	// selecting thousands of containers can afford per reconcile.
@@ -316,9 +323,6 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		sources, err := r.copySources(ctx, desired, pods, st.originTransports())
 		if err != nil {
 			return ctrl.Result{}, err
-		}
-		repository := func(ref imagepath.Reference) string {
-			return destinationRepository(&im, ref, clusterID)
 		}
 		st.setSources(sources)
 		r.turnRings(&im, st, desired)
@@ -385,7 +389,7 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// The next destination pass is due in nextPass, whatever the pods do meanwhile.
 	result := ctrl.Result{RequeueAfter: nextPass}
 	if equality.Semantic.DeepEqual(im.Status, next) {
-		st.remember(live)
+		st.remember(live, landed)
 		return result, nil
 	}
 	im.Status = next
@@ -396,7 +400,7 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		return ctrl.Result{}, err
 	}
-	st.remember(live)
+	st.remember(live, landed)
 	logf.FromContext(ctx).V(1).Info("Updated ImageMirror status")
 	return result, nil
 }

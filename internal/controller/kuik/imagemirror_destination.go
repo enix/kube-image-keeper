@@ -158,7 +158,9 @@ func (r *ImageMirrorReconciler) selfCheck(ctx context.Context, im *kuikv1alpha1.
 	// A re-copy the destination no longer misses is done failing: lost again, it goes first.
 	maps.DeleteFunc(st.lapped, func(key string, _ bool) bool { return !recopy[key] })
 	st.writeBack = writeBack
-	st.lastPass = now
+	st.lastPass, st.passed = now, true
+	// present knows now what the pendingDeletion entries told.
+	st.found = nil
 	st.retryAt = time.Time{}
 	return now, nil
 }
