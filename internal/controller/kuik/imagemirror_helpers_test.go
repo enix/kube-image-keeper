@@ -409,6 +409,37 @@ func (h *mirrorHarness) blockOn(method, pathPart string) (entered chan struct{},
 	return entered, release
 }
 
+// holdPushes makes the destination hold every manifest it is asked to write until release is
+// called, then answer it with status, or as the registry does when status is 0. It returns a
+// channel closed once the first one arrived. Release runs when the spec ends too.
+func (h *mirrorHarness) holdPushes(status int) (entered chan struct{}, release func()) {
+	entered, released := make(chan struct{}), make(chan struct{})
+	var enter, done sync.Once
+	release = func() { done.Do(func() { close(released) }) }
+	DeferCleanup(release)
+	h.destination.Intercept(func(w http.ResponseWriter, r *http.Request) bool {
+		if r.Method != http.MethodPut || !strings.Contains(r.URL.Path, "/manifests/") {
+			return false
+		}
+		enter.Do(func() { close(entered) })
+		<-released
+		if status == 0 {
+			return false
+		}
+		w.WriteHeader(status)
+		return true
+	})
+	return entered, release
+}
+
+// copiesEnded reports whether no copy of the mirror under test runs.
+func (h *mirrorHarness) copiesEnded() bool {
+	st := h.reconciler.state(h.name)
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return st.inFlight == 0
+}
+
 // deleteManifest deletes the manifest ref, relative to the destination, and the tags pointing
 // at it, as an external garbage collection would.
 func (h *mirrorHarness) deleteManifest(ref string) {

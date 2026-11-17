@@ -24,7 +24,7 @@ const DeletionBuffer = 10 * time.Second
 // pod went, with their origin and unusedSince set to now. A tag one of live still expects
 // is not recorded, and an entry whose tag live expects leaves pending. An entry already
 // recorded keeps its unusedSince.
-func Release(clusterID, path string, released, live []imagepath.Reference, pending []kuikv1alpha1.PendingDeletion, now time.Time) []kuikv1alpha1.PendingDeletion {
+func Release(clusterID, path string, released, live []imagepath.Reference, _ func(imagepath.Reference) bool, pending []kuikv1alpha1.PendingDeletion, now time.Time) []kuikv1alpha1.PendingDeletion {
 	expected := expectedTags(clusterID, path, live)
 	out := unexpected(pending, expected)
 	recorded := refsOf(out)
