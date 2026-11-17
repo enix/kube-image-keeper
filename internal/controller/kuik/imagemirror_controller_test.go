@@ -1152,6 +1152,22 @@ var _ = Describe("ImageMirror Controller", func() {
 			Expect(v).To(BeNumerically("~", float64(h.clock.Now().Unix()), 1))
 		})
 
+		It("exports kuik_mirror_self_checked_timestamp_seconds from status.selfChecked after a restart whose first pass is interrupted", func() {
+			copiedApp()
+			h.reconcile()
+			before := h.status().SelfChecked
+			Expect(before).NotTo(BeNil())
+
+			h.restart()
+			h.destination.Intercept(registrytest.Status(http.MethodHead, "/manifests/", http.StatusInternalServerError, nil))
+			h.reconcile()
+
+			Expect(h.status().SelfChecked).To(Equal(before))
+			v, ok := gauge(h.metrics, "kuik_mirror_self_checked_timestamp_seconds", map[string]string{labelKind: routing.KindImageMirror, labelName: h.name})
+			Expect(ok).To(BeTrue())
+			Expect(v).To(BeNumerically("==", float64(before.Unix())))
+		})
+
 		It("leaves selfChecked as it was when a pass is interrupted", func() {
 			copiedApp()
 			h.reconcile()
