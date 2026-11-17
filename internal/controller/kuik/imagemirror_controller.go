@@ -263,7 +263,7 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	released := st.release(live)
 	var pending []kuikv1alpha1.PendingDeletion
 	if cleanup {
-		pending = plan.Release(clusterID, mirror.Path, released, live, im.Status.PendingDeletion, now)
+		pending = plan.Release(clusterID, mirror.Path, released, live, nil, im.Status.PendingDeletion, now)
 	}
 	// The live references plus the retained ones: reading the pods once is what a mirror
 	// selecting thousands of containers can afford per reconcile.

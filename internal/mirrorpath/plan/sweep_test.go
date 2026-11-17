@@ -37,6 +37,14 @@ var _ = Describe("Sweep", func() {
 		}
 		return out
 	}
+	// holding tells the references the destination holds the copy of.
+	holding := func(ss ...string) func(imagepath.Reference) bool {
+		held := map[string]bool{}
+		for _, ref := range refs(ss...) {
+			held[ref.String()] = true
+		}
+		return func(ref imagepath.Reference) bool { return held[ref.String()] }
+	}
 	entry := func(tag, origin string, unusedSince time.Time) kuikv1alpha1.PendingDeletion {
 		return kuikv1alpha1.PendingDeletion{Ref: repository + ":" + tag, Origin: origin, UnusedSince: metav1.NewTime(unusedSince)}
 	}
@@ -84,7 +92,7 @@ var _ = Describe("Sweep", func() {
 		})
 
 		It("records the tags of a reference whose last pod went, with its origin", func() {
-			pending := Release(clusterID, destinationPath, refs("quay.io/acme/app:v1@"+digest), nil, nil, now)
+			pending := Release(clusterID, destinationPath, refs("quay.io/acme/app:v1@"+digest), nil, holding("quay.io/acme/app:v1@"+digest), nil, now)
 
 			anchor := strings.Replace(digest, ":", "-", 1) + "_" + clusterID
 			Expect(pending).To(ConsistOf(
@@ -93,8 +101,14 @@ var _ = Describe("Sweep", func() {
 			))
 		})
 
+		It("records nothing for a reference whose last pod went before the destination held its copy", func() {
+			pending := Release(clusterID, destinationPath, refs("quay.io/acme/app:v1", "quay.io/acme/app:v2"), nil, holding("quay.io/acme/app:v2"), nil, now)
+
+			Expect(pending).To(ConsistOf(entry("v2_"+clusterID, "quay.io/acme/app:v2", now)))
+		})
+
 		It("never records a tag another desired reference still expects, a tagged and a pinned reference sharing it", func() {
-			pending := Release(clusterID, destinationPath, refs("quay.io/acme/app:v1"), refs("quay.io/acme/app:v1@"+digest), nil, now)
+			pending := Release(clusterID, destinationPath, refs("quay.io/acme/app:v1"), refs("quay.io/acme/app:v1@"+digest), holding("quay.io/acme/app:v1"), nil, now)
 
 			Expect(pending).To(BeEmpty())
 		})
@@ -105,6 +119,15 @@ var _ = Describe("Sweep", func() {
 			result := sweep(nil, []string{ownTag}, entry(ownTag, "", earlier)).Run()
 
 			Expect(result.Pending).To(ConsistOf(entry(ownTag, "", earlier)))
+		})
+
+		It("gives its origin to the orphan entry of a tag a reference whose last pod went holds, keeping its unusedSince", func() {
+			earlier := now.Add(-10 * time.Minute)
+
+			pending := Release(clusterID, destinationPath, refs("quay.io/acme/app:v1"), nil, holding("quay.io/acme/app:v1"),
+				[]kuikv1alpha1.PendingDeletion{entry(ownTag, "", earlier)}, now)
+
+			Expect(pending).To(ConsistOf(entry(ownTag, "quay.io/acme/app:v1", earlier)))
 		})
 
 		It("drops an entry whose tag the desired state expects again", func() {
