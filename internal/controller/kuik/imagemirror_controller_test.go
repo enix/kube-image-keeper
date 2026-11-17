@@ -1571,6 +1571,34 @@ var _ = Describe("ImageMirror Controller", func() {
 			Expect(h.status().PendingDeletion).To(BeEmpty())
 		})
 
+		It("copies a reference again when a pod starts using it after cleanup deleted its retained tag", func() {
+			src := h.source()
+			src.Push("acme/job:v1", registrytest.Image())
+			ns := h.namespace()
+			pod := createPod(ns, unique("pod"), container{name: appContainer, image: src.Host() + "/acme/job:v1"})
+			h.mirror(withRetention(0))
+			h.copyAll(1)
+			destination := destinationTag(src, "acme/job")
+			Expect(h.copied(destination)()).To(Succeed())
+
+			setPhase(pod, corev1.PodSucceeded)
+			h.reconcile()
+			Expect(h.status().PendingDeletion).NotTo(BeEmpty())
+
+			h.pass()
+			h.reconcile()
+			Expect(h.status().PendingDeletion).To(BeEmpty())
+			Expect(h.copied(destination)()).NotTo(Succeed())
+
+			createPod(ns, unique("pod"), container{name: appContainer, image: src.Host() + "/acme/job:v1"})
+			h.reconcile()
+			h.window()
+			Eventually(h.copied(destination)).Should(Succeed())
+			// The tag reaches the destination before the copy emits its event.
+			Eventually(func() []recordedEvent { return h.recorder.withReason("ImageCopied") }).Should(HaveLen(2))
+			Expect(h.recorder.withReason("ImageRecopied")).To(BeEmpty())
+		})
+
 		It("records no orphan, deletes nothing and retires no repository in a pass where the destination does not answer", func() {
 			h.mirror(withRetention(0))
 			h.orphan("old", own)
