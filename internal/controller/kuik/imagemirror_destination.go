@@ -270,6 +270,7 @@ func (r *ImageMirrorReconciler) sweep(ctx context.Context, im *kuikv1alpha1.Imag
 			log.V(1).Info("Kept ImageMirror tag: a tag this cluster still expects shares its manifest", "image", ref, "sharedWith", keptBy)
 		case err == nil:
 			deleted[ref] = true
+			st.forgetDeletedOrigin(entries[ref].Origin)
 			r.metrics.deletedTag(routing.KindImageMirror, im.Name, entries[ref])
 			st.acceptDeletion()
 			// Events expire: the log is what records every deletion.
@@ -293,6 +294,18 @@ func (r *ImageMirrorReconciler) sweep(ctx context.Context, im *kuikv1alpha1.Imag
 	}
 	remaining := slices.DeleteFunc(result.Pending, func(e kuikv1alpha1.PendingDeletion) bool { return deleted[e.Ref] })
 	return remaining, result.Retire, nil
+}
+
+// forgetDeletedOrigin lets a reference whose tag the sweep removed be copied immediately
+// if a pod starts using it again before the next destination pass.
+func (st *mirrorState) forgetDeletedOrigin(origin string) {
+	if origin == "" {
+		return
+	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	delete(st.present, origin)
+	delete(st.copied, origin)
 }
 
 // deletionReason is why a tag was deleted: Unused when a pod event recorded it with its
