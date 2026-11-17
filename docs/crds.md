@@ -253,7 +253,7 @@ The mirror's own `destination.path` is excluded on top of this list, which is wh
 > [!WARNING]
 > Excluding an image, or narrowing a selector, also removes the copy already made: the tags enter `status.pendingDeletion` and are deleted once `cleanup.retention` has elapsed. `cleanup.enabled: false` is what stops it.
 
-An image no selected pod runs any more, its last pod gone or a narrowed selector, is retained for `cleanup.retention`: it is copied again if it disappears from the destination, but an image not copied yet when it is retained is never copied, and leaves `status.failedImageCopies`.
+An image no selected pod runs any more, its last pod gone or a narrowed selector, is retained for `cleanup.retention`: it is copied again if it disappears from the destination. An image the destination does not hold yet when its last pod goes is not retained at all: it gets no `status.pendingDeletion` entry, leaves `status.failedImageCopies` and the `status.images.copy` counts, is never copied, and no `DELETE` is sent for it. When its copy was running at that moment and succeeds, its tags enter `status.pendingDeletion` with their origin once the copy ends. One exception: until the first destination pass of a kuik process completes, an image in a repository `status.repositories` already lists counts as held, copied or not, and is retained, see [Retention before the first destination pass](./known-limits.md#mirroring).
 
 ### Destination requirements
 

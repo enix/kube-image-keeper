@@ -65,6 +65,14 @@ type mirrorState struct {
 	// form; lastPass is when that pass ran, zero before the first.
 	present  map[string]bool
 	lastPass time.Time
+	// passed is set once a whole destination pass of this process completed, never reset:
+	// lastPass goes back to zero to run a pass at once, whose present still holds.
+	passed bool
+	// found are the live references, keyed by their String form, whose destination tag an
+	// orphan entry of pendingDeletion recorded when a pod started running them: the sweep
+	// listed that tag, which present does not know until the next whole pass, which forgets
+	// them.
+	found map[string]bool
 	// retryAt is when a pass that was interrupted may run again, zero when none was: an
 	// interrupted pass sets no lastPass, so without it the next reconcile would run it again.
 	retryAt time.Time
@@ -99,6 +107,10 @@ type mirrorState struct {
 	// live are the references the selected pods ran at the last reconcile, nil before the
 	// first one: what tells which reference lost its last pod.
 	live []imagepath.Reference
+	// landed are the references whose copy ended in success since the last reconcile whose
+	// status was written, keyed by their String form: one whose last pod went while its copy
+	// ran is released once that copy ends. A restart needs no seed: the sweep finds its tag.
+	landed map[string]imagepath.Reference
 	// deleteUnsupported is set once the destination refused a deletion as unsupported, until
 	// one succeeds; manifestRefused when that deletion was by digest.
 	deleteUnsupported bool
@@ -246,31 +258,72 @@ func (st *mirrorState) doneDeleting() {
 	st.deleting, st.sweepAgain = false, false
 }
 
-// remember records live as the references of the last reconcile whose status was written.
-func (st *mirrorState) remember(live []imagepath.Reference) {
+// remember records live as the references of the last reconcile whose status was written,
+// and forgets landed, the ended copies that reconcile released.
+func (st *mirrorState) remember(live []imagepath.Reference, landed []string) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	st.live = live
+	for _, key := range landed {
+		delete(st.landed, key)
+	}
 }
 
-// release returns the references of the last remembered reconcile no selected pod runs any
-// more. The first reconcile of a process releases nothing: the sweep finds what fell out of
-// use while it was not running.
-func (st *mirrorState) release(live []imagepath.Reference) []imagepath.Reference {
+// release returns the references no selected pod runs any more: those of the last remembered
+// reconcile, and those whose copy ended since, which lost their last pod while it ran. The
+// first reconcile of a process releases nothing: the sweep finds what fell out of use while
+// it was not running. It also returns the ended copies it read, for remember to forget once
+// the status is written: one ending meanwhile waits for the next reconcile.
+func (st *mirrorState) release(live []imagepath.Reference) (released []imagepath.Reference, landed []string) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	previous := st.live
-	running := map[string]bool{}
+	seen := map[string]bool{}
 	for _, ref := range live {
-		running[ref.String()] = true
+		seen[ref.String()] = true
 	}
-	var released []imagepath.Reference
-	for _, ref := range previous {
-		if !running[ref.String()] {
+	landed = slices.Sorted(maps.Keys(st.landed))
+	ended := make([]imagepath.Reference, 0, len(landed))
+	for _, key := range landed {
+		ended = append(ended, st.landed[key])
+	}
+	for _, ref := range slices.Concat(st.live, ended) {
+		if key := ref.String(); !seen[key] {
+			seen[key] = true
 			released = append(released, ref)
 		}
 	}
-	return released
+	return released, landed
+}
+
+// foundOrphaned records refs as references whose destination tag the sweep found as an orphan.
+func (st *mirrorState) foundOrphaned(refs []imagepath.Reference) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	for _, ref := range refs {
+		if st.found == nil {
+			st.found = map[string]bool{}
+		}
+		st.found[ref.String()] = true
+	}
+}
+
+// holds returns what tells whether the destination is known to hold the copy of a reference:
+// the last pass found it, this process copied it since, or the sweep found its tag as an orphan
+// since that pass. Until a first pass of this process
+// completes, a reference of a repository a previous process listed is assumed held. Unlike
+// owed, a pass run again at once after a sweep that waited for copies does not bring that
+// assumption back: the pass before it already told. repository is the destination repository
+// of a reference.
+func (st *mirrorState) holds(repository func(imagepath.Reference) string) func(imagepath.Reference) bool {
+	return func(ref imagepath.Reference) bool {
+		st.mu.Lock()
+		defer st.mu.Unlock()
+		key := ref.String()
+		// A pass forgets what was copied before it: a copy ended since the last status write
+		// is held all the same.
+		_, landed := st.landed[key]
+		return st.present[key] || st.copied[key] || landed || st.found[key] || (!st.passed && st.inherited[repository(ref)])
+	}
 }
 
 // driftEntry is a copied tag whose upstream digest moved, as the last check saw it.
@@ -334,6 +387,7 @@ func newMirrorState() *mirrorState {
 		drifted:   map[string]driftEntry{},
 		resync:    map[string]bool{},
 		declaring: map[string]*corev1.Pod{},
+		landed:    map[string]imagepath.Reference{},
 	}
 }
 
@@ -691,6 +745,7 @@ func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
 	}
 	delete(st.failed, ref)
 	st.copied[ref] = true
+	st.landed[ref] = source.origin
 	st.digests[ref] = digest.String()
 	// The sources a reconcile set during the copy, not the one it started from.
 	if current, ok := st.sources[ref]; ok {
