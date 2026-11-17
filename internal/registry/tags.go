@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 )
 
 // ListTags lists every tag of the repository, following the registry's pagination. A
@@ -37,9 +39,26 @@ func (c *Client) ListTags(ctx context.Context, repository Endpoint) ([]string, e
 // ErrDeleteUnsupported is returned when the registry refuses tag deletion.
 var ErrDeleteUnsupported = errors.New("registry does not support tag deletion")
 
+// repositoryUnknown reports whether err is a 400 carrying the error code NAME_UNKNOWN: the
+// registry does not know the repository, so it holds nothing there to delete. The OCI
+// distribution spec ("Deleting tags", "Deleting Manifests") lets a registry refuse a deletion
+// it does not support with a 400 or a 405 and answers a missing manifest with a 404; its
+// error codes table gives NAME_UNKNOWN for a repository the registry does not know, which zot
+// sends with a 400 on a DELETE. Harbor refuses tag deletion with a 400 under another code.
+func repositoryUnknown(err error) bool {
+	transportErr, ok := errors.AsType[*transport.Error](err)
+	if !ok || transportErr.StatusCode != http.StatusBadRequest {
+		return false
+	}
+	return slices.ContainsFunc(transportErr.Errors, func(d transport.Diagnostic) bool {
+		return d.Code == transport.NameUnknownErrorCode
+	})
+}
+
 // DeleteTag deletes one tag, never the manifest it points at: a digest reference is
-// refused. A tag already gone is a success. A registry answering 405, 400 or 501 does not
-// support tag deletion, which is ErrDeleteUnsupported.
+// refused. A tag already gone is a success, in a repository the registry does not know
+// included. A registry answering 405, 501 or any other 400 does not support tag deletion,
+// which is ErrDeleteUnsupported.
 func (c *Client) DeleteTag(ctx context.Context, tag Endpoint) error {
 	if strings.Contains(tag.Reference, "@") {
 		return fmt.Errorf("refusing to delete %q: kuik deletes by tag, never by digest", tag.Reference)
@@ -50,6 +69,9 @@ func (c *Client) DeleteTag(ctx context.Context, tag Endpoint) error {
 	}
 	_, errs := c.tryThrough(ctx, c.transportFor(ref.Context().Registry, tag.Insecure), tag.Auth, func(a attempt) error {
 		err := remote.Delete(ref, a.options...)
+		if repositoryUnknown(err) {
+			return nil
+		}
 		switch TransportStatusCode(err) {
 		case http.StatusNotFound:
 			return nil
@@ -106,9 +128,9 @@ func (c *Client) ManifestDigest(ctx context.Context, image Endpoint) (v1.Hash, b
 }
 
 // DeleteManifest deletes one manifest by digest, and with it every tag pointing at it, other
-// clusters' included: a tag reference is refused. A manifest already gone is a success. A
-// registry answering 405, 400 or 501 does not support manifest deletion, which is
-// ErrManifestDeleteUnsupported.
+// clusters' included: a tag reference is refused. A manifest already gone is a success, in a
+// repository the registry does not know included. A registry answering 405, 501 or any other
+// 400 does not support manifest deletion, which is ErrManifestDeleteUnsupported.
 func (c *Client) DeleteManifest(ctx context.Context, manifest Endpoint) error {
 	ref, err := name.NewDigest(manifest.Reference, append(manifest.nameOptions(), name.StrictValidation)...)
 	if err != nil {
@@ -116,6 +138,9 @@ func (c *Client) DeleteManifest(ctx context.Context, manifest Endpoint) error {
 	}
 	_, errs := c.tryThrough(ctx, c.transportFor(ref.Context().Registry, manifest.Insecure), manifest.Auth, func(a attempt) error {
 		err := remote.Delete(ref, a.options...)
+		if repositoryUnknown(err) {
+			return nil
+		}
 		switch TransportStatusCode(err) {
 		case http.StatusNotFound:
 			return nil
