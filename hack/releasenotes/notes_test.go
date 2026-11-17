@@ -218,9 +218,6 @@ var _ = Describe("Release notes file", func() {
 			with(featureText, "text: A routing [feature](https://kuik.enix.io/)."), "only breaking changes may link"),
 		Entry("a Markdown link in a highlight",
 			with(firstText, "text: the first [highlight](https://kuik.enix.io/)."), "only breaking changes may link"),
-		Entry("a Markdown link in the intro",
-			with("highlights:", "intro: see [the docs](https://kuik.enix.io/).\nhighlights:"),
-			"only breaking changes may link"),
 		Entry("a breaking change from a malformed version",
 			with("from: 3.0.0-beta.1", `from: "3.0"`), "is neither a major line"),
 		Entry("a breaking change from a pre-release between since and the version directly before",
@@ -303,6 +300,12 @@ var _ = Describe("Release body", func() {
 	It("renders the notes of 3.0.0-beta.1 as they were validated", func() {
 		body := render(mustParse(readFile("testdata/3.0.0-beta.1.yaml")))
 		Expect(body).To(Equal(string(readFile("testdata/3.0.0-beta.1.md.golden"))))
+	})
+
+	It("renders the introduction as the person wrote it, each line a paragraph, emoji and links included", func() {
+		intro := `intro: "Released! 🎉🚀\nSee [the docs](https://kuik.enix.io/)."`
+		body := render(mustParse(with("highlights:", intro+"\nhighlights:")))
+		Expect(body).To(HavePrefix("Released! 🎉🚀\n\nSee [the docs](https://kuik.enix.io/).\n\n## ✨ Highlights\n"))
 	})
 
 	It("starts with the Highlights when there is no introduction", func() {
