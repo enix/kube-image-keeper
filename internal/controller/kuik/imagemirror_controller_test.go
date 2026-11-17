@@ -1955,6 +1955,31 @@ var _ = Describe("ImageMirror Controller", func() {
 			Expect(h.status().PendingDeletion).To(BeEmpty())
 		})
 
+		It("counts a due tag as deleted, emitting ImageDeleted and leaving Ready True, when the destination answers its DELETE 400 with the error code NAME_UNKNOWN", func() {
+			h.mirror(withRetention(0))
+			ref := h.orphan("old", own)
+			h.destination.Intercept(func(w http.ResponseWriter, r *http.Request) bool {
+				if r.Method != http.MethodDelete || !strings.Contains(r.URL.Path, "/manifests/") {
+					return false
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"errors":[{"code":"NAME_UNKNOWN","message":"repository name not known to registry"}]}`))
+				return true
+			})
+			h.reconcile()
+
+			h.pass()
+			h.reconcile()
+			Expect(h.destination.Requests(http.MethodDelete, "/manifests/")).To(HaveLen(1))
+			events := h.recorder.withReason("ImageDeleted")
+			Expect(events).To(HaveLen(1))
+			Expect(events[0].note).To(ContainSubstring(h.destination.Host() + "/" + ref))
+			Expect(h.recorder.withReason("ImageDeletionFailed")).To(BeEmpty())
+			Expect(h.status().PendingDeletion).To(BeEmpty())
+			Expect(h.condition(kuikv1alpha1.ConditionReady).Status).To(Equal(metav1.ConditionTrue))
+		})
+
 		It("never copies an image whose last pod went before its copy, and holds nothing in pendingDeletion for it", func() {
 			src := h.source()
 			src.Push("acme/job:v1", registrytest.Image())
