@@ -51,6 +51,9 @@ type mirrorState struct {
 	// inherited are the repositories status.repositories listed at the first reconcile of this
 	// process: only those wait for its first pass, the ones it records itself never do.
 	inherited map[string]bool
+	// persisted is what the status counted beyond its capped lists, read back at the first
+	// reconcile of this process and held until every image has a verdict again, see heldLists.
+	persisted *persistedLists
 	// stopping is set once the mirror is deleted: no copy starts any more. inFlight counts the
 	// copies running.
 	stopping bool
@@ -97,6 +100,9 @@ type mirrorState struct {
 	// drifted are the copied tags whose upstream digest moved away from the copy; resync
 	// those Sync copies again.
 	drifted map[string]driftEntry
+	// checked are the tags the ring read since this process started: a restart knows no drift
+	// verdict for the tags the status did not list.
+	checked map[string]bool
 	resync  map[string]bool
 	// declaring is, for every desired reference, the pod whose pull secrets read its origin.
 	declaring map[string]*corev1.Pod
@@ -385,6 +391,7 @@ func newMirrorState() *mirrorState {
 		lapped:    map[string]bool{},
 		rings:     map[string]bool{},
 		drifted:   map[string]driftEntry{},
+		checked:   map[string]bool{},
 		resync:    map[string]bool{},
 		declaring: map[string]*corev1.Pod{},
 		landed:    map[string]imagepath.Reference{},
@@ -859,6 +866,26 @@ func (st *mirrorState) seed(im *kuikv1alpha1.ImageMirror) {
 	for _, repository := range im.Status.Repositories {
 		st.inherited[repository] = true
 	}
+	// A restart reads back only the capped lists: the entries they left out are known by
+	// their count alone.
+	var held persistedLists
+	if out := im.Status.Truncated["failedImageCopies"]; out > 0 {
+		held.failedTotal = int32(len(im.Status.FailedImageCopies)) + out
+	}
+	if out := im.Status.Truncated["driftedImages"]; out > 0 {
+		held.driftedTotal = int32(len(im.Status.DriftedImages)) + out
+	}
+	if im.Status.Images != nil && im.Status.Images.Copy != nil {
+		if held.failedTotal > 0 {
+			held.missingSource = im.Status.Images.Copy.MissingSource
+		}
+		if held.driftedTotal > 0 {
+			held.drifted = im.Status.Images.Copy.Drifted
+		}
+	}
+	if held != (persistedLists{}) {
+		st.persisted = &held
+	}
 	for _, e := range im.Status.FailedImageCopies {
 		at := e.Since.Time
 		if e.LastAttempt != nil {
@@ -1030,6 +1057,52 @@ func (st *mirrorState) copying(desired, live []imagepath.Reference) []imagepath.
 		key := ref.String()
 		return !running[key] && !st.recopy[key] && !st.writeBack[key] && !st.resync[key]
 	})
+}
+
+// persistedLists is what a status counted beyond the entries of its capped lists.
+type persistedLists struct {
+	// failedTotal and driftedTotal are the entries of failedImageCopies and driftedImages, those
+	// listed and those left out, while the list was truncated, zero otherwise.
+	failedTotal, driftedTotal int32
+	// missingSource and drifted are the counts of images.copy, kept while their list is truncated.
+	missingSource, drifted int32
+}
+
+// heldLists returns what the status persisted beyond its lists, and how many of the references
+// have no verdict yet: only those can account for it. A copy has its verdict once the
+// destination holds the reference, the mirror copied it or its copy fails; a drift check has
+// its verdict once the ring read the upstream tag or the tag is drifted. failing and drifting
+// are the references of the lists this reconcile reports, so the verdicts are counted against
+// the same snapshot as the lists. It forgets what it holds once every verdict is in.
+func (st *mirrorState) heldLists(refs []imagepath.Reference, present, copied, failing, drifting map[string]bool) (held persistedLists, copyUnknown, driftUnknown int32, ok bool) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.persisted == nil {
+		return persistedLists{}, 0, 0, false
+	}
+	// A reference the ring reads only while a drift policy turns it on, and only by its tag.
+	rung := st.policy == kuikv1alpha1.DriftPolicyWarn || st.policy == kuikv1alpha1.DriftPolicySync
+	for _, ref := range refs {
+		key := ref.String()
+		if !present[key] && !copied[key] && !failing[key] {
+			copyUnknown++
+		}
+		if rung && ref.Tag != "" && ref.Digest == "" && !failing[key] && !drifting[key] && !st.checked[key] {
+			driftUnknown++
+		}
+	}
+	// A list the status did not truncate has nothing to hold.
+	if st.persisted.failedTotal == 0 {
+		copyUnknown = 0
+	}
+	if st.persisted.driftedTotal == 0 {
+		driftUnknown = 0
+	}
+	if copyUnknown == 0 && driftUnknown == 0 {
+		st.persisted = nil
+		return persistedLists{}, 0, 0, false
+	}
+	return *st.persisted, copyUnknown, driftUnknown, true
 }
 
 // anomalies are snapshots of the failing copies and of the drifted tags.

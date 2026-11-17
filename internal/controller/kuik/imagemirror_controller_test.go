@@ -3823,7 +3823,7 @@ var _ = Describe("ImageMirror Controller", func() {
 
 	Describe("bounded lists", func() {
 		// The cap holds whatever its value: a small one is exceeded by a handful of images.
-		const capacity, over = 5, 6
+		const capacity, over = 5, overCapacity
 		BeforeEach(func() {
 			h.withListCapacity(capacity)
 		})
@@ -3836,7 +3836,7 @@ var _ = Describe("ImageMirror Controller", func() {
 
 		It("caps failedImageCopies and driftedImages over the list capacity, records it in truncated and sets ListCapacityPressure", func() {
 			h.mirror(withDrift(kuikv1alpha1.DriftPolicyWarn))
-			_, sources, refs := h.manyImages(over, false)
+			_, sources, refs := h.manyImages(false)
 			h.windowsUntil(copiedAll)
 
 			// Every upstream tag moves.
@@ -3868,7 +3868,7 @@ var _ = Describe("ImageMirror Controller", func() {
 			beyondCapacity := func() *registrytest.Registry {
 				GinkgoHelper()
 				h.mirror(withDrift(kuikv1alpha1.DriftPolicyWarn))
-				_, sources, refs := h.manyImages(over, false)
+				_, sources, refs := h.manyImages(false)
 				h.windowsUntil(copiedAll)
 				moved := registrytest.Image()
 				for i, ref := range refs {
@@ -3892,6 +3892,61 @@ var _ = Describe("ImageMirror Controller", func() {
 				Expect(counts.MissingSource).To(Equal(int32(over)))
 			})
 
+			It("holds truncated, ListTruncated and the counts a restart read back until every image got a verdict again", func() {
+				missing := beyondCapacity()
+				h.restart()
+				h.reconcile()
+				status := h.status()
+				Expect(status.Truncated).To(Equal(map[string]int32{"driftedImages": 1, "failedImageCopies": 1}))
+				Expect(h.condition(kuikv1alpha1.ConditionListCapacityPressure).Reason).To(Equal(kuikv1alpha1.ReasonListTruncated))
+				Expect(status.Images.Copy.Drifted).To(Equal(int32(over)))
+				Expect(status.Images.Copy.MissingSource).To(Equal(int32(over)))
+
+				// The image the list left out is found at last: with a verdict for every image, the
+				// held entry is released and failedImageCopies is not truncated any more.
+				missing.Push("acme/gone5:v1", registrytest.Image())
+				h.windowsUntil(func() bool { return h.status().Truncated["failedImageCopies"] == 0 })
+				Expect(h.status().FailedImageCopies).To(HaveLen(capacity))
+			})
+
+			It("holds the truncated drifted images a restart read back until the ring read the tags again, whatever the destination holds", func() {
+				h.mirror(withDrift(kuikv1alpha1.DriftPolicyWarn))
+				_, sources, refs := h.manyImages(false)
+				h.windowsUntil(copiedAll)
+				moved := registrytest.Image()
+				for i, ref := range refs {
+					sources[i%len(sources)].Push(ref, moved)
+				}
+				h.windowsUntil(func() bool { return h.status().Truncated["driftedImages"] == 1 })
+
+				// The destination holds every image, yet none has a drift verdict.
+				h.restart()
+				h.reconcile()
+				Expect(h.status().Truncated).To(Equal(map[string]int32{"driftedImages": 1}))
+				Expect(h.status().Images.Copy.Drifted).To(Equal(int32(over)))
+			})
+
+			It("keeps every failing image the status counted while the left out ones are found again", func() {
+				const failing = capacity + 3
+				h.mirror()
+				missing := h.source()
+				gone := make([]container, 0, failing)
+				for i := range failing {
+					gone = append(gone, container{name: fmt.Sprintf("gone%d", i), image: fmt.Sprintf("%s/acme/gone%d:v1", missing.Host(), i)})
+				}
+				createPod(h.namespace(), unique("pod"), gone...)
+				h.windowsUntil(func() bool { return h.status().Truncated["failedImageCopies"] == failing-capacity })
+
+				h.restart()
+				for range failing {
+					h.reconcile()
+					h.window()
+					time.Sleep(5 * time.Millisecond)
+					h.reconcile()
+					Expect(h.status().Truncated["failedImageCopies"]).To(Equal(int32(failing - capacity)))
+				}
+			})
+
 			It("emits CopyOutOfDate and ImageUnrecoverable once for an entry beyond the list capacity", func() {
 				missing := beyondCapacity()
 				// Every missing image is tried again, each copy reported by a reconcile.
@@ -3912,7 +3967,7 @@ var _ = Describe("ImageMirror Controller", func() {
 
 		It("never caps repositories, pendingDeletion or checks.registries", func() {
 			h.mirror(withDrift(kuikv1alpha1.DriftPolicyWarn))
-			pods, _, _ := h.manyImages(over, true)
+			pods, _, _ := h.manyImages(true)
 			h.windowsUntil(copiedAll)
 			Expect(h.status().Repositories).To(HaveLen(over))
 
