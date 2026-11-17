@@ -17,7 +17,8 @@ const noBreaking = "**No breaking change in this release.**"
 func render(n *Notes) string {
 	var b strings.Builder
 	if n.Intro != "" {
-		b.WriteString(n.Intro + "\n\n")
+		// A folded YAML block writes a blank line between 2 paragraphs as one line break.
+		b.WriteString(strings.Join(strings.Split(strings.TrimSpace(n.Intro), "\n"), "\n\n") + "\n\n")
 	}
 	if len(n.Breaking) == 0 {
 		b.WriteString(noBreaking + "\n\n")

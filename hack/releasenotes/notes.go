@@ -138,9 +138,8 @@ func (n *Notes) validate() []string {
 	case versionPattern.MatchString(n.Version) && compareVersions(n.Since, n.Version) >= 0:
 		add("since: %s is not below %s", n.Since, n.Version)
 	}
-	if n.Intro != "" {
-		checkText(n.Intro, false, func(p string) { add("intro: %s", p) })
-	}
+	// The intro is free: the person releasing may write it as they like, and reviews it
+	// before the release.
 	if len(n.Highlights) > 5 {
 		add("highlights: %d bullets, want 0 to 5", len(n.Highlights))
 	}
