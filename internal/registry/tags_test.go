@@ -56,6 +56,23 @@ var _ = Describe("ListTags", func() {
 	})
 })
 
+// nameUnknown is the error body of a registry that does not know the repository of a request.
+const nameUnknown = `{"errors":[{"code":"NAME_UNKNOWN","message":"repository name not known to registry"}]}`
+
+// answerDelete answers every manifest DELETE with status and body, and lets the registry
+// answer the other requests.
+func answerDelete(status int, body string) registrytest.Interceptor {
+	return func(w http.ResponseWriter, r *http.Request) bool {
+		if r.Method != http.MethodDelete || !strings.Contains(r.URL.Path, "/manifests/") {
+			return false
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(body))
+		return true
+	}
+}
+
 var _ = Describe("DeleteTag", func() {
 	var (
 		client *Client
@@ -104,6 +121,27 @@ var _ = Describe("DeleteTag", func() {
 
 		Expect(errors.Is(err, ErrDeleteUnsupported)).To(BeTrue())
 	})
+
+	It("succeeds when the registry answers 400 with the error code NAME_UNKNOWN: the repository is unknown, so the tag is already gone", func() {
+		reg.Intercept(answerDelete(http.StatusBadRequest, nameUnknown))
+
+		Expect(client.DeleteTag(ctx, endpoint(reg, "mirror/unknown:v1_a"))).To(Succeed())
+
+		Expect(reg.Requests(http.MethodDelete, "/manifests/v1_a")).To(HaveLen(1))
+	})
+
+	DescribeTable("returns ErrDeleteUnsupported when the registry answers 400 without the error code NAME_UNKNOWN",
+		func(body string) {
+			reg.Push("mirror/app:v1_a", registrytest.Image())
+			reg.Intercept(answerDelete(http.StatusBadRequest, body))
+
+			err := client.DeleteTag(ctx, endpoint(reg, "mirror/app:v1_a"))
+
+			Expect(errors.Is(err, ErrDeleteUnsupported)).To(BeTrue())
+		},
+		Entry("with the error code UNSUPPORTED", `{"errors":[{"code":"UNSUPPORTED"}]}`),
+		Entry("with no error body", ""),
+	)
 
 	It("counts nothing in kuik_registry_requests_total", func() {
 		reg.Push("mirror/app:v1_a", registrytest.Image())
@@ -233,6 +271,15 @@ var _ = Describe("DeleteManifest", func() {
 		Entry("405 Method Not Allowed", http.StatusMethodNotAllowed),
 		Entry("501 Not Implemented", http.StatusNotImplemented),
 	)
+
+	It("succeeds when the registry answers 400 with the error code NAME_UNKNOWN: the repository is unknown, so the manifest is already gone", func() {
+		digest := reg.Push("mirror/app:v1_a", registrytest.Image())
+		reg.Intercept(answerDelete(http.StatusBadRequest, nameUnknown))
+
+		Expect(client.DeleteManifest(ctx, endpoint(reg, "mirror/unknown@"+digest.String()))).To(Succeed())
+
+		Expect(reg.Requests(http.MethodDelete, "/manifests/"+digest.String())).To(HaveLen(1))
+	})
 
 	It("counts nothing in kuik_registry_requests_total", func() {
 		digest := reg.Push("mirror/app:v1_a", registrytest.Image())
