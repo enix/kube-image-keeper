@@ -18,6 +18,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	applycorev1 "k8s.io/client-go/applyconfigurations/core/v1"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -112,7 +113,8 @@ type Syncer struct {
 	stopped chan struct{}
 
 	mu sync.Mutex
-	// known are the pairs this process applied a Secret for, so that it can still empty them.
+	// known records each pair's last successful write, or its absent Secret with an empty
+	// resourceVersion.
 	known map[pullsecret.Pair]*applied
 	// forced are the pairs a resync asked to re-apply whatever their hash.
 	forced map[pullsecret.Pair]bool
@@ -217,7 +219,7 @@ func (s *Syncer) SetupWithManager(mgr ctrl.Manager) error {
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch,roleName=secret-syncer
 
 // Reconcile applies the Secret of one pair.
-func (s *Syncer) Reconcile(ctx context.Context, pair pullsecret.Pair) (reconcile.Result, error) {
+func (s *Syncer) Reconcile(ctx context.Context, pair pullsecret.Pair) (_ reconcile.Result, reconcileErr error) {
 	log := logf.FromContext(ctx).WithValues("resource", pair.Resource.String(), "namespace", pair.Namespace)
 
 	r, object, err := s.resource(ctx, pair.Resource)
@@ -268,11 +270,13 @@ func (s *Syncer) Reconcile(ctx context.Context, pair pullsecret.Pair) (reconcile
 	force := s.forced[pair]
 	delete(s.forced, pair)
 	s.mu.Unlock()
-	if len(needed) == 0 && last == nil {
-		// Nothing to provision, and no Secret of this process to empty.
-		return result, nil
-	}
-
+	defer func() {
+		if force && reconcileErr != nil {
+			s.mu.Lock()
+			s.forced[pair] = true
+			s.mu.Unlock()
+		}
+	}()
 	var unreadable error
 	secret, failures := pullsecret.Build(r, pair.Namespace, needed, s.source(ctx, &unreadable))
 	if unreadable != nil {
@@ -287,7 +291,7 @@ func (s *Syncer) Reconcile(ctx context.Context, pair pullsecret.Pair) (reconcile
 	for _, c := range needed {
 		sources = append(sources, c.SecretRef)
 	}
-	if !force && last != nil && last.hash == hash {
+	if !force && last != nil && last.hash == hash && (len(needed) == 0 || last.resourceVersion != "") {
 		// An entry whose source is missing leaves the Secret unchanged, yet its source must
 		// be watched for: its creation re-applies the pair.
 		s.mu.Lock()
@@ -296,9 +300,23 @@ func (s *Syncer) Reconcile(ctx context.Context, pair pullsecret.Pair) (reconcile
 		return result, nil
 	}
 
-	if err := s.Apply(ctx, secret, client.FieldOwner(pullsecret.ManagedBy), client.ForceOwnership); err != nil {
+	if len(needed) == 0 {
+		// An earlier process may have provisioned this pair. Clear it without creating a
+		// Secret in every namespace where this resource has never been needed.
+		err = s.empty(ctx, secret)
+	} else {
+		err = s.Apply(ctx, secret, client.FieldOwner(pullsecret.ManagedBy), client.ForceOwnership)
+	}
+	if err != nil {
 		s.applies.WithLabelValues(resultFailed).Inc()
 		return reconcile.Result{}, fmt.Errorf("applying the pull Secret: %w", err)
+	}
+	s.mu.Lock()
+	s.known[pair] = &applied{hash: hash, resourceVersion: ptrValue(secret.ResourceVersion), sources: sources}
+	s.mu.Unlock()
+	if secret.ResourceVersion == nil {
+		// Nothing existed to clear: no Secret was written, so do not count an apply.
+		return result, nil
 	}
 	// The server answers an apply that changed nothing with the same resourceVersion. The
 	// first apply of a pair after a restart has nothing to compare with, and counts as
@@ -318,10 +336,25 @@ func (s *Syncer) Reconcile(ctx context.Context, pair pullsecret.Pair) (reconcile
 		applyLog.Info("Applied pull Secret", "secret", klog.KRef(pair.Namespace, *secret.Name))
 	}
 
-	s.mu.Lock()
-	s.known[pair] = &applied{hash: hash, resourceVersion: ptrValue(secret.ResourceVersion), sources: sources}
-	s.mu.Unlock()
 	return result, nil
+}
+
+// empty patches an existing Secret blind. Unlike apply, a merge patch cannot create one.
+func (s *Syncer) empty(ctx context.Context, desired *applycorev1.SecretApplyConfiguration) error {
+	data, err := json.Marshal(desired)
+	if err != nil {
+		return err
+	}
+	secret := &corev1.Secret{}
+	secret.Name, secret.Namespace = *desired.Name, *desired.Namespace
+	err = s.Patch(ctx, secret, client.RawPatch(types.MergePatchType, data), client.FieldOwner(pullsecret.ManagedBy))
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	if err == nil {
+		desired.ResourceVersion = &secret.ResourceVersion
+	}
+	return err
 }
 
 // resource reads a routing resource from the cache.
