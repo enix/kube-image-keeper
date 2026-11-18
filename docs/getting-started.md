@@ -32,7 +32,7 @@ helm install cert-manager oci://quay.io/jetstack/charts/cert-manager \
 Then install kuik:
 
 ```bash
-VERSION=3.0.0-beta.1
+VERSION=3.0.0
 helm upgrade --install --create-namespace --namespace kuik-system \
   kube-image-keeper oci://quay.io/enix/charts/kube-image-keeper:$VERSION --wait
 ```

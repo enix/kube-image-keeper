@@ -39,7 +39,7 @@ Its background reads are **quota-friendly by design**: they are paced per regist
 
 Note: image routing is performed at Pod creation by a lightweight `MutatingWebhook` that automatically rewrites the image path whenever the source registry becomes unavailable.
 
-Developed by Enix, kube-image-keeper has run in production across many Kubernetes clusters since its first versions. v3, a rewrite, is in beta: every feature planned for 3.0 is in, but it is not stable yet, so try it on a test or staging cluster rather than in production, and [tell us how it goes](https://github.com/enix/kube-image-keeper/issues).
+Developed by Enix, kube-image-keeper has run in production across many Kubernetes clusters since its first versions. v3, a rewrite, is generally available since 3.0.0: stable and ready for production. Use it for new installs; existing v2 installs stay on v2 for now (see [Upgrading from v2](./installation.md#upgrading-from-v2)).
 
 ## Explore the docs
 
