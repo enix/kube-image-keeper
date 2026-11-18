@@ -1,13 +1,12 @@
 ---
-// Custom Banner override — two jobs:
+// Custom Banner override, 2 jobs:
 //   1. Suppress starlight-versions' splash-page VersionBanner ("This content is
-//      for vx.y. Switch to the latest version for up-to-date documentation.") —
-//      wrong for our model, where archived slugs are the stable releases.
-//   2. On landing/splash pages — which PageTitle's under-title notice skips —
-//      show the same three-level version notice as a full-width banner:
-//        next     — in-development `dev` docs    → blue "info"
-//        current  — latest stable release        → nothing
-//        previous — an older archived release     → orange "warning"
+//      for vx.y. Switch to the latest version for up-to-date documentation."),
+//      which does not fit an archived version that is still maintained.
+//   2. On the landing pages of an archived version (v2.3), which PageTitle's
+//      under-title note skips, show the same note as a full-width banner: the
+//      version is maintained for existing installs, new installs use the root
+//      docs (v3), and the upgrade section is linked. Root pages get nothing.
 //
 // The version logic is intentionally duplicated from PageTitle.astro (the two
 // overrides are kept self-contained rather than sharing a component). Starlight's
@@ -18,50 +17,34 @@ import versionsConfig from 'virtual:starlight-versions-config';
 
 const { entry } = Astro.locals.starlightRoute;
 
-// Only landing pages get the banner here; content pages use PageTitle's notice.
-const isLanding =
-  entry.data.template === 'splash' || Boolean(entry.data.hero) || entry.id === '';
+const currentLabel = versionsConfig.current?.label ?? 'the current version';
 
-// versions[] is newest-first, so [0] is the latest stable release.
-const stable = versionsConfig.versions[0];
-const stableLabel = stable ? (stable.label ?? stable.slug) : null;
+// Only landing pages get the banner here; content pages use PageTitle's note.
+const isLanding = entry.data.template === 'splash' || Boolean(entry.data.hero);
 
 // Archived-version pages have an id prefixed by the version slug
-// (e.g. `x.y/configuration`); current (`dev`) pages do not.
+// (e.g. `2.3/configuration`); current pages do not.
 const archived = versionsConfig.versions.find(
   (v) => entry.id === v.slug || entry.id.startsWith(`${v.slug}/`),
 );
 
-let level = null; // 'next' | 'previous' | null (current stable / non-landing)
-if (isLanding && stable) {
-  if (!archived) level = 'next';
-  else if (archived.slug !== stable.slug) level = 'previous';
-}
+const showBanner = isLanding && Boolean(archived);
 
-// Point the notice at the SAME page in the latest stable version, falling back
-// to the stable home when that page doesn't exist there.
-let stableHref = stable ? `/${stable.slug}/` : '/';
-if (level) {
+// Point the banner at the same page at the root, falling back to the root home.
+let currentHref = '/';
+if (showBanner) {
   const docIds = new Set((await getCollection('docs')).map((d) => d.id));
-  const barePath = archived ? entry.id.slice(archived.slug.length + 1) : entry.id;
-  const targetId = barePath ? `${stable.slug}/${barePath}` : stable.slug;
-  if (docIds.has(targetId)) stableHref = `/${targetId}/`;
+  const barePath = entry.id.slice(archived.slug.length + 1);
+  if (barePath && docIds.has(barePath)) currentHref = `/${barePath}/`;
 }
 ---
 
 {
-  level === 'next' && (
-    <div class="version-banner version-banner--info">
-      This documents the in-development version. Switch to{' '}
-      <a href={stableHref}>{stableLabel}</a> for the latest stable release.
-    </div>
-  )
-}
-{
-  level === 'previous' && (
-    <div class="version-banner version-banner--warn">
-      This documents {archived.label ?? archived.slug}, an older release. Switch to{' '}
-      <a href={stableHref}>{stableLabel}</a> for the latest stable release.
+  showBanner && (
+    <div class="version-banner">
+      This documents {archived.label ?? archived.slug}, maintained for existing installs.
+      New installs use <a href={currentHref}>{currentLabel}</a>; see{' '}
+      <a href="/installation/#upgrading-from-v2">Upgrading from v2</a>.
     </div>
   )
 }
@@ -76,16 +59,10 @@ if (level) {
     padding: var(--sl-nav-pad-y) var(--sl-nav-pad-x);
     text-align: center;
     text-wrap: balance;
-  }
-  .version-banner :global(a) {
-    color: inherit;
-  }
-  .version-banner--info {
     background-color: var(--sl-color-blue-low);
     color: var(--sl-color-blue-high);
   }
-  .version-banner--warn {
-    background-color: var(--sl-color-orange-low);
-    color: var(--sl-color-orange-high);
+  .version-banner :global(a) {
+    color: inherit;
   }
 </style>

@@ -13,8 +13,8 @@
 
 <!-- A branch root has no relative form, so no-unpinned-repo-urls cannot be satisfied here. -->
 <!-- markdownlint-disable search-replace -->
-> [!WARNING]
-> **kuik v3 is in beta: every feature planned for 3.0 is in, and we are now stabilizing it.** It works, but it is not stable yet: do not run it in production. Please try it on a test or staging cluster and [tell us how it goes](https://github.com/enix/kube-image-keeper/issues): each report brings the GA closer. See [Status](#status) for what is in. The latest stable version is maintained on the [`2.3.x`](https://github.com/enix/kube-image-keeper/tree/2.3.x) branch: see its [releases](https://github.com/enix/kube-image-keeper/releases) and its documentation on [kuik.enix.io](https://kuik.enix.io/2.3/).
+> [!IMPORTANT]
+> **kuik v3 is generally available: 3.0.0 is stable and ready for production.** Use it for new installs. There is no migration path from v2 yet: keep your existing installs on v2, see [Upgrading from v2](./docs/installation.md#upgrading-from-v2). v2.3 is maintained on the [`2.3.x`](https://github.com/enix/kube-image-keeper/tree/2.3.x) branch: see its [releases](https://github.com/enix/kube-image-keeper/releases) and its documentation on [kuik.enix.io](https://kuik.enix.io/2.3/).
 <!-- markdownlint-enable search-replace -->
 
 [release]: https://github.com/enix/kube-image-keeper/releases
@@ -49,10 +49,11 @@ It relies on three core mechanisms:
 
 ## Status
 
-This branch holds **kuik v3**, a rewrite released as betas since [3.0.0-beta.1](https://github.com/enix/kube-image-keeper/releases/tag/v3.0.0-beta.1):
+This branch holds **kuik v3**, a rewrite generally available since [3.0.0](https://github.com/enix/kube-image-keeper/releases/tag/v3.0.0):
 
-- [**v3.0 beta**](https://github.com/enix/kube-image-keeper/milestone/7), reached on 2026-10-27: every feature planned for 3.0 is in, not yet stable.
-- [**v3.0 GA**](https://github.com/enix/kube-image-keeper/milestone/5), next: stable, ready for production.
+- [**v3.0 beta**](https://github.com/enix/kube-image-keeper/milestone/7), reached on 2026-10-27: every feature planned for 3.0 is in.
+- [**v3.0 GA**](https://github.com/enix/kube-image-keeper/milestone/5), reached on 2026-11-17 with [3.0.0](https://github.com/enix/kube-image-keeper/releases/tag/v3.0.0): stable, ready for production.
+- [**v3.1**](https://github.com/enix/kube-image-keeper/milestone/6), next.
 
 | Feature | Status |
 | ------- | ------ |
@@ -64,9 +65,9 @@ This branch holds **kuik v3**, a rewrite released as betas since [3.0.0-beta.1](
 | Credentials from a cloud provider (`auth.provider`) | Accepted and validated, but not used yet: kuik skips it and tries the next credential. Planned for v3.1 ([#747](https://github.com/enix/kube-image-keeper/issues/747)) |
 | Plain-HTTP alternatives and mirror destinations (`insecure`) | Available since 3.0.0-alpha.2 for `ImageAlternative`, since 3.0.0-alpha.4 for `ImageMirror` |
 | [Private certificate authorities and self-signed certificates](./docs/configuration.md#registry-tls) (`tls`) | Available since 3.0.0-alpha.6 |
-| Migration from v2 | None: a migration plan will be proposed once GA is out ([#749](https://github.com/enix/kube-image-keeper/issues/749)) |
+| [Migration from v2](./docs/installation.md#upgrading-from-v2) | None yet: keep existing installs on v2 and use v3 for new installs; a migration path from the latest v2 will follow once v3 is battle-tested ([#749](https://github.com/enix/kube-image-keeper/issues/749)) |
 
-- **Stable version**: [v2.3](https://github.com/enix/kube-image-keeper/releases), documented on [kuik.enix.io](https://kuik.enix.io/2.3/). It is in maintenance: bug fixes only.
+- **Stable version**: v3, for new installs. [v2.3](https://github.com/enix/kube-image-keeper/releases), documented on [kuik.enix.io](https://kuik.enix.io/2.3/), is maintained for existing installs: bug fixes only, until a [migration path](./docs/installation.md#upgrading-from-v2) exists.
 - **v3 specification**: [`docs/v3/`](./docs/v3/), the design as decided before the implementation, kept as a historical record: what kuik does is in the user documentation ([why](./docs/v3/README.md)).
 - **Custom resources**: `ImageAlternative` (routing), `ImageMirror` (copy) and `ImageMonitor` (monitoring), described in the [CRD reference](./docs/crds.md).
 

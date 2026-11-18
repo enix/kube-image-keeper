@@ -89,18 +89,18 @@ export default defineConfig({
       plugins: [
         starlightLinksValidator(),
         starlightVersions({
-          current: { label: 'dev' },
+          current: { label: 'v3' },
           versions: versions.map(({ slug, label }) => ({ slug, label })),
         }),
       ],
       components: {
         SiteTitle: './src/components/SiteTitle.astro',
         Head: './src/components/Head.astro',
-        // Three-level version notice under the page title (see the component):
-        // the in-development `dev` docs get a blue info note, the latest stable
-        // release gets nothing, and older releases get the orange "outdated" note.
+        // Version note under the page title (see the component): the root (v3)
+        // pages get nothing, archived pages (v2.3) a note that they are
+        // maintained for existing installs, with links to v3 and the upgrade.
         PageTitle: './src/components/PageTitle.astro',
-        // Same three-level notice as a full-width banner on landing/splash pages
+        // Same note as a full-width banner on archived landing/splash pages
         // (which PageTitle skips), and suppresses the plugin's splash banner.
         Banner: './src/components/Banner.astro',
       },
