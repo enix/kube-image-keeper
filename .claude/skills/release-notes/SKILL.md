@@ -2,7 +2,7 @@
 name: release-notes
 description: Use when preparing any kuik release, alphas included, before dispatching the Release workflow, or when asked to write or update the release notes of the next version, for example "write the notes of the next beta" or "prepare the release of 3.0.0".
 argument-hint: "[branch, default main]"
-allowed-tools: Bash(task release-dry-run *) Bash(task test-outline *) Bash(go run ./hack/releasenotes *) Bash(git fetch origin *) Bash(git log *) Bash(git show *) Bash(git ls-tree *) Bash(git merge-base *) Bash(git tag *) Bash(git describe *) Bash(git rev-list *) Bash(gh pr list *) Bash(gh pr view *) Bash(gh issue view *) Bash(gh release view *) Bash(git ls-remote *) Read Grep Glob Write
+allowed-tools: Bash(task release-dry-run *) Bash(task test-outline *) Bash(go run ./hack/releasenotes *) Bash(git fetch origin *) Bash(git log *) Bash(git show *) Bash(git ls-tree *) Bash(git merge-base *) Bash(git tag *) Bash(git describe *) Bash(git rev-list *) Bash(gh pr list *) Bash(gh pr view *) Bash(gh issue view *) Bash(gh release view *) Bash(git ls-remote *) Bash(.github/release-gate.sh *) Read Grep Glob Write
 ---
 
 # Release notes
@@ -22,6 +22,7 @@ Every release carries notes written for the people who install kuik, not the lis
 1. `task release-dry-run BRANCH=<branch>` (default `main`; `release` for a stable, once `release` is fast-forwarded to the commit to publish). It clones the branch from `origin` and runs semantic-release in dry-run with the workflow's plugins. It needs Node.js ^22.14.0 or >= 24.10.0 (semantic-release 25) and push access to `origin`. Its output is long: read only the line `The next release version is <version>`.
 2. No release (no `feat`, `fix` or breaking change since the last one): say so and stop.
 3. Otherwise the tag is `v<version>`. Note the head of `origin/<branch>` (`git rev-list -1 origin/<branch>` after `git fetch origin`): the notes cover it.
+4. A stable minor or patch must run as a pre-release first, and the Release workflow refuses it otherwise ([CONTRIBUTING](../../../CONTRIBUTING.md#channels)): a minor `X.Y.0` needs a beta, a patch `X.Y.Z` an rc, and the head noted above must be the commit of the last one. Check it before writing anything with the workflow's own gate, alone in its command: `.github/release-gate.sh <version> <head> <branch>`. Exit 0: go on. Exit 1: stop and pass on its message: release the pre-release first, or fast-forward the branch to the tag it names (`git push origin v<version>-<pre>.<N>^{commit}:<branch>`) and run this step again; when the branch is already past that tag, the push is refused, so the person releases a new pre-release on a commit that contains the branch head. Exit 2: the tags could not be read, run it again. A major is not gated.
 
 ## 2. What the release holds
 

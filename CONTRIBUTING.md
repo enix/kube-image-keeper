@@ -114,10 +114,12 @@ Each release this configuration publishes, betas and rcs included, is announced 
 - **rc** (from `X.Y.x-rc`): frozen release candidates for a patch of the `X.Y` line, published for validation (for example on a pre-production cluster) before the stable release. Only a release blocker justifies cutting an rc.2.
 - **stable** (from `release` for the main line, from `X.Y.x-stable` for a maintenance line): production releases.
 
+What ships stable has run on clusters first, and the Release workflow enforces it before building anything ([`.github/release-gate.sh`](./.github/release-gate.sh)): a minor `X.Y.0` (`Y > 0`) needs a beta `X.Y.0-beta.N`, a patch `X.Y.Z` (`Z > 0`) a release candidate `X.Y.Z-rc.N`, and the stable is cut from the very commit of the last one (the numbered tags only, in version order). A patch is released from its `X.Y.x-stable` branch only, since rcs are published on a maintenance line alone. A major is not gated. The workflow runs from the dispatched branch, so the gate holds on the branches whose workflow has it: the `2.3.x` line is not gated until the change is brought there. The gate runs once, before anything is built: do not publish a new pre-release of a version while its stable release runs, or the stable may ship from the commit of the previous one.
+
 ### Releasing the main line
 
 - Beta: dispatch the Release workflow on `main`.
-- Stable: fast-forward `release` to the commit to publish, then dispatch the workflow on `release`. The `release` branch follows `main`'s lineage and is protected against force pushes and deletion: it only moves forward. It is also the only branch that moves the `:latest` image tag, so a maintenance release never pulls it back to an older major.
+- Stable: fast-forward `release` to the tag of the last beta of the version (`git push origin vX.Y.0-beta.N^{commit}:release`), or for a major to the commit to publish, then dispatch the workflow on `release`. When `release` is already past that beta, the push is refused: release a new beta on a commit that contains it, then push that one. The `release` branch follows `main`'s lineage and is protected against force pushes and deletion: it only moves forward. It is also the only branch that moves the `:latest` image tag, so a maintenance release never pulls it back to an older major.
 
 ### Release notes
 
@@ -134,7 +136,7 @@ The notes have no known limits section: [`docs/known-limits.md`](./docs/known-li
 ### Releasing a maintenance line `X.Y`
 
 - Release candidate: fast-forward `X.Y.x-rc` to the head of `X.Y.x`, then dispatch the workflow on `X.Y.x-rc`.
-- Stable: fast-forward `X.Y.x-stable` to the head of `X.Y.x`, then dispatch the workflow on `X.Y.x-stable`.
+- Stable: fast-forward `X.Y.x-stable` to the tag of the last release candidate of the version (`git push origin vX.Y.Z-rc.N^{commit}:X.Y.x-stable`), then dispatch the workflow on `X.Y.x-stable`.
 
 A maintenance line only ships fixes. `X.Y.x-stable` and `X.Y.x-rc` are regular release branches for semantic-release, so nothing caps their computed version natively; the Release workflow enforces the line instead, and fails when the computed version escapes `X.Y.*` (which would mean a stray `feat` or breaking-change commit landed on the line).
 
