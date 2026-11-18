@@ -97,6 +97,9 @@ func usage(command string) string {
 	for _, p := range processes {
 		fmt.Fprintf(&b, "  %s %-14s %s\n", command, p.name, p.summary)
 	}
+	fmt.Fprintf(&b, "\nTo migrate a cluster from kuik v2, run from your machine:\n\n")
+	fmt.Fprintf(&b, "  %s %-14s %s\n", command, migrateCommand,
+		"Read the cluster, save the v2 state and print what is left to migrate")
 	fmt.Fprintf(&b, "\nRun %s <process> -h for the flags of a process.\n", command)
 
 	return b.String()
