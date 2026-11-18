@@ -8,6 +8,7 @@ This page lists what the current version of kuik does not do yet, and how to wor
 
 ## Install
 
+- **No migration from v2**: there is no migration path from v2 to v3 yet. Keep existing installs on v2 and use v3 for new installs only, see [Upgrading from v2](./installation.md#upgrading-from-v2).
 - **Cloud credentials**: credentials from a cloud provider (`auth.provider`: `aws`, `gcp`, `azure`) are accepted but not used yet: kuik moves on to the next credential, and never injects them as pull Secrets. Planned for 3.1; use a `secretRef` meanwhile, see [Registry credentials](./configuration.md#registry-credentials).
 - **One install per cluster**: the Secret names the secret syncer reserves are cluster-wide, so the syncers of 2 installs would refuse each other's writes, see [Installation](./installation.md).
 - **Reconciler first**: the webhook admits pods unchanged until the reconciler has created the ConfigMap `kuik-cluster-id`, so never run with `reconciler.replicas: 0`, see [Cluster ID](./configuration.md#cluster-id).

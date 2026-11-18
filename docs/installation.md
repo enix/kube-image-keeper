@@ -29,6 +29,17 @@ helm show crds oci://quay.io/enix/charts/kube-image-keeper --version $VERSION | 
 
 With Flux, set `install.crds` and `upgrade.crds` to `CreateReplace` on the HelmRelease instead.
 
+## Upgrading from v2
+
+There is no migration path from v2 to v3 yet. The maintainers will build one once v3 is battle-tested ([#749](https://github.com/enix/kube-image-keeper/issues/749)).
+
+Until then:
+
+- Keep your existing installs on v2, and use v3 for new installs only.
+- v2 stays supported as long as there is no migration path.
+
+The migration path will go from the latest v2 release to v3. Earlier v2 versions are not officially supported by it: from 2.1, for example, first upgrade to the latest v2, then migrate to v3.
+
 <!-- HELM_DOCS_END -->
 
 Custom Resource Definitions (CRDs) are used to configure the behavior of kuik such as its routing and mirroring features. Those are described in the [CRD reference](./crds.md).

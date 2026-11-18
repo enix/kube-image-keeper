@@ -64,7 +64,7 @@ This branch holds **kuik v3**, a rewrite released as betas since [3.0.0-beta.1](
 | Credentials from a cloud provider (`auth.provider`) | Accepted and validated, but not used yet: kuik skips it and tries the next credential. Planned for v3.1 ([#747](https://github.com/enix/kube-image-keeper/issues/747)) |
 | Plain-HTTP alternatives and mirror destinations (`insecure`) | Available since 3.0.0-alpha.2 for `ImageAlternative`, since 3.0.0-alpha.4 for `ImageMirror` |
 | [Private certificate authorities and self-signed certificates](./docs/configuration.md#registry-tls) (`tls`) | Available since 3.0.0-alpha.6 |
-| Migration from v2 | None: a migration plan will be proposed once GA is out ([#749](https://github.com/enix/kube-image-keeper/issues/749)) |
+| [Migration from v2](./docs/installation.md#upgrading-from-v2) | None yet: keep existing installs on v2 and use v3 for new installs; a migration path from the latest v2 will follow once v3 is battle-tested ([#749](https://github.com/enix/kube-image-keeper/issues/749)) |
 
 - **Stable version**: [v2.3](https://github.com/enix/kube-image-keeper/releases), documented on [kuik.enix.io](https://kuik.enix.io/2.3/). It is in maintenance: bug fixes only.
 - **v3 specification**: [`docs/v3/`](./docs/v3/), the design as decided before the implementation, kept as a historical record: what kuik does is in the user documentation ([why](./docs/v3/README.md)).
