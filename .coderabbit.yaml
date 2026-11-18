@@ -65,8 +65,9 @@ reviews:
       - "chore(deps):"
       - "chore(release):"
 
-  # The title and commit style are enforced by conform; the description is
-  # the author's. Docstrings are not a project convention.
+  # The title and commit style are enforced by conform. Docstrings are not a
+  # project convention. The description is free, except that it says how the
+  # PR differs from its issue, so the reviewer knows what goes beyond it.
   pre_merge_checks:
     docstrings:
       mode: "off"
@@ -76,6 +77,24 @@ reviews:
       mode: "off"
     issue_assessment:
       mode: "off"
+    custom_checks:
+      - name: "Differences from the issue"
+        mode: "warning"
+        instructions: |
+          Compare the diff with the issue the PR closes or is part of. A
+          difference is a point the issue left open that the PR settles, a
+          proposal of the issue the PR does another way, something the PR adds
+          that the issue did not ask for, or something the issue asks that the
+          PR leaves out.
+          Pass when the PR answers no issue, or does exactly what its issue
+          asks and its description has no "Differences from the issue:"
+          section.
+          Pass when every difference has a line under "Differences from the
+          issue:" in the description, every line is borne out by the diff, and
+          no line cites a conversation or a private source.
+          Fail otherwise, and name each difference the description does not
+          say, each line the diff does not bear out, and each line that cites
+          a conversation or a private source.
 
   finishing_touches:
     docstrings:

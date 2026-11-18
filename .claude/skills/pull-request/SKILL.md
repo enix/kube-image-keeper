@@ -52,7 +52,9 @@ the [`test-outline`](../test-outline/SKILL.md) skill.
   `internal/auth/*`, `internal/routing/*`, `internal/imagepath`, `internal/config`) lands
   first in its own pull request.
 - Before the pull request opens, a fresh `reviewer` agent reviews the whole branch
-  (`origin/main...HEAD`): spec conformance and the interactions between components. The
+  (`origin/main...HEAD`), with the draft description (step 2) and the issue pasted in its
+  prompt: conformance to `docs/`, the interactions between components, and a
+  `Differences from the issue:` line for every way the diff departs from the issue. The
   `spec-reviewer` agent reviews the outline only; a `reviewer` reviews each `feat` commit as
   it lands; CodeRabbit reviews the pull request last. The Claude code-review plugin is not
   used ([0014](../../../notes/0014-implementer-and-reviewer-agents.md)).
@@ -89,11 +91,21 @@ What to look at:
   GitHub closes it on merge and the reader gets the context from the link.
 - Add `Upgrade notes:` after the list, 1 to 3 lines, only when a user upgrading must act or
   would be surprised by something the description does not already say: a chart value
-  renamed or removed, a CRD field, a default. A behaviour change the introduction or the
-  paragraph already describes gets none; the release notes work from them.
-- When the PR decided a spec reading (where `docs/v3/` is silent or ambiguous) or a
-  behaviour choice, add `Decisions:` after the list, one line each with the link to the spec
-  heading: the reviewer weighs in there.
+  renamed or removed, a CRD field, a default. A non-breaking behaviour change the
+  introduction or the paragraph already describes gets none; the release notes work from
+  them. A breaking change always gets its line, even when the introduction explains it.
+- When the PR does not do exactly what its issue asks, add `Differences from the issue:`
+  after the list, one line each: a point the issue left open and how the PR settled it, a
+  proposal of the issue done another way and why, or something the PR adds that the issue
+  did not ask for. The reviewer then knows the PR does more than implement the issue as
+  written. Link the `docs/` page that describes the result when there is one. A PR that
+  does exactly what its issue asks, or answers no issue, has no such section.
+- When the PR does less than its issue asks, or does it another way, also comment on the
+  issue in one or two sentences with the link to the PR, so whoever opened it is notified
+  (`gh issue comment <n> --body-file <file>`, after the user's go like any GitHub write).
+  A point settled or an addition gets no comment.
+- State a difference as a fact, never who chose it or where: no conversation, no private
+  channel, page or identifier.
 - Short sentences, one idea each. A block of dense prose is a failure: split it or cut it.
 - Every "What to look at" bullet that rests on a spec section or a note links it by its
   absolute URL (`https://github.com/enix/kube-image-keeper/blob/main/<path>#<heading-slug>`):
@@ -140,6 +152,13 @@ description against `git log origin/main..HEAD` and the diff. When a sentence no
 holds, draft the fix, show it, and edit after the user confirms. A description that
 describes a dropped file misleads the reviewer and CodeRabbit alike.
 
+A difference from the issue settled after the PR opened (a review round, a maintainer's
+later answer, a limit accepted) changes the description even when no commit does: add or
+correct its line at once, and comment on the issue when the PR now does less or does it
+another way. Before the `e2e-ready` label and auto-merge, re-read `Differences from the
+issue:` against the issue, every review thread and every answer received since the PR
+opened.
+
 ## 5. The automated review
 
 - As soon as a review is due (the PR opened, `@coderabbitai review` posted), run
@@ -170,8 +189,12 @@ describes a dropped file misleads the reviewer and CodeRabbit alike.
   again.
 - Read the body of each review, not only its threads: the `quiet` profile folds findings
   into the review body without opening a thread.
-- Triage each comment: fix it (a `fixup!` commit), or accept it as a limit and say so in
-  the description. An exception is a late batch of fixes touching code that several later
+- Read the "Failed checks" table of CodeRabbit's walkthrough comment: a failed
+  `Differences from the issue` check is fixed in the description and opens no thread, so
+  nothing else stops the merge on it.
+- Triage each comment: fix it (a `fixup!` commit), or accept it as a limit, say so in the
+  description and add it to `docs/known-limits.md`. An exception is a late batch of fixes
+  touching code that several later
   commits rewrite: regression pairs at the end of the branch instead
   ([`tests.md`](../../rules/tests.md)).
 - Resolve a thread once its fix is pushed. Reply only when resolving without a fix: one
