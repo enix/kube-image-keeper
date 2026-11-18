@@ -13,12 +13,15 @@ to outline; empty means the whole repository).
 
 ## 1. Read the behaviour
 
-- Read what defines the behaviour: the section of `docs/v3/spec.md` or `docs/v3/status.md`,
-  or the walkthrough under `docs/v3/`.
+- Read what defines the behaviour: the page under `docs/`, then the section of
+  `docs/v3/spec.md` or `docs/v3/status.md`, or the walkthrough under `docs/v3/` (frozen: where
+  `docs/` says otherwise, `docs/` wins).
 - Read the package's `*_test.go` to reuse its `Describe` structure and helpers.
-- Never invent behaviour. When the spec is silent or ambiguous, decide: what the kubelet
-  does first, then the most literal reading of `docs/v3/`. Send each such decision to the
-  coordinator and list it in the pull request description, one line each.
+- Never invent behaviour. When both are silent or ambiguous, decide: what the kubelet does
+  first, then the most literal reading of `docs/`, then of `docs/v3/`. When the decision
+  settles a point the issue left open, list it under `Differences from the issue:` in the
+  pull request description, one line each (the
+  [`pull-request`](../pull-request/SKILL.md) skill).
 
 Suites live next to the code: one `suite_test.go` per package (envtest bootstrap, loads the
 CRDs from `config/crd/bases/`) and `*_test.go` files beside the sources. Ginkgo and Gomega
@@ -86,8 +89,8 @@ and with `DIFF=origin/main`, one line per case prefixed by `+` (added) or `-` (r
 + ImageMirror / when the destination registry is unreachable / sets Ready to False with reason Unreachable [pending]
 ```
 
-Before showing it, hand the outline and the spec section it covers to the `spec-reviewer`
-sub-agent. Fix the cases it reports as missing or not in the spec; where the spec is
+Before showing it, hand the outline, the `docs/` page and the spec section it covers, and the
+decisions taken in step 1 to the `spec-reviewer` sub-agent. Fix the cases it reports as missing or not in the spec; where the spec is
 unclear, decide as in step 1.
 
 Paste the output in the session's report, each top-level `Describe` group preceded by one line naming
@@ -146,8 +149,8 @@ Then the next component. `git log --stat` must show every test file added by a `
 commit and left alone by the `feat` commits: the reviewer checks it.
 
 - Never rename a string while filling. A rename goes back to step 3.
-- Never edit a test to make it pass. A test that contradicts `docs/v3/` or cannot be
-  written as stated is reported to the user with the section it relies on. It changes only
+- Never edit a test to make it pass. A test that contradicts `docs/`, or `docs/v3/` where
+  `docs/` is silent, or cannot be written as stated is reported to the user with the section it relies on. It changes only
   with the user's approval, in its own `test` commit.
 - When a review (`reviewer`, human, CodeRabbit) finds a bug the outline missed in code a
   commit of this branch adds, its regression spec is a `fixup!` of the `test` commit of

@@ -62,11 +62,13 @@ second one, so it keeps its context.
 
 ## Decide, and report each decision
 
-A spec reading where `docs/v3/` is silent or ambiguous, and a behaviour choice, are yours:
-the kubelet first (when kuik does what the kubelet does, do the same or the closest
-possible), then the most literal reading of the spec. Never edit the spec. List each one in
-your next report, one line: the file and the heading, the decision. The session sends them
-to the coordinator and lists them in the pull request.
+A behaviour decision where `docs/` and `docs/v3/` are silent or ambiguous is yours: the
+kubelet first (when kuik does what the kubelet does, do the same or the closest possible),
+then the most literal reading of `docs/`, then of `docs/v3/`. Never edit `docs/v3/`, which is
+frozen. List each one in your next report, one line: what was decided, why, and the `docs/`
+page that describes it. The session lists under `Differences from the issue:` in the pull
+request description each one that settles a point the issue left open or departs from it
+(the [`pull-request`](../skills/pull-request/SKILL.md) skill).
 
 ## Stop and hand back
 

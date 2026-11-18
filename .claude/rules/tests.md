@@ -36,9 +36,10 @@ paths:
   cannot be written as stated goes to the maintainer with the section it relies on. It
   changes only with the maintainer's approval, in its own `test` commit.
 - **Review fixes need no approval.** Fixes from a review and their new regression specs are
-  decided by the session; a spec reading or a behaviour choice is sent to the coordinator
-  and listed in the pull request description. A rewritten or relaxed test goes to the
-  maintainer only when the change opens a gap with `docs/v3/`.
+  decided by the session; one that makes the pull request differ from its issue is listed
+  under `Differences from the issue:` in its description. A rewritten or relaxed test goes to
+  the maintainer only when the change opens a gap with `docs/`, or with `docs/v3/` where
+  `docs/` is silent.
 - **A regression spec goes where the bug lives.** When a review (`reviewer`, human,
   CodeRabbit) finds a bug the outline missed:
   - in code a commit of the branch adds, the fix is a `fixup!` of that `feat` commit and its
