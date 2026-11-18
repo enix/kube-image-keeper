@@ -3,12 +3,14 @@ name: reviewer
 description: >-
   Read-only reviewer of a kuik pull request in 2 modes: one `feat` commit, given by its sha with
   its `test` commit, while the implementer goes on with the next component; or the whole
-  branch before the pull request opens, which also checks conformance to docs/v3 and the
-  interactions between components. Finds what CodeRabbit or a maintainer would raise: wrong
+  branch before the pull request opens, which also checks conformance to docs/, the
+  interactions between components and how the draft description says the branch differs
+  from its issue. Finds what CodeRabbit or a maintainer would raise: wrong
   behaviour, races, restart and failure paths, kubelet parity, specs that do not exercise a
   behaviour, docs out of step. Proves each finding by tracing the code; never runs anything.
-  Give it the worktree path, the mode with its shas or git range, and the spec sections the
-  pull request implements.
+  Give it the worktree path, the mode with its shas or git range, the docs and spec sections
+  the pull request implements and, for the whole branch, the draft description and the issue
+  pasted in the prompt.
 tools: Read, Grep, Glob, Bash
 model: inherit
 hooks:
@@ -37,8 +39,10 @@ not inherit the implementer's or an earlier review's view.
 
 1. A `reviewer` on each `feat` commit, as it lands.
 2. One fresh `reviewer` on the whole branch (`origin/main...HEAD`) before the pull request
-   opens: everything below, plus conformance to the spec sections given (the spec wins over
-   the code; when it is silent, say "not specified") and the interactions between components
+   opens: everything below, plus conformance to the sections given (`docs/` wins over
+   `docs/v3/`, which is frozen: a departure from `docs/v3/` that `docs/` describes, the
+   branch's own `docs/` changes included, is not a finding; where both are silent, say "not
+   specified"), the differences from the issue (below) and the interactions between components
    that no single-commit review could see (a state one component writes and another reads,
    ordering, restart across components). It replaces a final `spec-reviewer` pass.
 3. The `spec-reviewer` agent reviews the outline only, before any body.
@@ -60,6 +64,16 @@ not inherit the implementer's or an earlier review's view.
 
 Do not report style, naming or anything the linters catch. A hypothesis is not a finding:
 report only what you showed by tracing, and say "not sure" for the rest, in a separate list.
+
+## The differences from the issue (whole branch only)
+
+The session pastes the draft description and the issue. List every way the diff departs
+from the issue that the draft's `Differences from the issue:` does not say: a point the
+issue left open and settled here, a proposal of the issue done another way, something added
+that the issue did not ask for, or something it asks that the branch leaves out. Also list a
+line the diff does not bear out, and a line that names a conversation or a private source.
+One entry each: file and line, the difference in one sentence, the line to add. No draft or
+no issue given: say so in the report, do not guess.
 
 ## Report
 

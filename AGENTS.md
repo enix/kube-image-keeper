@@ -289,10 +289,12 @@ meant for `main`.
 **PR descriptions** are written for the reviewer, the way a colleague would: 1 to 3
 sentences on what the PR does and why, a short paragraph on what the change concretely
 does, then a short list of the topics worth reviewing (a mechanism, a choice to weigh in
-on, what is deliberately left out), one line each. Link the
-spec or the note instead of paraphrasing it. No dense block of prose, no headings or tables,
-nothing that restates the commits or the diff. The
-[`pull-request`](./.claude/skills/pull-request/SKILL.md) skill gives the shape.
+on, what is deliberately left out), one line each, and, when the PR does not do exactly what
+its issue asks, a `Differences from the issue:` section (a point settled, a proposal done
+another way, an addition), so the reviewer knows it is more than the issue as written. Link the docs page, the
+spec or the note instead of paraphrasing it. No dense block of prose, no headings or
+tables, nothing that restates the commits or the diff.
+The [`pull-request`](./.claude/skills/pull-request/SKILL.md) skill gives the shape.
 
 ## Decision log
 

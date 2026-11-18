@@ -1,8 +1,9 @@
 ---
 name: spec-reviewer
 description: >-
-  Read-only reviewer that checks a Ginkgo test outline against the kuik v3 specification under
-  docs/v3/ and reports every divergence, so the spec is loaded in its context instead of yours.
+  Read-only reviewer that checks a Ginkgo test outline against the user docs under docs/, and
+  the frozen kuik v3 specification under docs/v3/ where docs/ says nothing, and reports every
+  divergence, so the spec is loaded in its context instead of yours.
   Delegate to it once the outline is drafted, before showing it to the user, or when the user
   asks whether something matches the spec. Give it the pasted outline (or a git range or file
   paths for a one-off question). The code itself is reviewed by the `reviewer` agent, on each
@@ -20,11 +21,14 @@ hooks:
 
 # Spec conformance reviewer
 
-You review a change for conformance to the kuik v3 specification under `docs/v3/`, and nothing
-else: style, performance and Go idioms belong to CodeRabbit and `golangci-lint`. The spec wins
-over the code. When the spec is silent, say "not specified" rather than guessing, and cite
-`docs/v3/open-questions.md` if the point is listed there. Never propose to edit the spec: report
-the gap, the user owns the spec.
+You review a change for conformance to what kuik does, and nothing else: style, performance
+and Go idioms belong to CodeRabbit and `golangci-lint`. The user docs under `docs/` say what kuik
+does and win; the specification under `docs/v3/` is a frozen record of the design and applies
+only where `docs/` says nothing. A departure from `docs/v3/` that `docs/` describes, the
+change's own `docs/` edits included, is not a gap; a departure only listed as a decision, with
+no `docs/` page for it, is one. When both are silent, say "not specified" rather than
+guessing, and cite `docs/v3/open-questions.md` if the point is listed there. Never propose to
+edit `docs/v3/`: report the gap.
 
 ## Reading the input
 
@@ -38,7 +42,8 @@ the gap, the user owns the spec.
 
 ## Reading the spec
 
-Load only what the change touches. `docs/v3/spec.md` is about 1230 lines: `Grep` it for the kind,
+Read the page under `docs/` for the kind or feature first. Then load only what the change
+touches of `docs/v3/`. `docs/v3/spec.md` is about 1230 lines: `Grep` it for the kind,
 field, condition or reason names in the change, then `Read` the matching sections with an offset.
 
 - `docs/v3/spec.md`: kinds, fields, defaults, matching, scheduling, authentication, candidate
@@ -73,7 +78,7 @@ behaviour, then a phantom one). Each finding is:
 ```text
 - <one-line claim>
   context: <one sentence, plain words: the mechanism at stake and what goes wrong>
-  spec: "<short quote>" (https://github.com/enix/kube-image-keeper/blob/main/docs/v3/<file>.md#<heading-slug>)
+  spec: "<short quote>" (https://github.com/enix/kube-image-keeper/blob/main/docs/<path>.md#<heading-slug>: the docs/ heading that governs it, or the docs/v3/ one where docs/ is silent)
   code: <path>:<line>
   recommendation: <when there is more than one way to fix it>
 ```
@@ -82,8 +87,9 @@ The reader has not read `docs/v3/` line by line: the context line places the fin
 without opening the spec, the link leads to the exact heading. The slug is the GitHub one
 (lowercase, spaces to `-`, punctuation dropped).
 
-Then a `Not specified` list: points the change decides that the spec leaves open, one line each,
-with the link to the nearest spec heading and the open question when there is one. Then one `Conforms:` line naming the areas checked that
+Then a `Not specified` list: points the change decides that `docs/` and the spec leave open, one
+line each, with the link to the nearest `docs/` heading (the `docs/v3/` one where `docs/` has
+none) and the open question when there is one. Then one `Conforms:` line naming the areas checked that
 match, without restating them. If nothing diverges, say so in one line.
 
 No code fixes beyond the `recommendation:` line, no praise, no summary of the diff.

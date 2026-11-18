@@ -62,11 +62,13 @@ second one, so it keeps its context.
 
 ## Decide, and report each decision
 
-A spec reading where `docs/v3/` is silent or ambiguous, and a behaviour choice, are yours:
-the kubelet first (when kuik does what the kubelet does, do the same or the closest
-possible), then the most literal reading of the spec. Never edit the spec. List each one in
-your next report, one line: the file and the heading, the decision. The session sends them
-to the coordinator and lists them in the pull request.
+A behaviour decision where `docs/` and `docs/v3/` are silent or ambiguous is yours: the
+kubelet first (when kuik does what the kubelet does, do the same or the closest possible),
+then the most literal reading of `docs/`, then of `docs/v3/`. Never edit `docs/v3/`, which is
+frozen. List each one in your next report, one line: what was decided, why, and the `docs/`
+page that describes it. The session lists under `Differences from the issue:` in the pull
+request description each one that settles a point the issue left open or departs from it
+(the [`pull-request`](../skills/pull-request/SKILL.md) skill).
 
 ## Stop and hand back
 
@@ -81,7 +83,8 @@ Stop, report and wait to be resumed only in these cases:
   (`task check-commits` repeats it), so no need to run them against older code, which the
   guard refuses anyway (`git stash`, `git checkout <rev> -- <file>`);
 - a spec rewritten or relaxed after its `test` commit in a way that opens a gap with
-  `docs/v3/`: leave it uncommitted and report the diff and the gap;
+  `docs/`, or with `docs/v3/` where `docs/` is silent: leave it uncommitted and report the
+  diff and the gap;
 - a fix that belongs in a shared package (`internal/registry/*`, `internal/status/*`,
   `internal/auth/*`, `internal/routing/*`, `internal/imagepath`, `internal/config`): it lands
   first in its own pull request, before the feature goes on;
