@@ -161,6 +161,8 @@ type fakeChecker struct {
 	ended   map[string]time.Time
 	// silent are the refs Check answers with no verdict, neither a result nor an error.
 	silent map[string]bool
+	// identity is what Identity answers.
+	identity string
 }
 
 func newChecker(h *harness) *fakeChecker {
@@ -217,6 +219,20 @@ func (f *fakeChecker) Check(ctx context.Context, ref string) Response {
 		f.mu.Unlock()
 		return Response{Err: ctx.Err()}
 	}
+}
+
+// Identity is what withIdentity set: the same credentials for every ring by default.
+func (f *fakeChecker) Identity(string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.identity
+}
+
+func (f *fakeChecker) withIdentity(id string) *fakeChecker {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.identity = id
+	return f
 }
 
 func (f *fakeChecker) Checked(ref string, r Response) {
