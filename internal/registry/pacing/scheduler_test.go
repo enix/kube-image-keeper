@@ -393,6 +393,15 @@ var _ = Describe("Scheduler", func() {
 			Expect(len(monitors.visits()) + len(drift.visits())).To(Equal(2))
 		})
 
+		It("does not hand a response to a ring that sends other credentials", func() {
+			h.s.SetRing(monitor, dockerHub, []string{imageA}, kuikv1alpha1.RegistryCheck{}, monitors.withIdentity("anonymous"))
+			h.s.SetRing(mirror, dockerHub, []string{imageA}, kuikv1alpha1.RegistryCheck{}, drift.withIdentity("team-secret"))
+			windows(2)
+
+			Expect(monitors.refs()).To(Equal([]string{imageA}))
+			Expect(drift.refs()).To(Equal([]string{imageA}))
+		})
+
 		It("spends a window on an image whose cached response is older than this ring's last visit of it", func() {
 			h.s.SetRing(monitor, dockerHub, []string{imageA, imageB, imageC}, kuikv1alpha1.RegistryCheck{}, monitors)
 			h.s.SetRing(mirror, dockerHub, []string{imageA}, kuikv1alpha1.RegistryCheck{}, drift)

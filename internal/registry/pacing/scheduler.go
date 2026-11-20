@@ -40,6 +40,10 @@ type Checker interface {
 	// Check reads ref from its registry. ctx carries the check timeout of the host. An empty
 	// Response, neither a result nor an error, is no verdict: the cache never keeps it.
 	Check(ctx context.Context, ref string) Response
+	// Identity names what Check would send for ref: its transport and its credentials, without
+	// reading any of them. The verdict cache hands a response only to rings of the same
+	// identity.
+	Identity(ref string) string
 	// Checked receives the response of ref, obtained by Check or reused from the verdict
 	// cache.
 	Checked(ref string, r Response)
@@ -119,8 +123,14 @@ type host struct {
 	rings    []*ring
 	// turn is the index of the ring the next check window goes to.
 	turn int
-	// cache holds the last response of every reference of the host, whichever ring got it.
-	cache map[string]cached
+	// cache holds the last response of every reference of the host, whichever ring that sends
+	// the same credentials got it.
+	cache map[cacheKey]cached
+}
+
+// cacheKey is what a response answers: a reference read with one identity of the checker.
+type cacheKey struct {
+	ref, identity string
 }
 
 // queue is the references one mirror still owes from one source host, in its order. It is
@@ -323,7 +333,7 @@ func (s *Scheduler) phase(h *host) {
 func (s *Scheduler) hostFor(name string) *host {
 	h, ok := s.hosts[name]
 	if !ok {
-		h = &host{name: name, cache: map[string]cached{}}
+		h = &host{name: name, cache: map[cacheKey]cached{}}
 		s.hosts[name] = h
 		if !s.start.IsZero() {
 			s.phase(h)
@@ -505,13 +515,14 @@ func (s *Scheduler) openCheck(h *host, now time.Time) {
 			known = r.created
 		}
 		ref := r.take(now)
-		if c, ok := h.cache[ref]; ok && c.at.After(known) {
+		key := cacheKey{ref: ref, identity: r.checker.Identity(ref)}
+		if c, ok := h.cache[key]; ok && c.at.After(known) {
 			s.deliver(r.checker, ref, c.response)
 			continue
 		}
 		h.check.busy = true
 		s.running++
-		go s.check(h, r.checker, ref, now, s.cfg.Registries.For(h.name).Check.Timeout)
+		go s.check(h, r.checker, key, now, s.cfg.Registries.For(h.name).Check.Timeout)
 		return
 	}
 }
@@ -529,7 +540,8 @@ func (s *Scheduler) deliver(c Checker, ref string, r Response) {
 
 // check reads ref with c, abandoning it after timeout, caches the response as obtained by the
 // window opened at, and hands it to c.
-func (s *Scheduler) check(h *host, c Checker, ref string, at time.Time, timeout time.Duration) {
+func (s *Scheduler) check(h *host, c Checker, key cacheKey, at time.Time, timeout time.Duration) {
+	ref := key.ref
 	ctx, cancel := s.bounded(timeout)
 	r := c.Check(ctx, ref)
 	cancel()
@@ -538,7 +550,7 @@ func (s *Scheduler) check(h *host, c Checker, ref string, at time.Time, timeout 
 	// A response with neither a result nor an error is no verdict: another ring must not
 	// reuse it.
 	if r.Result != nil || r.Err != nil {
-		h.cache[ref] = cached{response: r, at: at}
+		h.cache[key] = cached{response: r, at: at}
 	}
 	h.check.busy = false
 	s.mu.Unlock()
@@ -685,9 +697,9 @@ func (s *Scheduler) SetRing(owner Owner, host string, refs []string, resume kuik
 
 // prune drops the cached responses of the references no ring of h tracks any more.
 func (h *host) prune() {
-	maps.DeleteFunc(h.cache, func(ref string, _ cached) bool {
+	maps.DeleteFunc(h.cache, func(key cacheKey, _ cached) bool {
 		return !slices.ContainsFunc(h.rings, func(r *ring) bool {
-			_, found := slices.BinarySearch(r.refs, ref)
+			_, found := slices.BinarySearch(r.refs, key.ref)
 			return found
 		})
 	})
