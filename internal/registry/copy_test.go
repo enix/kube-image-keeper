@@ -29,6 +29,27 @@ func twoCredentials() []authn.Authenticator {
 	return []authn.Authenticator{&authn.Basic{Username: "one"}, &authn.Basic{Username: "two"}}
 }
 
+// registryError answers the matching requests with a 403 carrying code as its registry
+// error code, the body a registry answers a refused request with.
+func registryError(method, pathPart, code string) registrytest.Interceptor {
+	return func(w http.ResponseWriter, r *http.Request) bool {
+		if (method != "" && r.Method != method) || !strings.Contains(r.URL.Path, pathPart) {
+			return false
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"errors":[{"code":"` + code + `","message":"refused"}]}`))
+		return true
+	}
+}
+
+// deniedResponse answers the matching requests with a 403 carrying the DENIED registry
+// error code: the write is refused for what it asks (a project quota, a policy), not for
+// the credential.
+func deniedResponse(method, pathPart string) registrytest.Interceptor {
+	return registryError(method, pathPart, "DENIED")
+}
+
 var _ = Describe("Copy", func() {
 	var (
 		client   *Client
@@ -178,11 +199,25 @@ var _ = Describe("Copy", func() {
 			src.Intercept(registrytest.Status("", "/manifests/", http.StatusNotImplemented, nil))
 			return endpoint(src, "app:v1"), endpoint(dst, "mirror/app")
 		}, kuikv1alpha1.CopySourceUnreachable),
-		Entry("is DestinationUnreachable on a 5xx from the destination", func() (Endpoint, Endpoint) {
+		Entry("is DestinationError on a 5xx from the destination", func() (Endpoint, Endpoint) {
 			src.Push("app:v1", registrytest.Image())
 			dst.Intercept(registrytest.Status(http.MethodPut, "/manifests/", http.StatusNotImplemented, nil))
 			return endpoint(src, "app:v1"), endpoint(dst, "mirror/app")
-		}, kuikv1alpha1.CopyDestinationUnreachable),
+		}, kuikv1alpha1.CopyDestinationError),
+		Entry("is PushRejected when the destination refuses a write with DENIED", func() (Endpoint, Endpoint) {
+			src.Push("app:v1", registrytest.Image())
+			dst.Intercept(deniedResponse(http.MethodPut, "/manifests/"))
+			return endpoint(src, "app:v1"), endpoint(dst, "mirror/app")
+		}, kuikv1alpha1.CopyPushRejected),
+		Entry("is Unauthorized when the destination refuses a write with UNAUTHORIZED", func() (Endpoint, Endpoint) {
+			src.Push("app:v1", registrytest.Image())
+			dst.Intercept(registryError(http.MethodPut, "/manifests/", "UNAUTHORIZED"))
+			return endpoint(src, "app:v1"), endpoint(dst, "mirror/app")
+		}, kuikv1alpha1.CopyUnauthorized),
+		Entry("is Unauthorized when the source refuses a read with DENIED", func() (Endpoint, Endpoint) {
+			src.Intercept(deniedResponse("", "/manifests/"))
+			return endpoint(src, "app:v1"), endpoint(dst, "mirror/app")
+		}, kuikv1alpha1.CopyUnauthorized),
 	)
 
 	DescribeTable("failed side",

@@ -242,6 +242,8 @@ const (
 	CopySourceUnreachable CopyFailureReason = "SourceUnreachable"
 	// CopyDestinationUnreachable means the destination did not answer at all.
 	CopyDestinationUnreachable CopyFailureReason = "DestinationUnreachable"
+	// CopyDestinationError means the destination answered with a server error.
+	CopyDestinationError CopyFailureReason = "DestinationError"
 )
 
 // PodCounts are gauges on the living pods a resource selects. Neither field sums across
