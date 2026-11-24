@@ -892,7 +892,8 @@ func (st *mirrorState) seed(im *kuikv1alpha1.ImageMirror) {
 // the source is assumed until the next attempt tells.
 func failedRegistry(im *kuikv1alpha1.ImageMirror, e kuikv1alpha1.FailedImageCopy) string {
 	ref := e.Ref
-	if e.Reason == kuikv1alpha1.CopyPushRejected || e.Reason == kuikv1alpha1.CopyDestinationUnreachable {
+	if e.Reason == kuikv1alpha1.CopyPushRejected || e.Reason == kuikv1alpha1.CopyDestinationUnreachable ||
+		e.Reason == kuikv1alpha1.CopyDestinationError {
 		ref = im.Spec.Destination.Path
 	}
 	host, _, _ := strings.Cut(ref, "/")

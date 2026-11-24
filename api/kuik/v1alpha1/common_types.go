@@ -226,7 +226,7 @@ const (
 
 // CopyFailureReason is what a failed copy observed on one image. A copy touches two endpoints:
 // a reason that does not name its side (Unauthorized, QuotaExceeded) comes from either.
-// +kubebuilder:validation:Enum=SourceNotFound;PushRejected;Unauthorized;QuotaExceeded;SourceUnreachable;DestinationUnreachable
+// +kubebuilder:validation:Enum=SourceNotFound;PushRejected;Unauthorized;QuotaExceeded;SourceUnreachable;DestinationUnreachable;DestinationError
 type CopyFailureReason string
 
 const (
