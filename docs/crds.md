@@ -311,7 +311,7 @@ The copy side first, then the routing side, which is field for field an [`ImageA
 | ----- | ----------- |
 | `status.images.copy.*` | References held at the destination: `tracked` (= `running` + `standby` + `retained`), `available`, `unavailable`, `drifted`, `missingSource`, `orphanTags` |
 | `status.driftedImages[]` | Tags whose upstream digest moved away from the copy, under `Warn` or `Sync` |
-| `status.failedImageCopies[]` | Origins whose copy has not succeeded, with `reason` (`SourceNotFound`, `PushRejected`, `Unauthorized`, `QuotaExceeded`, `SourceUnreachable`, `DestinationUnreachable`), `since` and `lastAttempt` |
+| `status.failedImageCopies[]` | Origins whose copy has not succeeded, with `reason` (`SourceNotFound`, `PushRejected`, `Unauthorized`, `QuotaExceeded`, `SourceUnreachable`, `DestinationUnreachable`, `DestinationError`), `since` and `lastAttempt` |
 | `status.pendingDeletion[]` | Destination tags waiting out `cleanup.retention`, with `origin` when known and `unusedSince`. Not capped |
 | `status.selfChecked` | End of the last full comparison against the destination |
 | `status.repositories[]` | Destination repositories this mirror wrote to, for the cleanup sweep. Not capped |
