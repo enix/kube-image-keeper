@@ -115,6 +115,8 @@ var _ = Describe("Manager", Ordered, func() {
 			}
 		})
 
+		PIt("should allow one voluntary disruption of each process at a time", func() {})
+
 		// The permissions of docs/v3/architecture.md, "Permissions": one entry per cell of the
 		// table that carries a property of the design, under the default secretAccess.mode
 		// (permissive). The rules grant get, list and watch together, so one verb stands for the
