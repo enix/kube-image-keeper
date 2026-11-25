@@ -49,6 +49,14 @@ topologySpreadConstraints: []
 deploymentStrategy: {}
 # -- Priority class of the pods
 priorityClassName: ""
+podDisruptionBudget:
+  # -- Create a PodDisruptionBudget for each process, so that node drains never evict every
+  # replica of a process at once. It never keeps an unready pod from being evicted
+  enabled: true
+  # -- (int or string) Pods of a process a voluntary disruption may take down at a time, a
+  # number or a percentage. With 1, a process with a single replica can still be drained.
+  # With 0 or 0%, the ready pods of that process can never be evicted, so a node drain blocks
+  maxUnavailable: 1
 # -- Extra environment variables of the containers
 env: []
 # -- Readiness probe of the containers
@@ -137,6 +145,13 @@ webhook:
   # -- Priority class of the webhook pods
   # @default -- the root `priorityClassName`
   priorityClassName: ""
+  podDisruptionBudget:
+    # -- (bool) Create the PodDisruptionBudget of the webhook
+    # @default -- the root `podDisruptionBudget.enabled`
+    enabled: ~
+    # -- (int or string) Pods of the webhook a voluntary disruption may take down at a time
+    # @default -- the root `podDisruptionBudget.maxUnavailable`
+    maxUnavailable: ~
   # -- Extra environment variables of the webhook container, appended to the root ones
   # @default -- the root `env`
   env: []
@@ -211,6 +226,13 @@ reconciler:
   # -- Priority class of the reconciler pods
   # @default -- the root `priorityClassName`
   priorityClassName: ""
+  podDisruptionBudget:
+    # -- (bool) Create the PodDisruptionBudget of the reconciler
+    # @default -- the root `podDisruptionBudget.enabled`
+    enabled: ~
+    # -- (int or string) Pods of the reconciler a voluntary disruption may take down at a time
+    # @default -- the root `podDisruptionBudget.maxUnavailable`
+    maxUnavailable: ~
   # -- Extra environment variables of the reconciler container, appended to the root ones
   # @default -- the root `env`
   env: []
@@ -285,6 +307,13 @@ secretSyncer:
   # -- Priority class of the secret syncer pods
   # @default -- the root `priorityClassName`
   priorityClassName: ""
+  podDisruptionBudget:
+    # -- (bool) Create the PodDisruptionBudget of the secret syncer
+    # @default -- the root `podDisruptionBudget.enabled`
+    enabled: ~
+    # -- (int or string) Pods of the secret syncer a voluntary disruption may take down at a time
+    # @default -- the root `podDisruptionBudget.maxUnavailable`
+    maxUnavailable: ~
   # -- Extra environment variables of the secret syncer container, appended to the root ones
   # @default -- the root `env`
   env: []

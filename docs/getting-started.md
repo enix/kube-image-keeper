@@ -37,7 +37,7 @@ helm upgrade --install --create-namespace --namespace kuik-system \
   kube-image-keeper oci://quay.io/enix/charts/kube-image-keeper:$VERSION --wait
 ```
 
-kuik runs 3 processes: the webhook, which rewrites pods when they are created, the reconciler, which copies and checks images in the background, and the secret syncer, which writes the pull Secrets the kubelet needs into the pods' namespaces. The chart runs 2 replicas of each; the reconciler and the secret syncer keep one on standby. All 6 pods should be running:
+kuik runs 3 processes: the webhook, which rewrites pods when they are created, the reconciler, which copies and checks images in the background, and the secret syncer, which writes the pull Secrets the kubelet needs into the pods' namespaces. The chart runs 2 replicas of each; the reconciler and the secret syncer keep one on standby. A PodDisruptionBudget per process keeps one of them up during node drains. All 6 pods should be running:
 
 ```bash
 kubectl get pods -n kuik-system
