@@ -150,9 +150,10 @@ jobs:
       # A job output is a string, and build.yaml declares these inputs as booleans: compare
       # rather than forward, or the call is rejected and the job never starts.
       PRERELEASE: ${{ needs.semver.outputs.prerelease == 'true' }}
-      # Only a stable release of the main line owns the :latest image tag. A maintenance line
-      # also publishes stable versions, and they must not move :latest back to an older major.
-      IS_LATEST: ${{ needs.semver.outputs.channel == '' && github.ref_name == 'release' }}
+      # Only a stable release of the highest line owns the :latest image tag. 3.0 is that line
+      # while no 3.1.0 exists: set this to false when 3.1.0 ships, so a 3.0 patch never moves
+      # :latest back to an older minor.
+      IS_LATEST: ${{ needs.semver.outputs.channel == '' && github.ref_name == '3.0.x-stable' }}
       CHANGES: ${{ needs.semver.outputs.changes }}
     secrets:
       REPO_LOGIN: ${{ secrets.QUAY_USERNAME }}

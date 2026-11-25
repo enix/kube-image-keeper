@@ -112,13 +112,15 @@ export default {
       },
     ],
   ],
+  // The 3.0 maintenance line publishes from its own branches only, both fast-forwarded from
+  // 3.0.x at release time: release candidates from 3.0.x-rc, stables from 3.0.x-stable.
   branches: [
     {
-      name: "main",
-      prerelease: "beta",
+      name: "3.0.x-stable",
     },
     {
-      name: "release",
+      name: "3.0.x-rc",
+      prerelease: "rc",
     },
   ],
 };
