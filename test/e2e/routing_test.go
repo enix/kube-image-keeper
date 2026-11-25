@@ -468,13 +468,26 @@ var _ = Describe("Pod routing", Ordered, func() {
 			Expect(webhookRestarts()).To(Equal(before))
 		})
 
-		It("keeps the previously loaded config when the edited file does not validate, and counts the failure", func() {
+		// One literal, unwrapped: task test-outline reads the text of a spec from its source.
+		//nolint:lll
+		It("keeps the previously loaded config when the edited file does not validate, counts the failure and reports it until a valid config is back", func() {
 			By("loading a config that differs from the defaults")
 			setConfig(mergeConfig(original, failingTimeout))
 			Eventually(replicasRouting, "3m").Should(everyReplica(BeFalse()))
 			before := webhookRestarts()
 			errorsBefore, err := webhookMetric("kuik_config_reload_errors_total")
 			Expect(err).NotTo(HaveOccurred())
+			lastReloadSuccessful := func(pod string) func() (float64, error) {
+				return func() (float64, error) {
+					values, err := webhookMetric("kuik_config_last_reload_successful")
+					return values[pod], err
+				}
+			}
+			Expect(webhookMetric("kuik_config_last_reload_successful")).To(HaveLen(len(errorsBefore)))
+			for pod := range errorsBefore {
+				Expect(lastReloadSuccessful(pod)()).To(Equal(1.0),
+					"the webhook pod %s does not report the config it loaded", pod)
+			}
 
 			setConfig(mergeConfig(original, "webhook:\n  availabilityCheck:\n    timeout: banana\n"))
 
@@ -489,6 +502,8 @@ var _ = Describe("Pod routing", Ordered, func() {
 			for pod, count := range errorsBefore {
 				Eventually(reloadErrors(pod), "3m").Should(Equal(count+1),
 					"the webhook pod %s did not count the rejected reload once", pod)
+				Eventually(lastReloadSuccessful(pod), "3m").Should(Equal(0.0),
+					"the webhook pod %s does not report the rejected reload", pod)
 			}
 			for pod, count := range errorsBefore {
 				Consistently(reloadErrors(pod), "15s").Should(Equal(count+1),
@@ -506,6 +521,8 @@ var _ = Describe("Pod routing", Ordered, func() {
 			for pod, count := range errorsBefore {
 				Expect(reloadErrors(pod)()).To(Equal(count+1),
 					"the webhook pod %s counted a rejected reload for the valid config written back", pod)
+				Expect(lastReloadSuccessful(pod)()).To(Equal(1.0),
+					"the webhook pod %s still reports the rejected reload", pod)
 			}
 		})
 	})
@@ -669,7 +686,7 @@ func mergeMappings(dst, patch map[string]any) {
 	}
 }
 
-// webhookMetric reads an unlabelled counter on each webhook pod: each replica counts its own.
+// webhookMetric reads an unlabelled series on each webhook pod: each replica counts its own.
 func webhookMetric(metric string) (map[string]float64, error) {
 	pods, err := webhookPods()
 	if err != nil {
@@ -843,8 +860,8 @@ func startAPIProxy() {
 
 // restoreConfig sets the global config back to content and waits until every webhook replica
 // routes again under it: a ConfigMap reaches a pod only on a kubelet sync, so the specs that run
-// next would otherwise meet the edited config. kuik exposes no signal of a successful reload,
-// hence the wait on routing itself.
+// next would otherwise meet the edited config. kuik_config_last_reload_successful does not tell
+// which config a replica holds, hence the wait on routing itself.
 func restoreConfig(content string) {
 	GinkgoHelper()
 	setConfig(content)
