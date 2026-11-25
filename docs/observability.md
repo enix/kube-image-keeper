@@ -237,6 +237,7 @@ Each of the three processes exports these about itself.
 | ------ | ---- | ----- |
 | `kuik_build_info{version, revision, built, goversion, goos, goarch}` | gauge | Always `1`, labelled with the build: the kuik version, the git revision, the build date and the Go toolchain. The same labels open the logs of the process (`Starting manager`). Join on it to tell a kuik target from another: `and on (cluster, instance) kuik_build_info` |
 | `kuik_config_reload_errors_total` | counter | Reloads of the global config file rejected because it did not parse or validate: the process keeps the previous config, and only a log line says why otherwise |
+| `kuik_config_last_reload_successful` | gauge | `1` once the process runs on the global config file as mounted, `0` from a rejected reload until a file that validates is loaded: the process then still runs a previous config |
 
 ## Alerts
 

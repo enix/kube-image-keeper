@@ -40,7 +40,8 @@ The file is validated whole:
 - a process does not start on a file that does not validate
 - a change is reloaded in place, without a restart. A reload that does not validate is refused
   whole: the previous config stays in effect, the failure is logged and counted in
-  `kuik_config_reload_errors_total`
+  `kuik_config_reload_errors_total`, and `kuik_config_last_reload_successful` stays at `0`
+  until a file that validates is loaded
 - `metrics` is read at startup only: a reload that changes it is logged and ignored until the
   process restarts
 - `clusterID` is not a key: kuik generates the [cluster ID](#cluster-id), and a file that still
