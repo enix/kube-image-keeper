@@ -319,7 +319,7 @@ format`.
 The dashboard is one page of six tabs, general to specific, linked to this page, every panel
 carrying a description of what it shows and what it cannot:
 
-- **Overview**: the processes (replicas up, leader, config reloads, version), the health
+- **Overview**: the processes (replicas up, leader, config rejected, version), the health
   figures of the resources, the images and the routing, every anomaly by family and in one
   table grouped by family, the registries by host and result.
 - **Routing**: the share of the containers each resource selects by state and of its pods it

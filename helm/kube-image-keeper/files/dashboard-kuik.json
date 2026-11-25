@@ -205,8 +205,8 @@
         "kind": "Panel",
         "spec": {
           "id": 3,
-          "title": "Config rejected (last hour)",
-          "description": "Reloads of the global config a process refused in the last hour: it keeps running on the previous one, and only its logs say why.",
+          "title": "Config rejected",
+          "description": "Replicas running a previous global config because they refused the one mounted. Their logs say why.",
           "links": [],
           "data": {
             "kind": "QueryGroup",
@@ -224,7 +224,7 @@
                       },
                       "spec": {
                         "editorMode": "code",
-                        "expr": "sum without (instance, pod, endpoint, service) (increase(kuik_config_reload_errors_total{cluster=\"$cluster\", job=~\"$job\"}[1h]))",
+                        "expr": "count without (instance, pod, endpoint, service) (kuik_config_last_reload_successful{cluster=\"$cluster\", job=~\"$job\"} == 0)",
                         "instant": true,
                         "legendFormat": "{{container}}",
                         "range": false

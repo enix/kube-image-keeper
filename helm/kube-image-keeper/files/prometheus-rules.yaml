@@ -15,18 +15,19 @@
 groups:
   - name: kuik.process
     rules:
+      # min, not max: the gauge is 1 when healthy, so min fires as soon as 1 replica runs a
+      # previous config. A replaced pod cannot start on an invalid file, so it exports no 1 that
+      # would hide the others.
       - alert: KuikConfigReloadFailed
         expr: >-
-          sum without (instance, pod, endpoint, container, service) (
-            increase(kuik_config_reload_errors_total[15m])
-          ) > 0
+          min without (instance, pod, endpoint, container, service) (kuik_config_last_reload_successful) == 0
         for: 5m
         labels:
           severity: warning
         annotations:
           summary: A kuik process refused its global config.
           description: >-
-            {{ $labels.job }} refused the new global config and still runs the previous one. Its
+            {{ $labels.job }} refused the global config as mounted and runs a previous one. Its
             logs give the validation error: fix the ConfigMap.
       - alert: KuikResourceNotReady
         expr: >-
