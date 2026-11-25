@@ -18,8 +18,10 @@ image:
 imagePullSecrets: []
 # -- Logging verbosity
 verbosity: INFO
-# -- Number of pods of a process. The reconciler and the secret syncer elect a leader, so a
-# second replica stands by and takes the lease over while the first is down or rolling.
+# -- Number of pods of a process. Admission sits in the path of every pod creation, so a
+# second webhook replica keeps it answering while one is down or rolling. The reconciler and
+# the secret syncer elect a leader, so a second replica stands by and takes the lease over
+# while the first is down or rolling.
 replicas: 2
 # -- Annotations added to the pods
 podAnnotations: {}
@@ -74,9 +76,9 @@ resources:
 # The mutating admission webhook: it routes the images of the pods being created. It writes
 # nothing and every replica answers, so it never elects a leader.
 webhook:
-  # -- Number of webhook pods. Admission sits in the path of every pod creation, so two
-  # replicas keep it answering while one is down or rolling.
-  replicas: 2
+  # -- (int) Number of webhook pods
+  # @default -- the root `replicas`
+  replicas: ~
   certificate:
     # -- Create a self-signed Issuer for the webhook serving certificate
     createIssuer: true
