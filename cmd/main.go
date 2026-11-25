@@ -358,6 +358,9 @@ func main() {
 		var shuttingDown healthz.Checker
 		ctx, shuttingDown = delayShutdown(ctx, shutdownDelay, clock.RealClock{})
 		readyChecks["shutdown"] = shuttingDown
+		// A new replica stays out of the Service until its webhook server listens, so a rollout
+		// never stops the old replica before the new one accepts calls.
+		readyChecks["webhook-server"] = webhookServerReady(webhookServer)
 		// The webhook never creates the ConfigMap: it waits for the reconciler's, and stays
 		// unready until it reads it.
 		clusterID := clusterid.Await(mgr.GetAPIReader(), clusterResourceNamespace)

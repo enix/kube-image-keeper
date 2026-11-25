@@ -457,13 +457,15 @@ press `Shift-L`.
 
 Each process serves `/readyz` on its health probe port. Until every check passes, the replica
 stays out of its Service. `/readyz?verbose` lists the checks with their state. Besides the
-`readyz` ping, the webhook has 3 checks:
+`readyz` ping, the webhook has 5 checks:
 
 | Check | Passes once |
 | ----- | ----------- |
 | `cluster-id` | the webhook has read the [cluster ID](./configuration.md#cluster-id) the reconciler stores |
 | `registry-tls` | the CA Secrets of the [registry TLS](./configuration.md#registry-tls) entries are read. The reconciler has this check too |
 | `routing-index` | the webhook has listed the `ImageAlternative`, `ImageMirror` and `ImageMonitor` objects of the cluster, none included, and built the index it routes with |
+| `shutdown` | the webhook starts, and fails from the stop signal on: the replica leaves its Service while it still serves the requests sent to it |
+| `webhook-server` | the webhook server accepts TLS connections on its port |
 
 Readiness keeps the Service's traffic away from a replica; it does not change what a request
 that still reaches it gets. Before its cluster ID is read or its routing index first built, the
