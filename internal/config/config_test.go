@@ -326,6 +326,18 @@ func (m *configMapMount) swap(content string) {
 	Expect(os.Rename(tmp, filepath.Join(m.dir, "..data"))).To(Succeed())
 }
 
+// remove repoints `..data` at a new version directory that holds no config.yaml, as when the
+// key is dropped from the ConfigMap.
+func (m *configMapMount) remove() {
+	GinkgoHelper()
+	m.version++
+	version := filepath.Join(m.dir, "..v"+strings.Repeat("0", m.version))
+	Expect(os.Mkdir(version, 0o700)).To(Succeed())
+	tmp := filepath.Join(m.dir, "..data_tmp")
+	Expect(os.Symlink(filepath.Base(version), tmp)).To(Succeed())
+	Expect(os.Rename(tmp, filepath.Join(m.dir, "..data"))).To(Succeed())
+}
+
 var _ = Describe("Watch", func() {
 	var (
 		mount   *configMapMount
@@ -428,5 +440,76 @@ var _ = Describe("Watch", func() {
 		Eventually(changes).Should(Receive(&next))
 		Expect(next.Metrics.CopyDuration).To(BeFalse())
 		Expect(next.Mirror.DestinationScan.Interval.Duration).To(Equal(2 * time.Hour))
+	})
+
+	Context("kuik_config_last_reload_successful", func() {
+		lastReloadSuccessful := func() float64 { return testutil.ToFloat64(reloadSuccessful) }
+		reloadErrorsCount := func() float64 { return testutil.ToFloat64(reloadErrors) }
+
+		// startHealthy resets the shared gauge, so a value left by an earlier spec cannot make
+		// the wait pass, then starts the watch and waits for it to report the startup config.
+		startHealthy := func(content string) {
+			GinkgoHelper()
+			reloadSuccessful.Set(0)
+			startWatch(content)
+			Eventually(lastReloadSuccessful).Should(Equal(1.0))
+		}
+
+		It("reports 1 once the watch starts on the config loaded at startup", func() {
+			reloadSuccessful.Set(0)
+			startWatch(minimal)
+			Eventually(lastReloadSuccessful).Should(Equal(1.0))
+		})
+
+		It("reports 0 when the new file does not validate", func() {
+			startHealthy(minimal)
+			mount.swap(minimal + "mirror:\n  destinationScan:\n    interval: 1s\n")
+			Eventually(lastReloadSuccessful).Should(Equal(0.0))
+		})
+
+		It("stays at 0 when the next file does not validate either", func() {
+			startHealthy(minimal)
+			before := reloadErrorsCount()
+			mount.swap("clusterID: [\n")
+			Eventually(reloadErrorsCount).Should(Equal(before + 1))
+			mount.swap(minimal + "mirror:\n  destinationScan:\n    interval: 1s\n")
+			Eventually(reloadErrorsCount).Should(Equal(before + 2))
+			Consistently(lastReloadSuccessful, "500ms").Should(Equal(0.0))
+		})
+
+		It("reports 0 when the file is removed from the mount", func() {
+			startHealthy(minimal)
+			before := reloadErrorsCount()
+			mount.remove()
+			Eventually(reloadErrorsCount).Should(Equal(before + 1))
+			Eventually(lastReloadSuccessful).Should(Equal(0.0))
+		})
+
+		It("goes back to 1 when a valid file with other values is loaded", func() {
+			startHealthy(minimal)
+			mount.swap("clusterID: [\n")
+			Eventually(lastReloadSuccessful).Should(Equal(0.0))
+			mount.swap(minimal + "mirror:\n  destinationScan:\n    interval: 2h\n")
+			Eventually(changes).Should(Receive())
+			Expect(lastReloadSuccessful()).To(Equal(1.0))
+		})
+
+		It("goes back to 1 when the config already in use is written back", func() {
+			startHealthy(minimal)
+			mount.swap("clusterID: [\n")
+			Eventually(lastReloadSuccessful).Should(Equal(0.0))
+			mount.swap(minimal)
+			Eventually(lastReloadSuccessful).Should(Equal(1.0))
+			Expect(changes).NotTo(Receive())
+		})
+
+		It("goes back to 1 when the file written back differs only by metrics", func() {
+			startHealthy(minimal)
+			mount.swap("clusterID: [\n")
+			Eventually(lastReloadSuccessful).Should(Equal(0.0))
+			mount.swap(minimal + "metrics:\n  copyDuration: true\n")
+			Eventually(lastReloadSuccessful).Should(Equal(1.0))
+			Expect(changes).NotTo(Receive())
+		})
 	})
 })

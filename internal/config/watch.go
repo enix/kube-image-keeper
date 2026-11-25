@@ -17,8 +17,14 @@ var reloadErrors = prometheus.NewCounter(prometheus.CounterOpts{
 	Help: "Reloads of the global config file rejected because it did not parse or validate",
 })
 
+// reloadSuccessful tells whether the last load of the global config file succeeded.
+var reloadSuccessful = prometheus.NewGauge(prometheus.GaugeOpts{
+	Name: "kuik_config_last_reload_successful",
+	Help: "Whether the last load of the global config file succeeded: 1, or 0 while the process runs on a previous config",
+})
+
 func init() {
-	metrics.Registry.MustRegister(reloadErrors)
+	metrics.Registry.MustRegister(reloadErrors, reloadSuccessful)
 }
 
 // Watch reloads the file on change until ctx is done, and calls onChange with every config
