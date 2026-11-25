@@ -123,6 +123,26 @@ when the block leaves it null, annotations and extraLabels are merged over the r
 {{- end }}
 
 {{/*
+The PodDisruptionBudget of one process, as YAML: read it with fromYaml. Takes the same dict as
+process-serviceAccount. enabled falls back to the root unless the block sets a bool, and
+maxUnavailable unless the block sets a value, so that false and 0 override the root, which
+default would take for empty (notes/0008).
+*/}}
+{{- define "kube-image-keeper.process-podDisruptionBudget" -}}
+{{- $root := .ctx.Values.podDisruptionBudget }}
+{{- $own := default dict (index .ctx.Values .values).podDisruptionBudget }}
+{{- $enabled := $root.enabled }}
+{{- if kindIs "bool" $own.enabled }}
+{{- $enabled = $own.enabled }}
+{{- end }}
+{{- $maxUnavailable := $root.maxUnavailable }}
+{{- if not (kindIs "invalid" $own.maxUnavailable) }}
+{{- $maxUnavailable = $own.maxUnavailable }}
+{{- end }}
+{{- toYaml (dict "enabled" $enabled "maxUnavailable" $maxUnavailable) }}
+{{- end }}
+
+{{/*
 The name of the ServiceAccount of one process. Takes the same dict as process-serviceAccount.
 */}}
 {{- define "kube-image-keeper.process-serviceAccountName" -}}

@@ -1,0 +1,32 @@
+{{/*
+One PodDisruptionBudget per process, so that node drains never evict every replica of a
+process at once: a webhook with no replica admits pods unrouted, a reconciler or a secret
+syncer with none has no leader to hand over to.
+
+maxUnavailable rather than minAvailable: it holds whatever the replica count, and a process
+with a single replica can still be drained. AlwaysAllow: an unready kuik pod (a webhook waiting
+for the cluster ID, a crash loop) must never block a drain.
+*/}}
+{{- $first := true }}
+{{- range $process := include "kube-image-keeper.processes" . | fromYamlArray }}
+{{- $pdb := include "kube-image-keeper.process-podDisruptionBudget" (dict "ctx" $ "process" $process.name "values" $process.values) | fromYaml }}
+{{- if $pdb.enabled }}
+{{- if not $first }}
+---
+{{- end }}
+{{- $first = false }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "kube-image-keeper.fullname" $ }}-{{ $process.name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "kube-image-keeper.process-labels" (dict "ctx" $ "process" $process.name) | nindent 4 }}
+spec:
+  maxUnavailable: {{ $pdb.maxUnavailable | toYaml }}
+  unhealthyPodEvictionPolicy: AlwaysAllow
+  selector:
+    matchLabels:
+      {{- include "kube-image-keeper.process-selectorLabels" (dict "ctx" $ "process" $process.name) | nindent 6 }}
+{{- end }}
+{{- end }}
