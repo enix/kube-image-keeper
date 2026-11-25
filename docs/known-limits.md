@@ -15,6 +15,10 @@ This page lists what the current version of kuik does not do yet, and how to wor
 - **Cluster ID**: deleting the ConfigMap `kuik-cluster-id`, or its namespace, generates a new cluster ID and orphans every tag already copied; never copy it to another cluster that shares a destination, or both delete each other's tags, see [Cluster ID](./configuration.md#cluster-id).
 - **Backups**: a restore tool such as Velero is refused the pull Secrets kuik manages; the syncer recreates them, but the restore ends `PartiallyFailed`. Exclude these Secrets from the backup, see [What the syncer may write](./concepts/pull-secrets.md#what-the-syncer-may-write).
 
+## Configuration
+
+- **Config edited while a process starts**: a process loads the global config file, then watches it only once its manager runs. A file the kubelet updates in that gap of a few seconds is not loaded until the next update: the process runs the config it loaded first, and `kuik_config_last_reload_successful` reads `1` even when the update does not validate. Restart the process after editing the ConfigMap during a rollout, see [Global config file](./configuration.md#global-config-file).
+
 ## Mirroring
 
 - **Tag deletion**: a destination that never accepts tag deletion holds a deleted `ImageMirror` until `cleanup.enabled` is set to false, or `cleanup.deleteByDigest` to true when that `ImageMirror` is the only writer of its destination and the destination accepts the deletion of a manifest by digest (otherwise it stays held, with `Ready` `False` and reason `RegistryDeleteUnsupported`, see [An ImageMirror stays Terminating](./guides/troubleshooting.md#an-imagemirror-stays-terminating)), see [Deleting an ImageMirror](./crds.md#deleting-an-imagemirror). A refusal for credentials (401, 403) shows on a live `ImageMirror` only as a Warning `ImageDeletionFailed` event, with no condition, and on a deleted one only in the reconciler logs.

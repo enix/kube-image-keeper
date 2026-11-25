@@ -25,6 +25,8 @@ var reloadSuccessful = prometheus.NewGauge(prometheus.GaugeOpts{
 
 func init() {
 	metrics.Registry.MustRegister(reloadErrors, reloadSuccessful)
+	// A process runs only once its startup load succeeded: report it before Watch starts.
+	reloadSuccessful.Set(1)
 }
 
 // Watch reloads the file on change until ctx is done, and calls onChange with every config
@@ -32,8 +34,9 @@ func init() {
 // ConfigMap mount replaces the file by swapping a symlink, in several events: the file is
 // loaded only when the symlink resolves to a new target or that target is written, so one
 // update is loaded once. A rejected reload keeps the current config, and is logged and
-// counted. metrics is read at startup only: a change to it is logged and ignored until
-// restart.
+// counted. kuik_config_last_reload_successful is 0 from a rejected reload until the next
+// file that validates, even one equal to current. metrics is read at startup only: a
+// change to it is logged and ignored until restart.
 func Watch(ctx context.Context, path string, current *Config, onChange func(*Config)) error {
 	log := logf.FromContext(ctx).WithValues("path", path)
 
@@ -46,6 +49,8 @@ func Watch(ctx context.Context, path string, current *Config, onChange func(*Con
 		return err
 	}
 	target, _ := filepath.EvalSymlinks(path)
+	// The caller loaded current: the process runs on the file as mounted.
+	reloadSuccessful.Set(1)
 
 	for {
 		select {
@@ -65,9 +70,12 @@ func Watch(ctx context.Context, path string, current *Config, onChange func(*Con
 			next, err := Load(path)
 			if err != nil {
 				reloadErrors.Inc()
+				reloadSuccessful.Set(0)
 				log.Error(err, "Rejected global config reload, kept the previous config")
 				continue
 			}
+			// Before the checks below: a file equal to current still clears a rejection.
+			reloadSuccessful.Set(1)
 			if next.Metrics != current.Metrics {
 				log.Info("Ignored metrics change until restart")
 				next.Metrics = current.Metrics

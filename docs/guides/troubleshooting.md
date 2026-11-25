@@ -151,7 +151,7 @@ The anomaly lists of a status hold 500 entries at most. From 80%, the `ListCapac
 
 - **A process does not start**: its global config file does not validate. The first lines of its logs say which key. See [Global config file](../configuration.md#global-config-file).
 - **The ConfigMap `kuik-cluster-id` holds an invalid ID**: the reconciler does not start. The webhook starts, logs that the cluster ID is invalid, and stays not ready: it admits every pod unchanged. See [Cluster ID](../configuration.md#cluster-id).
-- **A config change has no effect**: the kubelet updates the mounted file a minute or two after the ConfigMap changes, and `Reloaded global config` in the logs marks the reload. If it does not come, the reload was refused, and the previous config stays in effect. The logs say why, and `kuik_config_reload_errors_total` counts the refusals. `metrics` is only read at startup.
+- **A config change has no effect**: the kubelet updates the mounted file a minute or two after the ConfigMap changes, and `Reloaded global config` in the logs marks the reload. If it does not come, the reload was refused, and the previous config stays in effect. The logs say why, and `kuik_config_reload_errors_total` counts the refusals. `kuik_config_last_reload_successful` is `0` on the processes still running the previous config. `metrics` is only read at startup.
 - **After an upgrade, a field is unknown**: Helm does not upgrade CRDs. Apply the CRDs of the new version, see [Installation](../installation.md).
 
 ## Still stuck?
