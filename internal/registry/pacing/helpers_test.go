@@ -63,6 +63,11 @@ func pacing(check, copy time.Duration, hosts map[string]config.RegistryPacing) *
 	}}
 }
 
+// duration is d as a config field.
+func duration(d time.Duration) *config.Duration {
+	return &config.Duration{Duration: d}
+}
+
 // harness runs a scheduler on a fake clock started at origin.
 type harness struct {
 	clk *clocktesting.FakeClock
