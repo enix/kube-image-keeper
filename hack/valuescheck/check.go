@@ -53,9 +53,11 @@ func rootPodSettings(root map[string]any) []string {
 }
 
 // missing reports what block lacks for the root setting at path, whose value is rootValue
-// and whose key in block is key. The key only has to be present: `replicas: ~` counts. A
-// block that spells a map out (`image:` with its repository, pullPolicy and tag) must spell
-// out every key the root map has; an empty map does not.
+// and whose key in block is key. The key has to be present and empty (`replicas: ~`, `""`,
+// `{}`, `[]`): a value set there would keep the process off the root one, so raising the
+// root would raise the other processes only. A block that spells a map out (`image:` with
+// its repository, pullPolicy and tag) must spell out every key the root map has, each empty;
+// an empty map does not.
 func missing(process, path string, rootValue any, block map[string]any, key string) []string {
 	blockValue, present := block[key]
 	if !present {
@@ -65,7 +67,14 @@ func missing(process, path string, rootValue any, block map[string]any, key stri
 
 	rootMap, rootIsMap := rootValue.(map[string]any)
 	blockMap, blockIsMap := blockValue.(map[string]any)
-	if !rootIsMap || !blockIsMap || len(blockMap) == 0 {
+	if !rootIsMap || !blockIsMap {
+		if !empty(blockValue) {
+			return []string{fmt.Sprintf("%s: %s is set, a process block leaves its copy of a root pod setting empty "+
+				"so that it falls back to the root value", process, path)}
+		}
+		return nil
+	}
+	if len(blockMap) == 0 {
 		return nil
 	}
 
@@ -73,6 +82,35 @@ func missing(process, path string, rootValue any, block map[string]any, key stri
 	for _, k := range slices.Sorted(maps.Keys(rootMap)) {
 		problems = append(problems, missing(process, path+"."+k, rootMap[k], blockMap, k)...)
 	}
+	// A key the root map does not have is set all the same when it holds anything.
+	for _, k := range slices.Sorted(maps.Keys(blockMap)) {
+		if _, inRoot := rootMap[k]; !inRoot && !empty(blockMap[k]) {
+			problems = append(problems, fmt.Sprintf("%s: %s.%s is set, a process block leaves its copy of a root "+
+				"pod setting empty so that it falls back to the root value", process, path, k))
+		}
+	}
 
 	return problems
+}
+
+// empty tells whether value falls back to the root one: null, an empty string or list, or a
+// map whose every key is empty.
+func empty(value any) bool {
+	switch v := value.(type) {
+	case nil:
+		return true
+	case string:
+		return v == ""
+	case []any:
+		return len(v) == 0
+	case map[string]any:
+		for _, item := range v {
+			if !empty(item) {
+				return false
+			}
+		}
+		return true
+	default:
+		return false
+	}
 }
