@@ -104,6 +104,8 @@ metadata:
     #                comparison rather than a resolution
     #   policy:      Always    — a `rewritePolicy: Always` resource asked for the rewrite
     #                OnFailure — the origin did not answer, rewritten to the first candidate that did
+    #                Required  — a `rewritePolicy: Required` ImageMirror asked for the rewrite; the
+    #                            original was never a candidate
     kuik.enix.io/rewrites: '{"prometheus":{"by":"ImageAlternative/prometheus","origin":"quay.io/prometheus/prometheus:v3.13.1-distroless","rewrittenTo":"public.ecr.aws/docker/library/prometheus:v3.13.1-distroless","policy":"Always"},"thanos-sidecar":{"by":"ImageMirror/prod-mirror","origin":"quay.io/thanos/thanos:v0.42.2","rewrittenTo":"registry.tld/mirror/quay.io/thanos/thanos:v0.42.2_cluster-a","policy":"OnFailure"}}'
     kuik.enix.io/conceded-rewrites: '{"oauth-proxy":{"by":"ImageMirror/prod-mirror","origin":"quay.io/oauth2-proxy/oauth2-proxy:v7.7.1","rewrittenTo":"registry.tld/mirror/quay.io/oauth2-proxy/oauth2-proxy:v7.7.1_cluster-a","policy":"OnFailure"}}'
     # No reference to preserve — the origin is still the live image — but the offering resources
@@ -293,7 +295,7 @@ quietest.
 
 There is no verbosity knob. Under `OnFailure`, a rewrite means the original failed, which is an
 incident worth one event per pod. Under `Always`, a rewrite is the steady state — every pod of every
-rollout, forever — so it emits **nothing**. Its traceability is the pod's own
+rollout, forever — so it emits **nothing**, and so does an `ImageMirror`'s `Required`. Its traceability is the pod's own
 [annotations](#annotations), which say what was rewritten and why, and the
 `kuik_routing_rewrites_total` counter, which says how often.
 
@@ -560,7 +562,7 @@ endpoint answered, so the reason has no side left to disambiguate.
 
 | Metric (counter) | HELP |
 | ---------------- | ---- |
-| `kuik_routing_rewrites_total{kind, name, policy}` | Container images rewritten at admission, by the routing resource that supplied the reference and the policy that placed it (`Always`, `OnFailure`) |
+| `kuik_routing_rewrites_total{kind, name, policy}` | Container images rewritten at admission, by the routing resource that supplied the reference and the policy that placed it (`Always`, `OnFailure`, `Required`) |
 | `kuik_routing_alternatives_exhausted_total{kind, name}` | Containers left untouched at admission because no candidate answered, counted once per routing resource that offered one. Several resources count the same container, so these series must not be summed |
 | `kuik_mirror_copies_total{kind, name, reason}` | Images pushed to a destination, by why (`Initial`, `Recopy` after a manifest went missing, `Resync` after an upstream digest moved) |
 | `kuik_mirror_tags_deleted_total{kind, name, reason}` | Destination tags deleted by an ImageMirror, by why they were removed (`Unused` once their retention elapsed, `Orphan` when the sweep found a tag no origin accounts for) |

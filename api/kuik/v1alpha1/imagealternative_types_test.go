@@ -129,6 +129,12 @@ var _ = Describe("ImageAlternative", func() {
 			Expect(k8sClient.Create(ctx, ia)).To(Succeed())
 		})
 
+		It("rejects Required, which only an ImageMirror accepts", func() {
+			ia := newImageAlternative(Alternative{Repository: acmeFoo})
+			ia.Spec.RewritePolicy = RewritePolicyRequired
+			Expect(apierrors.IsInvalid(k8sClient.Create(ctx, ia))).To(BeTrue())
+		})
+
 		It("rejects None, which only an ImageMirror accepts", func() {
 			ia := newImageAlternative(Alternative{Repository: acmeFoo})
 			ia.Spec.RewritePolicy = RewritePolicyNone

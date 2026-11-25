@@ -353,10 +353,12 @@ spec:
                 description: |-
                   rewritePolicy says where the mirrored image sits relative to the original: OnFailure
                   puts it last, behind the original and every alternative, Always puts it ahead of
-                  everything, None never routes to it and only copies.
+                  everything, Required puts it ahead of everything and never routes to the original, even
+                  before the copy exists, None never routes to it and only copies.
                 enum:
                 - OnFailure
                 - Always
+                - Required
                 - None
                 type: string
             required:
