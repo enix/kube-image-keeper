@@ -115,7 +115,19 @@ var _ = Describe("Manager", Ordered, func() {
 			}
 		})
 
-		PIt("should allow one voluntary disruption of each process at a time", func() {})
+		It("should allow one voluntary disruption of each process at a time", func() {
+			for _, process := range processes {
+				By("checking the PodDisruptionBudget of the " + process + " matches its 2 pods and allows 1 eviction")
+				verifyDisruptionBudget := func(g Gomega) {
+					cmd := kubectlCommand("get", "poddisruptionbudget", deploymentName(process), "-n", namespace,
+						"-o", "jsonpath={.status.expectedPods} {.status.disruptionsAllowed}")
+					output, err := utils.Run(cmd)
+					g.Expect(err).NotTo(HaveOccurred(), "PodDisruptionBudget of the "+process+" should exist")
+					g.Expect(output).To(Equal("2 1"), "expected pods and disruptions allowed of the "+process)
+				}
+				Eventually(verifyDisruptionBudget).Should(Succeed())
+			}
+		})
 
 		// The permissions of docs/v3/architecture.md, "Permissions": one entry per cell of the
 		// table that carries a property of the design, under the default secretAccess.mode
