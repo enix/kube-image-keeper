@@ -9,7 +9,7 @@ import (
 )
 
 // complete is a values file that follows the convention: three blocks, each repeating the
-// root pod settings, empty or not. The specs derive their fixtures from it by replacement,
+// root pod settings, left empty. The specs derive their fixtures from it by replacement,
 // so that no fixture carries a duplicate key.
 const complete = `
 image:
@@ -18,7 +18,7 @@ image:
 replicas: 1
 nodeSelector: {}
 webhook:
-  replicas: 2
+  replicas: ~
   image: {}
   nodeSelector: {}
   serviceAccount:
@@ -66,8 +66,8 @@ var _ = Describe("Chart values", func() {
 	})
 
 	It("reports a root pod setting a block does not repeat, naming the block and the key", func() {
-		values := with("nodeSelector: {}\nwebhook:\n  replicas: 2\n",
-			"nodeSelector: {}\ntolerations: []\nwebhook:\n  replicas: 2\n  tolerations: []\n")
+		values := with("nodeSelector: {}\nwebhook:\n  replicas: ~\n",
+			"nodeSelector: {}\ntolerations: []\nwebhook:\n  replicas: ~\n  tolerations: []\n")
 		Expect(check(values)).To(ConsistOf(
 			ContainSubstring("reconciler: tolerations is missing"),
 			ContainSubstring("secretSyncer: tolerations is missing"),
@@ -78,6 +78,23 @@ var _ = Describe("Chart values", func() {
 		values := with("secretSyncer:\n  replicas: ~\n  image: {}\n",
 			"secretSyncer:\n  replicas: ~\n  image:\n    repository: \"\"\n")
 		Expect(check(values)).To(ConsistOf(ContainSubstring("secretSyncer: image.tag is missing")))
+	})
+
+	It("reports a block that sets a root pod setting, which raising the root would no longer raise", func() {
+		values := with("webhook:\n  replicas: ~\n", "webhook:\n  replicas: 2\n")
+		Expect(check(values)).To(ConsistOf(ContainSubstring("webhook: replicas is set")))
+	})
+
+	It("reports a block that sets a key of a root pod setting it spells out", func() {
+		values := with("reconciler:\n  replicas: ~\n  image:\n    repository: \"\"\n",
+			"reconciler:\n  replicas: ~\n  image:\n    repository: quay.io/other/kuik\n")
+		Expect(check(values)).To(ConsistOf(ContainSubstring("reconciler: image.repository is set")))
+	})
+
+	It("reports a block that sets a key the root map of a pod setting does not have", func() {
+		values := with("webhook:\n  replicas: ~\n  image: {}\n  nodeSelector: {}\n",
+			"webhook:\n  replicas: ~\n  image: {}\n  nodeSelector:\n    disktype: ssd\n")
+		Expect(check(values)).To(ConsistOf(ContainSubstring("webhook: nodeSelector.disktype is set")))
 	})
 
 	It("reports a missing process block", func() {
