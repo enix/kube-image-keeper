@@ -54,13 +54,29 @@ host's `check.interval`.
 
 ## One request serves every resource
 
-When 2 resources track the same image, kuik asks the registry once. The response, verdict and
-digest, is kept, and the next resource to reach that image reuses it instead of spending a window.
+When 2 resources track the same image and would send the same credentials over the same
+transport, kuik asks the registry once. The response, verdict and digest, is kept, and the next
+such resource to reach that image reuses it instead of spending a window.
 
-2 monitors tracking the same 1000 images on `interval: 1m` lap in 1000 minutes, not 2000: the
-registry sees the 1000 images once per lap, whatever the number of resources tracking them. An
-`ImageMonitor` and an `ImageMirror` with `driftPolicy: Sync` on the same tags share the same
-requests too.
+kuik compares what would be sent without reading any Secret:
+
+- the transport of the image as an origin, HTTPS or `insecure`;
+- for an alternative, the `auth` and the `insecure` setting of each entry offering it;
+- the pull secrets, each by its namespace and name. A monitor counts those of every pod declaring
+  the image, and of the pods whose images it is an alternative to. A drift check counts those of
+  the one pod the mirror reads the image with.
+
+`fallbackAuth` is the same for every resource.
+
+2 monitors that match on all of this and track the same 1000 images on `interval: 1m` lap in 1000
+minutes, not 2000: the registry sees the 1000 images once per lap. An `ImageMonitor` and an
+`ImageMirror` with `driftPolicy: Sync` on the same tags share the same requests under the same
+condition.
+
+Resources that differ each spend a window on the image, so their laps no longer halve. This
+includes pull secrets with the same content and different names: 2 monitors whose pods live in
+different namespaces, each with its copy of one pull Secret, each send their own request. So do a
+monitor and a mirror on a private image that pods of several namespaces pull this way.
 
 A resource reuses only a response newer than its own previous read of that image, so a reused
 answer is never older than its lap: the freshness its status reports still holds.
