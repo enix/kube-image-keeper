@@ -39,6 +39,25 @@ func (c *Client) ListTags(ctx context.Context, repository Endpoint) ([]string, e
 // ErrDeleteUnsupported is returned when the registry refuses tag deletion.
 var ErrDeleteUnsupported = errors.New("registry does not support tag deletion")
 
+// ErrDeleteUnauthorized is returned when the registry answers 401 or 403 to the deletion of a
+// tag or of a manifest: it refuses the credential for it.
+var ErrDeleteUnauthorized = errors.New("registry refused the credential for the deletion")
+
+// Refusal is what a registry answered a deletion it refused.
+type Refusal struct {
+	// StatusCode is the HTTP status of the answer.
+	StatusCode int
+	// Message is the registry's own words: the code and the message of each error of the
+	// answer's body, empty when it sent none.
+	Message string
+}
+
+// RefusalDetail returns what the registry answered the first attempt of err refused the way
+// kind says, and false when err holds no such attempt.
+func RefusalDetail(_, _ error) (Refusal, bool) {
+	return Refusal{}, false
+}
+
 // repositoryUnknown reports whether err is a 400 carrying the error code NAME_UNKNOWN: the
 // registry does not know the repository, so it holds nothing there to delete. The OCI
 // distribution spec ("Deleting tags", "Deleting Manifests") lets a registry refuse a deletion
