@@ -1,41 +1,28 @@
 ---
-// Custom PageTitle override: renders a version notice *under* the page title,
+// Custom PageTitle override: renders a version note *under* the page title,
 // replacing the one starlight-versions adds through its own PageTitle override.
 //
-// The site root holds the current docs (v3), the ones for new installs: they
-// get no notice. Each archived version (v2.3) is a maintained line for existing
-// installs: its pages get a note that says so and links to the same page at the
-// root (or the root home when it has no counterpart) and to the upgrade section.
+// The site root holds the docs of the latest stable line: its pages get no
+// note. A page under a version slug says which version it documents, by the
+// `kind` of the version in versions.mjs (see VersionNoteText): the development
+// version, not released yet (orange), or an older line (blue).
 //
 // Overriding PageTitle makes the plugin log a one-line "already defined" warning
-// at build and skip its own notice: expected, we render the notice ourselves.
+// at build and skip its own notice: expected, we render the note ourselves.
 import Default from '@astrojs/starlight/components/PageTitle.astro';
 import { Icon } from '@astrojs/starlight/components';
-import { getCollection } from 'astro:content';
-import versionsConfig from 'virtual:starlight-versions-config';
+import VersionNoteText from './VersionNoteText.astro';
+import { versionOf } from '../lib/version.mjs';
 
 const { entry } = Astro.locals.starlightRoute;
 
-const currentLabel = versionsConfig.current?.label ?? 'the current version';
+const version = versionOf(entry.id);
 
-// Archived-version pages have an id prefixed by the version slug
-// (e.g. `2.3/configuration`); current pages do not.
-const archived = versionsConfig.versions.find(
-  (v) => entry.id === v.slug || entry.id.startsWith(`${v.slug}/`),
-);
-
-// Landing pages (the homepage hero / splash) get the Banner notice instead.
+// Landing pages (the homepage hero / splash) get the Banner note instead.
 const isLanding = entry.data.template === 'splash' || Boolean(entry.data.hero);
 
-const showNote = Boolean(archived) && !isLanding;
-
-// Point the note at the same page at the root, falling back to the root home.
-let currentHref = '/';
-if (showNote) {
-  const docIds = new Set((await getCollection('docs')).map((d) => d.id));
-  const barePath = entry.id.slice(archived.slug.length + 1);
-  if (barePath && docIds.has(barePath)) currentHref = `/${barePath}/`;
-}
+const showNote = Boolean(version) && !isLanding;
+const unreleased = version?.kind === 'unreleased';
 ---
 
 <Default>
@@ -44,12 +31,10 @@ if (showNote) {
 
 {
   showNote && (
-    <p class="version-note">
-      <Icon name="information" size="1em" />
+    <p class:list={['version-note', { unreleased }]}>
+      <Icon name={unreleased ? 'warning' : 'information'} size="1em" />
       <span>
-        This documents {archived.label ?? archived.slug}, maintained for existing installs.{' '}
-        New installs use <a href={currentHref}>{currentLabel}</a>; see{' '}
-        <a href="/installation/#upgrading-from-v2">Upgrading from v2</a>.
+        <VersionNoteText version={version} id={entry.id} />
       </span>
     </p>
   )
@@ -70,8 +55,19 @@ if (showNote) {
     line-height: var(--sl-line-height-headings);
   }
 
-  .version-note :global(a) {
+  .version-note.unreleased {
+    border-color: var(--sl-color-orange);
+    background-color: var(--sl-color-orange-low);
+    color: var(--sl-color-orange-high);
+  }
+
+  .version-note :global(a),
+  .version-note :global(code) {
     color: inherit;
+  }
+
+  .version-note :global(code) {
+    background-color: transparent;
   }
 
   .version-note :global(svg) {

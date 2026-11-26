@@ -2,49 +2,32 @@
 // Custom Banner override, 2 jobs:
 //   1. Suppress starlight-versions' splash-page VersionBanner ("This content is
 //      for vx.y. Switch to the latest version for up-to-date documentation."),
-//      which does not fit an archived version that is still maintained.
-//   2. On the landing pages of an archived version (v2.3), which PageTitle's
-//      under-title note skips, show the same note as a full-width banner: the
-//      version is maintained for existing installs, new installs use the root
-//      docs (v3), and the upgrade section is linked. Root pages get nothing.
+//      which fits neither a line still maintained nor the development version.
+//   2. On the landing pages of a version under a slug, which PageTitle's
+//      under-title note skips, show the same note as a full-width banner (see
+//      VersionNoteText). Root pages get nothing.
 //
-// The version logic is intentionally duplicated from PageTitle.astro (the two
-// overrides are kept self-contained rather than sharing a component). Starlight's
-// Default banner is still rendered so per-page `banner:` frontmatter keeps working.
+// Starlight's Default banner is still rendered so per-page `banner:`
+// frontmatter keeps working.
 import Default from '@astrojs/starlight/components/Banner.astro';
-import { getCollection } from 'astro:content';
-import versionsConfig from 'virtual:starlight-versions-config';
+import VersionNoteText from './VersionNoteText.astro';
+import { versionOf } from '../lib/version.mjs';
 
 const { entry } = Astro.locals.starlightRoute;
 
-const currentLabel = versionsConfig.current?.label ?? 'the current version';
+const version = versionOf(entry.id);
 
 // Only landing pages get the banner here; content pages use PageTitle's note.
 const isLanding = entry.data.template === 'splash' || Boolean(entry.data.hero);
 
-// Archived-version pages have an id prefixed by the version slug
-// (e.g. `2.3/configuration`); current pages do not.
-const archived = versionsConfig.versions.find(
-  (v) => entry.id === v.slug || entry.id.startsWith(`${v.slug}/`),
-);
-
-const showBanner = isLanding && Boolean(archived);
-
-// Point the banner at the same page at the root, falling back to the root home.
-let currentHref = '/';
-if (showBanner) {
-  const docIds = new Set((await getCollection('docs')).map((d) => d.id));
-  const barePath = entry.id.slice(archived.slug.length + 1);
-  if (barePath && docIds.has(barePath)) currentHref = `/${barePath}/`;
-}
+const showBanner = isLanding && Boolean(version);
+const unreleased = version?.kind === 'unreleased';
 ---
 
 {
   showBanner && (
-    <div class="version-banner">
-      This documents {archived.label ?? archived.slug}, maintained for existing installs.
-      New installs use <a href={currentHref}>{currentLabel}</a>; see{' '}
-      <a href="/installation/#upgrading-from-v2">Upgrading from v2</a>.
+    <div class:list={['version-banner', { unreleased }]}>
+      <VersionNoteText version={version} id={entry.id} />
     </div>
   )
 }
@@ -62,7 +45,15 @@ if (showBanner) {
     background-color: var(--sl-color-blue-low);
     color: var(--sl-color-blue-high);
   }
-  .version-banner :global(a) {
+  .version-banner.unreleased {
+    background-color: var(--sl-color-orange-low);
+    color: var(--sl-color-orange-high);
+  }
+  .version-banner :global(a),
+  .version-banner :global(code) {
     color: inherit;
+  }
+  .version-banner :global(code) {
+    background-color: transparent;
   }
 </style>

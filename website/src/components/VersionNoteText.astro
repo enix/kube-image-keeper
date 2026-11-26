@@ -1,0 +1,43 @@
+---
+// The sentence that tells a reader which version a page documents, by the
+// `kind` of the version in versions.mjs. PageTitle renders it as a note under
+// the title, Banner as a banner on the landing pages. Every kind links to the
+// same page at the site root (the latest release), or to the root home when
+// the page has no counterpart there.
+import { getCollection } from 'astro:content';
+import { current } from '../../versions.mjs';
+
+const { version, id } = Astro.props;
+
+const label = version.label ?? version.slug;
+
+let rootHref = '/';
+const docIds = new Set((await getCollection('docs')).map((doc) => doc.id));
+const barePath = id.slice(version.slug.length + 1);
+if (barePath && docIds.has(barePath)) rootHref = `/${barePath}/`;
+---
+
+{
+  version.kind === 'unreleased' && (
+    <>
+      This documents the development version of kuik (the <code>main</code> branch), not released yet.
+      Betas are cut from it. The latest release is <a href={rootHref}>{current.label}</a>.
+    </>
+  )
+}
+{
+  version.kind === 'maintained' && (
+    <>
+      This documents {label}, maintained for existing installs. New installs use{' '}
+      <a href={rootHref}>{current.label}</a>; see{' '}
+      <a href="/installation/#upgrading-from-v2">Upgrading from v2</a>.
+    </>
+  )
+}
+{
+  version.kind === 'superseded' && (
+    <>
+      This documents {label}. The latest version is <a href={rootHref}>{current.label}</a>.
+    </>
+  )
+}
