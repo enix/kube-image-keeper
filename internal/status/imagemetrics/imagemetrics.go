@@ -19,6 +19,14 @@ const (
 	ReferenceCopy         = "copy"
 )
 
+// The values of the state label of kuik_images_tracked, which the series of an unavailable
+// origin or alternative carry too: what the cluster does with a reference.
+const (
+	StateRunning  = "running"
+	StateStandby  = "standby"
+	StateRetained = "retained"
+)
+
 // The labels of the series.
 const (
 	labelKind      = "kind"
@@ -90,7 +98,7 @@ func register(registerer prometheus.Registerer, c *prometheus.GaugeVec) (*promet
 
 // SetCounts exports the counts of the population reference of the resource (kind, name).
 func (e *Exporter) SetCounts(kind, name, reference string, c Counts) {
-	for state, value := range map[string]int32{"running": c.Running, "standby": c.Standby, "retained": c.Retained} {
+	for state, value := range map[string]int32{StateRunning: c.Running, StateStandby: c.Standby, StateRetained: c.Retained} {
 		e.tracked.WithLabelValues(kind, name, reference, state).Set(float64(value))
 	}
 	for state, value := range map[string]int32{"available": c.Available, "unavailable": c.Unavailable} {

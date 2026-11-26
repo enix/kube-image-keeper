@@ -167,9 +167,15 @@ hold every affected image, whatever the cap on the status lists.
 | `kuik_rewrite_conceded_pods{kind, name, image, registry}` | `status.concededRewrites` |
 | `kuik_rewrite_stale_pods{kind, name, image, registry}` | `status.staleRewrites` |
 | `kuik_image_copy_failed{kind, name, image, registry, reason}` | `ImageMirror.status.failedImageCopies`. `1` per image whose copy fails; `registry` is the side that failed: the source on `SourceNotFound`, `SourceUnreachable`, the destination on `PushRejected`, `DestinationUnreachable`, whichever side answered on `Unauthorized`, `QuotaExceeded` |
-| `kuik_image_origin_unavailable{kind, name, image, registry, reason}` | `ImageMonitor.status.unavailableImages`. `1` per tracked origin whose last check failed, with its `reason`: `ManifestNotFound`, `Unauthorized`, `QuotaExceeded`, `Unreachable`. No event announces it: alert on this series. After a restart, the series of an image beyond the cap of the list comes back once its ring reaches it |
-| `kuik_image_alternative_unavailable{kind, name, image, registry, derived_from, via, reason}` | `ImageMonitor.status.unavailableAlternatives`. `1` per monitored alternative whose last check failed and origin it stands for: `image` is the alternative, `registry` its host, `derived_from` the origin, `via` the `ImageAlternative` offering it, as `ImageAlternative/<name>`. After a restart, the series of an alternative beyond the cap of the list comes back once its ring reaches it |
+| `kuik_image_origin_unavailable{kind, name, image, registry, reason, state}` | `ImageMonitor.status.unavailableImages`. `1` per tracked origin whose last check failed, with its `reason`: `ManifestNotFound`, `Unauthorized`, `QuotaExceeded`, `Unreachable`. `state` is what the cluster does with the origin, as on `kuik_images_tracked`: `running`, `standby`, `retained`. No event announces it: alert on this series. After a restart, the series of an image beyond the cap of the list comes back once its ring reaches it |
+| `kuik_image_alternative_unavailable{kind, name, image, registry, derived_from, via, reason, state}` | `ImageMonitor.status.unavailableAlternatives`. `1` per monitored alternative whose last check failed and origin it stands for: `image` is the alternative, `registry` its host, `derived_from` the origin, `via` the `ImageAlternative` offering it, as `ImageAlternative/<name>`. `state` is that of the alternative, as `images.alternatives` counts it, whatever the origin: `retained` when only retained origins offer it. After a restart, the series of an alternative beyond the cap of the list comes back once its ring reaches it |
 | `kuik_image_drifted{kind, name, image, registry}` | `ImageMirror.status.driftedImages`. `1` per tag whose upstream digest moved away from the copy, under `driftPolicy: Warn`, and briefly under `Sync` until the resync. `image` is the origin reference |
+
+An image has one `state` at a time: when it changes, the series of the previous state goes and
+another comes. Aggregate `without (state)` to keep one series per image, and an alert can leave out
+`state="retained"` with `state!="retained"`: no pod declares a retained image any more, and a
+private one fails as `Unauthorized` once its pods are gone with their pull secrets, though nothing
+is broken (see [Known limits](./known-limits.md#monitoring)).
 
 `kuik_resource_not_ready{kind, name, reason}` is `1` while the `Ready` condition of a
 resource is `False`, carrying its reason.

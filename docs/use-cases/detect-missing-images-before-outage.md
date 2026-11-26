@@ -121,7 +121,7 @@ spec:
   - port: metrics
 ```
 
-`kuik_image_origin_unavailable` exists only while an image is unavailable, one series per image, whatever the size of the status list. Alert on its presence:
+`kuik_image_origin_unavailable` exists only while an image is unavailable, one series per image, whatever the size of the status list. Alert on its presence, leaving out the retained images (`state="retained"`), which no pod declares any more: a private one fails as `Unauthorized` once its pods are gone with their pull secrets.
 
 ```yaml
 apiVersion: monitoring.coreos.com/v1
@@ -134,7 +134,7 @@ spec:
   - name: kuik
     rules:
     - alert: ContainerImageUnavailable
-      expr: kuik_image_origin_unavailable{reason=~"ManifestNotFound|Unauthorized"}
+      expr: max without (state) (kuik_image_origin_unavailable{reason=~"ManifestNotFound|Unauthorized", state!="retained"})
       for: 15m
       annotations:
         summary: "{{ $labels.image }} can no longer be pulled ({{ $labels.reason }})"

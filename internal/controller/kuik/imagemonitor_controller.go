@@ -352,7 +352,7 @@ func (r *ImageMonitorReconciler) track(ctx context.Context, im *kuikv1alpha1.Ima
 	digests := make(map[string]string, len(declared))
 	tracked := make([]string, 0, len(declared)+len(retained))
 	for ref, d := range declared {
-		if d.running {
+		if d.state() == imagemetrics.StateRunning {
 			counts.Running++
 		} else {
 			counts.Standby++
@@ -411,14 +411,19 @@ func (r *ImageMonitorReconciler) track(ctx context.Context, im *kuikv1alpha1.Ima
 	}
 	r.announceUnusable(ctx, im, memory, alternatives, all)
 	unavailable := make([]kuikv1alpha1.UnavailableImage, 0, len(verdicts))
-	failing := map[string]kuikv1alpha1.CheckFailureReason{}
+	failing := map[string]originFailure{}
 	for ref, v := range verdicts {
 		if v.reason == "" {
 			counts.Available++
 			continue
 		}
 		counts.Unavailable++
-		failing[ref] = v.reason
+		// An origin no pod declares is tracked for its retention alone.
+		state := imagemetrics.StateRetained
+		if d, ok := declared[ref]; ok {
+			state = d.state()
+		}
+		failing[ref] = originFailure{reason: v.reason, state: state}
 		unavailable = append(unavailable, kuikv1alpha1.UnavailableImage{
 			Ref: ref, Reason: v.reason, Since: metav1.NewTime(v.since), Pods: int32(len(declared[ref].pods)),
 		})
@@ -492,6 +497,15 @@ type declaredImage struct {
 	// digest is what the most recently started of those containers ran, started when.
 	digest    string
 	startedAt time.Time
+}
+
+// state is what the cluster does with an origin a pod declares, as kuik_images_tracked counts
+// it: running when a container carries it, standby otherwise.
+func (d declaredImage) state() string {
+	if d.running {
+		return imagemetrics.StateRunning
+	}
+	return imagemetrics.StateStandby
 }
 
 // declaredOrigins returns the origins the containers of pods declare: the origin of a
