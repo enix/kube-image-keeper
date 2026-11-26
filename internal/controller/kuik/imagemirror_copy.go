@@ -1073,24 +1073,35 @@ type persistedLists struct {
 // heldLists returns what the status persisted beyond its lists, and how many of the references
 // have no verdict yet: only those can account for it. A copy has its verdict once the
 // destination holds the reference, the mirror copied it or its copy fails; a drift check has
-// its verdict once the ring read the upstream tag or the tag is drifted. failing and drifting
-// are the references of the lists this reconcile reports, so the verdicts are counted against
+// its verdict once the ring read the upstream tag or the tag is drifted. Copies are counted over
+// copying, drift checks over desired, as the rings also read retained tags. checked, failing and
+// drifting are taken with the lists this reconcile reports, so the verdicts are counted against
 // the same snapshot as the lists. It forgets what it holds once every verdict is in.
-func (st *mirrorState) heldLists(refs []imagepath.Reference, present, copied, failing, drifting map[string]bool) (held persistedLists, copyUnknown, driftUnknown int32, ok bool) {
+func (st *mirrorState) heldLists(policy kuikv1alpha1.DriftPolicy, desired, copying []imagepath.Reference,
+	present, copied, checked, failing, drifting map[string]bool) (held persistedLists, copyUnknown, driftUnknown int32, ok bool) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	if st.persisted == nil {
 		return persistedLists{}, 0, 0, false
 	}
-	// A reference the ring reads only while a drift policy turns it on, and only by its tag.
-	rung := st.policy == kuikv1alpha1.DriftPolicyWarn || st.policy == kuikv1alpha1.DriftPolicySync
-	for _, ref := range refs {
+	mayCopy := make(map[string]bool, len(copying))
+	for _, ref := range copying {
 		key := ref.String()
+		mayCopy[key] = true
 		if !present[key] && !copied[key] && !failing[key] {
 			copyUnknown++
 		}
-		if rung && ref.Tag != "" && ref.Digest == "" && !failing[key] && !drifting[key] && !st.checked[key] {
-			driftUnknown++
+	}
+	// A reference the ring reads only while a drift policy turns it on, and only by its tag. The
+	// policy is the spec's: st.policy stays empty while the mirror is blocked.
+	if policy == kuikv1alpha1.DriftPolicyWarn || policy == kuikv1alpha1.DriftPolicySync {
+		for _, ref := range desired {
+			key := ref.String()
+			// A retained tag the ring may read: its digest is known, or no pass looked yet.
+			ringable := mayCopy[key] || st.digests[key] != "" || !st.passed
+			if ringable && ref.Tag != "" && ref.Digest == "" && !failing[key] && !drifting[key] && !checked[key] {
+				driftUnknown++
+			}
 		}
 	}
 	// A list the status did not truncate has nothing to hold.

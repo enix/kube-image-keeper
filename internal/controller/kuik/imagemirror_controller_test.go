@@ -33,6 +33,7 @@ import (
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/auth"
 	"github.com/enix/kube-image-keeper/internal/config"
+	"github.com/enix/kube-image-keeper/internal/imagepath"
 	kuikregistry "github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/enix/kube-image-keeper/internal/registry/pacing"
 	"github.com/enix/kube-image-keeper/internal/registry/registrytest"
@@ -3926,6 +3927,16 @@ var _ = Describe("ImageMirror Controller", func() {
 				return missing
 			}
 
+			// restartHoldsDrift restarts, then checks that the first reconcile holds the drift omission.
+			restartHoldsDrift := func() {
+				GinkgoHelper()
+				h.restart()
+				h.reconcile()
+				Expect(h.status().Truncated).To(HaveLen(1))
+				Expect(h.status().Truncated).To(ContainElement(int32(1)))
+				Expect(h.status().Images.Copy.Drifted).To(Equal(int32(over)))
+			}
+
 			It("counts every drifted and missing source image in images.copy, beyond the list capacity", func() {
 				beyondCapacity()
 				counts := h.status().Images.Copy
@@ -3965,6 +3976,58 @@ var _ = Describe("ImageMirror Controller", func() {
 				h.reconcile()
 				Expect(h.status().Truncated).To(Equal(map[string]int32{"driftedImages": 1}))
 				Expect(h.status().Images.Copy.Drifted).To(Equal(int32(over)))
+			})
+
+			It("holds the truncated drifted images a restart read back while the manage secretRef cannot be read", func() {
+				manage := unique("manage")
+				createSecret(installNamespace, manage, corev1.SecretTypeDockerConfigJson)
+				h.mirror(withDrift(kuikv1alpha1.DriftPolicyWarn), func(im *kuikv1alpha1.ImageMirror) { im.Spec.Destination.Manage = secretAuth(manage) })
+				_, sources, refs := h.manyImages(false)
+				h.windowsUntil(copiedAll)
+				moved := registrytest.Image()
+				for i, ref := range refs {
+					sources[i%len(sources)].Push(ref, moved)
+				}
+				h.windowsUntil(func() bool { return h.status().Truncated["driftedImages"] == 1 })
+				Expect(k8sClient.Delete(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: installNamespace, Name: manage}})).To(Succeed())
+
+				restartHoldsDrift()
+			})
+
+			It("holds the truncated drifted retained tags a restart read back until the ring read them again", func() {
+				h.mirror(withDrift(kuikv1alpha1.DriftPolicyWarn))
+				pods, sources, refs := h.manyImages(false)
+				h.windowsUntil(copiedAll)
+				for _, pod := range pods {
+					setPhase(pod, corev1.PodSucceeded)
+				}
+				h.reconcile()
+				moved := registrytest.Image()
+				for i, ref := range refs {
+					sources[i%len(sources)].Push(ref, moved)
+				}
+				h.windowsUntil(func() bool { return h.status().Truncated["driftedImages"] == 1 })
+				Expect(h.status().PendingDeletion).To(HaveLen(over))
+
+				restartHoldsDrift()
+			})
+
+			It("holds the truncated drifted images while the ring reads a tag after the drift list was taken", func() {
+				ref, err := imagepath.Parse("registry.example/acme/app:v1")
+				Expect(err).NotTo(HaveOccurred())
+				st := newMirrorState()
+				st.persisted = &persistedLists{driftedTotal: 1, drifted: 1}
+				im := &kuikv1alpha1.ImageMirror{}
+				reportedDrift, checked := h.reconciler.reportDrift(im, st)
+				// What driftChecker.Checked records for a moved tag.
+				st.checked[ref.String()] = true
+				st.drifted[ref.String()] = driftEntry{upstream: "sha256:b", copied: "sha256:a"}
+
+				_, _, driftUnknown, ok := st.heldLists(kuikv1alpha1.DriftPolicyWarn, []imagepath.Reference{ref}, nil,
+					nil, nil, checked, nil, map[string]bool{})
+				Expect(reportedDrift).To(BeEmpty())
+				Expect(ok).To(BeTrue())
+				Expect(driftUnknown).To(Equal(int32(1)))
 			})
 
 			It("keeps every failing image the status counted while the left out ones are found again", func() {

@@ -206,8 +206,9 @@ func (r *ImageMirrorReconciler) Elected(at time.Time) {
 // holdPersisted keeps, until every image has a verdict again, what the status reports from
 // falling below what it persisted, within what the images with no verdict can account for.
 // The verdicts are counted against the lists this reconcile reports, not a later state.
-func holdPersisted(st *mirrorState, pass *capped.Pass, next *kuikv1alpha1.ImageMirrorStatus, counts *kuikv1alpha1.CopyCounts,
-	copying []imagepath.Reference, present, copied map[string]bool,
+func holdPersisted(st *mirrorState, policy kuikv1alpha1.DriftPolicy, pass *capped.Pass,
+	next *kuikv1alpha1.ImageMirrorStatus, counts *kuikv1alpha1.CopyCounts,
+	desired, copying []imagepath.Reference, present, copied, checked map[string]bool,
 	reportedFailures []kuikv1alpha1.FailedImageCopy, reportedDrift []kuikv1alpha1.MirrorDriftedImage) {
 	failing, drifting := map[string]bool{}, map[string]bool{}
 	for _, e := range reportedFailures {
@@ -216,7 +217,7 @@ func holdPersisted(st *mirrorState, pass *capped.Pass, next *kuikv1alpha1.ImageM
 	for _, e := range reportedDrift {
 		drifting[e.Ref] = true
 	}
-	held, copyUnknown, driftUnknown, ok := st.heldLists(copying, present, copied, failing, drifting)
+	held, copyUnknown, driftUnknown, ok := st.heldLists(policy, desired, copying, present, copied, checked, failing, drifting)
 	if !ok {
 		return
 	}
@@ -376,7 +377,7 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	routingstatus.SetConditions(&next.Conditions, resource.Kind, routingStatus, im.Generation)
 	pass := r.limiter.Begin(resource.Kind, resource.Name)
 	routingstatus.Cap(pass, &next.RoutingStatus)
-	reportedDrift := r.reportDrift(&im, st)
+	reportedDrift, checked := r.reportDrift(&im, st)
 	next.DriftedImages = capped.Cap(pass, "driftedImages", reportedDrift,
 		func(e kuikv1alpha1.MirrorDriftedImage) metav1.Time { return e.Since },
 		func(e kuikv1alpha1.MirrorDriftedImage) string { return e.Ref })
@@ -407,7 +408,8 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		Failed:      reasons,
 		Status:      next,
 	})
-	holdPersisted(st, pass, &next, &counts, copying, present, copied, reportedFailures, reportedDrift)
+	holdPersisted(st, im.Spec.DriftPolicy, pass, &next, &counts, desired, copying, present, copied, checked,
+		reportedFailures, reportedDrift)
 	next.Images = &kuikv1alpha1.MirrorImages{Copy: &counts}
 	condition.SetAnomaly(&next.Conditions, kuikv1alpha1.ConditionDestinationOutOfSync, counts.Unavailable > 0,
 		kuikv1alpha1.ReasonMissingImages, fmt.Sprintf("%d images not copied yet", counts.Unavailable), im.Generation)
