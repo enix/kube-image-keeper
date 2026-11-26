@@ -7,8 +7,8 @@ import rehypeAstroRelativeMarkdownLinks from 'astro-rehype-relative-markdown-lin
 import starlightLinksValidator from 'starlight-links-validator';
 import starlightVersions from 'starlight-versions';
 import chokidar from 'chokidar';
-import { syncDocs, applySourceChange, SOURCE_ROOTS } from './scripts/sync-docs.mjs';
-import { versions } from './versions.mjs';
+import { syncDocs, applySourceChange, currentSidebar, SOURCE_ROOTS } from './scripts/sync-docs.mjs';
+import { current, versions } from './versions.mjs';
 
 // Sync ../docs + overlay into src/content/docs before content collections load.
 // Runs for every astro command (build, dev, CI via withastro/action), so the
@@ -78,18 +78,17 @@ export default defineConfig({
       // astro-rehype-relative-markdown-links has rewritten the GitHub-style .md
       // links to site routes, so it validates the final shipped routes.
       //
-      // starlight-versions serves older docs under /<slug>/. The current docs
-      // live in src/content/docs (synced from ../docs); each archived version's
-      // docs are fetched from a git branch by sync-docs (see ../versions.mjs)
-      // into src/content/docs/<slug>/, with its sidebar from that branch's
-      // docs/version-config.json written to src/content/versions/<slug>.json.
-      // Because every configured version already has its docs on disk at build
-      // time, the plugin never auto-archives the current docs — see
-      // website/README.md for the "add a version" flow.
+      // starlight-versions serves the root (the latest stable line) and one
+      // version per slug under /<slug>/. sync-docs lays each of them down in
+      // src/content/docs from the docs/ tree of its ref, a maintenance branch
+      // or the working tree (see ../versions.mjs), with the sidebar of a slug
+      // written to src/content/versions/<slug>.json. Because every configured
+      // version already has its docs on disk at build time, the plugin never
+      // archives the root docs itself: see website/README.md.
       plugins: [
         starlightLinksValidator(),
         starlightVersions({
-          current: { label: 'v3' },
+          current: { label: current.label },
           versions: versions.map(({ slug, label }) => ({ slug, label })),
         }),
       ],
@@ -104,32 +103,9 @@ export default defineConfig({
         // (which PageTitle skips), and suppresses the plugin's splash banner.
         Banner: './src/components/Banner.astro',
       },
-      sidebar: [
-        { label: 'Home', link: '/' },
-        {
-          label: 'Configuration',
-          items: [
-            'installation',
-            'getting-started',
-            'crds',
-            'configuration',
-            'observability',
-            'known-limits',
-          ],
-        },
-        {
-          label: 'Concepts',
-          items: [{ autogenerate: { directory: 'concepts' } }],
-        },
-        {
-          label: 'Use cases',
-          items: [{ autogenerate: { directory: 'use-cases' } }],
-        },
-        {
-          label: 'Guides',
-          items: [{ autogenerate: { directory: 'guides' } }],
-        },
-      ],
+      // The sidebar of the root: docs/version-config.json of the tree the root
+      // is built from, like every version's (see ../versions.mjs).
+      sidebar: currentSidebar(),
     }),
     favicons({
       input: {
