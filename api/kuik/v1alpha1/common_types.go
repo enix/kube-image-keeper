@@ -201,7 +201,9 @@ const (
 	ReasonSecretMalformed           = "SecretMalformed"
 	ReasonTokenRequestFailed        = "TokenRequestFailed"
 	ReasonRegistryDeleteUnsupported = "RegistryDeleteUnsupported"
-	// ReasonRegistryDeleteUnauthorized: the destination answers 401 or 403 to a deletion.
+	// ReasonRegistryDeleteUnauthorized: the destination answers 401 or 403 to the deletion of a
+	// tag, or of a manifest under cleanup.deleteByDigest: the manage credential may lack the
+	// right to delete.
 	ReasonRegistryDeleteUnauthorized = "RegistryDeleteUnauthorized"
 	ReasonListNearCapacity           = "ListNearCapacity"
 	ReasonListTruncated              = "ListTruncated"

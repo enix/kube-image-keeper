@@ -111,10 +111,13 @@ type mirrorState struct {
 	// status was written, keyed by their String form: one whose last pod went while its copy
 	// ran is released once that copy ends. A restart needs no seed: the sweep finds its tag.
 	landed map[string]imagepath.Reference
-	// deleteUnsupported is set once the destination refused a deletion as unsupported, until
-	// one succeeds; manifestRefused when that deletion was by digest.
-	deleteUnsupported bool
-	manifestRefused   bool
+	// deleteRefused is set once the destination refused a deletion in a way that lasts, as
+	// unsupported or for its credential, until one succeeds; manifestRefused when that deletion
+	// was by digest. refusal is how the last one was refused: a series of refusals is of one
+	// kind.
+	deleteRefused   bool
+	manifestRefused bool
+	refusal         deletionRefusal
 	// refusedTries counts the tries refused since the first refusal of the series, and nextTry
 	// is when the sweep tries a deletion again; refusedGeneration is the generation of the
 	// mirror that last try ran at. tryNow is set once a new generation forgot the series: the
@@ -137,23 +140,28 @@ const (
 	// deletion again; the wait doubles after each refused try, up to deletionRetryMaxWait.
 	deletionRetryWait    = 10 * time.Second
 	deletionRetryMaxWait = time.Hour
+	// deleteUnauthorizedMaxWait caps the wait between 2 tries of a deletion the destination
+	// refuses with a 401 or a 403, on the sweep and on a deleted mirror alike: the cap of the
+	// kubelet's image pull back-off. Rights granted on the registry's side, which nothing tells
+	// kuik about, are picked up within that time.
+	deleteUnauthorizedMaxWait = 5 * time.Minute
 )
 
 // refusesDeletion reports whether the destination refused the last deletion made the way
-// byDigest says as unsupported. A refusal of the other way is forgotten: the mode changed
-// since, and only a deletion that way can tell.
-func (st *mirrorState) refusesDeletion(byDigest bool) bool {
+// byDigest says in a way that lasts, and how. A refusal of the other way is forgotten: the mode
+// changed since, and only a deletion that way can tell.
+func (st *mirrorState) refusesDeletion(byDigest bool) (deletionRefusal, bool) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	return st.refusing(byDigest)
+	return st.refusal, st.refusing(byDigest)
 }
 
 // refusing is refusesDeletion with st.mu held.
 func (st *mirrorState) refusing(byDigest bool) bool {
 	if st.manifestRefused != byDigest {
-		st.deleteUnsupported = false
+		st.deleteRefused = false
 	}
-	return st.deleteUnsupported
+	return st.deleteRefused
 }
 
 // deletionTry reports, while the destination refuses deletion the way byDigest says, when the
@@ -163,8 +171,8 @@ func (st *mirrorState) refusing(byDigest bool) bool {
 func (st *mirrorState) deletionTry(byDigest bool, now time.Time, generation int64) (time.Time, bool) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	if st.deleteUnsupported && generation != st.refusedGeneration {
-		st.deleteUnsupported, st.refusedTries, st.nextTry, st.tryNow = false, 0, time.Time{}, true
+	if st.deleteRefused && generation != st.refusedGeneration {
+		st.deleteRefused, st.refusedTries, st.nextTry, st.tryNow = false, 0, time.Time{}, true
 	}
 	if st.tryNow {
 		return now, true
@@ -175,25 +183,33 @@ func (st *mirrorState) deletionTry(byDigest bool, now time.Time, generation int6
 	return st.nextTry, true
 }
 
-// refuseDeletion records a deletion the destination refused as unsupported at now, and
-// returns whether it starts a series of refusals and how long the next try waits.
-func (st *mirrorState) refuseDeletion(byDigest bool, now time.Time, generation int64) (bool, time.Duration) {
+// refuseDeletion records a deletion the destination refused at now the way refusal says, and
+// returns whether it starts a series of refusals and how long the next try waits. A refusal of
+// the other kind (unsupported after a refused credential, or the reverse) starts a new series:
+// what the operator must do changed.
+func (st *mirrorState) refuseDeletion(byDigest bool, refusal deletionRefusal, now time.Time, generation int64) (bool, time.Duration) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	first := !st.refusing(byDigest)
+	first := !st.refusing(byDigest) || st.refusal.unauthorized != refusal.unauthorized
 	if first {
 		st.refusedTries = 0
 	}
-	st.deleteUnsupported, st.manifestRefused, st.refusedGeneration, st.tryNow = true, byDigest, generation, false
+	st.deleteRefused, st.manifestRefused, st.refusedGeneration, st.tryNow = true, byDigest, generation, false
+	st.refusal = refusal
 	return first, st.retryLater(now)
 }
 
-// retryLater counts a refused try at now and returns how long the next one waits. st.mu is
-// held.
+// retryLater counts a refused try at now and returns how long the next one waits: up to
+// deletionRetryMaxWait, or deleteUnauthorizedMaxWait while the destination refuses the
+// credential. st.mu is held.
 func (st *mirrorState) retryLater(now time.Time) time.Duration {
-	wait := deletionRetryMaxWait
+	maxWait := deletionRetryMaxWait
+	if st.refusal.unauthorized {
+		maxWait = deleteUnauthorizedMaxWait
+	}
+	wait := maxWait
 	if st.refusedTries < 10 {
-		wait = min(deletionRetryWait<<st.refusedTries, deletionRetryMaxWait)
+		wait = min(deletionRetryWait<<st.refusedTries, maxWait)
 	}
 	st.refusedTries++
 	st.nextTry = now.Add(wait)
@@ -206,7 +222,7 @@ func (st *mirrorState) endTry(now time.Time) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	st.tryNow = false
-	if st.deleteUnsupported && !now.Before(st.nextTry) {
+	if st.deleteRefused && !now.Before(st.nextTry) {
 		st.retryLater(now)
 	}
 }
@@ -223,7 +239,7 @@ func (st *mirrorState) cleanupEnabled(enabled bool) {
 func (st *mirrorState) acceptDeletion() {
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	st.deleteUnsupported, st.refusedTries, st.nextTry, st.tryNow = false, 0, time.Time{}, false
+	st.deleteRefused, st.refusedTries, st.nextTry, st.tryNow = false, 0, time.Time{}, false
 }
 
 // startDeleting lets no copy start until doneDeleting, and reports whether no copy runs
@@ -878,13 +894,20 @@ func (st *mirrorState) seed(im *kuikv1alpha1.ImageMirror) bool {
 	// A refusal the status reports was announced already: its try is due at the first pass,
 	// which emits nothing if refused again. Its message tells the way the refused deletion was
 	// made: a refusal of the other way is forgotten, so the first refusal of the way the spec
-	// says now is announced. With nothing pending deletion there is nothing to refuse: Ready is
-	// recomputed, a refusal whose accepted deletion lost its status write included.
+	// says now is announced. Its reason tells the kind of the refusal, and its message the HTTP
+	// status of a refused credential: Ready stays as it is until the next try answers. With
+	// nothing pending deletion there is nothing to refuse: Ready is recomputed, a refusal whose
+	// accepted deletion lost its status write included.
 	ready := meta.FindStatusCondition(im.Status.Conditions, kuikv1alpha1.ConditionReady)
-	if im.Spec.Cleanup.IsEnabled() && len(im.Status.PendingDeletion) > 0 && ready != nil && ready.Status == metav1.ConditionFalse && ready.Reason == kuikv1alpha1.ReasonRegistryDeleteUnsupported {
+	if im.Spec.Cleanup.IsEnabled() && len(im.Status.PendingDeletion) > 0 && ready != nil && ready.Status == metav1.ConditionFalse &&
+		(ready.Reason == kuikv1alpha1.ReasonRegistryDeleteUnsupported || ready.Reason == kuikv1alpha1.ReasonRegistryDeleteUnauthorized) {
 		// The generation Ready observed: a spec changed since starts a new series at once.
-		st.deleteUnsupported, st.refusedGeneration = true, ready.ObservedGeneration
+		st.deleteRefused, st.refusedGeneration = true, ready.ObservedGeneration
 		st.manifestRefused = strings.HasPrefix(ready.Message, manifestRefusal)
+		st.refusal = deletionRefusal{}
+		if ready.Reason == kuikv1alpha1.ReasonRegistryDeleteUnauthorized {
+			st.refusal = deletionRefusal{unauthorized: true, status: refusedStatus(ready.Message)}
+		}
 	}
 	return true
 }

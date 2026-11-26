@@ -39,7 +39,9 @@ const mirrorFinalizer = "kuik.enix.io/mirror-cleanup"
 // A deleted mirror its finalizer holds tries again after finalizerWait, doubled at each try up
 // to finalizerMaxWait: what holds it, pods, a manage credential that cannot be read or a
 // destination refusing deletion, rarely clears within seconds, and a pod event or a fix of the
-// credential or of the spec reconciles it sooner anyway.
+// credential or of the spec reconciles it sooner anyway. A destination refusing the credential
+// of a deletion is the exception, tried again within deleteUnauthorizedMaxWait: rights granted
+// on its side reconcile nothing.
 const (
 	finalizerWait    = 10 * time.Second
 	finalizerMaxWait = 30 * time.Minute
@@ -106,8 +108,8 @@ func (r *ImageMirrorReconciler) finalize(ctx context.Context, im *kuikv1alpha1.I
 		if unreadable != nil {
 			return r.hold(ctx, im, resource, kuikv1alpha1.ReasonManageCredentialUnreadable, manageUnreadable(unreadable), st.holdAgain())
 		}
-		if refused {
-			enabled, err := r.reportRefused(ctx, im.Name, resource, im.Spec.Cleanup.DeletesByDigest())
+		if refused != nil {
+			enabled, err := r.reportRefused(ctx, im.Name, resource, im.Spec.Cleanup.DeletesByDigest(), *refused)
 			if err != nil {
 				if apierrors.IsConflict(err) {
 					return ctrl.Result{RequeueAfter: conflictWait}, nil
@@ -123,7 +125,12 @@ func (r *ImageMirrorReconciler) finalize(ctx context.Context, im *kuikv1alpha1.I
 				// Cleanup was disabled meanwhile: the next try releases the mirror at once.
 				return ctrl.Result{RequeueAfter: conflictWait}, nil
 			}
-			return ctrl.Result{RequeueAfter: st.holdAgain()}, nil
+			wait := st.holdAgain()
+			if refused.unauthorized {
+				// Rights granted on the registry's side reconcile nothing: the next try finds out.
+				wait = min(wait, deleteUnauthorizedMaxWait)
+			}
+			return ctrl.Result{RequeueAfter: wait}, nil
 		}
 	}
 	original := im.DeepCopy()
@@ -148,10 +155,17 @@ func (r *ImageMirrorReconciler) patchFinalizers(ctx context.Context, im, origina
 }
 
 // refusedCleanup is why a deleted mirror whose destination refuses deletion, by digest or by
-// tag, is not ready: only an operator can release it. A mirror deleting by tag is pointed to
-// deleting by digest too.
-func refusedCleanup(byDigest bool) condition.NotReady {
+// tag, as unsupported or for its credential, is not ready: only an operator can release it. A
+// mirror deleting by tag on a destination that does not support it is pointed to deleting by
+// digest too.
+func refusedCleanup(byDigest bool, refusal deletionRefusal) condition.NotReady {
 	const release = "set cleanup.enabled: false to release the ImageMirror and leave its tags in place"
+	if refusal.unauthorized {
+		return condition.NotReady{
+			Reason:  kuikv1alpha1.ReasonRegistryDeleteUnauthorized,
+			Message: refusal.unauthorizedMessage(byDigest, release),
+		}
+	}
 	if byDigest {
 		return condition.NotReady{
 			Reason:  kuikv1alpha1.ReasonRegistryDeleteUnsupported,
@@ -164,13 +178,14 @@ func refusedCleanup(byDigest bool) condition.NotReady {
 	}
 }
 
-// reportRefused sets Ready False with reason RegistryDeleteUnsupported, and DeletionBlocked
+// reportRefused sets Ready False with reason RegistryDeleteUnsupported, or
+// RegistryDeleteUnauthorized when the destination refused the credential, and DeletionBlocked
 // with reason DestinationRefusedDeletion, on a deleted mirror its destination holds, and writes
 // the status only when that changed it: a held mirror is tried
 // again for good. It reads the mirror again first, since deleting the tags took registry round
 // trips, and reports false, writing nothing, when cleanup was disabled meanwhile: the next try
 // releases it. byDigest is how the refused deletion was made, whatever the spec says now.
-func (r *ImageMirrorReconciler) reportRefused(ctx context.Context, name string, resource routing.Resource, byDigest bool) (bool, error) {
+func (r *ImageMirrorReconciler) reportRefused(ctx context.Context, name string, resource routing.Resource, byDigest bool, refusal deletionRefusal) (bool, error) {
 	var im kuikv1alpha1.ImageMirror
 	if err := r.Get(ctx, types.NamespacedName{Name: name}, &im); err != nil {
 		return false, err
@@ -179,7 +194,7 @@ func (r *ImageMirrorReconciler) reportRefused(ctx context.Context, name string, 
 		return false, nil
 	}
 	next := im.Status.DeepCopy()
-	notReady := refusedCleanup(byDigest)
+	notReady := refusedCleanup(byDigest, refusal)
 	r.readiness.Set(&im, resource.Kind, resource.Name, &next.Conditions, im.Generation, &notReady)
 	condition.SetAnomaly(&next.Conditions, kuikv1alpha1.ConditionDeletionBlocked, true,
 		kuikv1alpha1.ReasonDestinationRefusedDeletion, notReady.Message, im.Generation)
@@ -342,13 +357,13 @@ func (r *ImageMirrorReconciler) hold(ctx context.Context, im *kuikv1alpha1.Image
 }
 
 // deleteTags deletes by tag, or by digest under cleanup.deleteByDigest, every tag of this
-// cluster in the repositories of im. It got through when it reports neither that the
-// destination refused a deletion as unsupported, nor unreadable, why the manage credential
-// cannot be read. Either holds the mirror: released, it would take with it
+// cluster in the repositories of im. It got through when it reports neither refused, how the
+// destination refused a deletion as unsupported or for its credential, nor unreadable, why the
+// manage credential cannot be read. Either holds the mirror: released, it would take with it
 // status.repositories, the only inventory of the tags left behind.
-func (r *ImageMirrorReconciler) deleteTags(ctx context.Context, im *kuikv1alpha1.ImageMirror) (refused bool, unreadable error, err error) {
+func (r *ImageMirrorReconciler) deleteTags(ctx context.Context, im *kuikv1alpha1.ImageMirror) (refused *deletionRefusal, unreadable error, err error) {
 	if len(im.Status.Repositories) == 0 {
-		return false, nil, nil
+		return nil, nil, nil
 	}
 	log := logf.FromContext(ctx)
 	manage, err := r.manageAuth(ctx, im)
@@ -356,10 +371,10 @@ func (r *ImageMirrorReconciler) deleteTags(ctx context.Context, im *kuikv1alpha1
 	var malformed *auth.ErrSecretMalformed
 	if errors.As(err, &notFound) || errors.As(err, &malformed) {
 		log.Info("Held a deleted ImageMirror: its manage credential cannot be read", "error", err.Error())
-		return false, err, nil
+		return nil, err, nil
 	}
 	if err != nil {
-		return false, nil, err
+		return nil, nil, err
 	}
 	endpoint := func(ref string) registry.Endpoint {
 		return registry.Endpoint{Reference: ref, Insecure: im.Spec.Destination.Insecure, Auth: manage(ref)}
@@ -369,7 +384,7 @@ func (r *ImageMirrorReconciler) deleteTags(ctx context.Context, im *kuikv1alpha1
 	for _, repository := range im.Status.Repositories {
 		tags, err := r.registry.ListTags(ctx, endpoint(repository))
 		if err != nil {
-			return false, nil, err
+			return nil, nil, err
 		}
 		for _, tag := range tags {
 			if !strings.HasSuffix(tag, suffix) {
@@ -385,18 +400,18 @@ func (r *ImageMirrorReconciler) deleteTags(ctx context.Context, im *kuikv1alpha1
 			} else {
 				err = r.registry.DeleteTag(ctx, endpoint(ref))
 			}
-			if deleteUnsupported(err) {
+			if refusal, refused := refusedDeletion(err); refused {
 				log.Info("Held a deleted ImageMirror: its destination refuses deletion", "image", ref, "error", err.Error())
-				r.recorder.Eventf(im, nil, corev1.EventTypeWarning, "ImageDeletionFailed", "Delete", "Failed to delete %s: %v", ref, err)
-				return true, nil, nil
+				r.recorder.Eventf(im, nil, corev1.EventTypeWarning, "ImageDeletionFailed", "Delete", "%s", refusal.note(ref))
+				return &refusal, nil, nil
 			}
 			if err != nil {
-				return false, nil, err
+				return nil, nil, err
 			}
 			log.Info("Deleted the tag of a deleted ImageMirror", "image", ref)
 		}
 	}
-	return false, nil, nil
+	return nil, nil, nil
 }
 
 // drop forgets everything a process holds for the mirror name: its copy queues, its drift
