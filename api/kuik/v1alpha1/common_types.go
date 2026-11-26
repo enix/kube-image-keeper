@@ -201,12 +201,14 @@ const (
 	ReasonSecretMalformed           = "SecretMalformed"
 	ReasonTokenRequestFailed        = "TokenRequestFailed"
 	ReasonRegistryDeleteUnsupported = "RegistryDeleteUnsupported"
-	ReasonListNearCapacity          = "ListNearCapacity"
-	ReasonListTruncated             = "ListTruncated"
-	ReasonOriginUnavailable         = "OriginUnavailable"
-	ReasonAllCandidatesFailed       = "AllCandidatesFailed"
-	ReasonMissingImages             = "MissingImages"
-	ReasonChecksFailed              = "ChecksFailed"
+	// ReasonRegistryDeleteUnauthorized: the destination answers 401 or 403 to a deletion.
+	ReasonRegistryDeleteUnauthorized = "RegistryDeleteUnauthorized"
+	ReasonListNearCapacity           = "ListNearCapacity"
+	ReasonListTruncated              = "ListTruncated"
+	ReasonOriginUnavailable          = "OriginUnavailable"
+	ReasonAllCandidatesFailed        = "AllCandidatesFailed"
+	ReasonMissingImages              = "MissingImages"
+	ReasonChecksFailed               = "ChecksFailed"
 )
 
 // CheckFailureReason is what a failed availability check observed on one image.
