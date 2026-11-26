@@ -1302,6 +1302,85 @@ var _ = Describe("ImageMonitor", func() {
 			Expect(src.Requests("", "")).NotTo(ContainElement(HaveField("Authorized", BeTrue())))
 		})
 
+		It("does not hand the verdict of a secure origin to a monitor reading the same image through an insecure entry alone", func() {
+			// src gives no answer over HTTPS. The monitor under test runs it as a secure origin,
+			// so fallbackAuth never reaches it over plain HTTP; the other reads it as an
+			// alternative alone, which sends fallbackAuth there.
+			src := serve(true)
+			keeper := registrytest.New()
+			DeferCleanup(keeper.Close)
+			keeper.Push("acme/keeper:v1", registrytest.Image())
+			fallbackAuth = []auth.FallbackAuthEntry{{
+				RepositoryGroup: src.Host(),
+				SecretRef:       &kuikv1alpha1.SecretReference{Name: createCredentials(src.Host(), registryUser, password)},
+			}}
+			start()
+			monitoring := func(im *kuikv1alpha1.ImageMonitor) {
+				on := true
+				im.Spec.MonitorAlternatives = &on
+			}
+			newMonitor(name, monitoring)
+			other := unique("imon")
+			newMonitor(other, monitoring)
+			otherNs := unique("ns")
+			createNamespace(otherNs, map[string]string{testLabel: other})
+			origin := keeper.Host() + "/acme/keeper:v1"
+			labels := withPodLabels(map[string]string{transportLabel: plainHTTP})
+			ns := selectedNamespace()
+			runningPod(ns, []container{running(appContainer, origin)}, labels)
+			runningPod(ns, []container{running(appContainer, app(src))})
+			runningPod(otherNs, []container{running(appContainer, origin)}, labels)
+			declare([]kuikv1alpha1.Alternative{{Repository: keeper.Host() + "/acme/keeper"}, appEntry(src)},
+				toLabelled, func(ia *kuikv1alpha1.ImageAlternative) {
+					ia.Spec.NamespaceSelector = &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{
+						{Key: testLabel, Operator: metav1.LabelSelectorOpIn, Values: []string{name, other}},
+					}}
+				})
+			reconcileOther := func() {
+				_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: other}})
+				Expect(err).NotTo(HaveOccurred())
+			}
+			reconcileIt()
+			reconcileOther()
+
+			window()
+			Eventually(func() kuikv1alpha1.CheckFailureReason {
+				reconcileIt()
+				return reasonOf(app(src))
+			}).Should(Equal(kuikv1alpha1.CheckUnauthorized))
+			window()
+			counts := func() kuikv1alpha1.ImageCounts {
+				reconcileOther()
+				if a := monitorStatusOf(other).Images.Alternatives; a != nil {
+					return *a
+				}
+				return kuikv1alpha1.ImageCounts{}
+			}
+			Eventually(func() int32 { c := counts(); return c.Available + c.Unavailable }).Should(Equal(int32(1)))
+			Expect(counts().Available).To(Equal(int32(1)))
+		})
+
+		It("gives a monitor and a drift check reading one origin with the same pull secrets one identity, whatever its transport", func() {
+			const ref = "registry.example.com/acme/app:v1"
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "team"},
+				Spec:       corev1.PodSpec{ImagePullSecrets: []corev1.LocalObjectReference{{Name: "pull"}}},
+			}
+			for _, insecure := range []bool{false, true} {
+				monitors := &ImageMonitorReconciler{monitors: map[string]*monitorMemory{"m": {
+					declaring:       map[string][]*corev1.Pod{ref: {pod}},
+					origins:         map[string]bool{ref: true},
+					insecureOrigins: map[string]bool{ref: insecure},
+				}}}
+				state := newMirrorState()
+				state.declaring = map[string]*corev1.Pod{ref: pod}
+				state.origins = map[string]routing.Config{ref: {Insecure: insecure}}
+				mirrors := &ImageMirrorReconciler{states: map[string]*mirrorState{"m": state}}
+				Expect(driftChecker{r: mirrors, name: "m"}.Identity(ref)).
+					To(Equal(monitorChecker{r: monitors, name: "m"}.Identity(ref)))
+			}
+		})
+
 		It("reaches over plain HTTP an origin declared insecure that another ImageAlternative offers through a secure entry, when it gives no answer over HTTPS", func() {
 			src, other := serve(false), serve(false)
 			start()
@@ -2721,6 +2800,99 @@ var _ = Describe("ImageMonitor", func() {
 			alternativeTo(list)
 			alternativeVerdicts(1)
 			Expect(alternativesOf().Available).To(Equal(int32(1)))
+		})
+
+		// otherMonitor creates a second monitor, running image in a pod of a namespace it alone
+		// selects, and returns its name and a reconcile of it.
+		otherMonitor := func(image string, mutate ...func(*kuikv1alpha1.ImageMonitor)) (string, func()) {
+			GinkgoHelper()
+			other := unique("imon")
+			newMonitor(other, mutate...)
+			ns := unique("ns")
+			createNamespace(ns, map[string]string{testLabel: other})
+			runningPod(ns, []container{running(appContainer, image)})
+			return other, func() {
+				GinkgoHelper()
+				_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: other}})
+				Expect(err).NotTo(HaveOccurred())
+			}
+		}
+
+		// selecting makes an ImageAlternative apply to the namespaces of monitors.
+		selecting := func(monitors ...string) func(*kuikv1alpha1.ImageAlternative) {
+			return func(ia *kuikv1alpha1.ImageAlternative) {
+				ia.Spec.NamespaceSelector = &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{
+					{Key: testLabel, Operator: metav1.LabelSelectorOpIn, Values: monitors},
+				}}
+			}
+		}
+
+		It("checks an alternative with the auth of its entry after another monitor was refused the same image anonymously", func() {
+			private := fresh()
+			src := served(registrytest.New(registrytest.WithBasicAuth(registryUser, password)), private)
+			newMonitor(name)
+			runningPod(selectedNamespace(), []container{running(appContainer, tagged(on(src, private)))})
+			reconcileIt()
+			repository := fresh()
+			origin := on(served(registrytest.New(), repository), repository)
+			other, reconcileOther := otherMonitor(tagged(origin), monitoring)
+			list := entries(origin, on(src, private))
+			list[1].Auth = &kuikv1alpha1.Auth{SecretRef: &kuikv1alpha1.SecretReference{
+				Name: createCredentials(src.Host(), registryUser, password),
+			}}
+			offer(list, selecting(other))
+			reconcileOther()
+
+			// The first window of the host is the anonymous monitor's, the second the other's.
+			window()
+			Eventually(func() int32 {
+				reconcileIt()
+				return originOf(name).Unavailable
+			}).Should(Equal(int32(1)))
+			window()
+			counts := func() kuikv1alpha1.ImageCounts {
+				reconcileOther()
+				if a := monitorStatusOf(other).Images.Alternatives; a != nil {
+					return *a
+				}
+				return kuikv1alpha1.ImageCounts{}
+			}
+			Eventually(func() int32 { c := counts(); return c.Available + c.Unavailable }).Should(Equal(int32(1)))
+			Expect(counts().Available).To(Equal(int32(1)))
+			Expect(monitorStatusOf(other).UnavailableAlternatives).To(BeEmpty())
+			Expect(recorder.withReason("AlternativeUnusable")).To(BeEmpty())
+		})
+
+		It("shares the check of an alternative between a monitor two origins offer it to through equal entries and a monitor one origin does", func() {
+			alternative := fresh()
+			src := served(registrytest.New(), alternative)
+			first, second := fresh(), fresh()
+			origins := served(registrytest.New(), first, second)
+			newMonitor(name, monitoring)
+			ns := selectedNamespace()
+			runningPod(ns, []container{running(appContainer, tagged(on(origins, first)))})
+			runningPod(ns, []container{running(appContainer, tagged(on(origins, second)))})
+			other, reconcileOther := otherMonitor(tagged(on(origins, first)), monitoring)
+			offer(entries(on(origins, first), on(src, alternative)), selecting(name, other))
+			offer(entries(on(origins, second), on(src, alternative)), selecting(name))
+			reconcileIt()
+			reconcileOther()
+
+			window()
+			alternativeVerdicts := func(reconcile func(), monitor string) func() int32 {
+				return func() int32 {
+					reconcile()
+					if a := monitorStatusOf(monitor).Images.Alternatives; a != nil {
+						return a.Available
+					}
+					return 0
+				}
+			}
+			Eventually(alternativeVerdicts(func() { reconcileIt() }, name)).Should(Equal(int32(1)))
+			// A request of the other monitor's own would now find nothing.
+			src.Intercept(registrytest.Status(http.MethodHead, "/manifests/", http.StatusNotFound, nil))
+			window()
+			Eventually(alternativeVerdicts(reconcileOther, other)).Should(Equal(int32(1)))
 		})
 
 		It("checks an alternative whose entry declares no auth with the pull secrets of its origin's pods, then fallbackAuth, then anonymously", func() {
