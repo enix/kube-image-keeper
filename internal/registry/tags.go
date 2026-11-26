@@ -52,10 +52,79 @@ type Refusal struct {
 	Message string
 }
 
+// deleteRefusal is a deletion the registry refused in a way trying again does not fix. kind is
+// the sentinel that says which way (ErrDeleteUnsupported, ErrManifestDeleteUnsupported or
+// ErrDeleteUnauthorized), err the answer of the registry.
+type deleteRefusal struct {
+	kind error
+	err  error
+}
+
+func (e *deleteRefusal) Error() string { return e.kind.Error() + ": " + e.err.Error() }
+
+func (e *deleteRefusal) Unwrap() []error { return []error{e.kind, e.err} }
+
+// answeredDelete turns the answer of a DELETE into the outcome of the deletion. A 404, or a
+// repository the registry does not know, is a success: there is nothing left to delete. A 405,
+// a 501 or any other 400 is unsupported, the sentinel of the deletion made; a 401 or a 403 is
+// ErrDeleteUnauthorized. Any other error is returned as it is.
+func answeredDelete(err, unsupported error) error {
+	if repositoryUnknown(err) {
+		return nil
+	}
+	switch TransportStatusCode(err) {
+	case http.StatusNotFound:
+		return nil
+	case http.StatusMethodNotAllowed, http.StatusBadRequest, http.StatusNotImplemented:
+		return &deleteRefusal{kind: unsupported, err: err}
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return &deleteRefusal{kind: ErrDeleteUnauthorized, err: err}
+	}
+	return err
+}
+
 // RefusalDetail returns what the registry answered the first attempt of err refused the way
-// kind says, and false when err holds no such attempt.
-func RefusalDetail(_, _ error) (Refusal, bool) {
-	return Refusal{}, false
+// kind says, and false when err holds no such attempt. A deletion tried with several
+// credentials returns the error of each, which the registry may have refused in different
+// ways: the caller names the one it reports. The message is built from the registry's error
+// body, never from the error text, which holds the URL of the request.
+func RefusalDetail(err, kind error) (Refusal, bool) {
+	refusal, ok := findRefusal(err, kind)
+	if !ok {
+		return Refusal{}, false
+	}
+	detail := Refusal{StatusCode: TransportStatusCode(refusal.err)}
+	if transportErr, ok := errors.AsType[*transport.Error](refusal.err); ok {
+		var words []string
+		for _, diagnostic := range transportErr.Errors {
+			// "DENIED: requested access to the resource is denied", or whichever of the two
+			// the registry sent.
+			parts := slices.DeleteFunc([]string{string(diagnostic.Code), diagnostic.Message}, func(part string) bool { return part == "" })
+			if len(parts) > 0 {
+				words = append(words, strings.Join(parts, ": "))
+			}
+		}
+		detail.Message = strings.Join(words, "; ")
+	}
+	return detail, true
+}
+
+// findRefusal walks the errors err wraps or joins, in order, for the first deletion refused
+// the way kind says.
+func findRefusal(err, kind error) (*deleteRefusal, bool) {
+	switch wrapped := err.(type) {
+	case *deleteRefusal:
+		return wrapped, wrapped.kind == kind
+	case interface{ Unwrap() error }:
+		return findRefusal(wrapped.Unwrap(), kind)
+	case interface{ Unwrap() []error }:
+		for _, inner := range wrapped.Unwrap() {
+			if refusal, ok := findRefusal(inner, kind); ok {
+				return refusal, true
+			}
+		}
+	}
+	return nil, false
 }
 
 // repositoryUnknown reports whether err is a 400 carrying the error code NAME_UNKNOWN: the
@@ -77,7 +146,9 @@ func repositoryUnknown(err error) bool {
 // DeleteTag deletes one tag, never the manifest it points at: a digest reference is
 // refused. A tag already gone is a success, in a repository the registry does not know
 // included. A registry answering 405, 501 or any other 400 does not support tag deletion,
-// which is ErrDeleteUnsupported.
+// which is ErrDeleteUnsupported; one answering 401 or 403 refuses the credential for it, which
+// is ErrDeleteUnauthorized. Every credential is tried, and the error joins the answer to each:
+// it may hold both.
 func (c *Client) DeleteTag(ctx context.Context, tag Endpoint) error {
 	if strings.Contains(tag.Reference, "@") {
 		return fmt.Errorf("refusing to delete %q: kuik deletes by tag, never by digest", tag.Reference)
@@ -87,17 +158,7 @@ func (c *Client) DeleteTag(ctx context.Context, tag Endpoint) error {
 		return err
 	}
 	_, errs := c.tryThrough(ctx, c.transportFor(ref.Context().Registry, tag.Insecure), tag.Auth, func(a attempt) error {
-		err := remote.Delete(ref, a.options...)
-		if repositoryUnknown(err) {
-			return nil
-		}
-		switch TransportStatusCode(err) {
-		case http.StatusNotFound:
-			return nil
-		case http.StatusMethodNotAllowed, http.StatusBadRequest, http.StatusNotImplemented:
-			return fmt.Errorf("%w: %w", ErrDeleteUnsupported, err)
-		}
-		return err
+		return answeredDelete(remote.Delete(ref, a.options...), ErrDeleteUnsupported)
 	})
 	if errs != nil {
 		return errors.Join(errs...)
@@ -149,24 +210,15 @@ func (c *Client) ManifestDigest(ctx context.Context, image Endpoint) (v1.Hash, b
 // DeleteManifest deletes one manifest by digest, and with it every tag pointing at it, other
 // clusters' included: a tag reference is refused. A manifest already gone is a success, in a
 // repository the registry does not know included. A registry answering 405, 501 or any other
-// 400 does not support manifest deletion, which is ErrManifestDeleteUnsupported.
+// 400 does not support manifest deletion, which is ErrManifestDeleteUnsupported; one answering
+// 401 or 403 refuses the credential for it, which is ErrDeleteUnauthorized.
 func (c *Client) DeleteManifest(ctx context.Context, manifest Endpoint) error {
 	ref, err := name.NewDigest(manifest.Reference, append(manifest.nameOptions(), name.StrictValidation)...)
 	if err != nil {
 		return fmt.Errorf("refusing to delete %q: a manifest is deleted by digest only: %w", manifest.Reference, err)
 	}
 	_, errs := c.tryThrough(ctx, c.transportFor(ref.Context().Registry, manifest.Insecure), manifest.Auth, func(a attempt) error {
-		err := remote.Delete(ref, a.options...)
-		if repositoryUnknown(err) {
-			return nil
-		}
-		switch TransportStatusCode(err) {
-		case http.StatusNotFound:
-			return nil
-		case http.StatusMethodNotAllowed, http.StatusBadRequest, http.StatusNotImplemented:
-			return fmt.Errorf("%w: %w", ErrManifestDeleteUnsupported, err)
-		}
-		return err
+		return answeredDelete(remote.Delete(ref, a.options...), ErrManifestDeleteUnsupported)
 	})
 	if errs != nil {
 		return errors.Join(errs...)
