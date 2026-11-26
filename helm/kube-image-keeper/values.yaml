@@ -89,6 +89,11 @@ webhook:
   # -- Namespace selector of the MutatingWebhookConfiguration: which namespaces the webhook
   # rewrites pods in
   namespaceSelector: {}
+  configuration:
+    # -- Annotations added to the MutatingWebhookConfiguration, next to the cert-manager one
+    annotations: {}
+    # -- Labels added to the MutatingWebhookConfiguration, next to the chart labels
+    extraLabels: {}
   # -- Seconds a stopping webhook pod keeps answering, unready, before it stops listening. A
   # deleted pod stays a Service endpoint until every kube-proxy has seen it go, and the pods
   # created meanwhile would be admitted unrouted: raise it on a cluster where endpoint updates

@@ -8,8 +8,14 @@ metadata:
   name: {{ include "kube-image-keeper.fullname" . }}-webhook
   labels:
     {{- include "kube-image-keeper.labels" . | nindent 4 }}
+    {{- with (.Values.webhook.configuration | default dict).extraLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
   annotations:
     cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kube-image-keeper.fullname" . }}-serving-cert
+    {{- with (.Values.webhook.configuration | default dict).annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
 webhooks:
   - name: pods.kuik.enix.io
     admissionReviewVersions:
