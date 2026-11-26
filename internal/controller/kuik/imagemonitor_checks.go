@@ -291,7 +291,8 @@ func (m *monitorMemory) checkInputs(ref string) (pods []*corev1.Pod, isOrigin, i
 }
 
 // Identity names the credentials Check sends for ref: the transport and auth of each entry
-// offering it, and the pull secrets of the pods. fallbackAuth is the same for every ring.
+// offering it, each pair once, the transport of ref as an origin, and the pull secrets of the
+// pods. fallbackAuth is the same for every ring.
 func (c monitorChecker) Identity(ref string) string {
 	memory := c.r.monitor(c.name)
 	if memory == nil {
@@ -303,10 +304,22 @@ func (c monitorChecker) Identity(ref string) string {
 		entryAuth, _ := json.Marshal(source.config.Auth)
 		id = append(id, fmt.Sprintf("entry:%t:%s", source.config.Insecure, entryAuth))
 	}
-	if isOrigin && insecureOrigin {
-		id = append(id, "origin:insecure")
+	// Several origins offering ref through equal entries add no credential.
+	slices.Sort(id)
+	id = slices.Compact(id)
+	if isOrigin {
+		id = append(id, originIdentity(insecureOrigin))
 	}
 	return strings.Join(id, ",") + "|" + pullSecretsIdentity(pods...)
+}
+
+// originIdentity names the transport of a reference read as an origin. A secure one is named
+// too: Check reads it over HTTPS first, even when an insecure entry offers it as well.
+func originIdentity(insecure bool) string {
+	if insecure {
+		return "origin:insecure"
+	}
+	return "origin:secure"
 }
 
 // pullSecretsIdentity names the pull secrets of pods, each once, whatever pod declares it.

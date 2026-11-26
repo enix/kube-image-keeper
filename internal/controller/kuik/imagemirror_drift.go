@@ -85,10 +85,7 @@ func (c driftChecker) Identity(ref string) string {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	// The same form as monitorChecker.Identity, so that equal credentials share a response.
-	id := "|"
-	if st.origins[ref].Insecure {
-		id = "origin:insecure|"
-	}
+	id := originIdentity(st.origins[ref].Insecure) + "|"
 	if pod := st.declaring[ref]; pod != nil {
 		id += pullSecretsIdentity(pod)
 	}
