@@ -82,7 +82,8 @@ failing never starves the initial copies. A tag written back over a manifest sti
 destination is no re-copy and waits for its turn.
 
 `copy.timeout: 0`, the default, lets a copy take as long as it needs: a copy that outlasts its
-`copy.interval` already shows as copy windows going unused while images are pending.
+`copy.interval` already shows as the `Busy` copy windows of its host, lost while images are
+pending (see [Watching the pace](#watching-the-pace)).
 
 ## Spacing the requests
 
@@ -182,3 +183,28 @@ images laps in `i × n × check.interval` at most, whatever the size of the othe
 **shared lap**, which the [alerts](../observability.md#alerts) and the dashboard compare each lap
 with. The alert rules record the last lap over the shared lap as `kuik:check_lap_ratio`: up to 1,
 the ring keeps pace; above it, the ring lost windows to slow checks, failures or restarts.
+
+Copies have no lap: `kuik_registry_copy_windows_total{registry, result}` counts every copy window
+of a source host with what it was spent on. `Copied`: it copied an image. `Failed`: it started a
+copy that copied no image from this host. `Busy`: it was lost, the previous copy still ran.
+`Idle`: nothing was ready to copy. The share of the windows of a host that were not `Idle` over the
+last hour is how much of its copy budget is used:
+
+```promql
+sum without (result) (increase(kuik_registry_copy_windows_total{result!="Idle"}[1h]))
+/
+sum without (result) (increase(kuik_registry_copy_windows_total[1h]))
+```
+
+- **At 1**, no window was left: the copy budget of the host is likely the bottleneck, and images
+  are probably waiting. A single slow copy can give only `Copied` and `Busy` windows with no
+  backlog behind it, so check the queue before concluding. When the windows are mostly `Copied`, a
+  shorter `copy.interval` drains a backlog faster.
+- **`Busy` windows**: copies outlast `copy.interval`. A shorter interval changes nothing; a
+  `requestInterval` that slows each copy down shows here too.
+- **`Failed` windows**: the host or the destination refuses copies, see
+  `status.failedImageCopies` and `kuik_registry_requests_total` for the reason. A source that hands
+  an image over to an alternative counts `Failed` on its own host, and the alternative's host
+  counts the copy.
+- **`Idle` windows while images are pending**: every pending image waits after a failed copy, up
+  to 30 minutes. The budget is not the bottleneck, the failures are.
