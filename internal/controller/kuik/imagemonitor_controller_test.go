@@ -1042,6 +1042,34 @@ var _ = Describe("ImageMonitor", func() {
 			Expect(ok).To(BeTrue())
 		})
 
+		It("labels the kuik_image_origin_unavailable series of a failing origin with its state, running, standby or retained, replaced when the state changes", func() {
+			src := source("acme/kept")
+			newMonitor(name)
+			ns := selectedNamespace()
+			carried, routed := image(src, "acme/carried"), image(src, "acme/routed")
+			// acme/kept keeps a pod selected once the pod of acme/carried is gone.
+			runningPod(ns, []container{running(appContainer, image(src, "acme/kept"))})
+			pod := runningPod(ns, []container{running(appContainer, carried)})
+			runningPod(ns, []container{routedToGhcr(routed)})
+			// in reports, after one more turn of the ring, whether the series of ref carries state.
+			in := func(ref, state string) func() bool {
+				return func() bool {
+					turn()
+					reconcileIt()
+					_, ok := gauge(registry, "kuik_image_origin_unavailable", map[string]string{
+						labelKind: kindImageMonitorLabel, labelName: name, labelImage: ref, labelState: state,
+					})
+					return ok
+				}
+			}
+			Eventually(in(carried, "running")).Should(BeTrue())
+			Eventually(in(routed, "standby")).Should(BeTrue())
+
+			deletePod(pod)
+			Eventually(in(carried, "retained")).Should(BeTrue())
+			Expect(in(carried, "running")()).To(BeFalse())
+		})
+
 		It("starts from an empty memory when deleted and created again under the same name before a reconcile sees it gone", func() {
 			// The registry refuses every anonymous check.
 			src := source()
@@ -3079,6 +3107,39 @@ var _ = Describe("ImageMonitor", func() {
 			})
 			_, ok := alternativeUnavailable(src, tagged(on(src, second)), origin, ia, kuikv1alpha1.CheckManifestNotFound)
 			Expect(ok).To(BeTrue())
+		})
+
+		It("labels the kuik_image_alternative_unavailable series of a failing alternative with its state, running, standby or retained, replaced when the state changes", func() {
+			carried, waiting := fresh(), fresh()
+			src := served(registrytest.New())
+			declared, kept := fresh(), fresh()
+			origins := served(registrytest.New(), declared, kept)
+			origin := on(origins, declared)
+			newMonitor(name, monitoring)
+			offer(entries(origin, on(src, carried), on(src, waiting)))
+			ns := selectedNamespace()
+			// kept keeps a pod selected once the pod of the origin is gone.
+			runningPod(ns, []container{running(appContainer, tagged(on(origins, kept)))})
+			pod := runningPod(ns, []container{standingIn(tagged(origin), tagged(on(src, carried)))})
+			// in reports whether the series of alternative, a repository of src, carries state.
+			in := func(alternative, state string) func() bool {
+				return func() bool {
+					_, ok := gauge(registry, "kuik_image_alternative_unavailable", map[string]string{
+						labelKind: kindImageMonitorLabel, labelName: name, labelImage: tagged(on(src, alternative)),
+						"derived_from": tagged(origin), labelState: state,
+					})
+					return ok
+				}
+			}
+			settle(in(carried, "running"))
+			settle(in(waiting, "standby"))
+
+			// Only a retained origin offers them now.
+			deletePod(pod)
+			settle(in(carried, "retained"))
+			settle(in(waiting, "retained"))
+			Expect(in(carried, "running")()).To(BeFalse())
+			Expect(in(waiting, "standby")()).To(BeFalse())
 		})
 
 		It("keeps the since of an unavailableAlternatives entry and announces nothing again after a restart", func() {

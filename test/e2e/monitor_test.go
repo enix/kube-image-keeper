@@ -81,7 +81,7 @@ var _ = Describe("Image monitoring", Ordered, func() {
 			"-o", fmt.Sprintf(`jsonpath={.status.unavailableImages[?(@.ref==%q)].reason}`, unreachable)).
 			Should(Equal("Unreachable"))
 		series := fmt.Sprintf(`kuik_image_origin_unavailable{image=%q,kind="ImageMonitor",name=%q,`+
-			`reason="Unreachable",registry="e2e-monitor.invalid"}`, unreachable, monitorName)
+			`reason="Unreachable",registry="e2e-monitor.invalid",state="running"}`, unreachable, monitorName)
 		Eventually(reconcilerSeries).WithArguments(series).Should(Equal(1.0))
 	})
 })
