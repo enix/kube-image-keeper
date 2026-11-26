@@ -56,7 +56,13 @@ not inherit the implementer's or an earlier review's view.
 - When kuik does what the kubelet does, does it do the same?
 - Credentials: trace where each one is sent. It goes only to the registry host of its entry
   or the token realm that registry announces, never over a weaker transport (plain HTTP, TLS
-  not verified) than its entry.
+  not verified) than its entry. When the change decides which credentials go over which
+  transport, trace for every read of a source which pull secrets it gets and over which
+  transport, in 4 cases: several pods declare the image, the image is retained (no pod
+  declares it any more), right after a restart (no memory), and the transport changes while
+  a copy is in progress.
+- A rule added to ImageMonitor or to ImageMirror (transport, credentials, retention): must
+  the other reconciler follow it too?
 - The specs: does each one exercise a behaviour and fail without the code it pins; is any
   path of the `feat` left without a spec; is anything flaky (sleeps, wall clock)?
 - The rules of `go.md` (logging keys, RBAC markers, image references) and the docs that should
