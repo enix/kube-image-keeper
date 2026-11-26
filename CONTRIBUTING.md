@@ -169,4 +169,12 @@ Each release line `X.Y` is maintained from a **maintenance branch `X.Y.x`**: it 
 
 4. Retarget the maintenance-branch Dependabot entries: in [`.github/dependabot.yml`](./.github/dependabot.yml) (on `main`), update the `target-branch` of the patch-only `gomod` and `docker` entries to `X.Y.x`, and drop entries for release lines that reached end of life. These entries keep the release line's dependencies patched (security fixes almost always ship as patch releases), and their `fix` commit prefix makes a later release dispatch cut a patch release.
 
-5. Publish the version's documentation on the website: see [Add a new archived version](./website/README.md#add-a-new-archived-version).
+5. Point the website at the new line: its documentation becomes the site root and the previous line an archive under `/X.Y/`, see [When a new minor is released](./website/README.md#when-a-new-minor-is-released).
+
+## Documentation of a released version
+
+[kuik.enix.io](https://kuik.enix.io) serves the documentation of the latest stable line at its root, built from its maintenance branch (from `main` until [the root is switched to `3.0.x`](./website/README.md#switch-the-root-to-the-stable-branch)), and the documentation of `main` under `/next/`, marked as not released yet ([Documentation versioning](./website/README.md#documentation-versioning)). A push to either branch that touches `docs/` is online at once, with no release.
+
+- Fix the documentation of a released version with a `docs:` commit on `main`, then cherry-pick it onto `X.Y.x` through a pull request. A fix that only holds for the line goes to `X.Y.x` directly.
+- The chart, the README and the release notes link to pages of the site root: never rename or remove one, or a heading they point to, without a redirect.
+- The notes of a beta that cite a page only `main` has link to `/next/...`; those of a stable release link to the root.
