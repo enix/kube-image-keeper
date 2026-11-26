@@ -67,6 +67,8 @@ func pacing(check, copy time.Duration, hosts map[string]config.RegistryPacing) *
 type harness struct {
 	clk *clocktesting.FakeClock
 	s   *Scheduler
+	// stop ends the scheduler before the spec does, as a process shutting down.
+	stop func()
 }
 
 // run starts a scheduler paced by cfg and stops it when the spec ends.
@@ -80,11 +82,12 @@ func run(cfg *config.Config) *harness {
 		defer close(done)
 		Expect(s.Start(ctx)).To(Succeed())
 	}()
-	DeferCleanup(func() {
+	stop := func() {
 		cancel()
 		Eventually(done).Should(BeClosed())
-	})
-	return &harness{clk: clk, s: s}
+	}
+	DeferCleanup(stop)
+	return &harness{clk: clk, s: s, stop: stop}
 }
 
 // settle waits until the scheduler waits for its next window with nothing in flight. The
@@ -131,6 +134,31 @@ func gauges(c prometheus.Collector, name string) map[string]float64 {
 				labels = append(labels, l.GetName()+"="+l.GetValue())
 			}
 			series[strings.Join(labels, ",")] = m.GetGauge().GetValue()
+		}
+	}
+	return series
+}
+
+// copyWindows collects kuik_registry_copy_windows_total from the scheduler of h, keyed by
+// `<registry> <result>`.
+func (h *harness) copyWindows() map[string]float64 {
+	GinkgoHelper()
+	reg := prometheus.NewPedanticRegistry()
+	Expect(reg.Register(h.s.Collector())).To(Succeed())
+	families, err := reg.Gather()
+	Expect(err).NotTo(HaveOccurred())
+
+	series := map[string]float64{}
+	for _, f := range families {
+		if f.GetName() != "kuik_registry_copy_windows_total" {
+			continue
+		}
+		for _, m := range f.GetMetric() {
+			labels := map[string]string{}
+			for _, l := range m.GetLabel() {
+				labels[l.GetName()] = l.GetValue()
+			}
+			series[labels["registry"]+" "+labels["result"]] = m.GetCounter().GetValue()
 		}
 	}
 	return series
@@ -266,14 +294,17 @@ type fakeCopier struct {
 	held    map[string]chan struct{}
 	ended   map[string]time.Time
 	failing map[string]bool
+	// outcomes are what the copies that do not fail return, Copied when unset.
+	outcomes map[string]CopyOutcome
 }
 
 func newCopier(h *harness) *fakeCopier {
 	return &fakeCopier{
-		clk:     h.clk,
-		held:    map[string]chan struct{}{},
-		ended:   map[string]time.Time{},
-		failing: map[string]bool{},
+		clk:      h.clk,
+		held:     map[string]chan struct{}{},
+		ended:    map[string]time.Time{},
+		failing:  map[string]bool{},
+		outcomes: map[string]CopyOutcome{},
 	}
 }
 
@@ -317,10 +348,17 @@ func (f *fakeCopier) times(ref string) []time.Time {
 	return times
 }
 
-func (f *fakeCopier) Copy(ctx context.Context, ref string) error {
+// answer makes every copy of ref return outcome without an error, in place of Copied.
+func (f *fakeCopier) answer(ref string, outcome CopyOutcome) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.outcomes[ref] = outcome
+}
+
+func (f *fakeCopier) Copy(ctx context.Context, ref string) (CopyOutcome, error) {
 	f.mu.Lock()
 	f.copies = append(f.copies, visit{Ref: ref, At: f.clk.Now()})
-	held, failing := f.held[ref], f.failing[ref]
+	held, failing, outcome := f.held[ref], f.failing[ref], f.outcomes[ref]
 	f.mu.Unlock()
 
 	if held != nil {
@@ -330,13 +368,13 @@ func (f *fakeCopier) Copy(ctx context.Context, ref string) error {
 			f.mu.Lock()
 			f.ended[ref] = f.clk.Now()
 			f.mu.Unlock()
-			return ctx.Err()
+			return outcome, ctx.Err()
 		}
 	}
 	if failing {
-		return errors.New("copy failed")
+		return outcome, errors.New("copy failed")
 	}
-	return nil
+	return outcome, nil
 }
 
 // visits returns the copies received so far.

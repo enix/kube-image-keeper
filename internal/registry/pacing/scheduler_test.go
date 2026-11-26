@@ -1,6 +1,7 @@
 package pacing
 
 import (
+	"maps"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -772,6 +773,137 @@ var _ = Describe("Scheduler", func() {
 			c.succeed(imageA)
 			windows(4)
 			Expect(c.times(imageA)).To(Equal(minutes(3, 6, 12, 15, 18)))
+		})
+	})
+
+	Context("copy windows metric", func() {
+		var (
+			h *harness
+			c *fakeCopier
+		)
+		BeforeEach(func() {
+			// Copy windows every 3 minutes, at 3, 6, 9... on every host.
+			h = run(pacing(time.Hour, 3*time.Minute, nil))
+			c = newCopier(h)
+		})
+		windows := func(n int) {
+			GinkgoHelper()
+			for range n {
+				h.advance(3 * time.Minute)
+			}
+		}
+		// spent is the four series of host.
+		spent := func(host string, copied, failed, busy, idle float64) map[string]float64 {
+			return map[string]float64{
+				host + " Copied": copied,
+				host + " Failed": failed,
+				host + " Busy":   busy,
+				host + " Idle":   idle,
+			}
+		}
+
+		It("exposes the four results of a source host at 0 as kuik_registry_copy_windows_total once it gets its first copy queue", func() {
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA}, c)
+			Expect(h.copyWindows()).To(Equal(spent(dockerHub, 0, 0, 0, 0)))
+		})
+
+		It("exports no kuik_registry_copy_windows_total series for a host that only has check rings", func() {
+			h.s.SetRing(monitor, dockerHub, []string{imageA}, kuikv1alpha1.RegistryCheck{}, newChecker(h))
+			h.s.SetCopyQueue(mirror, quayIO, []string{quayImage}, c)
+			windows(2)
+			Expect(h.copyWindows()).To(Equal(spent(quayIO, 2, 0, 0, 0)))
+		})
+
+		It("counts Copied a window whose copy succeeded", func() {
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA}, c)
+			windows(1)
+			Expect(h.copyWindows()).To(Equal(spent(dockerHub, 1, 0, 0, 0)))
+		})
+
+		It("counts Failed a window whose copy failed", func() {
+			c.fail(imageA)
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA}, c)
+			windows(1)
+			Expect(h.copyWindows()).To(Equal(spent(dockerHub, 0, 1, 0, 0)))
+		})
+
+		It("counts Failed each window whose source handed the image over to the next candidate", func() {
+			c.answer(imageA, HandedOver)
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA}, c)
+			// No error, so no backoff: the image takes every window.
+			windows(3)
+			Expect(h.copyWindows()).To(Equal(spent(dockerHub, 0, 3, 0, 0)))
+		})
+
+		It("counts Idle a window taken for an image that was no longer due", func() {
+			c.answer(imageA, NothingDue)
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA}, c)
+			windows(1)
+			Expect(h.copyWindows()).To(Equal(spent(dockerHub, 0, 0, 0, 1)))
+		})
+
+		It("counts Busy each window that opens while the previous copy still runs, and that copy once, when it ends", func() {
+			c.hold(imageA)
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA}, c)
+			h.step(3 * time.Minute)
+			Eventually(c.visits).Should(HaveLen(1))
+			// The copy taken at 3 runs through the windows at 6 and 9.
+			h.step(3 * time.Minute)
+			h.step(3 * time.Minute)
+			Eventually(h.s.Waiting).Should(BeTrue())
+			Expect(h.copyWindows()).To(Equal(spent(dockerHub, 0, 0, 2, 0)))
+
+			c.release(imageA)
+			h.settle()
+			Expect(h.copyWindows()).To(Equal(spent(dockerHub, 1, 0, 2, 0)))
+		})
+
+		It("counts Idle a window that finds every queued image waiting for its backoff", func() {
+			c.fail(imageA)
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA}, c)
+			// imageA fails at 3 and 6, then waits until 12: the window at 9 finds nothing ready.
+			windows(3)
+			Expect(h.copyWindows()).To(Equal(spent(dockerHub, 0, 2, 0, 1)))
+		})
+
+		It("goes on counting Idle the windows of a host whose last copy queue was dropped", func() {
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA}, c)
+			windows(1)
+			h.s.SetCopyQueue(mirror, dockerHub, nil, c)
+			windows(2)
+			Expect(h.copyWindows()).To(Equal(spent(dockerHub, 1, 0, 0, 2)))
+		})
+
+		It("counts the windows of each source host on its own series", func() {
+			failing := newCopier(h)
+			failing.fail(quayImage)
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA}, c)
+			h.s.SetCopyQueue(mirror, quayIO, []string{quayImage}, failing)
+			windows(1)
+
+			expected := spent(dockerHub, 1, 0, 0, 0)
+			maps.Copy(expected, spent(quayIO, 0, 1, 0, 0))
+			Expect(h.copyWindows()).To(Equal(expected))
+		})
+
+		It("goes on counting on the same series after a reload of copy.interval", func() {
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA}, c)
+			windows(1)
+			// The series restarts at 3: its first window opens at 4.
+			h.s.SetConfig(pacing(time.Hour, time.Minute, nil))
+			h.advance(time.Minute)
+			Expect(h.copyWindows()).To(Equal(spent(dockerHub, 2, 0, 0, 0)))
+		})
+
+		It("counts nothing for a copy still running when the scheduler stops", func() {
+			c.hold(imageA)
+			h.s.SetCopyQueue(mirror, dockerHub, []string{imageA}, c)
+			h.step(3 * time.Minute)
+			Eventually(c.visits).Should(HaveLen(1))
+
+			h.stop()
+			Eventually(h.s.InFlight).Should(BeZero())
+			Expect(h.copyWindows()).To(Equal(spent(dockerHub, 0, 0, 0, 0)))
 		})
 	})
 

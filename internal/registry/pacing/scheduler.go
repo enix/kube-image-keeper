@@ -48,10 +48,23 @@ type Checker interface {
 // Copier copies the references a mirror owes from one source host.
 type Copier interface {
 	// Copy copies ref. ctx carries the copy timeout of the host, if any. An error is a failed
-	// attempt: ref then waits before its next one (see SetCopyQueue). nil is no failure,
-	// whether ref was copied or there was nothing to do.
-	Copy(ctx context.Context, ref string) error
+	// attempt: ref then waits before its next one (see SetCopyQueue). Without an error, the
+	// outcome says what the window was spent on.
+	Copy(ctx context.Context, ref string) (CopyOutcome, error)
 }
+
+// CopyOutcome is what a copy that returned no error did with its window.
+type CopyOutcome int
+
+const (
+	// Copied: the image is at its destination.
+	Copied CopyOutcome = iota
+	// NothingDue: the image was no longer due and nothing was sent.
+	NothingDue
+	// HandedOver: the source did not serve the image, which the next candidate takes on a
+	// window of its own host.
+	HandedOver
+)
 
 // maxCopyBackoff caps the wait of a reference whose copy keeps failing. The kubelet caps an
 // image pull backoff at 5 minutes, below the default copy interval: 30 minutes is the cap
@@ -412,7 +425,7 @@ func (s *Scheduler) startCopy(h *host, q *queue, ref string, opened time.Time) {
 // failed at once; its host copies every interval.
 func (s *Scheduler) copyImage(h *host, owner Owner, c Copier, ref string, opened time.Time, interval, timeout time.Duration) {
 	ctx, cancel := s.bounded(timeout)
-	err := c.Copy(ctx, ref)
+	_, err := c.Copy(ctx, ref)
 	cancel()
 
 	s.mu.Lock()

@@ -654,7 +654,11 @@ type mirrorCopier struct {
 // destination failed, every candidate failed over a lap, or the mirror could not be prepared
 // for the write. A hand-over to the next candidate, a copy, and a window with nothing to do
 // return nil.
-func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
+func (c mirrorCopier) Copy(ctx context.Context, ref string) (pacing.CopyOutcome, error) {
+	return pacing.Copied, c.copyImage(ctx, ref)
+}
+
+func (c mirrorCopier) copyImage(ctx context.Context, ref string) error {
 	r := c.r
 	log := resourceLog(logf.FromContext(ctx), routing.KindImageMirror, c.name).WithValues("image", ref, "registry", c.host)
 	st := r.state(c.name)
