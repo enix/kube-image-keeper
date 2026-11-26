@@ -12,7 +12,7 @@ import (
 )
 
 // monitorMetrics are the series an ImageMonitor exports. The HELP texts are those of
-// docs/v3/observability.md.
+// docs/v3/observability.md, but for the state label, which docs/observability.md describes.
 type monitorMetrics struct {
 	images            *imagemetrics.Exporter
 	originUnavailable *prometheus.GaugeVec
@@ -20,8 +20,8 @@ type monitorMetrics struct {
 
 	mu sync.Mutex
 	// failing are the label values of the kuik_image_origin_unavailable series of each
-	// monitor, so that an image answering again deletes its series.
-	failing map[string]map[[3]string]bool
+	// monitor, so that an image answering again, or changing state, deletes its series.
+	failing map[string]map[[4]string]bool
 	// failingAlternatives are the label values of the kuik_image_alternative_unavailable series
 	// of each monitor.
 	failingAlternatives map[string]map[alternativeFailure]bool
@@ -38,14 +38,16 @@ func newMonitorMetrics(registerer prometheus.Registerer) (*monitorMetrics, error
 		images: images,
 		originUnavailable: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "kuik_image_origin_unavailable",
-			Help: "1 while a tracked origin reference is failing its availability check",
-		}, []string{seriesKind, seriesName, seriesImage, seriesRegistry, seriesReason}),
+			Help: "1 while a tracked origin reference is failing its availability check. " +
+				"`state` is what the cluster does with it, as on kuik_images_tracked",
+		}, []string{seriesKind, seriesName, seriesImage, seriesRegistry, seriesReason, seriesState}),
 		altUnavailable: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "kuik_image_alternative_unavailable",
 			Help: "1 while a monitored alternative is failing its availability check. `image` is the alternative's own reference, " +
-				"`derived_from` the origin it would have served, `via` the resource that offered it",
-		}, []string{seriesKind, seriesName, seriesImage, seriesRegistry, seriesDerivedFrom, seriesVia, seriesReason}),
-		failing:             map[string]map[[3]string]bool{},
+				"`derived_from` the origin it would have served, `via` the resource that offered it, " +
+				"`state` what the cluster does with the alternative, as on kuik_images_tracked",
+		}, []string{seriesKind, seriesName, seriesImage, seriesRegistry, seriesDerivedFrom, seriesVia, seriesReason, seriesState}),
+		failing:             map[string]map[[4]string]bool{},
 		failingAlternatives: map[string]map[alternativeFailure]bool{},
 		alternatives:        map[string]bool{},
 	}
@@ -57,37 +59,46 @@ func newMonitorMetrics(registerer prometheus.Registerer) (*monitorMetrics, error
 	return m, nil
 }
 
+// originFailure is one origin failing its check.
+type originFailure struct {
+	reason kuikv1alpha1.CheckFailureReason
+	// state is what the cluster does with the origin, a state of kuik_images_tracked.
+	state string
+}
+
 // report exports the origin counts of the monitor name and one kuik_image_origin_unavailable
-// series per failing image, deleting the series of the failures that ended: deleting rather
-// than zeroing resolves an alert at once.
-func (m *monitorMetrics) report(name string, counts imagemetrics.Counts, failing map[string]kuikv1alpha1.CheckFailureReason) {
+// series per failing image, deleting the series of the failures that ended and of the states
+// an image left: deleting rather than zeroing resolves an alert at once.
+func (m *monitorMetrics) report(name string, counts imagemetrics.Counts, failing map[string]originFailure) {
 	m.images.SetCounts(kindImageMonitor, name, imagemetrics.ReferenceOrigin, counts)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	current := map[[3]string]bool{}
-	for image, reason := range failing {
-		labels := [3]string{image, registryOf(image), string(reason)}
+	current := map[[4]string]bool{}
+	for image, failure := range failing {
+		labels := [4]string{image, registryOf(image), string(failure.reason), failure.state}
 		current[labels] = true
-		m.originUnavailable.WithLabelValues(kindImageMonitor, name, labels[0], labels[1], labels[2]).Set(1)
+		m.originUnavailable.WithLabelValues(kindImageMonitor, name, labels[0], labels[1], labels[2], labels[3]).Set(1)
 	}
 	for labels := range m.failing[name] {
 		if !current[labels] {
-			m.originUnavailable.DeleteLabelValues(kindImageMonitor, name, labels[0], labels[1], labels[2])
+			m.originUnavailable.DeleteLabelValues(kindImageMonitor, name, labels[0], labels[1], labels[2], labels[3])
 		}
 	}
 	m.failing[name] = current
 }
 
-// The labels only kuik_image_alternative_unavailable carries.
+// The labels only the series of an unavailable origin or alternative carry: seriesState on
+// both, the others on kuik_image_alternative_unavailable alone.
 const (
+	seriesState       = "state"
 	seriesDerivedFrom = "derived_from"
 	seriesVia         = "via"
 )
 
 // reportAlternatives exports the alternatives counts of the monitor name, nil when it monitors
 // none, and one kuik_image_alternative_unavailable series per failing alternative and origin,
-// deleting the series of the failures that ended.
+// deleting the series of the failures that ended and of the states an alternative left.
 func (m *monitorMetrics) reportAlternatives(name string, counts *imagemetrics.Counts, failing []alternativeFailure) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -104,11 +115,11 @@ func (m *monitorMetrics) reportAlternatives(name string, counts *imagemetrics.Co
 	current := map[alternativeFailure]bool{}
 	for _, f := range failing {
 		current[f] = true
-		m.altUnavailable.WithLabelValues(kindImageMonitor, name, f.image, registryOf(f.image), f.origin, f.via, string(f.reason)).Set(1)
+		m.altUnavailable.WithLabelValues(kindImageMonitor, name, f.image, registryOf(f.image), f.origin, f.via, string(f.reason), f.state).Set(1)
 	}
 	for f := range m.failingAlternatives[name] {
 		if !current[f] {
-			m.altUnavailable.DeleteLabelValues(kindImageMonitor, name, f.image, registryOf(f.image), f.origin, f.via, string(f.reason))
+			m.altUnavailable.DeleteLabelValues(kindImageMonitor, name, f.image, registryOf(f.image), f.origin, f.via, string(f.reason), f.state)
 		}
 	}
 	m.failingAlternatives[name] = current

@@ -234,16 +234,28 @@ func (o *alternativeOffers) of(pods []*corev1.Pod, retained []kuikv1alpha1.Retai
 func alternativeCounts(alternatives map[string]*monitoredAlternative) imagemetrics.Counts {
 	var counts imagemetrics.Counts
 	for _, a := range alternatives {
-		switch {
-		case a.running:
+		switch a.state() {
+		case imagemetrics.StateRunning:
 			counts.Running++
-		case a.live:
+		case imagemetrics.StateStandby:
 			counts.Standby++
 		default:
 			counts.Retained++
 		}
 	}
 	return counts
+}
+
+// state is the population of alternativeCounts that a counts in, a state of
+// kuik_images_tracked.
+func (a *monitoredAlternative) state() string {
+	switch {
+	case a.running:
+		return imagemetrics.StateRunning
+	case a.live:
+		return imagemetrics.StateStandby
+	}
+	return imagemetrics.StateRetained
 }
 
 // alternativesStatus is the images.alternatives block of counts.
@@ -293,6 +305,8 @@ type alternativeReport struct {
 type alternativeFailure struct {
 	image, origin, via string
 	reason             kuikv1alpha1.CheckFailureReason
+	// state is what the cluster does with the alternative, whatever the origin.
+	state string
 }
 
 // checkAlternatives counts the alternatives by the verdict of their last check, and lists the
@@ -316,7 +330,7 @@ func checkAlternatives(alternatives map[string]*monitoredAlternative, verdicts m
 			report.entries = append(report.entries, kuikv1alpha1.UnavailableAlternative{
 				Ref: ref, DerivedFrom: origin, Via: via, Reason: v.reason, Since: metav1.NewTime(v.since),
 			})
-			report.failing = append(report.failing, alternativeFailure{image: ref, origin: origin, via: via, reason: v.reason})
+			report.failing = append(report.failing, alternativeFailure{image: ref, origin: origin, via: via, reason: v.reason, state: a.state()})
 		}
 	}
 	slices.SortFunc(report.entries, func(a, b kuikv1alpha1.UnavailableAlternative) int {
