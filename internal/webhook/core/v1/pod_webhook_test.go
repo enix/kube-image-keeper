@@ -999,6 +999,12 @@ var _ = Describe("Pod webhook", func() {
 	})
 
 	Context("through the API server", func() {
+		// The served webhook lists the three kinds before it routes anything: a spec that runs
+		// first, or alone, would otherwise spend its first wait on that listing.
+		BeforeEach(func() {
+			Eventually(func() error { return served.RoutingIndexReady(nil) }).WithTimeout(10 * time.Second).Should(Succeed())
+		})
+
 		// routedImage creates a pod of ref(origin) in namespace and returns its image.
 		routedImage := func(namespace string) func() string {
 			return func() string { return create(newPod(namespace, ref(origin))).Spec.Containers[0].Image }
