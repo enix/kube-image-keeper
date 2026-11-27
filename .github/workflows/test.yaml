@@ -31,3 +31,6 @@ jobs:
 
       - name: Run tests
         run: task test
+
+      - name: Run the tests of the Prometheus rules
+        run: task test-rules
