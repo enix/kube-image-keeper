@@ -366,19 +366,50 @@ export function applySourceChange(event, file) {
   for (const { slug, ref } of TARGETS) {
     if (m.root === DOCS_ROOT && ref !== null) continue;
     const dest = path.join(destOf(slug), m.rel);
-    let source = file;
-    if (removed) {
-      rmSync(dest, { recursive: true, force: true });
-      // If overlay content (file or directory) is removed but ../docs still
-      // defines the same path, fall back to the ../docs version.
-      source = path.join(DOCS_ROOT, m.rel);
-      if (m.root !== OVERLAY_ROOT || ref !== null || !existsSync(source)) continue;
+    if (!removed) {
+      mkdirSync(path.dirname(dest), { recursive: true });
+      cpSync(file, dest, { recursive: true });
+      processPages(dest, slug);
+      continue;
     }
-    mkdirSync(path.dirname(dest), { recursive: true });
-    cpSync(source, dest, { recursive: true });
-    processPages(dest, slug);
+    rmSync(dest, { recursive: true, force: true });
+    // Put back what the full sync would leave at that path. Removed overlay
+    // content (file or directory): the page of the target's own docs/ tree, if
+    // it has one. Removed ../docs content: the overlay page that hid it, if any.
+    let restored = false;
+    if (m.root === OVERLAY_ROOT) {
+      restored = restoreFromTree(ref, m.rel, dest);
+    } else {
+      const hiding = path.join(OVERLAY_ROOT, m.rel);
+      if (existsSync(hiding)) {
+        mkdirSync(path.dirname(dest), { recursive: true });
+        cpSync(hiding, dest, { recursive: true });
+        restored = true;
+      }
+    }
+    if (restored) processPages(dest, slug);
   }
   return true;
+}
+
+// Copy `rel` of the docs/ tree of `ref` (the working tree when null, else its
+// branch, read as the full sync does) to `dest`, leaving out what the full sync
+// leaves out. Returns true if something was copied.
+function restoreFromTree(ref, rel, dest) {
+  if (rel === VERSION_CONFIG_FILE || isUnpublished(rel)) return false;
+  return withDocsTree(ref, (srcDocs) => {
+    const source = path.join(srcDocs, rel);
+    if (!existsSync(source)) return false;
+    mkdirSync(path.dirname(dest), { recursive: true });
+    cpSync(source, dest, {
+      recursive: true,
+      filter: (src) => {
+        const r = path.relative(srcDocs, src);
+        return r !== VERSION_CONFIG_FILE && !isUnpublished(r);
+      },
+    });
+    return true;
+  });
 }
 
 // Run directly: `node scripts/sync-docs.mjs`
