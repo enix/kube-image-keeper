@@ -1,0 +1,137 @@
+# Unit tests of the kuik.registry rules, run by `task test-rules` on the rules as the chart
+# renders them. The reconciler and the webhook both export kuik_registry_requests_total, each
+# for the requests it sent: the rules sum them.
+rule_files:
+  - rules.yaml
+evaluation_interval: 1m
+
+tests:
+  # One refused request a minute from each process, from 10m.
+  - name: KuikRegistryQuotaExceeded fires after 15 minutes of refused requests, the processes summed
+    interval: 1m
+    input_series:
+      - series: 'kuik_registry_requests_total{registry="docker.io", operation="Check", result="QuotaExceeded", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '0x9 1+1x50'
+      - series: 'kuik_registry_requests_total{registry="docker.io", operation="Check", result="QuotaExceeded", job="kuik-webhook-metrics", namespace="kuik-system", service="kuik-webhook-metrics", endpoint="metrics", container="webhook", pod="kuik-webhook-a", instance="10.0.1.1:8080"}'
+        values: '0x9 1+1x50'
+    alert_rule_test:
+      - eval_time: 24m
+        alertname: KuikRegistryQuotaExceeded
+      - eval_time: 25m
+        alertname: KuikRegistryQuotaExceeded
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              registry: docker.io
+              operation: Check
+              result: QuotaExceeded
+              namespace: kuik-system
+            exp_annotations:
+              summary: A registry rate-limits kuik.
+              description: >-
+                docker.io rate-limits the Check requests of kuik. Lengthen the matching interval of
+                the host, or authenticate for a larger quota.
+
+  # One request refused between the samples of 9m and 10m, and requests refused every minute
+  # for another reason.
+  - name: KuikRegistryQuotaExceeded stays silent on one refused request, and on requests refused as Unauthorized
+    interval: 1m
+    input_series:
+      - series: 'kuik_registry_requests_total{registry="docker.io", operation="Check", result="QuotaExceeded", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '0x9 1x50'
+      - series: 'kuik_registry_requests_total{registry="docker.io", operation="Check", result="Unauthorized", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '0+1x60'
+    alert_rule_test:
+      - eval_time: 24m
+        alertname: KuikRegistryQuotaExceeded
+      - eval_time: 25m
+        alertname: KuikRegistryQuotaExceeded
+      - eval_time: 40m
+        alertname: KuikRegistryQuotaExceeded
+
+  # From 10m, docker.io leaves 6 requests of the reconciler unanswered a minute and answers
+  # 4 of the webhook, while quay.io answers every request.
+  - name: KuikRegistryUnreachable fires after 10 minutes of more than half the requests to a host unanswered
+    interval: 1m
+    input_series:
+      - series: 'kuik_registry_requests_total{registry="docker.io", operation="Check", result="Unreachable", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '0x9 6+6x50'
+      - series: 'kuik_registry_requests_total{registry="docker.io", operation="Check", result="Ok", job="kuik-webhook-metrics", namespace="kuik-system", service="kuik-webhook-metrics", endpoint="metrics", container="webhook", pod="kuik-webhook-a", instance="10.0.1.1:8080"}'
+        values: '0x9 4+4x50'
+      - series: 'kuik_registry_requests_total{registry="quay.io", operation="Copy", result="Ok", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '0x9 10+10x50'
+    alert_rule_test:
+      - eval_time: 19m
+        alertname: KuikRegistryUnreachable
+      - eval_time: 20m
+        alertname: KuikRegistryUnreachable
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              registry: docker.io
+              namespace: kuik-system
+            exp_annotations:
+              summary: A registry does not answer kuik.
+              description: >-
+                docker.io does not answer 60% of the requests of kuik. kuik blocks no pod, and
+                routing covers an origin that has an alternative: check the network path from the
+                kuik pods and the tls configuration of the host.
+
+  # docker.io answers 5 requests in 10. quay.io left requests unanswered before 0 and takes
+  # none since: 0 over 0 requests is no ratio.
+  - name: KuikRegistryUnreachable stays silent on half the requests unanswered, and on a host that takes no request
+    interval: 1m
+    input_series:
+      - series: 'kuik_registry_requests_total{registry="docker.io", operation="Check", result="Unreachable", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '0+5x60'
+      - series: 'kuik_registry_requests_total{registry="docker.io", operation="Check", result="Ok", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '0+5x60'
+      - series: 'kuik_registry_requests_total{registry="quay.io", operation="Check", result="Unreachable", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '40x60'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: KuikRegistryUnreachable
+      - eval_time: 1h
+        alertname: KuikRegistryUnreachable
+
+  # 2 images refused, the first one tracked by 2 monitors.
+  - name: KuikRegistryUnauthorized fires after 15 minutes and counts an image once, whatever the monitors tracking it
+    interval: 1m
+    input_series:
+      - series: 'kuik_image_origin_unavailable{kind="ImageMonitor", name="all", image="ghcr.io/org/private:1", registry="ghcr.io", reason="Unauthorized", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '1x30'
+      - series: 'kuik_image_origin_unavailable{kind="ImageMonitor", name="team-a", image="ghcr.io/org/private:1", registry="ghcr.io", reason="Unauthorized", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '1x30'
+      - series: 'kuik_image_origin_unavailable{kind="ImageMonitor", name="all", image="ghcr.io/org/private:2", registry="ghcr.io", reason="Unauthorized", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '1x30'
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: KuikRegistryUnauthorized
+      - eval_time: 15m
+        alertname: KuikRegistryUnauthorized
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              registry: ghcr.io
+              reason: Unauthorized
+              job: kuik-reconciler-metrics
+              namespace: kuik-system
+            exp_annotations:
+              summary: A registry refuses images to kuik as Unauthorized.
+              description: >-
+                2 images of ghcr.io fail their check with every credential kuik holds, the first
+                refused, listed in status.unavailableImages of the ImageMonitors. Give the pods an
+                imagePullSecret for them or declare a fallbackAuth entry.
+
+  - name: KuikRegistryUnauthorized stays silent on another reason, or when a credential is added within 15 minutes
+    interval: 1m
+    input_series:
+      - series: 'kuik_image_origin_unavailable{kind="ImageMonitor", name="all", image="ghcr.io/org/gone:1", registry="ghcr.io", reason="ManifestNotFound", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '1x30'
+      - series: 'kuik_image_origin_unavailable{kind="ImageMonitor", name="all", image="ghcr.io/org/private:1", registry="ghcr.io", reason="Unauthorized", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '1x14 stale'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: KuikRegistryUnauthorized
+      - eval_time: 30m
+        alertname: KuikRegistryUnauthorized

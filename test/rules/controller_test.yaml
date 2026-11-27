@@ -1,0 +1,216 @@
+# Unit tests of the kuik.controller rules, run by `task test-rules` on the rules as the chart
+# renders them, so with the default thresholds: a p99 of 1 s, 300 s in a workqueue. The rules
+# read controller-runtime series, which any operator exports: only the targets that also
+# export kuik_build_info count.
+rule_files:
+  - rules.yaml
+evaluation_interval: 1m
+
+tests:
+  # 10 admissions a minute, every one between 1 s and 2.5 s.
+  - name: KuikWebhookLatencyHigh fires once the p99 of the kuik webhook has been over 1 second for 10 minutes
+    interval: 1m
+    input_series:
+      - series: 'kuik_build_info{version="3.1.0", revision="0123abc", built="2026-11-02T10:00:00Z", goversion="go1.26.0", goos="linux", goarch="amd64", job="kuik-webhook-metrics", namespace="kuik-system", service="kuik-webhook-metrics", endpoint="metrics", container="webhook", pod="kuik-webhook-a", instance="10.0.1.1:8080"}'
+        values: '1x30'
+      - series: 'controller_runtime_webhook_latency_seconds_bucket{webhook="/mutate--v1-pod", le="0.5", job="kuik-webhook-metrics", namespace="kuik-system", service="kuik-webhook-metrics", endpoint="metrics", container="webhook", pod="kuik-webhook-a", instance="10.0.1.1:8080"}'
+        values: '0x30'
+      - series: 'controller_runtime_webhook_latency_seconds_bucket{webhook="/mutate--v1-pod", le="1", job="kuik-webhook-metrics", namespace="kuik-system", service="kuik-webhook-metrics", endpoint="metrics", container="webhook", pod="kuik-webhook-a", instance="10.0.1.1:8080"}'
+        values: '0x30'
+      - series: 'controller_runtime_webhook_latency_seconds_bucket{webhook="/mutate--v1-pod", le="2.5", job="kuik-webhook-metrics", namespace="kuik-system", service="kuik-webhook-metrics", endpoint="metrics", container="webhook", pod="kuik-webhook-a", instance="10.0.1.1:8080"}'
+        values: '0+10x30'
+      - series: 'controller_runtime_webhook_latency_seconds_bucket{webhook="/mutate--v1-pod", le="+Inf", job="kuik-webhook-metrics", namespace="kuik-system", service="kuik-webhook-metrics", endpoint="metrics", container="webhook", pod="kuik-webhook-a", instance="10.0.1.1:8080"}'
+        values: '0+10x30'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: KuikWebhookLatencyHigh
+      - eval_time: 11m
+        alertname: KuikWebhookLatencyHigh
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: kuik-webhook-metrics
+              namespace: kuik-system
+            exp_annotations:
+              summary: The kuik webhook is slow.
+              description: >-
+                The webhook answers in 2.485s at p99, and every pod creation slows down with it.
+                Lower webhook.availabilityCheck.timeout in the global config first.
+
+  # 1000 admissions a minute, 995 of them under 1 s.
+  - name: KuikWebhookLatencyHigh stays silent while 99% of the admissions take under 1 second
+    interval: 1m
+    input_series:
+      - series: 'kuik_build_info{version="3.1.0", revision="0123abc", built="2026-11-02T10:00:00Z", goversion="go1.26.0", goos="linux", goarch="amd64", job="kuik-webhook-metrics", namespace="kuik-system", service="kuik-webhook-metrics", endpoint="metrics", container="webhook", pod="kuik-webhook-a", instance="10.0.1.1:8080"}'
+        values: '1x30'
+      - series: 'controller_runtime_webhook_latency_seconds_bucket{webhook="/mutate--v1-pod", le="0.5", job="kuik-webhook-metrics", namespace="kuik-system", service="kuik-webhook-metrics", endpoint="metrics", container="webhook", pod="kuik-webhook-a", instance="10.0.1.1:8080"}'
+        values: '0x30'
+      - series: 'controller_runtime_webhook_latency_seconds_bucket{webhook="/mutate--v1-pod", le="1", job="kuik-webhook-metrics", namespace="kuik-system", service="kuik-webhook-metrics", endpoint="metrics", container="webhook", pod="kuik-webhook-a", instance="10.0.1.1:8080"}'
+        values: '0+995x30'
+      - series: 'controller_runtime_webhook_latency_seconds_bucket{webhook="/mutate--v1-pod", le="2.5", job="kuik-webhook-metrics", namespace="kuik-system", service="kuik-webhook-metrics", endpoint="metrics", container="webhook", pod="kuik-webhook-a", instance="10.0.1.1:8080"}'
+        values: '0+1000x30'
+      - series: 'controller_runtime_webhook_latency_seconds_bucket{webhook="/mutate--v1-pod", le="+Inf", job="kuik-webhook-metrics", namespace="kuik-system", service="kuik-webhook-metrics", endpoint="metrics", container="webhook", pod="kuik-webhook-a", instance="10.0.1.1:8080"}'
+        values: '0+1000x30'
+    alert_rule_test:
+      - eval_time: 11m
+        alertname: KuikWebhookLatencyHigh
+      - eval_time: 30m
+        alertname: KuikWebhookLatencyHigh
+
+  # The slow webhook of another operator, and one at the address of the kuik webhook in another
+  # cluster: the rules match kuik_build_info on cluster and instance. Both answer between 1 s
+  # and 2.5 s, as the kuik webhook of the firing case does: a p99 of 2.485 s.
+  - name: KuikWebhookLatencyHigh stays silent on the slow webhook of a target that is not kuik
+    interval: 1m
+    input_series:
+      - series: 'kuik_build_info{version="3.1.0", revision="0123abc", built="2026-11-02T10:00:00Z", goversion="go1.26.0", goos="linux", goarch="amd64", cluster="a", job="kuik-webhook-metrics", namespace="kuik-system", service="kuik-webhook-metrics", endpoint="metrics", container="webhook", pod="kuik-webhook-a", instance="10.0.1.1:8080"}'
+        values: '1x30'
+      - series: 'controller_runtime_webhook_latency_seconds_bucket{webhook="/validate", le="1", cluster="a", job="other-operator", namespace="other", service="other-operator", endpoint="metrics", container="manager", pod="other-operator-a", instance="10.0.9.1:8080"}'
+        values: '0x30'
+      - series: 'controller_runtime_webhook_latency_seconds_bucket{webhook="/validate", le="2.5", cluster="a", job="other-operator", namespace="other", service="other-operator", endpoint="metrics", container="manager", pod="other-operator-a", instance="10.0.9.1:8080"}'
+        values: '0+10x30'
+      - series: 'controller_runtime_webhook_latency_seconds_bucket{webhook="/validate", le="+Inf", cluster="a", job="other-operator", namespace="other", service="other-operator", endpoint="metrics", container="manager", pod="other-operator-a", instance="10.0.9.1:8080"}'
+        values: '0+10x30'
+      - series: 'controller_runtime_webhook_latency_seconds_bucket{webhook="/validate", le="1", cluster="b", job="other-operator", namespace="other", service="other-operator", endpoint="metrics", container="manager", pod="other-operator-a", instance="10.0.1.1:8080"}'
+        values: '0x30'
+      - series: 'controller_runtime_webhook_latency_seconds_bucket{webhook="/validate", le="2.5", cluster="b", job="other-operator", namespace="other", service="other-operator", endpoint="metrics", container="manager", pod="other-operator-a", instance="10.0.1.1:8080"}'
+        values: '0+10x30'
+      - series: 'controller_runtime_webhook_latency_seconds_bucket{webhook="/validate", le="+Inf", cluster="b", job="other-operator", namespace="other", service="other-operator", endpoint="metrics", container="manager", pod="other-operator-a", instance="10.0.1.1:8080"}'
+        values: '0+10x30'
+    alert_rule_test:
+      - eval_time: 11m
+        alertname: KuikWebhookLatencyHigh
+      - eval_time: 30m
+        alertname: KuikWebhookLatencyHigh
+
+  # One reconciliation in error a minute from 10m.
+  - name: KuikReconcileErrors fires after 15 minutes of reconciliations in error
+    interval: 1m
+    input_series:
+      - series: 'kuik_build_info{version="3.1.0", revision="0123abc", built="2026-11-02T10:00:00Z", goversion="go1.26.0", goos="linux", goarch="amd64", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '1x60'
+      - series: 'controller_runtime_reconcile_errors_total{controller="imagemirror", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '0x9 1+1x50'
+      - series: 'controller_runtime_reconcile_errors_total{controller="imagemonitor", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '0x60'
+    alert_rule_test:
+      - eval_time: 24m
+        alertname: KuikReconcileErrors
+      - eval_time: 25m
+        alertname: KuikReconcileErrors
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              controller: imagemirror
+              job: kuik-reconciler-metrics
+              namespace: kuik-system
+            exp_annotations:
+              summary: A kuik controller returns errors.
+              description: >-
+                The imagemirror controller fails its reconciliations: the statuses of its kind go
+                stale. Read the Reconciler error lines of the logs.
+
+  # One reconciliation of kuik in error between the samples of 9m and 10m, and a controller of
+  # another operator in error every minute.
+  - name: KuikReconcileErrors stays silent on one reconciliation in error, and on the errors of a target that is not kuik
+    interval: 1m
+    input_series:
+      - series: 'kuik_build_info{version="3.1.0", revision="0123abc", built="2026-11-02T10:00:00Z", goversion="go1.26.0", goos="linux", goarch="amd64", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '1x60'
+      - series: 'controller_runtime_reconcile_errors_total{controller="imagemirror", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '0x9 1x50'
+      - series: 'controller_runtime_reconcile_errors_total{controller="certificate", job="other-operator", namespace="other", service="other-operator", endpoint="metrics", container="manager", pod="other-operator-a", instance="10.0.9.1:8080"}'
+        values: '0+1x60'
+    alert_rule_test:
+      - eval_time: 24m
+        alertname: KuikReconcileErrors
+      - eval_time: 25m
+        alertname: KuikReconcileErrors
+      - eval_time: 40m
+        alertname: KuikReconcileErrors
+
+  # KNOWN DEFECT, pinned here until the rule is fixed: the alert should keep firing.
+  #
+  # The reconciliation of one resource fails for good from 10m, and nothing else requeues it.
+  # controller-runtime retries with its default backoff: 5 ms doubled after each failure, up
+  # to 1000 s. The counter below is that schedule as a scrape every minute reads it: 18
+  # failures in the first 11 minutes, 1 more 11 minutes later, then 1 every 16m40s. That is
+  # longer than the 15 minutes of the rate window, which is also the `for` of the alert:
+  # between 2 failures the rate reads 0 for 2 or 3 evaluations and the alert starts over. It
+  # fires at 26m, on the failures of the first minutes, clears at 46m and never fires again,
+  # while the resource is still not reconciled.
+  - name: 'KNOWN DEFECT: KuikReconcileErrors clears after 20 minutes while one resource keeps failing at the retry backoff'
+    interval: 1m
+    input_series:
+      - series: 'kuik_build_info{version="3.1.0", revision="0123abc", built="2026-11-02T10:00:00Z", goversion="go1.26.0", goos="linux", goarch="amd64", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '1x150'
+      - series: 'controller_runtime_reconcile_errors_total{controller="imagemirror", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '0x10 14 15 16x2 17x4 18x10 19x16 20x16 21x15 22x16 23x16 24x30'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: KuikReconcileErrors
+      - eval_time: 26m
+        alertname: KuikReconcileErrors
+        exp_alerts: &errors
+          - exp_labels:
+              severity: warning
+              controller: imagemirror
+              job: kuik-reconciler-metrics
+              namespace: kuik-system
+            exp_annotations:
+              summary: A kuik controller returns errors.
+              description: >-
+                The imagemirror controller fails its reconciliations: the statuses of its kind go
+                stale. Read the Reconciler error lines of the logs.
+      - eval_time: 45m
+        alertname: KuikReconcileErrors
+        exp_alerts: *errors
+      # From here on the alert should fire, and does not.
+      - eval_time: 46m
+        alertname: KuikReconcileErrors
+      - eval_time: 1h30m
+        alertname: KuikReconcileErrors
+      - eval_time: 2h
+        alertname: KuikReconcileErrors
+
+  # The item in progress passes 300 s at 10m and stays in progress.
+  - name: KuikWorkqueueBacklog fires once an item of a kuik workqueue has been in progress over 300 seconds for 30 minutes
+    interval: 1m
+    input_series:
+      - series: 'kuik_build_info{version="3.1.0", revision="0123abc", built="2026-11-02T10:00:00Z", goversion="go1.26.0", goos="linux", goarch="amd64", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '1x60'
+      - series: 'workqueue_unfinished_work_seconds{name="imagemonitor", controller="imagemonitor", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '0x9 301+60x50'
+    alert_rule_test:
+      - eval_time: 39m
+        alertname: KuikWorkqueueBacklog
+      - eval_time: 40m
+        alertname: KuikWorkqueueBacklog
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              name: imagemonitor
+              controller: imagemonitor
+              job: kuik-reconciler-metrics
+              namespace: kuik-system
+            exp_annotations:
+              summary: A kuik reconciliation hangs.
+              description: >-
+                The imagemonitor workqueue has an item in progress for 35m 1s, usually on a registry
+                that does not answer. Find the resource in the reconciler logs and check the
+                registries it reads.
+
+  - name: KuikWorkqueueBacklog stays silent on an item in progress for 300 seconds, and on the workqueue of a target that is not kuik
+    interval: 1m
+    input_series:
+      - series: 'kuik_build_info{version="3.1.0", revision="0123abc", built="2026-11-02T10:00:00Z", goversion="go1.26.0", goos="linux", goarch="amd64", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '1x60'
+      - series: 'workqueue_unfinished_work_seconds{name="imagemonitor", controller="imagemonitor", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '300x60'
+      - series: 'workqueue_unfinished_work_seconds{name="certificate", controller="certificate", job="other-operator", namespace="other", service="other-operator", endpoint="metrics", container="manager", pod="other-operator-a", instance="10.0.9.1:8080"}'
+        values: '5000x60'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: KuikWorkqueueBacklog
+      - eval_time: 1h
+        alertname: KuikWorkqueueBacklog

@@ -1,0 +1,318 @@
+# Unit tests of the kuik.pacing rules, run by `task test-rules` on the rules as the chart
+# renders them. The shared lap of a ring is its images times the rings of its host times the
+# check interval of the host: see docs/concepts/pacing.md, "Watching the pace".
+rule_files:
+  - rules.yaml
+evaluation_interval: 1m
+
+tests:
+  # docker.io holds 3 rings and checks every 60 s, quay.io 1 ring and every 30 s.
+  - name: kuik:check_lap_ratio is the last lap of a ring over its shared lap
+    interval: 1m
+    input_series:
+      - series: 'kuik_registry_interval_seconds{registry="docker.io", operation="Check", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '60x10'
+      # The copy interval of the host does not count.
+      - series: 'kuik_registry_interval_seconds{registry="docker.io", operation="Copy", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '600x10'
+      - series: 'kuik_registry_interval_seconds{registry="quay.io", operation="Check", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '30x10'
+      # 10 images: a shared lap of 10 * 3 * 60 = 1800 s.
+      - series: 'kuik_check_ring_images{kind="ImageMonitor", name="all", registry="docker.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '10x10'
+      - series: 'kuik_check_cycle_duration_seconds{kind="ImageMonitor", name="all", registry="docker.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '2700x10'
+      # 5 images: a shared lap of 5 * 3 * 60 = 900 s.
+      - series: 'kuik_check_ring_images{kind="ImageMonitor", name="team-a", registry="docker.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '5x10'
+      - series: 'kuik_check_cycle_duration_seconds{kind="ImageMonitor", name="team-a", registry="docker.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '450x10'
+      # A ring that has not completed a lap yet has no ratio, and still takes its turn.
+      - series: 'kuik_check_ring_images{kind="ImageMirror", name="harbor", registry="docker.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '20x10'
+      # 4 images: a shared lap of 4 * 1 * 30 = 120 s.
+      - series: 'kuik_check_ring_images{kind="ImageMonitor", name="all", registry="quay.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '4x10'
+      - series: 'kuik_check_cycle_duration_seconds{kind="ImageMonitor", name="all", registry="quay.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '120x10'
+    promql_expr_test:
+      - expr: kuik:check_lap_ratio
+        eval_time: 5m
+        exp_samples:
+          - labels: 'kuik:check_lap_ratio{kind="ImageMonitor", name="all", registry="docker.io", job="kuik-reconciler-metrics", namespace="kuik-system"}'
+            value: 1.5
+          - labels: 'kuik:check_lap_ratio{kind="ImageMonitor", name="team-a", registry="docker.io", job="kuik-reconciler-metrics", namespace="kuik-system"}'
+            value: 0.5
+          - labels: 'kuik:check_lap_ratio{kind="ImageMonitor", name="all", registry="quay.io", job="kuik-reconciler-metrics", namespace="kuik-system"}'
+            value: 1
+
+  # 10 images, 1 ring, 60 s: a shared lap of 600 s. 2 rings would halve the ratio.
+  - name: kuik:check_lap_ratio counts a ring once while two reconciler pods export it
+    interval: 1m
+    input_series:
+      - series: 'kuik_registry_interval_seconds{registry="docker.io", operation="Check", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '60x10'
+      - series: 'kuik_registry_interval_seconds{registry="docker.io", operation="Check", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-b", instance="10.0.0.2:8080"}'
+        values: '60x10'
+      - series: 'kuik_check_ring_images{kind="ImageMonitor", name="all", registry="docker.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '10x10'
+      - series: 'kuik_check_ring_images{kind="ImageMonitor", name="all", registry="docker.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-b", instance="10.0.0.2:8080"}'
+        values: '10x10'
+      - series: 'kuik_check_cycle_duration_seconds{kind="ImageMonitor", name="all", registry="docker.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '1200x10'
+      - series: 'kuik_check_cycle_duration_seconds{kind="ImageMonitor", name="all", registry="docker.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-b", instance="10.0.0.2:8080"}'
+        values: '1200x10'
+    promql_expr_test:
+      - expr: kuik:check_lap_ratio
+        eval_time: 5m
+        exp_samples:
+          - labels: 'kuik:check_lap_ratio{kind="ImageMonitor", name="all", registry="docker.io", job="kuik-reconciler-metrics", namespace="kuik-system"}'
+            value: 2
+
+  # kuik drops a ring left with no image, so it exports none: the rule guards the count of
+  # rings all the same. 3 images, 1 ring that counts, 30 s: a shared lap of 90 s.
+  - name: kuik:check_lap_ratio leaves a ring of 0 images out of the rings of its host
+    interval: 1m
+    input_series:
+      - series: 'kuik_registry_interval_seconds{registry="ghcr.io", operation="Check", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '30x10'
+      - series: 'kuik_check_ring_images{kind="ImageMonitor", name="all", registry="ghcr.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '3x10'
+      - series: 'kuik_check_cycle_duration_seconds{kind="ImageMonitor", name="all", registry="ghcr.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '90x10'
+      - series: 'kuik_check_ring_images{kind="ImageMonitor", name="team-a", registry="ghcr.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '0x10'
+    promql_expr_test:
+      - expr: kuik:check_lap_ratio
+        eval_time: 5m
+        exp_samples:
+          - labels: 'kuik:check_lap_ratio{kind="ImageMonitor", name="all", registry="ghcr.io", job="kuik-reconciler-metrics", namespace="kuik-system"}'
+            value: 1
+
+  # A copy window that succeeds sends 2 Ok requests under Copy. docker.io copies every 60 s
+  # and takes 2 Ok a minute: every window. quay.io copies every 30 s and takes 1 Ok a minute:
+  # 1 window in 4.
+  - name: kuik:copy_budget_saturation is the share of the copy windows of a host used over the last hour
+    interval: 1m
+    input_series:
+      - series: 'kuik_registry_interval_seconds{registry="docker.io", operation="Copy", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '60x120'
+      - series: 'kuik_registry_interval_seconds{registry="quay.io", operation="Copy", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '30x120'
+      - series: 'kuik_registry_requests_total{registry="docker.io", operation="Copy", result="Ok", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '0+2x120'
+      - series: 'kuik_registry_requests_total{registry="quay.io", operation="Copy", result="Ok", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '0+1x120'
+      # Neither the requests that failed nor the checks count, whichever process sent them.
+      - series: 'kuik_registry_requests_total{registry="quay.io", operation="Copy", result="ManifestNotFound", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '0+5x120'
+      - series: 'kuik_registry_requests_total{registry="quay.io", operation="Check", result="Ok", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '0+5x120'
+      - series: 'kuik_registry_requests_total{registry="quay.io", operation="Check", result="Ok", job="kuik-webhook-metrics", namespace="kuik-system", service="kuik-webhook-metrics", endpoint="metrics", container="webhook", pod="kuik-webhook-a", instance="10.0.1.1:8080"}'
+        values: '0+5x120'
+    promql_expr_test:
+      - expr: kuik:copy_budget_saturation
+        eval_time: 2h
+        exp_samples:
+          - labels: 'kuik:copy_budget_saturation{registry="docker.io", operation="Copy", namespace="kuik-system"}'
+            value: 1
+          - labels: 'kuik:copy_budget_saturation{registry="quay.io", operation="Copy", namespace="kuik-system"}'
+            value: 0.25
+
+  # 10 images, 1 ring, 60 s: a shared lap of 600 s, and a last lap of 1500 s.
+  - name: KuikCheckLapOverrunning fires once the last lap of a ring has been over twice its shared lap for 1 hour
+    interval: 1m
+    input_series:
+      - series: 'kuik_registry_interval_seconds{registry="docker.io", operation="Check", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '60x90'
+      - series: 'kuik_check_ring_images{kind="ImageMonitor", name="all", registry="docker.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '10x90'
+      - series: 'kuik_check_cycle_duration_seconds{kind="ImageMonitor", name="all", registry="docker.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '1500x90'
+    alert_rule_test:
+      - eval_time: 59m
+        alertname: KuikCheckLapOverrunning
+      - eval_time: 1h
+        alertname: KuikCheckLapOverrunning
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              kind: ImageMonitor
+              name: all
+              registry: docker.io
+              job: kuik-reconciler-metrics
+              namespace: kuik-system
+            exp_annotations:
+              summary: A check ring runs slower than configured.
+              description: >-
+                The ring of ImageMonitor/all on docker.io laps in 2.5x the time the windows of its
+                host allow: windows are lost to checks that outlast check.interval, to failures or
+                to restarts. Check the reconciler logs for the host, or lengthen its check.interval.
+
+  # On docker.io a last lap of exactly twice the shared lap, on quay.io a slow lap followed
+  # by one that keeps pace within the hour.
+  - name: KuikCheckLapOverrunning stays silent on a lap of twice its shared lap, and on a slow lap made up for within 1 hour
+    interval: 1m
+    input_series:
+      - series: 'kuik_registry_interval_seconds{registry="docker.io", operation="Check", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '60x150'
+      - series: 'kuik_check_ring_images{kind="ImageMonitor", name="all", registry="docker.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '10x150'
+      - series: 'kuik_check_cycle_duration_seconds{kind="ImageMonitor", name="all", registry="docker.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '1200x150'
+      - series: 'kuik_registry_interval_seconds{registry="quay.io", operation="Check", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '60x150'
+      - series: 'kuik_check_ring_images{kind="ImageMonitor", name="all", registry="quay.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '10x150'
+      - series: 'kuik_check_cycle_duration_seconds{kind="ImageMonitor", name="all", registry="quay.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '1500x59 600x90'
+    alert_rule_test:
+      - eval_time: 1h
+        alertname: KuikCheckLapOverrunning
+      - eval_time: 2h
+        alertname: KuikCheckLapOverrunning
+
+  # 10 images, 1 ring, 60 s: a shared lap of 600 s. The lap in progress started at 0 and is
+  # 3 shared laps old after 30 minutes.
+  - name: KuikCheckLapStalled fires 15 minutes after the lap in progress is 3 shared laps old
+    interval: 1m
+    input_series:
+      - series: 'kuik_registry_interval_seconds{registry="docker.io", operation="Check", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '60x90'
+      - series: 'kuik_check_ring_images{kind="ImageMonitor", name="all", registry="docker.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '10x90'
+      - series: 'kuik_check_cycle_started_timestamp_seconds{kind="ImageMonitor", name="all", registry="docker.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '0x90'
+    alert_rule_test:
+      - eval_time: 45m
+        alertname: KuikCheckLapStalled
+      - eval_time: 46m
+        alertname: KuikCheckLapStalled
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              kind: ImageMonitor
+              name: all
+              registry: docker.io
+              job: kuik-reconciler-metrics
+              namespace: kuik-system
+            exp_annotations:
+              summary: A check ring is stuck.
+              description: >-
+                The lap of ImageMonitor/all on docker.io has not finished in 46m 0s: its images are
+                no longer checked. Check the reconciler logs for the host.
+
+  # The same ring as above, starting a lap every 20 minutes: twice its shared lap.
+  - name: KuikCheckLapStalled stays silent on a ring that laps slowly
+    interval: 1m
+    input_series:
+      - series: 'kuik_registry_interval_seconds{registry="docker.io", operation="Check", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '60x90'
+      - series: 'kuik_check_ring_images{kind="ImageMonitor", name="all", registry="docker.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '10x90'
+      - series: 'kuik_check_cycle_started_timestamp_seconds{kind="ImageMonitor", name="all", registry="docker.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '0x19 1200x19 2400x19 3600x19 4800x10'
+    alert_rule_test:
+      - eval_time: 46m
+        alertname: KuikCheckLapStalled
+      - eval_time: 1h30m
+        alertname: KuikCheckLapStalled
+
+  # The ring above shares docker.io with a second ring: its shared lap doubles to 1200 s, so
+  # its lap started at 0 is 3 shared laps old after 1 hour.
+  - name: KuikCheckLapStalled waits longer on a host that holds more rings
+    interval: 1m
+    input_series:
+      - series: 'kuik_registry_interval_seconds{registry="docker.io", operation="Check", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '60x90'
+      - series: 'kuik_check_ring_images{kind="ImageMonitor", name="all", registry="docker.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '10x90'
+      - series: 'kuik_check_cycle_started_timestamp_seconds{kind="ImageMonitor", name="all", registry="docker.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '0x90'
+      - series: 'kuik_check_ring_images{kind="ImageMonitor", name="team-a", registry="docker.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '5x90'
+      # A lap that started at the last scrape, every time.
+      - series: 'kuik_check_cycle_started_timestamp_seconds{kind="ImageMonitor", name="team-a", registry="docker.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '0+60x90'
+    alert_rule_test:
+      - eval_time: 1h15m
+        alertname: KuikCheckLapStalled
+      - eval_time: 1h16m
+        alertname: KuikCheckLapStalled
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              kind: ImageMonitor
+              name: all
+              registry: docker.io
+              job: kuik-reconciler-metrics
+              namespace: kuik-system
+            exp_annotations:
+              summary: A check ring is stuck.
+              description: >-
+                The lap of ImageMonitor/all on docker.io has not finished in 1h 16m 0s: its images
+                are no longer checked. Check the reconciler logs for the host.
+
+  # docker.io copies every 60 s and takes 2 Ok a minute under Copy: every window. 3 images
+  # miss at the destination from 1h30m.
+  - name: KuikCopyBudgetSaturated fires once a host has used every copy window for 2 hours while a mirror has a backlog
+    interval: 1m
+    input_series:
+      - series: 'kuik_registry_interval_seconds{registry="docker.io", operation="Copy", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '60x240'
+      - series: 'kuik_registry_requests_total{registry="docker.io", operation="Copy", result="Ok", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '0+2x240'
+      - series: 'kuik_images_checked{kind="ImageMirror", name="harbor", reference="copy", state="unavailable", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '0x89 3x150'
+      - series: 'kuik_images_checked{kind="ImageMirror", name="harbor", reference="copy", state="available", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '100x240'
+    alert_rule_test:
+      - eval_time: 3h29m
+        alertname: KuikCopyBudgetSaturated
+      - eval_time: 3h30m
+        alertname: KuikCopyBudgetSaturated
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              registry: docker.io
+              operation: Copy
+              namespace: kuik-system
+            exp_annotations:
+              summary: The copy windows of a registry cannot drain the mirror backlog.
+              description: >-
+                Every copy window of docker.io is used while mirrors have a backlog. Shorten
+                copy.interval for the host.
+
+  - name: KuikCopyBudgetSaturated stays silent on a host that uses every copy window while no mirror has a backlog
+    interval: 1m
+    input_series:
+      - series: 'kuik_registry_interval_seconds{registry="docker.io", operation="Copy", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '60x240'
+      - series: 'kuik_registry_requests_total{registry="docker.io", operation="Copy", result="Ok", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '0+2x240'
+      - series: 'kuik_images_checked{kind="ImageMirror", name="harbor", reference="copy", state="unavailable", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '0x240'
+      # The unavailable origins of an ImageMonitor are no copy backlog.
+      - series: 'kuik_images_checked{kind="ImageMonitor", name="all", reference="origin", state="unavailable", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '7x240'
+    alert_rule_test:
+      - eval_time: 3h30m
+        alertname: KuikCopyBudgetSaturated
+      - eval_time: 4h
+        alertname: KuikCopyBudgetSaturated
+
+  # 1.8 Ok a minute for a window every 60 s: 9 windows in 10.
+  - name: KuikCopyBudgetSaturated stays silent on a backlog while the host uses 90% of its copy windows
+    interval: 1m
+    input_series:
+      - series: 'kuik_registry_interval_seconds{registry="docker.io", operation="Copy", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '60x240'
+      - series: 'kuik_registry_requests_total{registry="docker.io", operation="Copy", result="Ok", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '0+1.8x240'
+      - series: 'kuik_images_checked{kind="ImageMirror", name="harbor", reference="copy", state="unavailable", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '3x240'
+    alert_rule_test:
+      - eval_time: 3h30m
+        alertname: KuikCopyBudgetSaturated
+      - eval_time: 4h
+        alertname: KuikCopyBudgetSaturated

@@ -1,0 +1,96 @@
+# Unit tests of the kuik.status rules, run by `task test-rules` on the rules as the chart
+# renders them.
+rule_files:
+  - rules.yaml
+evaluation_interval: 1m
+
+tests:
+  - name: KuikStatusListNearCapacity fires once a list has been 80% full for 30 minutes
+    interval: 1m
+    input_series:
+      - series: 'kuik_status_list_entries{kind="ImageMonitor", name="all", list="unavailableImages", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '400x60'
+      - series: 'kuik_status_list_capacity{kind="ImageMonitor", name="all", list="unavailableImages", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '500x60'
+    alert_rule_test:
+      - eval_time: 29m
+        alertname: KuikStatusListNearCapacity
+      - eval_time: 30m
+        alertname: KuikStatusListNearCapacity
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              kind: ImageMonitor
+              name: all
+              list: unavailableImages
+              job: kuik-reconciler-metrics
+              namespace: kuik-system
+            exp_annotations:
+              summary: A status list is nearly full.
+              description: >-
+                status.unavailableImages of ImageMonitor/all is 80% full and will soon leave entries
+                out; the metrics stay complete. Split the resource or fix what fills the list.
+
+  - name: KuikStatusListNearCapacity stays silent on a list 1 entry short of 80%, and on one that drains within 30 minutes
+    interval: 1m
+    input_series:
+      - series: 'kuik_status_list_entries{kind="ImageMonitor", name="all", list="unavailableImages", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '399x60'
+      - series: 'kuik_status_list_capacity{kind="ImageMonitor", name="all", list="unavailableImages", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '500x60'
+      - series: 'kuik_status_list_entries{kind="ImageMirror", name="harbor", list="failedImageCopies", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '500x29 20x30'
+      - series: 'kuik_status_list_capacity{kind="ImageMirror", name="harbor", list="failedImageCopies", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '500x60'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: KuikStatusListNearCapacity
+      - eval_time: 1h
+        alertname: KuikStatusListNearCapacity
+
+  # 3 entries left out between the samples of 9m and 10m.
+  - name: KuikStatusListDropping fires 5 minutes after a list left entries out and clears an hour after the last one
+    interval: 1m
+    input_series:
+      - series: 'kuik_status_list_dropped_total{kind="ImageMonitor", name="all", list="unavailableImages", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '0x9 3x80'
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: KuikStatusListDropping
+      - eval_time: 15m
+        alertname: KuikStatusListDropping
+        exp_alerts: &dropping
+          - exp_labels:
+              severity: critical
+              kind: ImageMonitor
+              name: all
+              list: unavailableImages
+              job: kuik-reconciler-metrics
+              namespace: kuik-system
+            exp_annotations:
+              summary: A status list leaves entries out.
+              description: >-
+                status.unavailableImages of ImageMonitor/all leaves entries out: kubectl no longer
+                shows every anomaly, the metrics do. Split the resource or fix what fills the list.
+      - eval_time: 68m
+        alertname: KuikStatusListDropping
+        exp_alerts: *dropping
+      - eval_time: 69m
+        alertname: KuikStatusListDropping
+
+  - name: KuikStatusListDropping stays silent on a list that holds every entry, and on a reconciler restart that resets the counter
+    interval: 1m
+    input_series:
+      - series: 'kuik_status_list_dropped_total{kind="ImageMonitor", name="all", list="unavailableImages", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '0x60'
+      - series: 'kuik_status_list_dropped_total{kind="ImageMirror", name="harbor", list="failedImageCopies", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '7x9 stale'
+      - series: 'kuik_status_list_dropped_total{kind="ImageMirror", name="harbor", list="failedImageCopies", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-b", instance="10.0.0.2:8080"}'
+        values: '_x10 0x50'
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: KuikStatusListDropping
+      - eval_time: 20m
+        alertname: KuikStatusListDropping
+      - eval_time: 1h
+        alertname: KuikStatusListDropping

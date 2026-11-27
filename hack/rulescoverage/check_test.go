@@ -1,6 +1,9 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -43,6 +46,21 @@ func reading(expr string) []file {
 var _ = Describe("Coverage of the Prometheus rules", func() {
 	It("accepts tests that evaluate every alert and every recording rule", func() {
 		Expect(check([]byte(rules), one(covering))).To(BeEmpty())
+	})
+
+	It("accepts the tests of the chart's own rules", func() {
+		chart, err := os.ReadFile("../../helm/kube-image-keeper/files/prometheus-rules.yaml")
+		Expect(err).NotTo(HaveOccurred())
+		paths, err := filepath.Glob("../../test/rules/*_test.yaml")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(paths).NotTo(BeEmpty())
+		tests := make([]file, 0, len(paths))
+		for _, path := range paths {
+			content, err := os.ReadFile(path)
+			Expect(err).NotTo(HaveOccurred())
+			tests = append(tests, file{name: path, content: content})
+		}
+		Expect(check(chart, tests)).To(BeEmpty())
 	})
 
 	It("counts the rules evaluated across the test files", func() {
