@@ -78,6 +78,20 @@ type driftChecker struct {
 	name string
 }
 
+// Identity names the credentials Check sends for ref: the pull secrets of the pod declaring
+// it and the transport of its origin.
+func (c driftChecker) Identity(ref string) string {
+	st := c.r.state(c.name)
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	// The same form as monitorChecker.Identity, so that equal credentials share a response.
+	id := originIdentity(st.origins[ref].Insecure) + "|"
+	if pod := st.declaring[ref]; pod != nil {
+		id += pullSecretsIdentity(pod)
+	}
+	return id
+}
+
 // Check reads the upstream tag ref with the credentials a node would pull it with.
 func (c driftChecker) Check(ctx context.Context, ref string) pacing.Response {
 	st := c.r.state(c.name)

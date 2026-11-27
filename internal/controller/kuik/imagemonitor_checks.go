@@ -2,10 +2,12 @@ package kuik
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -272,6 +274,66 @@ type monitorChecker struct {
 	name string
 }
 
+// checkInputs is what the credentials of a check of ref come from. An alternative is read with
+// the credentials of what offers it: the auth of its entries, then the pull secrets of the
+// pods of its origins, next to those of the pods declaring it when it is an origin too.
+func (m *monitorMemory) checkInputs(ref string) (pods []*corev1.Pod, isOrigin, insecureOrigin bool, sources []alternativeSource) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	pods = slices.Clone(m.declaring[ref])
+	if a, ok := m.alternatives[ref]; ok {
+		sources = a.sources()
+		for _, origin := range slices.Sorted(maps.Keys(a.origins)) {
+			pods = append(pods, m.declaring[origin]...)
+		}
+	}
+	return pods, m.origins[ref], m.insecureOrigins[ref], sources
+}
+
+// Identity names the credentials Check sends for ref: the transport and auth of each entry
+// offering it, each pair once, the transport of ref as an origin, and the pull secrets of the
+// pods. fallbackAuth is the same for every ring.
+func (c monitorChecker) Identity(ref string) string {
+	memory := c.r.monitor(c.name)
+	if memory == nil {
+		return ""
+	}
+	pods, isOrigin, insecureOrigin, sources := memory.checkInputs(ref)
+	var id []string
+	for _, source := range sources {
+		entryAuth, _ := json.Marshal(source.config.Auth)
+		id = append(id, fmt.Sprintf("entry:%t:%s", source.config.Insecure, entryAuth))
+	}
+	// Several origins offering ref through equal entries add no credential.
+	slices.Sort(id)
+	id = slices.Compact(id)
+	if isOrigin {
+		id = append(id, originIdentity(insecureOrigin))
+	}
+	return strings.Join(id, ",") + "|" + pullSecretsIdentity(pods...)
+}
+
+// originIdentity names the transport of a reference read as an origin. A secure one is named
+// too: Check reads it over HTTPS first, even when an insecure entry offers it as well.
+func originIdentity(insecure bool) string {
+	if insecure {
+		return "origin:insecure"
+	}
+	return "origin:secure"
+}
+
+// pullSecretsIdentity names the pull secrets of pods, each once, whatever pod declares it.
+func pullSecretsIdentity(pods ...*corev1.Pod) string {
+	var names []string
+	for _, pod := range pods {
+		for _, s := range pod.Spec.ImagePullSecrets {
+			names = append(names, pod.Namespace+"/"+s.Name)
+		}
+	}
+	slices.Sort(names)
+	return strings.Join(slices.Compact(names), ",")
+}
+
 // Check reads ref from its registry with the credentials of docs/v3/spec.md, "No auth at
 // all": an origin has no entry auth, so the pull secrets of every pod declaring it, the most
 // specific fallbackAuth entry, then anonymous when none applies. A fallbackAuth Secret that
@@ -287,21 +349,7 @@ func (c monitorChecker) Check(ctx context.Context, ref string) pacing.Response {
 	if err != nil {
 		return pacing.Response{Err: err}
 	}
-	memory.mu.Lock()
-	// An alternative is read with the credentials of what offers it: the auth of its entries,
-	// then the pull secrets of the pods of its origins, next to those of the pods declaring it
-	// when it is an origin too.
-	pods := slices.Clone(memory.declaring[ref])
-	isOrigin := memory.origins[ref]
-	insecureOrigin := memory.insecureOrigins[ref]
-	var sources []alternativeSource
-	if a, ok := memory.alternatives[ref]; ok {
-		sources = a.sources()
-		for _, origin := range slices.Sorted(maps.Keys(a.origins)) {
-			pods = append(pods, memory.declaring[origin]...)
-		}
-	}
-	memory.mu.Unlock()
+	pods, isOrigin, insecureOrigin, sources := memory.checkInputs(ref)
 
 	// Each entry's auth goes over its own entry's transport only.
 	entries := make([]entryCredentials[authn.Authenticator], 0, len(sources))
