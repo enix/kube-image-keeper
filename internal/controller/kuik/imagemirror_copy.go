@@ -653,8 +653,9 @@ type mirrorCopier struct {
 // It returns an error when the attempt failed, so that the scheduler backs ref off: the
 // destination failed, every candidate failed over a lap, or the mirror could not be prepared
 // for the write. A hand-over to the next candidate, a copy, and a window with nothing to do
-// return nil.
-func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
+// return no error but their outcome, which the scheduler counts the window under; it reads no
+// outcome beside an error.
+func (c mirrorCopier) Copy(ctx context.Context, ref string) (pacing.CopyOutcome, error) {
 	r := c.r
 	log := resourceLog(logf.FromContext(ctx), routing.KindImageMirror, c.name).WithValues("image", ref, "registry", c.host)
 	st := r.state(c.name)
@@ -665,7 +666,7 @@ func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
 	// A copy waiting on the sweep's deletions by digest takes the next window.
 	if !ok || source.host() != c.host || (st.copied[ref] && !st.resync[ref]) || st.stopping || st.deleting {
 		st.mu.Unlock()
-		return nil
+		return pacing.NothingDue, nil
 	}
 	candidate := source.candidates[source.next]
 	// The finalizer of a deleted mirror waits for the copies running.
@@ -683,11 +684,12 @@ func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
 		if err = client.IgnoreNotFound(err); err != nil {
 			log.Info("Failed to read ImageMirror", "error", err.Error())
 		}
-		return err
+		// A mirror that is gone owes nothing more.
+		return pacing.NothingDue, err
 	}
 	// A deleted mirror copies nothing more: its finalizer deletes what it already wrote.
 	if !im.DeletionTimestamp.IsZero() {
-		return nil
+		return pacing.NothingDue, nil
 	}
 	defer r.wake(c.name)
 
@@ -704,7 +706,7 @@ func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
 		log.V(1).Info("Skipped copy source", "candidate", candidate.Reference, "reason", reason, "error", err.Error())
 		st.mu.Lock()
 		defer st.mu.Unlock()
-		return r.giveWay(st, ref, candidate, reason, c.host)
+		return pacing.HandedOver, r.giveWay(st, ref, candidate, reason, c.host)
 	}
 
 	destination := destinationRepository(&im, source.origin, r.clusterID)
@@ -712,12 +714,12 @@ func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
 	// is not recorded before its first push is never swept.
 	if err := r.recordRepository(ctx, &im, destination); err != nil {
 		log.Info("Failed to record the destination repository of ImageMirror", "error", err.Error())
-		return err
+		return pacing.NothingDue, err
 	}
 	manage, err := r.manageAuth(ctx, &im)
 	if err != nil {
 		log.Info("Failed to read the destination credentials of ImageMirror", "error", err.Error())
-		return err
+		return pacing.NothingDue, err
 	}
 	destinationEndpoint := registry.Endpoint{Reference: destination, Insecure: im.Spec.Destination.Insecure, Auth: manage(destination)}
 	started := time.Now()
@@ -736,12 +738,12 @@ func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
 		if ok && !copyErr.Destination {
 			// The source answered its check but failed the copy: like a source that does not
 			// answer, it gives way to the next one rather than being read again next window.
-			return r.giveWay(st, ref, candidate, reason, c.host)
+			return pacing.HandedOver, r.giveWay(st, ref, candidate, reason, c.host)
 		}
 		host, _, _ := strings.Cut(destination, "/")
 		st.fail(ref, copyFailure{reason: reason, registry: host, at: r.clock.Now()})
 		st.lapped[ref] = true
-		return err
+		return pacing.NothingDue, err
 	}
 	delete(st.failed, ref)
 	st.copied[ref] = true
@@ -772,7 +774,7 @@ func (c mirrorCopier) Copy(ctx context.Context, ref string) error {
 	delete(st.writeBack, ref)
 	delete(st.resync, ref)
 	delete(st.drifted, ref)
-	return nil
+	return pacing.Copied, nil
 }
 
 // giveWay hands ref to the candidate after the one on host that failed with reason, whose

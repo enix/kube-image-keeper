@@ -279,6 +279,40 @@ var _ = Describe("ImageMirror Controller", func() {
 			Eventually(h.copied(destinationTag(src, "acme/app"))).Should(Succeed())
 		})
 
+		It("counts as Idle on its host the copy window taken by a reference already copied", func() {
+			src := h.source()
+			src.Push("acme/app:v1", registrytest.Image())
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+			h.mirror()
+			h.reconcile()
+			h.window()
+			Eventually(h.copied(destinationTag(src, "acme/app"))).Should(Succeed())
+			Eventually(h.scheduler.InFlight).Should(BeZero())
+
+			// No reconcile dropped the reference from its queue: the next window takes it again.
+			src.Reset()
+			h.window()
+			Eventually(func() float64 { return h.copyWindows(src, "Idle") }).Should(Equal(1.0))
+			Expect(h.copyWindows(src, "Copied")).To(Equal(1.0))
+			Expect(src.Requests("", "/manifests/")).To(BeEmpty())
+		})
+
+		It("counts as Idle on its host the copy window taken by a reference of a mirror deleted since its queue was set", func() {
+			src := h.source()
+			src.Push("acme/app:v1", registrytest.Image())
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+			h.mirror()
+			h.reconcile()
+			src.Reset()
+
+			// The finalizer holds the mirror, and no reconcile dropped its queue yet.
+			Expect(k8sClient.Delete(ctx, &kuikv1alpha1.ImageMirror{ObjectMeta: metav1.ObjectMeta{Name: h.name}})).To(Succeed())
+			h.window()
+			Eventually(func() float64 { return h.copyWindows(src, "Idle") }).Should(Equal(1.0))
+			Expect(h.copyWindows(src, "Copied")).To(BeZero())
+			Expect(src.Requests("", "/manifests/")).To(BeEmpty())
+		})
+
 		It("writes to a destination that requires its manage credential", func() {
 			h.destination = h.source(registrytest.WithBasicAuth("writer", "s3cr3t"))
 			src := h.source()
@@ -856,6 +890,25 @@ var _ = Describe("ImageMirror Controller", func() {
 			Consistently(h.copied(destinationTag(origin, "acme/app"))).ShouldNot(Succeed())
 			h.window()
 			Eventually(h.copied(destinationTag(origin, "acme/app"))).Should(Succeed())
+		})
+
+		It("counts the copy window of an origin that does not answer as Failed on its host, and the window of the alternative that serves the copy as Copied on its own", func() {
+			origin, alternative := h.source(), h.source()
+			alternative.Push("acme/app:v1", registrytest.Image())
+			h.alternativeTo(appEntry(origin), appEntry(alternative))
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: origin.Host() + "/acme/app:v1"})
+			h.mirror()
+
+			h.fallBack(alternative)
+			h.window()
+			Eventually(h.copied(destinationTag(origin, "acme/app"))).Should(Succeed())
+			// Counted once the scheduler recorded the end of the copy, after the copier returned.
+			Eventually(h.scheduler.InFlight).Should(BeZero())
+
+			Expect(h.copyWindows(origin, "Failed")).To(Equal(1.0))
+			Expect(h.copyWindows(origin, "Copied")).To(BeZero())
+			Expect(h.copyWindows(alternative, "Copied")).To(Equal(1.0))
+			Expect(h.copyWindows(alternative, "Failed")).To(BeZero())
 		})
 	})
 

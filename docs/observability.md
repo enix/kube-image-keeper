@@ -206,8 +206,26 @@ reconciler exports these series.
 | `kuik_check_cycle_started_timestamp_seconds{kind, name, registry}` | gauge | Start of the lap in progress, `cycleStarted` |
 | `kuik_check_ring_images{kind, name, registry}` | gauge | Size of the ring, `images` |
 | `kuik_registry_interval_seconds{registry, operation}` | gauge | `check.interval` (`Check`) and `copy.interval` (`Copy`) of a host, as currently loaded, and `mirror.destinationScan.interval` (`Scan`) of a destination an ImageMirror scans, gone once no mirror scans it |
+| `kuik_registry_copy_windows_total{registry, result}` | counter | Copy windows of a source host, by what each was spent on, see below |
 
 Alert on a lap against its shared lap rather than on a literal: see
+[Watching the pace](./concepts/pacing.md#watching-the-pace).
+
+Every copy window of a source host counts once, under one `result`:
+
+| `result` | The window |
+| -------- | ---------- |
+| `Copied` | copied an image: a first copy, a re-copy, a resync or a tag written back |
+| `Failed` | started a copy that copied no image from this host: the source refused it or did not answer, even when another source then takes the image over, the destination refused it (counted on the source host of the window), or the copy outlasted `copy.timeout` |
+| `Busy` | was lost: the previous copy of the host still ran. A copy that runs over 3 intervals counts 2 `Busy` windows, then its own result when it ends |
+| `Idle` | found nothing ready to copy: nothing is queued, or every queued image waits after a failed copy |
+
+`registry` is the source host, the same as in `kuik_registry_interval_seconds{operation="Copy"}`.
+The 4 series of a host start at 0 when it gets its first copy queue, which lowers the risk that
+`increase()` misses its first window (it still does if the first scrape already sees 1), and stay
+until the reconciler restarts: a host with nothing left to copy goes on counting `Idle` windows.
+No `Idle` window over an hour suggests the copy budget of the host is the bottleneck; `Failed` and
+`Busy` windows say why a backlog does not drain. See
 [Watching the pace](./concepts/pacing.md#watching-the-pace).
 
 ### Registry requests

@@ -700,6 +700,13 @@ func (h *mirrorHarness) queued(reg *registrytest.Registry) bool {
 	return ok
 }
 
+// copyWindows is how many copy windows of the host of reg the scheduler counted under result.
+func (h *mirrorHarness) copyWindows(reg *registrytest.Registry, result string) float64 {
+	scheduling := prometheus.NewRegistry()
+	scheduling.MustRegister(h.scheduler.Collector())
+	return counter(scheduling, "kuik_registry_copy_windows_total", map[string]string{labelRegistry: reg.Host(), labelResult: result})
+}
+
 // scanned reports whether the scheduler exports the Scan interval of the destination host.
 func (h *mirrorHarness) scanned() bool {
 	scheduling := prometheus.NewRegistry()

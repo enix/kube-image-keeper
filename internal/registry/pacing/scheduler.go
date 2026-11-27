@@ -48,9 +48,57 @@ type Checker interface {
 // Copier copies the references a mirror owes from one source host.
 type Copier interface {
 	// Copy copies ref. ctx carries the copy timeout of the host, if any. An error is a failed
-	// attempt: ref then waits before its next one (see SetCopyQueue). nil is no failure,
-	// whether ref was copied or there was nothing to do.
-	Copy(ctx context.Context, ref string) error
+	// attempt: ref then waits before its next one (see SetCopyQueue). Without an error, the
+	// outcome says what the window was spent on.
+	Copy(ctx context.Context, ref string) (CopyOutcome, error)
+}
+
+// CopyOutcome is what a copy that returned no error did with its window.
+type CopyOutcome int
+
+const (
+	// Copied: the image is at its destination.
+	Copied CopyOutcome = iota
+	// NothingDue: the image was no longer due and nothing was sent.
+	NothingDue
+	// HandedOver: the source did not serve the image, which the next candidate takes on a
+	// window of its own host.
+	HandedOver
+)
+
+// The values of the result label of kuik_registry_copy_windows_total: what a copy window of
+// a source host was spent on.
+const (
+	// windowCopied: the window copied an image.
+	windowCopied = "Copied"
+	// windowFailed: the window started a copy that copied no image from this host.
+	windowFailed = "Failed"
+	// windowBusy: the window was lost, the previous copy of the host still ran.
+	windowBusy = "Busy"
+	// windowIdle: the window found nothing ready to copy.
+	windowIdle = "Idle"
+)
+
+// labelRegistry is the label that carries a host on every series of the scheduler.
+const labelRegistry = "registry"
+
+// windowResults are the series every counted host exports, from 0.
+var windowResults = []string{windowCopied, windowFailed, windowBusy, windowIdle}
+
+// windowResult is what the window of a copy that ended with outcome and err was spent on.
+func windowResult(outcome CopyOutcome, err error) string {
+	switch {
+	case err != nil:
+		return windowFailed
+	case outcome == NothingDue:
+		return windowIdle
+	case outcome == HandedOver:
+		// The window was spent and no image came from this host, whatever the next candidate
+		// does with it: a host that refuses everything shows here, not as Copied or Idle.
+		return windowFailed
+	default:
+		return windowCopied
+	}
 }
 
 // maxCopyBackoff caps the wait of a reference whose copy keeps failing. The kubelet caps an
@@ -89,6 +137,9 @@ type Scheduler struct {
 	idle    bool
 	due     time.Time
 	running int
+	// windows counts the copy windows of every counted host, by host and result. Its series
+	// are never reset nor deleted: a counter that comes back at 0 loses increments.
+	windows *prometheus.CounterVec
 }
 
 // series is the windows of one loop against a host, opened at origin + k × interval.
@@ -114,6 +165,9 @@ type host struct {
 	due     time.Time
 	copyDue time.Time
 	queues  []*queue
+	// counted is true once h got its first copy queue: from then on every copy window of h is
+	// counted, whether a queue is left or not.
+	counted bool
 	// copyTurn is the index of the queue the next copy window goes to.
 	copyTurn int
 	rings    []*ring
@@ -229,6 +283,12 @@ func New(clk clock.Clock, cfg *config.Config) *Scheduler {
 		hosts:        map[string]*host{},
 		destinations: map[Owner]string{},
 		waits:        map[Owner]map[string]*copyWait{},
+		windows: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "kuik_registry_copy_windows_total",
+			Help: "Copy windows of a source registry, by what each one was spent on: `Copied` (it copied an image), " +
+				"`Failed` (it started a copy that copied no image from this registry), `Busy` (lost, the previous " +
+				"copy still ran) or `Idle` (nothing was ready to copy)",
+		}, []string{labelRegistry, "result"}),
 	}
 }
 
@@ -352,7 +412,8 @@ func (s *Scheduler) open(now time.Time) time.Time {
 		}
 		if !now.Before(h.copyDue) {
 			// The window of the series being opened, whatever the timer's delay: the backoffs
-			// count from it.
+			// count from it. A timer late by an interval or more opens the windows it missed as
+			// this single one: the others are counted under no result.
 			s.openCopy(h, h.copy.next(now).Add(-h.copy.interval))
 			h.copyDue = h.copy.next(now)
 		}
@@ -367,8 +428,18 @@ func (s *Scheduler) open(now time.Time) time.Time {
 // goes ahead, without taking the turn of the next queue. A reference that waits for its
 // backoff is passed over. The window is lost when no queued reference is ready or the
 // previous copy still transfers. s.mu is held.
+//
+// The window is counted here when it is lost, Busy before looking at the queues, and by
+// copyImage at the end of the copy it starts.
 func (s *Scheduler) openCopy(h *host, opened time.Time) {
-	if h.copy.busy || len(h.queues) == 0 {
+	if h.copy.busy {
+		s.count(h, windowBusy)
+		return
+	}
+	if len(h.queues) == 0 {
+		// A host whose backlog emptied goes on counting: no Idle window over a period then
+		// means its budget is the bottleneck.
+		s.count(h, windowIdle)
 		return
 	}
 	n := len(h.queues)
@@ -387,6 +458,27 @@ func (s *Scheduler) openCopy(h *host, opened time.Time) {
 			s.startCopy(h, q, ref, opened)
 			return
 		}
+	}
+	// Every queued reference waits for its backoff: Idle, as a window with nothing queued.
+	s.count(h, windowIdle)
+}
+
+// count counts one copy window of h spent on result, once h is counted. s.mu is held.
+func (s *Scheduler) count(h *host, result string) {
+	if h.counted {
+		s.windows.WithLabelValues(h.name, result).Inc()
+	}
+}
+
+// startCounting exports the series of h from 0, so that the increase of a result counts its
+// first window, and has every copy window of h counted from now on. s.mu is held.
+func (s *Scheduler) startCounting(h *host) {
+	if h.counted {
+		return
+	}
+	h.counted = true
+	for _, result := range windowResults {
+		s.windows.WithLabelValues(h.name, result)
 	}
 }
 
@@ -409,15 +501,19 @@ func (s *Scheduler) startCopy(h *host, q *queue, ref string, opened time.Time) {
 
 // copyImage copies ref with c, abandoning it after timeout unless timeout is 0. A failure
 // makes ref wait from when it failed, or from opened, the window it took, for a copy that
-// failed at once; its host copies every interval.
+// failed at once; its host copies every interval. The window is counted once the copy ended,
+// unless the scheduler stopped meanwhile: that copy was cut short, it did not fail.
 func (s *Scheduler) copyImage(h *host, owner Owner, c Copier, ref string, opened time.Time, interval, timeout time.Duration) {
 	ctx, cancel := s.bounded(timeout)
-	err := c.Copy(ctx, ref)
+	outcome, err := c.Copy(ctx, ref)
 	cancel()
 
 	s.mu.Lock()
 	h.copy.busy = false
 	s.running--
+	if s.ctx.Err() == nil {
+		s.count(h, windowResult(outcome, err))
+	}
 	if err != nil {
 		// As the kubelet counts its backoff from the failure: a copy that outlasted its
 		// window must not spend its wait while it was still transferring.
@@ -714,7 +810,8 @@ func (s *Scheduler) RemoveRing(owner Owner, host string) {
 
 // unused reports whether no ring and no copy queue use h. Its windows go on opening empty and
 // it keeps its phase and the image it may still be reading, so that using it again can neither
-// burst the host nor read it twice at once: only its series are hidden.
+// burst the host nor read it twice at once: only its pace and ring series are hidden, the
+// count of its copy windows goes on.
 func (h *host) unused() bool {
 	return len(h.rings) == 0 && len(h.queues) == 0
 }
@@ -818,6 +915,7 @@ func (s *Scheduler) setCopyQueue(owner Owner, h *host, refs []string, c Copier, 
 		q := &queue{owner: owner, refs: slices.Clone(refs), copier: c}
 		q.prioritize(first)
 		h.queues = append(h.queues, q)
+		s.startCounting(h)
 	}
 }
 
@@ -837,14 +935,14 @@ func (s *Scheduler) RemoveDestinationScan(owner Owner) {
 	delete(s.destinations, owner)
 }
 
-// Collector returns the scheduling health metrics, computed from the current rings and
-// config on every scrape.
+// Collector returns the scheduling health metrics: the rings and the paces, computed from the
+// current rings and config on every scrape, and the count of the copy windows.
 func (s *Scheduler) Collector() prometheus.Collector {
 	return collector{s: s}
 }
 
 var (
-	ringLabels = []string{"kind", "name", "registry"}
+	ringLabels = []string{"kind", "name", labelRegistry}
 
 	// The HELP texts are those of docs/v3/observability.md, "Scheduling health".
 	cycleDurationDesc = prometheus.NewDesc("kuik_check_cycle_duration_seconds",
@@ -864,11 +962,12 @@ var (
 		"Configured pace at which kuik reads a registry for this operation, as currently loaded: "+
 			"the window between two requests for `Check` and `Copy`, the period between two whole "+
 			"passes for `Scan` (a mirror destination)",
-		[]string{"registry", "operation"}, nil)
+		[]string{labelRegistry, "operation"}, nil)
 )
 
 // collector reads the scheduling health from a scheduler on every scrape, so that a removed
-// ring leaves no series behind and a reload shows at once.
+// ring leaves no series behind and a reload shows at once. The copy windows are the one
+// counter: the scheduler counts them as they go.
 type collector struct {
 	s *Scheduler
 }
@@ -878,9 +977,12 @@ func (c collector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- cycleStartedDesc
 	ch <- ringImagesDesc
 	ch <- intervalDesc
+	c.s.windows.Describe(ch)
 }
 
 func (c collector) Collect(ch chan<- prometheus.Metric) {
+	c.s.windows.Collect(ch)
+
 	c.s.mu.Lock()
 	defer c.s.mu.Unlock()
 
