@@ -33,6 +33,7 @@ import (
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
 	"github.com/enix/kube-image-keeper/internal/auth"
 	"github.com/enix/kube-image-keeper/internal/config"
+	"github.com/enix/kube-image-keeper/internal/imagepath"
 	kuikregistry "github.com/enix/kube-image-keeper/internal/registry"
 	"github.com/enix/kube-image-keeper/internal/registry/pacing"
 	"github.com/enix/kube-image-keeper/internal/registry/registrytest"
@@ -3900,7 +3901,7 @@ var _ = Describe("ImageMirror Controller", func() {
 
 	Describe("bounded lists", func() {
 		// The cap holds whatever its value: a small one is exceeded by a handful of images.
-		const capacity, over = 5, 6
+		const capacity, over = 5, overCapacity
 		BeforeEach(func() {
 			h.withListCapacity(capacity)
 		})
@@ -3913,7 +3914,7 @@ var _ = Describe("ImageMirror Controller", func() {
 
 		It("caps failedImageCopies and driftedImages over the list capacity, records it in truncated and sets ListCapacityPressure", func() {
 			h.mirror(withDrift(kuikv1alpha1.DriftPolicyWarn))
-			_, sources, refs := h.manyImages(over, false)
+			_, sources, refs := h.manyImages(false)
 			h.windowsUntil(copiedAll)
 
 			// Every upstream tag moves.
@@ -3945,7 +3946,7 @@ var _ = Describe("ImageMirror Controller", func() {
 			beyondCapacity := func() *registrytest.Registry {
 				GinkgoHelper()
 				h.mirror(withDrift(kuikv1alpha1.DriftPolicyWarn))
-				_, sources, refs := h.manyImages(over, false)
+				_, sources, refs := h.manyImages(false)
 				h.windowsUntil(copiedAll)
 				moved := registrytest.Image()
 				for i, ref := range refs {
@@ -3962,11 +3963,132 @@ var _ = Describe("ImageMirror Controller", func() {
 				return missing
 			}
 
+			// restartHoldsDrift restarts, then checks that the first reconcile holds the drift omission.
+			restartHoldsDrift := func() {
+				GinkgoHelper()
+				h.restart()
+				h.reconcile()
+				Expect(h.status().Truncated).To(HaveLen(1))
+				Expect(h.status().Truncated).To(ContainElement(int32(1)))
+				Expect(h.status().Images.Copy.Drifted).To(Equal(int32(over)))
+			}
+
 			It("counts every drifted and missing source image in images.copy, beyond the list capacity", func() {
 				beyondCapacity()
 				counts := h.status().Images.Copy
 				Expect(counts.Drifted).To(Equal(int32(over)))
 				Expect(counts.MissingSource).To(Equal(int32(over)))
+			})
+
+			It("holds truncated, ListTruncated and the counts a restart read back until every image got a verdict again", func() {
+				missing := beyondCapacity()
+				h.restart()
+				h.reconcile()
+				status := h.status()
+				Expect(status.Truncated).To(Equal(map[string]int32{"driftedImages": 1, "failedImageCopies": 1}))
+				Expect(h.condition(kuikv1alpha1.ConditionListCapacityPressure).Reason).To(Equal(kuikv1alpha1.ReasonListTruncated))
+				Expect(status.Images.Copy.Drifted).To(Equal(int32(over)))
+				Expect(status.Images.Copy.MissingSource).To(Equal(int32(over)))
+
+				// The image the list left out is found at last: with a verdict for every image, the
+				// held entry is released and failedImageCopies is not truncated any more.
+				missing.Push("acme/gone5:v1", registrytest.Image())
+				h.windowsUntil(func() bool { return h.status().Truncated["failedImageCopies"] == 0 })
+				Expect(h.status().FailedImageCopies).To(HaveLen(capacity))
+			})
+
+			It("holds the truncated drifted images a restart read back until the ring read the tags again, whatever the destination holds", func() {
+				h.mirror(withDrift(kuikv1alpha1.DriftPolicyWarn))
+				_, sources, refs := h.manyImages(false)
+				h.windowsUntil(copiedAll)
+				moved := registrytest.Image()
+				for i, ref := range refs {
+					sources[i%len(sources)].Push(ref, moved)
+				}
+				h.windowsUntil(func() bool { return h.status().Truncated["driftedImages"] == 1 })
+
+				// The destination holds every image, yet none has a drift verdict.
+				h.restart()
+				h.reconcile()
+				Expect(h.status().Truncated).To(Equal(map[string]int32{"driftedImages": 1}))
+				Expect(h.status().Images.Copy.Drifted).To(Equal(int32(over)))
+			})
+
+			It("holds the truncated drifted images a restart read back while the manage secretRef cannot be read", func() {
+				manage := unique("manage")
+				createSecret(installNamespace, manage, corev1.SecretTypeDockerConfigJson)
+				h.mirror(withDrift(kuikv1alpha1.DriftPolicyWarn), func(im *kuikv1alpha1.ImageMirror) { im.Spec.Destination.Manage = secretAuth(manage) })
+				_, sources, refs := h.manyImages(false)
+				h.windowsUntil(copiedAll)
+				moved := registrytest.Image()
+				for i, ref := range refs {
+					sources[i%len(sources)].Push(ref, moved)
+				}
+				h.windowsUntil(func() bool { return h.status().Truncated["driftedImages"] == 1 })
+				Expect(k8sClient.Delete(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: installNamespace, Name: manage}})).To(Succeed())
+
+				restartHoldsDrift()
+			})
+
+			It("holds the truncated drifted retained tags a restart read back until the ring read them again", func() {
+				h.mirror(withDrift(kuikv1alpha1.DriftPolicyWarn))
+				pods, sources, refs := h.manyImages(false)
+				h.windowsUntil(copiedAll)
+				for _, pod := range pods {
+					setPhase(pod, corev1.PodSucceeded)
+				}
+				h.reconcile()
+				moved := registrytest.Image()
+				for i, ref := range refs {
+					sources[i%len(sources)].Push(ref, moved)
+				}
+				h.windowsUntil(func() bool { return h.status().Truncated["driftedImages"] == 1 })
+				Expect(h.status().PendingDeletion).To(HaveLen(over))
+
+				restartHoldsDrift()
+			})
+
+			It("holds the truncated drifted images while the ring reads a tag after the drift list was taken", func() {
+				ref, err := imagepath.Parse("registry.example/acme/app:v1")
+				Expect(err).NotTo(HaveOccurred())
+				st := newMirrorState()
+				st.persisted = &persistedLists{driftedTotal: 1, drifted: 1}
+				im := &kuikv1alpha1.ImageMirror{}
+				reportedDrift, checked := h.reconciler.reportDrift(im, st)
+				// What driftChecker.Checked records for a moved tag.
+				st.checked[ref.String()] = true
+				st.drifted[ref.String()] = driftEntry{upstream: "sha256:b", copied: "sha256:a"}
+
+				_, _, driftUnknown, ok := st.heldLists(kuikv1alpha1.DriftPolicyWarn, []imagepath.Reference{ref}, nil,
+					nil, nil, checked, nil, map[string]bool{})
+				Expect(reportedDrift).To(BeEmpty())
+				Expect(ok).To(BeTrue())
+				Expect(driftUnknown).To(Equal(int32(1)))
+			})
+
+			It("keeps every failing image the status counted while the left out ones are found again", func() {
+				const failing = capacity + 3
+				h.mirror()
+				missing := h.source()
+				gone := make([]container, 0, failing)
+				for i := range failing {
+					gone = append(gone, container{name: fmt.Sprintf("gone%d", i), image: fmt.Sprintf("%s/acme/gone%d:v1", missing.Host(), i)})
+				}
+				createPod(h.namespace(), unique("pod"), gone...)
+				h.windowsUntil(func() bool { return h.status().Truncated["failedImageCopies"] == failing-capacity })
+
+				h.restart()
+				tried := func() int { return len(missing.Requests(http.MethodHead, "/manifests/")) }
+				for range failing {
+					h.reconcile()
+					// Each window tries one copy again: its failure is recorded once it ended.
+					before := tried()
+					h.window()
+					Eventually(tried).Should(BeNumerically(">", before))
+					Eventually(h.copiesEnded).Should(BeTrue())
+					h.reconcile()
+					Expect(h.status().Truncated["failedImageCopies"]).To(Equal(int32(failing - capacity)))
+				}
 			})
 
 			It("emits CopyOutOfDate and ImageUnrecoverable once for an entry beyond the list capacity", func() {
@@ -3989,7 +4111,7 @@ var _ = Describe("ImageMirror Controller", func() {
 
 		It("never caps repositories, pendingDeletion or checks.registries", func() {
 			h.mirror(withDrift(kuikv1alpha1.DriftPolicyWarn))
-			pods, _, _ := h.manyImages(over, true)
+			pods, _, _ := h.manyImages(true)
 			h.windowsUntil(copiedAll)
 			Expect(h.status().Repositories).To(HaveLen(over))
 

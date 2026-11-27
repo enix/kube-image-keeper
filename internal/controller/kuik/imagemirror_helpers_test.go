@@ -65,6 +65,8 @@ type mirrorHarness struct {
 	reconciler  *ImageMirrorReconciler
 	// tls are the registries withTLS gave a tls entry, which a restart keeps.
 	tls []*registrytest.Registry
+	// listCapacity is the one withListCapacity gave, which a restart keeps.
+	listCapacity int
 }
 
 // mirrorConfig is a config whose source registries open a window every minute, and whose
@@ -120,6 +122,7 @@ func newMirrorHarness() *mirrorHarness {
 // handful of entries exceeds the cap. Its series go to a new registry.
 func (h *mirrorHarness) withListCapacity(capacity int) {
 	GinkgoHelper()
+	h.listCapacity = capacity
 	h.metrics = prometheus.NewRegistry()
 	var err error
 	h.reconciler, err = NewImageMirrorReconciler(k8sClient, k8sClient.Scheme(), ImageMirrorOptions{
@@ -197,6 +200,7 @@ func (h *mirrorHarness) restart() {
 		Config:                   h.config,
 		ClusterID:                mirrorClusterID,
 		Clock:                    h.clock,
+		ListCapacity:             h.listCapacity,
 	})
 	Expect(err).NotTo(HaveOccurred())
 	h.reconciler.Elected(h.clock.Now())
@@ -592,14 +596,19 @@ func observations(registry *prometheus.Registry, metric string) uint64 {
 	return n
 }
 
-// manyImages runs n images in pods of a selected namespace, spread over ten source
+// overCapacity is the number of images manyImages runs: one more than the list capacity of 5
+// the bounded-lists specs set.
+const overCapacity = 6
+
+// manyImages runs overCapacity images in pods of a selected namespace, spread over ten source
 // registries so that their windows open side by side, all on their sources, the same content
 // under every reference. Each image has a repository of its own with repositories, else they
 // are tags of one repository per source: a first copy into a repository writes the status,
 // which n repositories make slow. It returns the pods, the sources, and each image relative to
 // its source.
-func (h *mirrorHarness) manyImages(n int, repositories bool) ([]*corev1.Pod, []*registrytest.Registry, []string) {
+func (h *mirrorHarness) manyImages(repositories bool) ([]*corev1.Pod, []*registrytest.Registry, []string) {
 	GinkgoHelper()
+	const n = overCapacity
 	sources := make([]*registrytest.Registry, 10)
 	for i := range sources {
 		sources[i] = h.source()

@@ -3,6 +3,7 @@ package kuik
 import (
 	"cmp"
 	"context"
+	"maps"
 	"slices"
 
 	corev1 "k8s.io/api/core/v1"
@@ -43,6 +44,11 @@ func (r *ImageMirrorReconciler) turnRings(im *kuikv1alpha1.ImageMirror, st *mirr
 		if !tracked[ref] {
 			delete(st.drifted, ref)
 			delete(st.resync, ref)
+		}
+	}
+	for ref := range st.checked {
+		if !tracked[ref] {
+			delete(st.checked, ref)
 		}
 	}
 	gone := []string{}
@@ -104,6 +110,7 @@ func (c driftChecker) Checked(ref string, response pacing.Response) {
 	st.mu.Lock()
 	copied := st.digests[ref]
 	upstream := response.Result.Descriptor.Digest.String()
+	st.checked[ref] = copied != ""
 	switch {
 	case copied == "":
 	case upstream == copied:
@@ -122,8 +129,9 @@ func (c driftChecker) Checked(ref string, response pacing.Response) {
 }
 
 // reportDrift returns the driftedImages of im, since kept from the previous status, and emits
-// CopyOutOfDate under Warn for each tag newly found drifted.
-func (r *ImageMirrorReconciler) reportDrift(im *kuikv1alpha1.ImageMirror, st *mirrorState) []kuikv1alpha1.MirrorDriftedImage {
+// CopyOutOfDate under Warn for each tag newly found drifted. checked is taken under the same
+// lock: a tag read later is not in the list, so it has no verdict yet either.
+func (r *ImageMirrorReconciler) reportDrift(im *kuikv1alpha1.ImageMirror, st *mirrorState) (reported []kuikv1alpha1.MirrorDriftedImage, checked map[string]bool) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	previous := map[string]kuikv1alpha1.MirrorDriftedImage{}
@@ -146,7 +154,7 @@ func (r *ImageMirrorReconciler) reportDrift(im *kuikv1alpha1.ImageMirror, st *mi
 	slices.SortFunc(entries, func(a, b kuikv1alpha1.MirrorDriftedImage) int {
 		return cmp.Or(a.Since.Compare(b.Since.Time), cmp.Compare(a.Ref, b.Ref))
 	})
-	return entries
+	return entries, maps.Clone(st.checked)
 }
 
 // checks is the status of the drift rings of im, nil when it holds none.
