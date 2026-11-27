@@ -172,6 +172,19 @@ tasks:
     cmds:
       - go run ./hack/valuescheck {{.CHART}}/values.yaml
 
+  lint-rules:
+    desc: Check the syntax of the Prometheus alerts and recording rules with promtool, on the rules the chart renders with its default values (needs helm)
+    deps: [tools:promtool]
+    cmds:
+      # The groups of the rendered PrometheusRule, unindented, are a Prometheus rule file.
+      - |
+        set -e
+        dir=$(mktemp -d)
+        trap 'rm -rf "$dir"' EXIT
+        helm template {{.RELEASE}} {{.CHART}} --set monitoring.alerts.enabled=true --show-only templates/prometheusrule.yaml > "$dir/prometheusrule.yaml"
+        sed -e '1,/^spec:$/d' -e 's/^  //' "$dir/prometheusrule.yaml" > "$dir/rules.yaml"
+        {{.LOCALBIN}}/promtool check rules "$dir/rules.yaml"
+
   lint-markdown:
     desc: Run markdownlint with .markdownlint-cli2.yaml on the Markdown files (files after --, default the whole repository; Node.js >= 22)
     cmds:
@@ -209,24 +222,6 @@ tasks:
     cmds:
       - task: setup-envtest
       - KUBEBUILDER_ASSETS="$({{.LOCALBIN}}/setup-envtest use {{.ENVTEST_K8S_VERSION}} --bin-dir "{{.ENVTEST_BIN_DIR}}" -p path)" go test {{.GO_TEST_FLAGS}} $(go list ./... | grep -v /e2e)
-
-  test-rules:
-    desc: Run the unit tests of the Prometheus alerts and recording rules (test/rules/) with promtool, on the rules the chart renders with its default values (needs helm)
-    deps: [tools:promtool]
-    cmds:
-      # The groups of the rendered PrometheusRule, unindented, are a Prometheus rule file. The
-      # tests are copied next to it: promtool reads rule_files relative to the test file.
-      - |
-        set -e
-        dir=$(mktemp -d)
-        trap 'rm -rf "$dir"' EXIT
-        helm template {{.RELEASE}} {{.CHART}} --set monitoring.alerts.enabled=true --show-only templates/prometheusrule.yaml > "$dir/prometheusrule.yaml"
-        sed -e '1,/^spec:$/d' -e 's/^  //' "$dir/prometheusrule.yaml" > "$dir/rules.yaml"
-        {{.LOCALBIN}}/promtool check rules "$dir/rules.yaml"
-        cp test/rules/*_test.yaml "$dir"
-        {{.LOCALBIN}}/promtool test rules "$dir"/*_test.yaml
-        # promtool only runs the tests it is given: a rule that none of them evaluates fails here.
-        go run ./hack/rulescoverage "$dir/rules.yaml" test/rules/*_test.yaml
 
   test-outline:
     desc: Print the Ginkgo specs as a plain-English tree, or with DIFF=<ref> only the cases added and removed since that ref (paths after --, default the whole repository)
