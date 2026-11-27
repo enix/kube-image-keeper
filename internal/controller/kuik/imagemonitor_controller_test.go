@@ -827,6 +827,8 @@ var _ = Describe("ImageMonitor", func() {
 			src := source("acme/app")
 			newMonitor(name)
 			runningPod(selectedNamespace(), []container{running(appContainer, image(src, "acme/app"))})
+			// Outside the wait: the first reconcile of a process can outlast it.
+			reconcileIt()
 			Eventually(func() *metav1.Duration {
 				turn()
 				reconcileIt()
