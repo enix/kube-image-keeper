@@ -46,6 +46,9 @@ jobs:
           extra_plugins: |
             conventional-changelog-conventionalcommits@^9.0.0
             semantic-release-slack-bot@^4.0.2
+          # Without it the action installs the latest semantic-release, which may need a newer
+          # Node than the action runs on. Same major as task release-dry-run.
+          semantic_version: ^25
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
@@ -207,6 +210,7 @@ jobs:
           extra_plugins: |
             conventional-changelog-conventionalcommits@^9.0.0
             semantic-release-slack-bot@^4.0.2
+          semantic_version: ^25
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}

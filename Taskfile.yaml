@@ -345,7 +345,7 @@ tasks:
     cmds:
       # A fresh clone of the branch on origin, as the workflow checks it out: local commits,
       # tags and changes never count. The plugins are the workflow's extra_plugins; semantic-release
-      # 25 is the major cycjimmy/semantic-release-action@v6 installs. --verify-conditions false
+      # 25 is the semantic_version the workflow pins. --verify-conditions false
       # skips the GitHub and Slack checks, which need the workflow's secrets; semantic-release
       # still checks with a git push --dry-run that origin would accept the tag.
       - |
