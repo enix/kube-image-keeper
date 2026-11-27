@@ -1,0 +1,108 @@
+# Unit tests of the kuik.process rules, run by `task test-rules` on the rules as the chart
+# renders them. Every input series carries the labels of a scrape target, as a ServiceMonitor
+# sets them, so that the expected alerts show which ones the rules drop.
+rule_files:
+  - rules.yaml
+evaluation_interval: 1m
+
+tests:
+  - name: KuikConfigReloadFailed fires once one replica has run a previous config for 5 minutes
+    interval: 1m
+    input_series:
+      - series: 'kuik_config_last_reload_successful{job="kuik-webhook-metrics", namespace="kuik-system", service="kuik-webhook-metrics", endpoint="metrics", container="webhook", pod="kuik-webhook-a", instance="10.0.1.1:8080"}'
+        values: '1x30'
+      # Refuses a reload between the samples of 9m and 10m.
+      - series: 'kuik_config_last_reload_successful{job="kuik-webhook-metrics", namespace="kuik-system", service="kuik-webhook-metrics", endpoint="metrics", container="webhook", pod="kuik-webhook-b", instance="10.0.1.2:8080"}'
+        values: '1x9 0x20'
+      - series: 'kuik_config_last_reload_successful{job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '1x30'
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: KuikConfigReloadFailed
+      - eval_time: 15m
+        alertname: KuikConfigReloadFailed
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: kuik-webhook-metrics
+              namespace: kuik-system
+            exp_annotations:
+              summary: A kuik process refused its global config.
+              description: >-
+                kuik-webhook-metrics refused the global config as mounted and runs a previous one.
+                Its logs give the validation error: fix the ConfigMap.
+
+  - name: KuikConfigReloadFailed stays silent when a valid config is loaded within 5 minutes
+    interval: 1m
+    input_series:
+      - series: 'kuik_config_last_reload_successful{job="kuik-webhook-metrics", namespace="kuik-system", service="kuik-webhook-metrics", endpoint="metrics", container="webhook", pod="kuik-webhook-a", instance="10.0.1.1:8080"}'
+        values: '1x9 0x4 1x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: KuikConfigReloadFailed
+      - eval_time: 20m
+        alertname: KuikConfigReloadFailed
+
+  - name: KuikResourceNotReady fires after 15 minutes, a reconciler replaced meanwhile keeping the timer
+    interval: 1m
+    input_series:
+      - series: 'kuik_resource_not_ready{kind="ImageMirror", name="harbor", reason="DestinationUnreachable", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '1x7 stale'
+      - series: 'kuik_resource_not_ready{kind="ImageMirror", name="harbor", reason="DestinationUnreachable", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-b", instance="10.0.0.2:8080"}'
+        values: '_x8 1x30'
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: KuikResourceNotReady
+      - eval_time: 15m
+        alertname: KuikResourceNotReady
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              kind: ImageMirror
+              name: harbor
+              reason: DestinationUnreachable
+              job: kuik-reconciler-metrics
+              namespace: kuik-system
+            exp_annotations:
+              summary: A kuik resource is not Ready.
+              description: >-
+                ImageMirror/harbor is not Ready: DestinationUnreachable. kubectl describe gives the
+                message to fix.
+
+  - name: KuikResourceNotReady stays silent when the resource is Ready again within 15 minutes
+    interval: 1m
+    input_series:
+      # The series exists only while the condition is False.
+      - series: 'kuik_resource_not_ready{kind="ImageMirror", name="harbor", reason="DestinationUnreachable", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '1x14 stale'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: KuikResourceNotReady
+      - eval_time: 20m
+        alertname: KuikResourceNotReady
+
+  - name: KuikResourceNotReady carries the reason, so a new reason starts the 15 minutes again
+    interval: 1m
+    input_series:
+      - series: 'kuik_resource_not_ready{kind="ImageMirror", name="harbor", reason="DestinationUnreachable", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '1x9 stale'
+      - series: 'kuik_resource_not_ready{kind="ImageMirror", name="harbor", reason="ManageSecretMissing", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '_x10 1x30'
+    alert_rule_test:
+      - eval_time: 24m
+        alertname: KuikResourceNotReady
+      - eval_time: 25m
+        alertname: KuikResourceNotReady
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              kind: ImageMirror
+              name: harbor
+              reason: ManageSecretMissing
+              job: kuik-reconciler-metrics
+              namespace: kuik-system
+            exp_annotations:
+              summary: A kuik resource is not Ready.
+              description: >-
+                ImageMirror/harbor is not Ready: ManageSecretMissing. kubectl describe gives the
+                message to fix.

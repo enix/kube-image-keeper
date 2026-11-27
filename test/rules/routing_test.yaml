@@ -1,0 +1,120 @@
+# Unit tests of the kuik.routing rules, run by `task test-rules` on the rules as the chart
+# renders them. The three series count live pods and exist only while their anomaly does.
+rule_files:
+  - rules.yaml
+evaluation_interval: 1m
+
+tests:
+  - name: KuikAlternativesExhausted fires after 10 minutes, a reconciler replaced meanwhile keeping the timer
+    interval: 1m
+    input_series:
+      - series: 'kuik_alternatives_exhausted_pods{kind="ImageAlternative", name="dockerhub-mirror", image="docker.io/library/nginx:1.27", registry="docker.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '2x4 stale'
+      - series: 'kuik_alternatives_exhausted_pods{kind="ImageAlternative", name="dockerhub-mirror", image="docker.io/library/nginx:1.27", registry="docker.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-b", instance="10.0.0.2:8080"}'
+        values: '_x5 2x30'
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: KuikAlternativesExhausted
+      - eval_time: 10m
+        alertname: KuikAlternativesExhausted
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              kind: ImageAlternative
+              name: dockerhub-mirror
+              image: docker.io/library/nginx:1.27
+              registry: docker.io
+              job: kuik-reconciler-metrics
+              namespace: kuik-system
+            exp_annotations:
+              summary: No candidate answered for an image at admission.
+              description: >-
+                Pods of ImageAlternative/dockerhub-mirror were admitted with
+                docker.io/library/nginx:1.27 while neither the origin nor any alternative answered:
+                they start only from a node cache. Check the registries and credentials, then roll
+                the workloads: the alert clears with the pods.
+
+  - name: KuikAlternativesExhausted stays silent when the pods are gone within 10 minutes, or the count is 0
+    interval: 1m
+    input_series:
+      - series: 'kuik_alternatives_exhausted_pods{kind="ImageAlternative", name="dockerhub-mirror", image="docker.io/library/nginx:1.27", registry="docker.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '2x9 stale'
+      - series: 'kuik_alternatives_exhausted_pods{kind="ImageAlternative", name="dockerhub-mirror", image="docker.io/library/redis:7", registry="docker.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '0x30'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: KuikAlternativesExhausted
+      - eval_time: 20m
+        alertname: KuikAlternativesExhausted
+
+  - name: KuikRewriteConceded fires after 30 minutes
+    interval: 1m
+    input_series:
+      - series: 'kuik_rewrite_conceded_pods{kind="ImageMirror", name="harbor", image="docker.io/library/nginx:1.27", registry="docker.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '1x60'
+    alert_rule_test:
+      - eval_time: 29m
+        alertname: KuikRewriteConceded
+      - eval_time: 30m
+        alertname: KuikRewriteConceded
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              kind: ImageMirror
+              name: harbor
+              image: docker.io/library/nginx:1.27
+              registry: docker.io
+              job: kuik-reconciler-metrics
+              namespace: kuik-system
+            exp_annotations:
+              summary: Another webhook overrides a kuik rewrite.
+              description: >-
+                Another mutating webhook replaced the rewrite of docker.io/library/nginx:1.27 by
+                ImageMirror/harbor. Narrow the scope of one of the two.
+
+  - name: KuikRewriteConceded stays silent when the pods are gone within 30 minutes
+    interval: 1m
+    input_series:
+      - series: 'kuik_rewrite_conceded_pods{kind="ImageMirror", name="harbor", image="docker.io/library/nginx:1.27", registry="docker.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '1x29 stale'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: KuikRewriteConceded
+      - eval_time: 40m
+        alertname: KuikRewriteConceded
+
+  - name: KuikRewriteStale fires after 1 hour
+    interval: 1m
+    input_series:
+      - series: 'kuik_rewrite_stale_pods{kind="ImageAlternative", name="dockerhub-mirror", image="docker.io/library/nginx:1.27", registry="docker.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '3x90'
+    alert_rule_test:
+      - eval_time: 59m
+        alertname: KuikRewriteStale
+      - eval_time: 1h
+        alertname: KuikRewriteStale
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              kind: ImageAlternative
+              name: dockerhub-mirror
+              image: docker.io/library/nginx:1.27
+              registry: docker.io
+              job: kuik-reconciler-metrics
+              namespace: kuik-system
+            exp_annotations:
+              summary: Pods run an image edited after its kuik rewrite.
+              description: >-
+                Pods of ImageAlternative/dockerhub-mirror run docker.io/library/nginx:1.27, edited
+                after admission: kuik no longer acts on it. Roll the workload.
+
+  - name: KuikRewriteStale stays silent when the pods are gone within 1 hour
+    interval: 1m
+    input_series:
+      - series: 'kuik_rewrite_stale_pods{kind="ImageAlternative", name="dockerhub-mirror", image="docker.io/library/nginx:1.27", registry="docker.io", job="kuik-reconciler-metrics", namespace="kuik-system", service="kuik-reconciler-metrics", endpoint="metrics", container="reconciler", pod="kuik-reconciler-a", instance="10.0.0.1:8080"}'
+        values: '3x59 stale'
+    alert_rule_test:
+      - eval_time: 1h
+        alertname: KuikRewriteStale
+      - eval_time: 70m
+        alertname: KuikRewriteStale
