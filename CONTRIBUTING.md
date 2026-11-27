@@ -105,22 +105,47 @@ kube-image-keeper is licensed under the [MIT License](./LICENSE). By contributin
 
 ## Releases
 
-Releases are cut manually by dispatching the [Release workflow](./.github/workflows/release.yaml) on the branch to publish. semantic-release computes the version from the conventional commits since the last release, and reads its configuration from the dispatched branch's [`.releaserc.mjs`](./.releaserc.mjs): each release line therefore carries its own branches configuration (`main` and `release` for the main line; `X.Y.x-stable` and `X.Y.x-rc` for a maintenance line).
+What ships stable has run on clusters first:
 
-Each release this configuration publishes, betas and rcs included, is announced on Slack with its notes, through the incoming webhook stored in the `SLACK_WEBHOOK` repository secret. The workflow fails, dry-run included, when that secret is missing. The message carries the notes whole, one block per section, with each collapsed `<details>` list shown open and its summary line dropped ([`.github/release-slack.mjs`](./.github/release-slack.mjs), checked by `task test-release`); past Slack's 50 blocks, it ends on a link to the release.
+- A patch `X.Y.Z` is released from its maintenance line, after a release candidate `X.Y.Z-rc.N`.
+- A minor or a major `X.Y.0` is released from `release`, after a beta `X.Y.0-beta.N` from `main`.
+- A stable is cut from the exact commit of its last pre-release, and `:latest` (with the GitHub "Latest" badge) stays on the highest line.
+
+A release is cut by dispatching the [Release workflow](./.github/workflows/release.yaml) on the branch to publish. semantic-release computes the version from the conventional commits since the last release. It reads its configuration from the dispatched branch's [`.releaserc.mjs`](./.releaserc.mjs), so each line carries its own branches: `main` and `release` on `main`, `X.Y.x-stable` and `X.Y.x-rc` on a maintenance line `X.Y.x`.
+
+Each release, betas and rcs included, is announced on Slack with its notes, through the incoming webhook stored in the `SLACK_WEBHOOK` repository secret. The workflow fails, dry-run included, when that secret is missing. The message carries the notes whole, one block per section, with each collapsed `<details>` list shown open and its summary line dropped ([`.github/release-slack.mjs`](./.github/release-slack.mjs), checked by `task test-release`); past Slack's 50 blocks, it ends on a link to the release.
 
 ### Channels
 
-- **beta** (from `main`): pre-releases of the next major or minor version. Up to `3.0.0-alpha.6`, `main` published alphas.
-- **rc** (from `X.Y.x-rc`): frozen release candidates for a patch of the `X.Y` line, published for validation (for example on a pre-production cluster) before the stable release. Only a release blocker justifies cutting an rc.2.
-- **stable** (from `release` for the main line, from `X.Y.x-stable` for a maintenance line): production releases.
+| Branch | What it publishes |
+| --- | --- |
+| `main` | Betas of the next minor or major (`X.Y.0-beta.N`). Up to `3.0.0-alpha.6`, it published alphas. |
+| `release` | Stables of the latest minor or major (`X.Y.0`), cut from their last beta. Moves `:latest`. |
+| `3.0.x`, `3.0.x-rc`, `3.0.x-stable` | The 3.0 maintenance line: fixes only, through pull requests on `3.0.x`. Rcs `3.0.Z-rc.N` from `3.0.x-rc`, then stables `3.0.Z` from `3.0.x-stable`, which moves `:latest` while 3.0 is the highest line. |
+| `2.3.x`, `2.3.x-rc`, `2.3.x-stable` | The 2.3 maintenance line (v2): fixes only, rcs then stables, the same way. |
 
-What ships stable has run on clusters first, and the Release workflow enforces it before building anything ([`.github/release-gate.sh`](./.github/release-gate.sh)): a minor `X.Y.0` (`Y > 0`) needs a beta `X.Y.0-beta.N`, a patch `X.Y.Z` (`Z > 0`) a release candidate `X.Y.Z-rc.N`, and the stable is cut from the very commit of the last one (the numbered tags only, in version order). A patch is released from its `X.Y.x-stable` branch only, since rcs are published on a maintenance line alone. A major is not gated. The workflow runs from the dispatched branch, so the gate holds on the branches whose workflow has it: the `2.3.x` line is not gated until the change is brought there. The gate runs once, before anything is built: do not publish a new pre-release of a version while its stable release runs, or the stable may ship from the commit of the previous one.
+The Release workflow enforces the rule before building anything ([`.github/release-gate.sh`](./.github/release-gate.sh)): a minor `X.Y.0` (`Y > 0`) needs a beta, a patch `X.Y.Z` (`Z > 0`) needs an rc and is released from `X.Y.x-stable` only, and the stable must be the very commit of the last one (the numbered tags only, in version order). The gate does not check majors yet. It holds on the branches whose workflow has it: the 2.3 line is not gated until the change is brought there. It runs once, before anything is built: do not publish a new pre-release of a version while its stable release runs, or the stable may ship from the commit of the previous one.
 
-### Releasing the main line
+On a maintenance line, semantic-release caps nothing: the workflow fails when the computed version leaves `X.Y.*`, which means a stray `feat` or breaking-change commit landed on the line.
 
-- Beta: dispatch the Release workflow on `main`.
-- Stable: fast-forward `release` to the tag of the last beta of the version (`git push origin vX.Y.0-beta.N^{commit}:release`), or for a major to the commit to publish, then dispatch the workflow on `release`. When `release` is already past that beta, the push is refused: release a new beta on a commit that contains it, then push that one. The `release` branch follows `main`'s lineage and is protected against force pushes and deletion: it only moves forward. It is also the only branch that moves the `:latest` image tag, so a maintenance release never pulls it back to an older major.
+### Releasing a patch
+
+1. Land the fix on `main` through a pull request.
+2. Bring it to the line: on a branch from `X.Y.x`, `git cherry-pick -x <sha>`, then open a pull request on `X.Y.x`.
+3. Fast-forward `X.Y.x-rc` to `X.Y.x`: `git fetch origin`, then `git push origin origin/X.Y.x:X.Y.x-rc`.
+4. Draft the notes of `X.Y.Z-rc.N` with the `release-notes` skill on the branch `X.Y.x-rc` (see [Release notes](#release-notes)).
+5. Dispatch the Release workflow on `X.Y.x-rc`.
+6. Accept the rc on a cluster. Only a release blocker justifies an rc.2: fix it from step 1.
+7. Push the rc commit to the stable branch: `git fetch origin --tags`, then `git push origin vX.Y.Z-rc.N^{commit}:X.Y.x-stable`.
+8. Draft the notes of `X.Y.Z` with the `release-notes` skill on the branch `X.Y.x-stable`.
+9. Dispatch the Release workflow on `X.Y.x-stable`.
+
+### Releasing a minor or a major
+
+1. For each beta, draft its notes, then dispatch the Release workflow on `main`. Accept the last beta on a cluster.
+2. Fast-forward `release` to that beta: `git fetch origin --tags`, then `git push origin vX.Y.0-beta.N^{commit}:release`. When `release` is already past it, the push is refused: release a new beta on a commit that contains it, then push that one. `release` follows `main`'s lineage and is protected against force pushes and deletion: it only moves forward.
+3. Draft the notes of `X.Y.0` with the `release-notes` skill on the branch `release`, then dispatch the Release workflow on `release` once no stable run of the line it supersedes is in progress. From then on, dispatch no stable on the line it supersedes until that line's `IS_LATEST` is `false` (step 3 of [Cutting a maintenance branch](#cutting-a-maintenance-branch)), or it moves `:latest` back.
+4. Open the `X.Y` maintenance line for its patches (see [Cutting a maintenance branch](#cutting-a-maintenance-branch)).
 
 ### Release notes
 
@@ -132,34 +157,29 @@ The notes have no known limits section: [`docs/known-limits.md`](./docs/known-li
 2. Once the notes are accepted, they go into a draft GitHub release for exactly the tag of that version: the rendered body, `gh release create v<version> --draft --title v<version> --notes-file <dir>/release-notes.md`, and the YAML as its asset, `gh release upload v<version> <dir>/release-notes.yaml`, `<dir>` being where the skill wrote both, outside the repository. A draft creates no tag. The body is only a preview: never edit a draft's notes on GitHub. Any change goes through the skill, which edits the YAML and replaces both the body and the asset.
 3. The Release workflow fails before building anything when no draft exists for the tag of the version its dry-run computes, and names that version and the drafts that exist, or when the draft has no non-empty `release-notes.yaml` asset, or when that asset does not validate. A draft for `v3.0.0-beta.1` while semantic-release computes `3.1.0` means commits changed the version: check them, then write the notes again.
 4. The workflow renders the draft's asset into the GitHub release and the Slack message, sets the chart's `artifacthub.io/changes` from it (features as `added`, fixes as `fixed`, breaking changes as `changed`, with their pull requests and issues as links), and deletes the draft. The published release carries 2 assets: `release-notes.yaml`, the source of its notes, and `CHANGELOG.md`, the changelog semantic-release generates from the commits. Do not edit the draft once the workflow runs: the chart takes its changes at the start, the release its notes at the end.
-5. When the Release job publishes no release, it puts the draft back, with its asset. If the tag `v<version>` was not pushed, dispatch the workflow again. If it was, publish that draft by hand (`gh release edit v<version> --draft=false`; the restored draft is already marked as a pre-release when the version is one): a new dispatch would compute the next version.
 
-### Releasing a maintenance line `X.Y`
+### Cutting a maintenance branch
 
-- Release candidate: fast-forward `X.Y.x-rc` to the head of `X.Y.x`, then dispatch the workflow on `X.Y.x-rc`.
-- Stable: fast-forward `X.Y.x-stable` to the tag of the last release candidate of the version (`git push origin vX.Y.Z-rc.N^{commit}:X.Y.x-stable`), then dispatch the workflow on `X.Y.x-stable`.
+Each line `X.Y` is maintained from a **maintenance branch `X.Y.x`**: it carries the line's code and its published documentation, and receives the line's fixes through pull requests. To open a line `X.Y`:
 
-A maintenance line only ships fixes. `X.Y.x-stable` and `X.Y.x-rc` are regular release branches for semantic-release, so nothing caps their computed version natively; the Release workflow enforces the line instead, and fails when the computed version escapes `X.Y.*` (which would mean a stray `feat` or breaking-change commit landed on the line).
-
-## Cutting a maintenance branch
-
-Each release line `X.Y` is maintained from a **maintenance branch `X.Y.x`**: it carries the release-line code and its published documentation, and receives the line's fixes through pull requests. When cutting a new line `X.Y`:
-
-1. Create the branch from the release tag and push it:
+1. Create the branch from the commit of `vX.Y.0` and push it:
 
    ```bash
-   git switch -c X.Y.x vX.Y.Z
+   git fetch origin --tags
+   git switch -c X.Y.x vX.Y.0
    git push -u origin X.Y.x
    ```
 
-2. Make the release configuration line-local: on `X.Y.x`, trim the `branches` of [`.releaserc.mjs`](./.releaserc.mjs) down to `X.Y.x-stable` and `X.Y.x-rc` (with `prerelease: "rc"`), as described in [Releases](#releases), then commit and push (the Release workflow reads the file from the branch it is dispatched on):
+2. Make the release configuration line-local on `X.Y.x`, since the Release workflow reads it from the dispatched branch. In [`.releaserc.mjs`](./.releaserc.mjs), trim `branches` down to `X.Y.x-stable` and `X.Y.x-rc` (with `prerelease: "rc"`). In [`.github/workflows/release.yaml`](./.github/workflows/release.yaml), make `IS_LATEST` require `github.ref_name == 'X.Y.x-stable'` in place of `release`, so the line's patches move `:latest` while it is the highest line. Commit and push:
 
    ```bash
-   git commit -m "chore: make the release configuration line-local" .releaserc.mjs
+   git commit -m "chore: make the release configuration line-local for X.Y" .releaserc.mjs .github/workflows/release.yaml
    git push
    ```
 
-3. Create the line's publishing branches from that commit, so both carry the line-local configuration (if they were created earlier, fast-forward them onto it instead):
+3. On the line this one supersedes, set `IS_LATEST` to `false` in its `release.yaml`, so its patches no longer move `:latest` back. The stable branch runs the workflow of the rc it is pushed to: release that line's next stable only from an rc cut after this change.
+
+4. Create the line's publishing branches from the commit of step 2, so both carry the line-local configuration (if they were created earlier, fast-forward them onto it instead):
 
    ```bash
    git branch X.Y.x-stable X.Y.x
@@ -167,6 +187,15 @@ Each release line `X.Y` is maintained from a **maintenance branch `X.Y.x`**: it 
    git push -u origin X.Y.x-stable X.Y.x-rc
    ```
 
-4. Retarget the maintenance-branch Dependabot entries: in [`.github/dependabot.yml`](./.github/dependabot.yml) (on `main`), update the `target-branch` of the patch-only `gomod` and `docker` entries to `X.Y.x`, and drop entries for release lines that reached end of life. These entries keep the release line's dependencies patched (security fixes almost always ship as patch releases), and their `fix` commit prefix makes a later release dispatch cut a patch release.
+5. In [`.github/dependabot.yml`](./.github/dependabot.yml) (on `main`), add a patch-only `gomod` and `docker` pair with `target-branch: X.Y.x`, copied from an existing maintenance pair, and drop the pairs of lines that reached end of life. They keep the line's dependencies patched (security fixes almost always ship as patches), and their `fix` prefix makes the next dispatch cut a patch.
 
-5. Publish the version's documentation on the website: see [Add a new archived version](./website/README.md#add-a-new-archived-version).
+6. Once `main` documents a later version, publish the line's documentation as an archived version: see [Add a new archived version](./website/README.md#add-a-new-archived-version).
+
+### Recovering from a failed run
+
+- **Nothing should be published**: the dry-run found no `feat`, `fix` or breaking change since the last release of the branch. Nothing to recover.
+- **The gate refuses**: follow its message. Fast-forward the branch to the tag it names (`git push origin v<version>-<pre>.<N>^{commit}:<branch>`) and dispatch again, or release a new pre-release. When the branch is already past that tag, the push is refused: release a new pre-release on a commit that contains the branch head.
+- **The version escapes the line**: a `feat` or breaking-change commit landed on `X.Y.x`. Revert it there with `git revert`, its subject reworded as `revert: <subject>` and its `This reverts commit <sha>.` body kept, then release again.
+- **No draft for the version**: see step 3 of [Release notes](#release-notes).
+- **A job fails before the Release job** (lint, test, e2e, build): no tag was pushed. Fix the cause and dispatch again. A failed Build may already have pushed the version's images and chart (and `:latest` for a stable of the highest line): the next dispatch publishes the same version over them, as long as no commit landed on the branch meanwhile.
+- **The Release job publishes no release**: it puts the draft back, with its asset. If the tag `v<version>` was not pushed, dispatch the workflow again. If it was, publish that draft by hand (`gh release edit v<version> --draft=false`; the restored draft is already marked as a pre-release when the version is one): a new dispatch would compute the next version.
