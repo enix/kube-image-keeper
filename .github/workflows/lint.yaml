@@ -59,6 +59,9 @@ jobs:
       - name: Check the chart values
         run: task lint-values
 
+      - name: Check the Prometheus rules
+        run: task lint-rules
+
       - name: Run markdownlint
         run: task lint-markdown
 
