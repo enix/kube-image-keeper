@@ -40,7 +40,7 @@ created.
 
 | Reason | Type | Emitted when |
 | ------ | ---- | ------------ |
-| `ResourceNotReady` | Warning | The `Ready` condition goes `False`. The message carries its reason: `InvalidConfig`, `SecretNotFound`, `SecretMalformed`, and `RegistryDeleteUnsupported` on an `ImageMirror` whose destination refuses tag deletion, or manifest deletion under `cleanup.deleteByDigest` |
+| `ResourceNotReady` | Warning | The `Ready` condition goes `False`. The message carries its reason: `InvalidConfig`, `SecretNotFound`, `SecretMalformed`, and on an `ImageMirror` whose destination refuses tag deletion, or manifest deletion under `cleanup.deleteByDigest`, `RegistryDeleteUnsupported`, or `RegistryDeleteUnauthorized` when it answers the deletion 401 or 403 |
 | `ResourceReady` | Normal | `Ready` goes back to `True` |
 | `PullSecretInjectionFailed` | Warning | The secret syncer could not resolve a credential of the resource for one namespace, and wrote the [injected Secret](./concepts/pull-secrets.md) without it. The message carries the reason (`SecretNotFound`, `SecretMalformed`), the entry's path and the namespace. Emitted by the secret syncer, once while the failure lasts |
 
@@ -66,7 +66,7 @@ or alert on `kuik_image_origin_unavailable`.
 | `ImageUnrecoverable` | Warning | No source can supply an image any more (`SourceNotFound` on the origin and every alternative). Pods still running it do so from a node cache. Once, when the copy starts failing that way |
 | `OrphanTagFound` | Warning | The sweep found a tag of this cluster no tracked image accounts for. It is deleted once its retention elapsed. Once per tag |
 | `ImageDeleted` | Normal | A tag was deleted after its retention elapsed, or was already gone. Under `cleanup.deleteByDigest`, also for each tag of a manifest deleted with another tag of this cluster in the same pass |
-| `ImageDeletionFailed` | Warning | The destination refused a tag deletion, by the sweep or by the cleanup of a deleted `ImageMirror`, or under `cleanup.deleteByDigest` failed the `HEAD` of a tag or the manifest deletion. A destination that does not support the deletion also sets `Ready` `False` with reason `RegistryDeleteUnsupported`; on a live `ImageMirror`, the event fires at the first refusal only, not at the tries that follow (10 seconds later, doubling up to 1 hour), and again at a refusal after an accepted try or a change of the spec. The cleanup of a deleted `ImageMirror` emits it at each try. A tag kept because another tag shares its manifest emits nothing |
+| `ImageDeletionFailed` | Warning | The destination refused a tag deletion, by the sweep or by the cleanup of a deleted `ImageMirror`, or under `cleanup.deleteByDigest` failed the `HEAD` of a tag or the manifest deletion. A destination that does not support the deletion also sets `Ready` `False` with reason `RegistryDeleteUnsupported`, and one that answers it 401 or 403 with reason `RegistryDeleteUnauthorized`; the message then gives the HTTP status and what the registry answered, and for a 401 or a 403 says that the `manage` credential may lack the right to delete. On a live `ImageMirror`, the event fires at the first refusal only, not at the tries that follow (10 seconds later, doubling up to 1 hour, or up to 5 minutes for a 401 or a 403), and again at a refusal after an accepted try, a refusal of the other kind or a change of the spec. The cleanup of a deleted `ImageMirror` emits it at each try. A tag kept because another tag shares its manifest emits nothing |
 | `WaitingForPods` | Normal | A deleted `ImageMirror` waits for the live pods running its copies to go, keeping its tags and its injected pull Secrets: since Kubernetes 1.35 a restarted container checks its pull Secret again. The message gives how many pods hold it. When the wait starts and each time that count changes, not at each try; a restart does not announce it again while the count is unchanged. The `DeletionBlocked` condition is `True` with reason `PodsRunningCopies` meanwhile, its message naming up to 5 of those pods (see [Deleting an ImageMirror](./crds.md#deleting-an-imagemirror) for its other reasons); `Ready` does not change. The reconciler logs `Held a deleted ImageMirror: live pods run its copies` at `info` with `count` and `pods`, see [An ImageMirror stays Terminating](./guides/troubleshooting.md#an-imagemirror-stays-terminating) |
 
 ## Scraping
@@ -178,7 +178,9 @@ private one fails as `Unauthorized` once its pods are gone with their pull secre
 is broken (see [Known limits](./known-limits.md#monitoring)).
 
 `kuik_resource_not_ready{kind, name, reason}` is `1` while the `Ready` condition of a
-resource is `False`, carrying its reason.
+resource is `False`, carrying its reason: one of those of
+[`ResourceNotReady`](#on-a-resource), `RegistryDeleteUnauthorized` included while the destination
+of an `ImageMirror` answers its deletions 401 or 403.
 
 ### Status capacity
 

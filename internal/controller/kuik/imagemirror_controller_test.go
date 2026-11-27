@@ -11,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -2085,6 +2086,210 @@ var _ = Describe("ImageMirror Controller", func() {
 			Entry("405 Method Not Allowed", http.StatusMethodNotAllowed),
 		)
 
+		DescribeTable("emits ImageDeletionFailed and sets Ready False with reason RegistryDeleteUnauthorized when the destination refuses the credential of a tag deletion",
+			func(code int) {
+				h.mirror(withRetention(0))
+				ref := h.orphan("old", own)
+				h.destination.Intercept(answerDeletion(code, deniedBody))
+				h.reconcile()
+
+				h.pass()
+				h.reconcile()
+				events := h.recorder.withReason("ImageDeletionFailed")
+				Expect(events).To(HaveLen(1))
+				Expect(events[0].eventType).To(Equal(corev1.EventTypeWarning))
+				Expect(events[0].note).To(ContainSubstring(h.destination.Host() + "/" + ref))
+				Expect(events[0].note).To(ContainSubstring(fmt.Sprintf("HTTP %d", code)))
+				Expect(events[0].note).To(ContainSubstring(deniedMessage))
+				Expect(events[0].note).To(ContainSubstring("may lack the right to delete"))
+				ready := h.condition(kuikv1alpha1.ConditionReady)
+				Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+				Expect(ready.Reason).To(Equal(kuikv1alpha1.ReasonRegistryDeleteUnauthorized))
+				Expect(ready.Message).To(ContainSubstring(fmt.Sprintf("HTTP %d", code)))
+				Expect(ready.Message).To(ContainSubstring("may lack the right to delete"))
+				Expect(ready.Message).NotTo(ContainSubstring("DENIED"))
+				Expect(ready.Message).NotTo(ContainSubstring("deleteByDigest"))
+				Expect(h.status().PendingDeletion).To(ConsistOf(HaveField("Ref", h.destination.Host()+"/"+ref)))
+				v, ok := notReadyGauge(kuikv1alpha1.ReasonRegistryDeleteUnauthorized)
+				Expect(ok).To(BeTrue())
+				Expect(v).To(Equal(1.0))
+			},
+			Entry("401 Unauthorized", http.StatusUnauthorized),
+			Entry("403 Forbidden", http.StatusForbidden),
+		)
+
+		It("sets Ready False with reason RegistryDeleteUnsupported when the destination refuses one manage credential and answers 405 to another", func() {
+			h.mirror(withRetention(0), func(im *kuikv1alpha1.ImageMirror) {
+				im.Spec.Destination.Manage = secretAuth(createTwoCredentials(h.destination.Host()))
+			})
+			h.orphan("old", own)
+			h.destination.Intercept(answerDeletionOf(map[string]int{"reader": http.StatusForbidden, "legacy": http.StatusMethodNotAllowed}, deniedBody))
+			h.reconcile()
+
+			h.pass()
+			h.reconcile()
+			Expect(h.destination.Requests(http.MethodDelete, "")).To(HaveLen(2))
+			events := h.recorder.withReason("ImageDeletionFailed")
+			Expect(events).To(HaveLen(1))
+			Expect(events[0].note).To(ContainSubstring("HTTP 405"))
+			ready := h.condition(kuikv1alpha1.ConditionReady)
+			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			Expect(ready.Reason).To(Equal(kuikv1alpha1.ReasonRegistryDeleteUnsupported))
+		})
+
+		It("carries the HTTP status and the registry's error message in ImageDeletionFailed when the destination refuses a tag deletion as unsupported", func() {
+			h.mirror(withRetention(0))
+			h.orphan("old", own)
+			h.destination.Intercept(answerDeletion(http.StatusMethodNotAllowed, `{"errors":[{"code":"UNSUPPORTED","message":"the operation is unsupported"}]}`))
+			h.reconcile()
+
+			h.pass()
+			h.reconcile()
+			events := h.recorder.withReason("ImageDeletionFailed")
+			Expect(events).To(HaveLen(1))
+			Expect(events[0].note).To(ContainSubstring("HTTP 405"))
+			Expect(events[0].note).To(ContainSubstring("UNSUPPORTED: the operation is unsupported"))
+			Expect(events[0].note).NotTo(ContainSubstring("may lack the right to delete"))
+		})
+
+		It("cuts the registry's error message at 256 bytes in ImageDeletionFailed, never inside a character, and ends it with an ellipsis", func() {
+			h.mirror(withRetention(0))
+			h.orphan("old", own)
+			// "DENIED: " and 247 letters are 255 bytes: the cut at 256 falls inside the "é".
+			kept := strings.Repeat("a", 247)
+			h.destination.Intercept(answerDeletion(http.StatusForbidden, `{"errors":[{"code":"DENIED","message":"`+kept+`é and what follows"}]}`))
+			h.reconcile()
+
+			h.pass()
+			h.reconcile()
+			events := h.recorder.withReason("ImageDeletionFailed")
+			Expect(events).To(HaveLen(1))
+			Expect(events[0].note).To(HaveSuffix("The registry answered: DENIED: " + kept + "..."))
+			Expect(utf8.ValidString(events[0].note)).To(BeTrue())
+		})
+
+		Context("once the destination refused the credential of a deletion", func() {
+			deletes := func() []registrytest.Request {
+				return h.destination.Requests(http.MethodDelete, "")
+			}
+			// refuse makes the destination refuse the credential of every deletion, runs the pass
+			// that meets the first refusal, and returns the RequeueAfter of that reconcile.
+			refuse := func() time.Duration {
+				GinkgoHelper()
+				h.destination.Intercept(answerDeletion(http.StatusForbidden, deniedBody))
+				h.reconcile()
+				h.pass()
+				result := h.reconcile()
+				Expect(deletes()).To(HaveLen(1))
+				return result.RequeueAfter
+			}
+
+			It("tries a single deletion 10 seconds after the refusal, doubling the wait after each refused try, up to 5 minutes", func() {
+				h.mirror(withRetention(0))
+				h.orphan("old", own)
+				wait := refuse()
+				expected := 10 * time.Second
+				for try := 2; try <= 8; try++ {
+					Expect(wait).To(Equal(expected), "wait before try %d", try)
+					h.clock.Step(expected - time.Second)
+					h.reconcile()
+					Expect(deletes()).To(HaveLen(try-1), "a DELETE before try %d", try)
+					h.clock.Step(time.Second)
+					wait = h.reconcile().RequeueAfter
+					Expect(deletes()).To(HaveLen(try), "no DELETE at try %d", try)
+					expected = min(2*expected, 5*time.Minute)
+				}
+				Expect(wait).To(Equal(5 * time.Minute))
+			})
+
+			It("emits no ImageDeletionFailed again at the refused tries that follow, Ready staying False with reason RegistryDeleteUnauthorized", func() {
+				h.mirror(withRetention(0))
+				h.orphan("old", own)
+				refuse()
+
+				h.clock.Step(10 * time.Second)
+				h.reconcile()
+				h.clock.Step(20 * time.Second)
+				h.reconcile()
+				Expect(deletes()).To(HaveLen(3))
+				Expect(h.recorder.withReason("ImageDeletionFailed")).To(HaveLen(1))
+				ready := h.condition(kuikv1alpha1.ConditionReady)
+				Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+				Expect(ready.Reason).To(Equal(kuikv1alpha1.ReasonRegistryDeleteUnauthorized))
+			})
+
+			It("deletes every due tag and sets Ready back to True once a try is accepted", func() {
+				h.mirror(withRetention(0))
+				ref := h.orphan("old", own)
+				next := h.orphan("older", own)
+				refuse()
+				Expect(h.condition(kuikv1alpha1.ConditionReady).Reason).To(Equal(kuikv1alpha1.ReasonRegistryDeleteUnauthorized))
+
+				acceptPushes(h.destination)
+				h.clock.Step(10 * time.Second)
+				h.reconcile()
+				Expect(h.copied(ref)()).NotTo(Succeed())
+				Expect(h.copied(next)()).NotTo(Succeed())
+				Expect(h.status().PendingDeletion).To(BeEmpty())
+				ready := h.condition(kuikv1alpha1.ConditionReady)
+				Expect(ready.Status).To(Equal(metav1.ConditionTrue))
+				Expect(ready.Reason).To(Equal(kuikv1alpha1.ReasonIsReady))
+			})
+
+			It("sets Ready back to True, before any new try, once a pod runs again the last tag pending deletion the destination refused", func() {
+				src := h.source()
+				src.Push("acme/job:v1", registrytest.Image())
+				image := container{name: appContainer, image: src.Host() + "/acme/job:v1"}
+				pod := createPod(h.namespace(), unique("pod"), image)
+				h.mirror(withRetention(0))
+				h.copyAll(1)
+				setPhase(pod, corev1.PodSucceeded)
+				h.reconcile()
+				Expect(h.status().PendingDeletion).NotTo(BeEmpty())
+				refuse()
+				Expect(h.condition(kuikv1alpha1.ConditionReady).Reason).To(Equal(kuikv1alpha1.ReasonRegistryDeleteUnauthorized))
+
+				createPod(h.namespace(), unique("pod"), image)
+				h.reconcile()
+				Expect(h.status().PendingDeletion).To(BeEmpty())
+				ready := h.condition(kuikv1alpha1.ConditionReady)
+				Expect(ready.Status).To(Equal(metav1.ConditionTrue))
+				Expect(deletes()).To(HaveLen(1))
+			})
+
+			It("emits ImageDeletionFailed again, takes the reason RegistryDeleteUnsupported and waits 10 seconds again when a try is then refused as unsupported", func() {
+				h.mirror(withRetention(0))
+				h.orphan("old", own)
+				refuse()
+				h.clock.Step(10 * time.Second)
+				h.reconcile()
+				Expect(deletes()).To(HaveLen(2))
+
+				h.destination.Intercept(registrytest.Status(http.MethodDelete, "/manifests/", http.StatusMethodNotAllowed, nil))
+				h.clock.Step(20 * time.Second)
+				wait := h.reconcile().RequeueAfter
+				Expect(deletes()).To(HaveLen(3))
+				Expect(h.recorder.withReason("ImageDeletionFailed")).To(HaveLen(2))
+				Expect(h.condition(kuikv1alpha1.ConditionReady).Reason).To(Equal(kuikv1alpha1.ReasonRegistryDeleteUnsupported))
+				Expect(wait).To(Equal(10 * time.Second))
+			})
+
+			It("tries at its first pass after a restart without emitting ImageDeletionFailed again, Ready unchanged", func() {
+				h.mirror(withRetention(0))
+				h.orphan("old", own)
+				refuse()
+				before := h.condition(kuikv1alpha1.ConditionReady)
+
+				h.restart()
+				h.reconcile()
+				Expect(deletes()).To(HaveLen(2))
+				Expect(h.recorder.withReason("ImageDeletionFailed")).To(HaveLen(1))
+				ready := h.condition(kuikv1alpha1.ConditionReady)
+				Expect(ready.Reason).To(Equal(kuikv1alpha1.ReasonRegistryDeleteUnauthorized))
+				Expect(ready).To(Equal(before))
+			})
+		})
+
 		Context("once the destination refused a deletion as unsupported", func() {
 			deletes := func() []registrytest.Request {
 				return h.destination.Requests(http.MethodDelete, "")
@@ -2671,6 +2876,28 @@ var _ = Describe("ImageMirror Controller", func() {
 				Expect(ready.Message).To(ContainSubstring("manifest deletion"))
 				Expect(ready.Message).NotTo(ContainSubstring("deleteByDigest"))
 				Expect(h.destination.Requests(http.MethodDelete, "")).To(HaveLen(1))
+				Expect(h.tagHeads(next)).To(BeEmpty())
+			})
+
+			It("emits ImageDeletionFailed and sets Ready False with reason RegistryDeleteUnauthorized, naming manifest deletion, when the destination refuses the credential of the manifest deletion, and stops deleting there", func() {
+				h.mirror(withRetention(0), withDeleteByDigest)
+				ref := h.orphan("old", own)
+				next := h.orphan("older", own)
+				h.destination.Reset()
+				h.destination.Intercept(answerDeletion(http.StatusForbidden, deniedBody))
+				h.reconcile()
+
+				h.pass()
+				h.reconcile()
+				events := h.recorder.withReason("ImageDeletionFailed")
+				Expect(events).To(HaveLen(1))
+				Expect(events[0].note).To(ContainSubstring(h.destination.Host() + "/" + ref))
+				Expect(events[0].note).To(ContainSubstring("HTTP 403"))
+				ready := h.condition(kuikv1alpha1.ConditionReady)
+				Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+				Expect(ready.Reason).To(Equal(kuikv1alpha1.ReasonRegistryDeleteUnauthorized))
+				Expect(ready.Message).To(ContainSubstring("manifest deletion"))
+				Expect(h.digestDeletes()).To(HaveLen(1))
 				Expect(h.tagHeads(next)).To(BeEmpty())
 			})
 
@@ -3317,6 +3544,88 @@ var _ = Describe("ImageMirror Controller", func() {
 			Entry("400 Bad Request", http.StatusBadRequest),
 			Entry("405 Method Not Allowed", http.StatusMethodNotAllowed),
 		)
+
+		DescribeTable("emits ImageDeletionFailed and sets Ready False with reason RegistryDeleteUnauthorized, once in its status, while the destination refuses the credential of its tag deletion",
+			func(code int) {
+				pod := routedToCopy()
+				Expect(k8sClient.Delete(ctx, pod)).To(Succeed())
+				h.destination.Intercept(answerDeletion(code, deniedBody))
+				deleteMirror()
+
+				h.reconcile()
+				Expect(gone()).To(BeFalse())
+				Expect(h.copied(destinationTag(src, "acme/app"))()).To(Succeed())
+				events := h.recorder.withReason("ImageDeletionFailed")
+				Expect(events).To(HaveLen(1))
+				Expect(events[0].eventType).To(Equal(corev1.EventTypeWarning))
+				Expect(events[0].note).To(ContainSubstring(mirrored))
+				Expect(events[0].note).To(ContainSubstring(fmt.Sprintf("HTTP %d", code)))
+				Expect(events[0].note).To(ContainSubstring(deniedMessage))
+				Expect(events[0].note).To(ContainSubstring("may lack the right to delete"))
+				ready := h.condition(kuikv1alpha1.ConditionReady)
+				Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+				Expect(ready.Reason).To(Equal(kuikv1alpha1.ReasonRegistryDeleteUnauthorized))
+				Expect(ready.Message).To(ContainSubstring(fmt.Sprintf("HTTP %d", code)))
+				Expect(ready.Message).To(ContainSubstring("cleanup.enabled: false"))
+				Expect(ready.Message).NotTo(ContainSubstring("DENIED"))
+				Expect(ready.Message).NotTo(ContainSubstring("deleteByDigest"))
+				blocked := h.condition(kuikv1alpha1.ConditionDeletionBlocked)
+				Expect(blocked).NotTo(BeNil())
+				Expect(blocked.Status).To(Equal(metav1.ConditionTrue))
+				Expect(blocked.Reason).To(Equal(kuikv1alpha1.ReasonDestinationRefusedDeletion))
+				Expect(blocked.Message).To(Equal(ready.Message))
+				Expect(h.recorder.withReason(condition.EventResourceNotReady)).To(HaveLen(1))
+				v, ok := notReadyGauge(kuikv1alpha1.ReasonRegistryDeleteUnauthorized)
+				Expect(ok).To(BeTrue())
+				Expect(v).To(Equal(1.0))
+
+				var held kuikv1alpha1.ImageMirror
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: h.name}, &held)).To(Succeed())
+				h.reconcile()
+				Expect(gone()).To(BeFalse())
+				var again kuikv1alpha1.ImageMirror
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: h.name}, &again)).To(Succeed())
+				Expect(again.ResourceVersion).To(Equal(held.ResourceVersion))
+				Expect(h.recorder.withReason(condition.EventResourceNotReady)).To(HaveLen(1))
+			},
+			Entry("401 Unauthorized", http.StatusUnauthorized),
+			Entry("403 Forbidden", http.StatusForbidden),
+		)
+
+		It("tries again within 5 minutes while the destination refuses the credential of its tag deletion, and releases its finalizer once the destination accepts it", func() {
+			pod := routedToCopy()
+			Expect(k8sClient.Delete(ctx, pod)).To(Succeed())
+			h.destination.Intercept(answerDeletion(http.StatusForbidden, deniedBody))
+			deleteMirror()
+
+			var wait time.Duration
+			for range 8 {
+				wait = h.reconcile().RequeueAfter
+			}
+			Expect(gone()).To(BeFalse())
+			Expect(wait).To(Equal(5 * time.Minute))
+
+			acceptPushes(h.destination)
+			h.reconcile()
+			Expect(gone()).To(BeTrue())
+			Expect(h.copied(destinationTag(src, "acme/app"))()).NotTo(Succeed())
+		})
+
+		It("sets Ready False with reason RegistryDeleteUnauthorized, naming manifest deletion, while the destination refuses the credential of the manifest deletion of a deleted mirror", func() {
+			pod := routedToCopy(withDeleteByDigest)
+			Expect(k8sClient.Delete(ctx, pod)).To(Succeed())
+			h.destination.Intercept(answerDeletion(http.StatusForbidden, deniedBody))
+			deleteMirror()
+
+			h.reconcile()
+			Expect(gone()).To(BeFalse())
+			Expect(h.recorder.withReason("ImageDeletionFailed")).To(HaveLen(1))
+			ready := h.condition(kuikv1alpha1.ConditionReady)
+			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			Expect(ready.Reason).To(Equal(kuikv1alpha1.ReasonRegistryDeleteUnauthorized))
+			Expect(ready.Message).To(ContainSubstring("manifest deletion"))
+			Expect(ready.Message).To(ContainSubstring("cleanup.enabled: false"))
+		})
 
 		It("releases its finalizer, leaving its tags, once cleanup.enabled is set to false while the destination refuses tag deletion", func() {
 			pod := routedToCopy()

@@ -324,6 +324,7 @@ func (r *ImageMirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			// The next pass is an interval after this one, a pass a try ran included.
 			_, nextPass = r.passDue(st, r.clock.Now())
 		}
+		st.pendingLeft(len(pending))
 		sources, err := r.copySources(ctx, desired, pods, st.originTransports())
 		if err != nil {
 			return ctrl.Result{}, err

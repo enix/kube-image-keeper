@@ -3,8 +3,10 @@ package kuik
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 
 	kuikv1alpha1 "github.com/enix/kube-image-keeper/api/kuik/v1alpha1"
@@ -56,12 +58,20 @@ func (r *ImageMirrorReconciler) deleteByDigest(ctx context.Context, endpoint fun
 }
 
 // refusedSweep is why a mirror whose destination refused its last deletion, made the way its
-// spec says now, as unsupported is not ready, nil when it did not. The hint to delete by digest
-// goes to a mirror deleting by tag.
+// spec says now, in a way that lasts is not ready, nil when it did not. The hint to delete by
+// digest goes to a mirror deleting by tag on a destination that does not support it: deleting
+// by digest needs the same right as deleting by tag.
 func refusedSweep(im *kuikv1alpha1.ImageMirror, st *mirrorState) *condition.NotReady {
 	byDigest := im.Spec.Cleanup.DeletesByDigest()
-	if !st.refusesDeletion(byDigest) {
+	refusal, refusing := st.refusesDeletion(byDigest)
+	if !refusing {
 		return nil
+	}
+	if refusal.unauthorized {
+		return &condition.NotReady{
+			Reason:  kuikv1alpha1.ReasonRegistryDeleteUnauthorized,
+			Message: refusal.unauthorizedMessage(byDigest, "set cleanup.enabled: false"),
+		}
 	}
 	if byDigest {
 		return &condition.NotReady{
@@ -146,8 +156,88 @@ func (r *ImageMirrorReconciler) knownDigests(im *kuikv1alpha1.ImageMirror, st *m
 	return known
 }
 
-// deleteUnsupported reports whether err is the destination refusing a deletion, by tag or by
-// digest, as unsupported: it will keep refusing.
-func deleteUnsupported(err error) bool {
-	return errors.Is(err, registry.ErrDeleteUnsupported) || errors.Is(err, registry.ErrManifestDeleteUnsupported)
+// deletionRefusal is how the destination refused a deletion, by tag or by digest, in a way that
+// lasts: it will keep refusing until an operator acts.
+type deletionRefusal struct {
+	// unauthorized is set when the destination answered 401 or 403, and unset when it does not
+	// support the deletion (400, 405, 501).
+	unauthorized bool
+	// status is the HTTP status of the answer, 0 when unknown.
+	status int
+	// message is the registry's own error message. It goes in the event only: it may change
+	// from a try to the next, and Ready would be rewritten each time.
+	message string
+}
+
+// registryMessageLimit is how much of the registry's error message an event carries: the API
+// server refuses an event whose note is longer than 1024 bytes.
+const registryMessageLimit = 256
+
+// refusedDeletion reports whether err is the destination refusing a deletion in a way that
+// lasts, and how. A deletion tried with several credentials may be refused both ways:
+// unsupported wins, since no credential makes a registry delete what it does not support.
+func refusedDeletion(err error) (deletionRefusal, bool) {
+	kinds := []error{registry.ErrDeleteUnsupported, registry.ErrManifestDeleteUnsupported}
+	unsupported := errors.Is(err, kinds[0]) || errors.Is(err, kinds[1])
+	if !unsupported {
+		if !errors.Is(err, registry.ErrDeleteUnauthorized) {
+			return deletionRefusal{}, false
+		}
+		kinds = []error{registry.ErrDeleteUnauthorized}
+	}
+	refusal := deletionRefusal{unauthorized: !unsupported}
+	for _, kind := range kinds {
+		if detail, ok := registry.RefusalDetail(err, kind); ok {
+			refusal.status, refusal.message = detail.StatusCode, detail.Message
+			break
+		}
+	}
+	return refusal, true
+}
+
+// httpStatus is the HTTP status of the refusal as the messages give it, empty when unknown.
+func (d deletionRefusal) httpStatus() string {
+	if d.status == 0 {
+		return ""
+	}
+	return fmt.Sprintf(" (HTTP %d)", d.status)
+}
+
+// note is the note of the ImageDeletionFailed event of the refused deletion of ref: the HTTP
+// status and what the registry answered. A 403 is not always a matter of credential (an
+// immutable tag, a retention policy), so the note does not assert it.
+func (d deletionRefusal) note(ref string) string {
+	note := fmt.Sprintf("Failed to delete %s: the destination does not support the deletion%s", ref, d.httpStatus())
+	if d.unauthorized {
+		note = fmt.Sprintf("Failed to delete %s: the destination refuses the deletion%s; the manage credential may lack the right to delete", ref, d.httpStatus())
+	}
+	if d.message == "" {
+		return note
+	}
+	message := d.message
+	if len(message) > registryMessageLimit {
+		message = strings.ToValidUTF8(message[:registryMessageLimit], "") + "..."
+	}
+	return note + ". The registry answered: " + message
+}
+
+// unauthorizedMessage is the Ready message of a mirror whose destination refuses the credential
+// of a deletion, by tag or by digest, with the HTTP status it answered; otherwise is what the
+// operator can do instead of granting the right. It starts as the message of an unsupported
+// deletion does, which tells a restart the way the deletion was made.
+func (d deletionRefusal) unauthorizedMessage(byDigest bool, otherwise string) string {
+	refuses := "the destination refuses tag deletion"
+	if byDigest {
+		refuses = manifestRefusal
+	}
+	return refuses + d.httpStatus() + ": cleanup cannot make progress; the manage credential may lack the right to delete: grant it, or " + otherwise
+}
+
+// refusedStatus reads back the HTTP status a Ready message built by unauthorizedMessage holds,
+// 0 when it holds none.
+func refusedStatus(message string) int {
+	_, after, _ := strings.Cut(message, "(HTTP ")
+	code, _, _ := strings.Cut(after, ")")
+	status, _ := strconv.Atoi(code)
+	return status
 }

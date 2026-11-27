@@ -43,7 +43,8 @@ func (r *ImageMirrorReconciler) passDue(st *mirrorState, now time.Time) (bool, t
 }
 
 // passOrTryDue is passDue, also due when the try of a deletion the destination of im refused
-// as unsupported is: that try runs a pass of its own, without waiting for the next one.
+// as unsupported or for its credential is: that try runs a pass of its own, without waiting
+// for the next one.
 func (r *ImageMirrorReconciler) passOrTryDue(im *kuikv1alpha1.ImageMirror, st *mirrorState, now time.Time) (bool, time.Duration) {
 	st.specSeen(im.Generation)
 	due, wait := r.passDue(st, now)
@@ -169,7 +170,8 @@ func (r *ImageMirrorReconciler) selfCheck(ctx context.Context, im *kuikv1alpha1.
 // this cluster the live references do not expect, deletes by tag those whose retention
 // elapsed, and returns the new pendingDeletion and the repositories to retire. A listing that
 // fails interrupts the pass, which records, deletes and retires nothing. Once the destination
-// refused a deletion as unsupported, it deletes nothing until the next try is due.
+// refused a deletion as unsupported or for its credential, it deletes nothing until the next
+// try is due.
 func (r *ImageMirrorReconciler) sweep(ctx context.Context, im *kuikv1alpha1.ImageMirror, st *mirrorState, live []imagepath.Reference, pending []kuikv1alpha1.PendingDeletion, now time.Time) ([]kuikv1alpha1.PendingDeletion, []string, error) {
 	log := logf.FromContext(ctx)
 	// Copies start again once the sweep is over, unless it waits for the ones running.
@@ -226,8 +228,8 @@ func (r *ImageMirrorReconciler) sweep(ctx context.Context, im *kuikv1alpha1.Imag
 		entries[entry.Ref] = entry
 	}
 	byDigest := im.Spec.Cleanup.DeletesByDigest()
-	// A destination that refused a deletion as unsupported gets one try per backoff step, not
-	// one per pass.
+	// A destination that refused a deletion as unsupported or for its credential gets one try
+	// per backoff step, not one per pass.
 	next, refusing := st.deletionTry(byDigest, now, im.Generation)
 	held := refusing && now.Before(next)
 	if held && len(result.Delete) > 0 {
@@ -264,6 +266,7 @@ func (r *ImageMirrorReconciler) sweep(ctx context.Context, im *kuikv1alpha1.Imag
 		} else {
 			err = r.registry.DeleteTag(ctx, endpoint(ref))
 		}
+		refusal, refused := refusedDeletion(err)
 		switch {
 		case err == nil && keptBy != "":
 			// Held for good while that tag is expected: no event, the entry stays pending.
@@ -276,19 +279,20 @@ func (r *ImageMirrorReconciler) sweep(ctx context.Context, im *kuikv1alpha1.Imag
 			// Events expire: the log is what records every deletion.
 			log.Info("Deleted ImageMirror tag", "image", ref, "reason", deletionReason(entries[ref]))
 			r.recorder.Eventf(im, nil, corev1.EventTypeNormal, "ImageDeleted", "Delete", "Deleted %s, unused for longer than its retention", ref)
-		case deleteUnsupported(err):
-			// The registry will keep refusing: stop there, and try a single deletion again once
-			// the wait is over. The event announces the first refusal of a series only.
-			first, wait := st.refuseDeletion(byDigest, now, im.Generation)
+		case refused:
+			// The registry will keep refusing, as unsupported or for the credential, until an
+			// operator acts: stop there, and try a single deletion again once the wait is over.
+			// The event announces the first refusal of a series only.
+			first, wait := st.refuseDeletion(byDigest, refusal, now, im.Generation)
 			log.Info("Stopped deleting ImageMirror tags: the destination refuses deletion", "image", ref, "error", err.Error(), "retryIn", wait.String())
 			if first {
-				r.recorder.Eventf(im, nil, corev1.EventTypeWarning, "ImageDeletionFailed", "Delete", "Failed to delete %s: %v", ref, err)
+				r.recorder.Eventf(im, nil, corev1.EventTypeWarning, "ImageDeletionFailed", "Delete", "%s", refusal.note(ref))
 			}
 		default:
 			log.Info("Failed to delete ImageMirror tag", "image", ref, "error", err.Error())
 			r.recorder.Eventf(im, nil, corev1.EventTypeWarning, "ImageDeletionFailed", "Delete", "Failed to delete %s: %v", ref, err)
 		}
-		if deleteUnsupported(err) {
+		if refused {
 			break
 		}
 	}

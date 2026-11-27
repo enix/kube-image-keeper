@@ -489,6 +489,53 @@ func refuseTagDeletion(status int) registrytest.Interceptor {
 	}
 }
 
+// deniedBody is the error body of a registry that refuses a credential for a request, and
+// deniedMessage what it reads as.
+const (
+	deniedBody    = `{"errors":[{"code":"DENIED","message":"requested access to the resource is denied"}]}`
+	deniedMessage = "DENIED: requested access to the resource is denied"
+)
+
+// answerDeletion answers every DELETE of a manifest, by tag or by digest, with status and the
+// error body, and lets the registry answer the other requests.
+func answerDeletion(status int, body string) registrytest.Interceptor {
+	return answerDeletionOf(map[string]int{"": status}, body)
+}
+
+// answerDeletionOf answers every DELETE of a manifest with the status its basic auth user
+// gets ("" for a request without credential) and the error body, and lets the registry answer
+// the other requests, the deletions of any other user included.
+func answerDeletionOf(statuses map[string]int, body string) registrytest.Interceptor {
+	return func(w http.ResponseWriter, r *http.Request) bool {
+		user, _, _ := r.BasicAuth()
+		status, ok := statuses[user]
+		if r.Method != http.MethodDelete || !strings.Contains(r.URL.Path, "/manifests/") || !ok {
+			return false
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(body))
+		return true
+	}
+}
+
+// createTwoCredentials creates a docker-registry Secret of the install namespace holding 2
+// credentials that both match a destination under host/mirror/, and returns its name: the user
+// reader for the path, tried first as the most specific, then the user legacy for the host.
+func createTwoCredentials(host string) string {
+	name := unique("creds")
+	entry := func(user string) string {
+		return fmt.Sprintf(`{"username":%q,"password":"s3cr3t","auth":%q}`, user, base64.StdEncoding.EncodeToString([]byte(user+":s3cr3t")))
+	}
+	dockerConfig := fmt.Sprintf(`{"auths":{%q:%s,%q:%s}}`, host+"/mirror", entry("reader"), host, entry("legacy"))
+	Expect(k8sClient.Create(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: installNamespace, Name: name},
+		Type:       corev1.SecretTypeDockerConfigJson,
+		Data:       map[string][]byte{corev1.DockerConfigJsonKey: []byte(dockerConfig)},
+	})).To(Succeed())
+	return name
+}
+
 // digestDeletes are the DELETE requests the destination received by digest.
 func (h *mirrorHarness) digestDeletes() []registrytest.Request {
 	return h.destination.Requests(http.MethodDelete, "/manifests/sha256:")
