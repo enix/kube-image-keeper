@@ -242,6 +242,15 @@ func (st *mirrorState) acceptDeletion() {
 	st.deleteRefused, st.refusedTries, st.nextTry, st.tryNow = false, 0, time.Time{}, false
 }
 
+// pendingLeft ends a series of refusals once no deletion is pending: a pod running a tag again
+// before any try may have left the last one, and with no deletion left to refuse, Ready must
+// not wait for an accepted one.
+func (st *mirrorState) pendingLeft(pending int) {
+	if pending == 0 {
+		st.acceptDeletion()
+	}
+}
+
 // startDeleting lets no copy start until doneDeleting, and reports whether no copy runs
 // either. When one does, the next reconcile once the last one ended runs a destination pass,
 // whose sweep deletes.
