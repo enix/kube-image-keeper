@@ -2228,6 +2228,27 @@ var _ = Describe("ImageMirror Controller", func() {
 				Expect(ready.Reason).To(Equal(kuikv1alpha1.ReasonIsReady))
 			})
 
+			It("sets Ready back to True, before any new try, once a pod runs again the last tag pending deletion the destination refused", func() {
+				src := h.source()
+				src.Push("acme/job:v1", registrytest.Image())
+				image := container{name: appContainer, image: src.Host() + "/acme/job:v1"}
+				pod := createPod(h.namespace(), unique("pod"), image)
+				h.mirror(withRetention(0))
+				h.copyAll(1)
+				setPhase(pod, corev1.PodSucceeded)
+				h.reconcile()
+				Expect(h.status().PendingDeletion).NotTo(BeEmpty())
+				refuse()
+				Expect(h.condition(kuikv1alpha1.ConditionReady).Reason).To(Equal(kuikv1alpha1.ReasonRegistryDeleteUnauthorized))
+
+				createPod(h.namespace(), unique("pod"), image)
+				h.reconcile()
+				Expect(h.status().PendingDeletion).To(BeEmpty())
+				ready := h.condition(kuikv1alpha1.ConditionReady)
+				Expect(ready.Status).To(Equal(metav1.ConditionTrue))
+				Expect(deletes()).To(HaveLen(1))
+			})
+
 			It("emits ImageDeletionFailed again, takes the reason RegistryDeleteUnsupported and waits 10 seconds again when a try is then refused as unsupported", func() {
 				h.mirror(withRetention(0))
 				h.orphan("old", own)
