@@ -36,6 +36,7 @@ const (
 	// carrying syncedSource: its entry is what the grace keeps.
 	onFailureAlternative       = "e2e-secrets-onfailure"
 	onFailureAlternativeOrigin = "e2e-secrets-onfailure.invalid/pause"
+	onFailureImage             = onFailureAlternativeOrigin + ":" + pauseTag
 	onFailurePod               = "e2e-secrets-onfailure"
 	onFailureSecret            = "kuik-inject-imagealternative-" + onFailureAlternative
 )
@@ -57,6 +58,21 @@ spec:
         secretRef:
           name: %[4]s
 `, onFailureAlternative, syncerLabel, onFailureAlternativeOrigin, syncedSource)
+
+// onFailureReplicasRouting tells, for each webhook pod, whether it rewrites a pod of the syncer
+// namespace running onFailureImage to availableImage, asked directly through the API server's
+// proxy. No pod is created.
+func onFailureReplicasRouting() (map[string]bool, error) {
+	responses, err := replicaResponses(syncerNamespace, pausePodManifest(syncerNamespace, "replica-probe", onFailureImage))
+	if err != nil {
+		return nil, err
+	}
+	routing := map[string]bool{}
+	for pod, response := range responses {
+		routing[pod] = strings.Contains(string(response.Patch), availableImage)
+	}
+	return routing, nil
+}
 
 // pullSecretConfig returns the decoded .dockerconfigjson of the pull Secret name in the syncer
 // namespace.
@@ -105,6 +121,8 @@ spec:
 
 var _ = Describe("Pull secret syncing", Ordered, func() {
 	BeforeAll(func() {
+		startAPIProxy()
+
 		By("waiting for the secret syncer Deployment to become available")
 		Eventually(deploymentAvailable).WithArguments("secret-syncer").Should(Succeed())
 
@@ -162,8 +180,11 @@ var _ = Describe("Pull secret syncing", Ordered, func() {
 		By("rewriting a pod through an OnFailure ImageAlternative that injects a credential")
 		Expect(kubectlStdin(onFailureResource, "apply", "-f", "-")).Error().NotTo(HaveOccurred())
 		DeferCleanup(kubectl, "delete", "imagealternative", onFailureAlternative, "--ignore-not-found")
+		// Admission reaches one replica: a pod admitted before that replica saw the resource
+		// keeps its origin, and no pull Secret is ever written for it.
+		Eventually(onFailureReplicasRouting).Should(everyReplica(BeTrue()))
 		_, err = kubectl("run", onFailurePod, "-n", syncerNamespace, "--restart=Never",
-			"--image="+onFailureAlternativeOrigin+":3.10")
+			"--image="+onFailureImage)
 		Expect(err).NotTo(HaveOccurred())
 		Eventually(pullSecretConfig).WithArguments(onFailureSecret).
 			Should(ContainSubstring(`"registry.k8s.io/pause"`))
