@@ -382,6 +382,16 @@ func (h *mirrorHarness) step(d time.Duration) {
 	h.clock.Step(d)
 }
 
+// settle waits until the scheduler opened every window due and recorded the end of every copy
+// and check it started: nothing reaches a registry after it until the clock moves or a
+// reconcile runs. That end always comes, so the bound is long and says nothing about time.
+func (h *mirrorHarness) settle() {
+	GinkgoHelper()
+	Eventually(func() bool {
+		return h.scheduler.Waiting() && h.scheduler.InFlight() == 0
+	}).WithTimeout(30 * time.Second).Should(BeTrue())
+}
+
 // passNow makes the next reconcile run a destination pass without moving the clock, so that no
 // copy window opens with it.
 func (h *mirrorHarness) passNow() {

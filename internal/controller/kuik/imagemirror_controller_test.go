@@ -1015,8 +1015,13 @@ var _ = Describe("ImageMirror Controller", func() {
 		})
 
 		Context("when a copy keeps failing", func() {
+			// repository is read by no other spec: a request of another spec that reaches a
+			// source, on a port a closed registry freed, is not counted as an attempt.
+			var repository string
+			BeforeEach(func() { repository = "acme/" + unique("app") })
+
 			// attempts opens the windows from to to, reconciling before each, and checks that
-			// each source received the manifest HEAD of acme/app:v1 an attempt opens with at
+			// each source received the manifest HEAD of repository:v1 an attempt opens with at
 			// the windows of want, one list per source, each attempt over before the next
 			// window. The sources received no other HEAD of it.
 			attempts := func(from, to int, sources []*registrytest.Registry, want ...[]int) {
@@ -1024,7 +1029,7 @@ var _ = Describe("ImageMirror Controller", func() {
 				counts := func() []int {
 					got := make([]int, 0, len(sources))
 					for _, src := range sources {
-						got = append(got, checked(src, "acme/app")())
+						got = append(got, checked(src, repository)())
 					}
 					return got
 				}
@@ -1035,21 +1040,20 @@ var _ = Describe("ImageMirror Controller", func() {
 					for i, windows := range want {
 						expected[i] = len(slices.DeleteFunc(slices.Clone(windows), func(at int) bool { return at > w }))
 					}
-					Eventually(counts).Should(Equal(expected), "after window %d", w)
-					// Over once the scheduler recorded its end, after the copier returned: until
-					// then its host takes no window, and a clock moved meanwhile would date the
-					// backoff of a failure a window late.
-					Eventually(h.scheduler.InFlight).Should(BeZero())
+					// The window is open and what it started is over, its end recorded by the
+					// scheduler: no other request can reach a source before the next window, and
+					// the clock moves only then, so the backoff of a failure is dated in its window.
+					h.settle()
+					Expect(counts()).To(Equal(expected), "after window %d", w)
 				}
-				Consistently(counts).Should(Equal(expected))
 			}
-			// failingSource returns a source of acme/app:v1, which a pod of the mirror under
+			// failingSource returns a source of repository:v1, which a pod of the mirror under
 			// test runs, whose every copy the destination refuses.
 			failingSource := func(mutate ...func(*kuikv1alpha1.ImageMirror)) (*registrytest.Registry, *corev1.Pod) {
 				src := h.source()
-				src.Push("acme/app:v1", registrytest.Image())
+				src.Push(repository+":v1", registrytest.Image())
 				src.Reset()
-				pod := createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+				pod := createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/" + repository + ":v1"})
 				rejectPushes(h.destination)
 				h.mirror(mutate...)
 				return src, pod
@@ -1062,8 +1066,9 @@ var _ = Describe("ImageMirror Controller", func() {
 					Expect(list).To(ConsistOf(HaveField("Reason", kuikv1alpha1.CopyPushRejected)))
 					return list[0].LastAttempt.Time
 				}
-				// The failure at window 1 waits 1 window, at 2 waits 2, at 4 waits 4.
-				want := []int{1, 2, 4, 8}
+				// The failure at window 1 waits 1 window, at 2 waits 2: window 3 is passed over.
+				// The scheduler's own specs pin the doubling beyond.
+				want := []int{1, 2, 4}
 
 				attempts(1, 1, []*registrytest.Registry{src}, want)
 				first := lastAttempt()
@@ -1072,14 +1077,17 @@ var _ = Describe("ImageMirror Controller", func() {
 				Expect(second).To(BeTemporally(">", first))
 				attempts(3, 3, []*registrytest.Registry{src}, want)
 				Expect(lastAttempt()).To(Equal(second))
-				attempts(4, 8, []*registrytest.Registry{src}, want)
+				attempts(4, 4, []*registrytest.Registry{src}, want)
 				Expect(lastAttempt()).To(BeTemporally(">", second))
 			})
 
 			It("waits twice as long before each new lap over the sources when every source fails", func() {
 				origin, alternative := h.source(), h.source()
-				h.alternativeTo(appEntry(origin), appEntry(alternative))
-				createPod(h.namespace(), unique("pod"), container{name: appContainer, image: origin.Host() + "/acme/app:v1"})
+				entry := func(reg *registrytest.Registry) kuikv1alpha1.Alternative {
+					return kuikv1alpha1.Alternative{Repository: reg.Host() + "/" + repository, Insecure: true}
+				}
+				h.alternativeTo(entry(origin), entry(alternative))
+				createPod(h.namespace(), unique("pod"), container{name: appContainer, image: origin.Host() + "/" + repository + ":v1"})
 				h.mirror()
 
 				// Each lap reads the origin, then the alternative at the next window, where it
@@ -1101,10 +1109,10 @@ var _ = Describe("ImageMirror Controller", func() {
 				deletePod(pod)
 				h.reconcile()
 				acceptPushes(h.destination)
-				createPod(pod.Namespace, unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+				createPod(pod.Namespace, unique("pod"), container{name: appContainer, image: src.Host() + "/" + repository + ":v1"})
 				h.reconcile()
 				h.window()
-				Eventually(h.copied(destinationTag(src, "acme/app"))).Should(Succeed())
+				Eventually(h.copied(destinationTag(src, repository))).Should(Succeed())
 			})
 		})
 	})
