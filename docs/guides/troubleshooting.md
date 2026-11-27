@@ -97,10 +97,11 @@ kubectl get imagemirror <name> -o jsonpath='{.status.failedImageCopies}'
 | Reason | Cause | Fix |
 | ------ | ----- | --- |
 | `SourceNotFound` | No source holds the image any more: the origin and every alternative answered not found | Rebuild or push the image. Pods still running it do so from a node cache |
-| `PushRejected` | The destination refused the manifest: size, media type, or a policy such as nested paths or immutable tags | Read the registry's logs. The destination must accept nested repository paths, see [Destination requirements](../crds.md#destination-requirements) |
+| `PushRejected` | The destination refused the manifest: size, media type, a project quota, or a policy such as nested paths or immutable tags | Read the registry's logs. The destination must accept nested repository paths, see [Destination requirements](../crds.md#destination-requirements) |
 | `Unauthorized` | A registry refused the credential, on either side | On the destination, the `manage` credential needs read and write. On the source, kuik reads with the pods' pull secrets, then [`fallbackAuth`](../configuration.md#fallbackauth) |
 | `QuotaExceeded` | A registry rate-limited the copy | kuik tries again later, waiting longer after each failure. Raise the host's `copy.interval` if it lasts, see [Registry pacing](../concepts/pacing.md) |
-| `SourceUnreachable` / `DestinationUnreachable` | That side did not answer: DNS, connection, TLS or timeout, or answered with a server error (5xx) | Check the network from kuik's namespace, and [Registry TLS](../configuration.md#registry-tls) |
+| `SourceUnreachable` / `DestinationUnreachable` | That side did not answer: DNS, connection, TLS or timeout | Check the network from kuik's namespace, and [Registry TLS](../configuration.md#registry-tls) |
+| `DestinationError` | The destination answered with a server error (5xx): its storage is often full or its backend broken | Read the registry's logs |
 
 **Copies are slow.** That is the pacing: kuik copies at most one image per source registry per `copy.interval`, 5 minutes by default with the chart, 15 for Docker Hub. 100 images from one registry take more than 8 hours. For a registry you own, lower its interval, see [Registry pacing](../concepts/pacing.md).
 

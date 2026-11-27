@@ -180,6 +180,19 @@ func fromSource(err error, srcRef name.Reference) bool {
 	return failed.Host == repo.RegistryStr() && strings.HasPrefix(failed.Path, "/v2/"+repo.RepositoryStr()+"/")
 }
 
+// denied reports whether err is a registry error carrying the DENIED error code: the
+// request is refused for what it asks (a project quota, a policy), not for the credential
+// that asked, which a 401 or 403 alone would read as.
+func denied(err error) bool {
+	transportErr, ok := errors.AsType[*transport.Error](err)
+	if !ok {
+		return false
+	}
+	return slices.ContainsFunc(transportErr.Errors, func(d transport.Diagnostic) bool {
+		return d.Code == transport.DeniedErrorCode
+	})
+}
+
 // copyFailureReason maps what one request observed to a copy reason, naming the side that
 // failed where both sides can fail the same way.
 func copyFailureReason(err error) kuikv1alpha1.CopyFailureReason {
@@ -187,6 +200,8 @@ func copyFailureReason(err error) kuikv1alpha1.CopyFailureReason {
 	source := errors.As(err, &fromSource)
 	code := TransportStatusCode(err)
 	switch {
+	case code == http.StatusForbidden && !source && denied(err):
+		return kuikv1alpha1.CopyPushRejected
 	case code == http.StatusUnauthorized || code == http.StatusForbidden:
 		return kuikv1alpha1.CopyUnauthorized
 	case code == http.StatusTooManyRequests:
@@ -195,6 +210,8 @@ func copyFailureReason(err error) kuikv1alpha1.CopyFailureReason {
 		return kuikv1alpha1.CopySourceNotFound
 	case source:
 		return kuikv1alpha1.CopySourceUnreachable
+	case code >= 500 && code < 600:
+		return kuikv1alpha1.CopyDestinationError
 	case code >= 400 && code < 500:
 		return kuikv1alpha1.CopyPushRejected
 	default:

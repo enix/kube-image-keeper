@@ -633,6 +633,7 @@ spec:
                       - QuotaExceeded
                       - SourceUnreachable
                       - DestinationUnreachable
+                      - DestinationError
                       type: string
                     ref:
                       description: ref is the origin reference.

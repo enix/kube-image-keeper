@@ -3693,6 +3693,25 @@ var _ = Describe("ImageMirror Controller", func() {
 			}).Should(BeTrue())
 		})
 
+		It("names the destination in the registry label of kuik_image_copy_failed when the destination answers a 5xx", func() {
+			src := h.source()
+			src.Push("acme/app:v1", registrytest.Image())
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: src.Host() + "/acme/app:v1"})
+			h.destination.Intercept(registrytest.Status(http.MethodPut, "/manifests/", http.StatusInternalServerError, nil))
+			h.mirror()
+			h.reconcile()
+
+			Eventually(func() bool {
+				h.window()
+				h.reconcile()
+				_, ok := gauge(h.metrics, "kuik_image_copy_failed", mirrorLabels(map[string]string{
+					labelImage: src.Host() + "/acme/app:v1", labelRegistry: h.destination.Host(),
+					labelReason: string(kuikv1alpha1.CopyDestinationError),
+				}))
+				return ok
+			}).Should(BeTrue())
+		})
+
 		It("exports kuik_image_drifted for each driftedImages entry, and drops it once the copy matches again", func() {
 			src := h.source()
 			original := registrytest.Image()
