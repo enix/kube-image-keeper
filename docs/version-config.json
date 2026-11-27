@@ -1,0 +1,49 @@
+{
+  "sidebar": [
+    {
+      "label": "Home",
+      "link": "/"
+    },
+    {
+      "label": "Configuration",
+      "items": [
+        "installation",
+        "getting-started",
+        "crds",
+        "configuration",
+        "observability",
+        "known-limits"
+      ]
+    },
+    {
+      "label": "Concepts",
+      "items": [
+        {
+          "autogenerate": {
+            "directory": "concepts"
+          }
+        }
+      ]
+    },
+    {
+      "label": "Use cases",
+      "items": [
+        {
+          "autogenerate": {
+            "directory": "use-cases"
+          }
+        }
+      ]
+    },
+    {
+      "label": "Guides",
+      "items": [
+        {
+          "autogenerate": {
+            "directory": "guides"
+          }
+        }
+      ]
+    }
+  ]
+}

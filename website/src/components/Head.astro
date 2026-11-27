@@ -1,5 +1,7 @@
 ---
-const { head } = Astro.locals.starlightRoute;
+import { isUnreleased } from '../lib/version.mjs';
+
+const { head, entry } = Astro.locals.starlightRoute;
 
 // astro-favicons injects the full icon set (favicon.ico, sized PNGs, SVG) plus
 // the PWA manifest. Starlight always injects its own `rel="shortcut icon"` link
@@ -8,6 +10,11 @@ const { head } = Astro.locals.starlightRoute;
 const filteredHead = head.filter(
   (entry) => !(entry.tag === 'link' && entry.attrs?.rel === 'shortcut icon')
 );
+
+// The pages of the development version stay out of search engines: a reader
+// who searches for kuik must land on the docs of a release.
+const noindex = isUnreleased(entry.id);
 ---
 
 {filteredHead.map(({ tag: Tag, attrs, content }) => <Tag {...attrs} set:html={content} />)}
+{noindex && <meta name="robots" content="noindex" />}

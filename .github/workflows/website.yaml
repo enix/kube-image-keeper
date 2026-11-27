@@ -5,7 +5,8 @@ on:
     branches:
       - main
       # Maintenance branches (X.Y.x): pushing one redeploys the site so the
-      # archived version it backs is refreshed (see website/versions.mjs). The
+      # version it backs (the site root for the latest stable line, /X.Y/ for
+      # an older one, see website/versions.mjs) is refreshed. The
       # build always runs against main's website config (see the checkout ref
       # below). The pattern mirrors the maintenance-branch glob in
       # .releaserc.mjs; GitHub filter syntax can't express extglob, so this is
@@ -20,6 +21,9 @@ on:
       - "website/**"
       - "docs/**"
       - ".github/workflows/website.yaml"
+  # A manual run rebuilds and redeploys the site as main describes it, whatever
+  # the branch it is started from.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -36,17 +40,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
-          # fetch-depth: 0 fetches all branches/tags so the build can source each
-          # archived version's docs via `git archive <ref> docs` (see
+          # fetch-depth: 0 fetches all branches/tags so the build can source the
+          # docs of each version via `git archive <ref> docs` (see
           # website/versions.mjs and website/scripts/sync-docs.mjs).
           fetch-depth: 0
-          # On a maintenance-branch push, build from main: the site's structure
-          # (website config, versions list, current docs) always comes from main,
-          # while the pushed version branch is sourced via git archive. A push to
-          # any branch other than main is necessarily a maintenance branch (the
-          # push filter above only admits main + X.Y.x). Pull requests use the
-          # default ref (empty string).
-          ref: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' && 'main' || '' }}
+          # A deployed site is always built from main: its structure (website
+          # config, versions list, the docs under /next/) comes from main, while
+          # each maintenance branch is sourced via git archive. So a push to a
+          # maintenance branch and a manual run check main out. Pull requests
+          # use the default ref (empty string).
+          ref: ${{ github.event_name != 'pull_request' && 'main' || '' }}
 
       - name: Install, build, and upload your site
         uses: withastro/action@v6
@@ -60,11 +63,10 @@ jobs:
     permissions:
       pages: write
       id-token: write
-    # Deploy on pushes to main and to maintenance branches (X.Y.x); pull
-    # requests get build-only validation. The push filter above already
-    # restricts pushes to those branches, so the event being a push is
-    # sufficient.
-    if: github.event_name == 'push'
+    # Deploy on pushes to main and to maintenance branches (X.Y.x) and on a
+    # manual run; pull requests get build-only validation. The push filter
+    # above already restricts pushes to those branches.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
