@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -41,6 +42,10 @@ func TestControllers(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
+	// An Eventually waits for something that comes: Gomega's 1 s bound only decides how long
+	// a loaded machine may take, and a spec that passes never waits it out.
+	SetDefaultEventuallyTimeout(10 * time.Second)
+
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 
 	ctx, cancel = context.WithCancel(context.TODO())

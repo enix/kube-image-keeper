@@ -57,6 +57,10 @@ func TestAPIs(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
+	// An Eventually waits for something that comes: Gomega's 1 s bound only decides how long
+	// a loaded machine may take, and a spec that passes never waits it out.
+	SetDefaultEventuallyTimeout(10 * time.Second)
+
 	// The suite's lines also go, as JSON, to servedLog for the specs that read them.
 	servedLog = gbytes.NewBuffer()
 	jsonCore := zapcore.NewCore(zapcore.NewJSONEncoder(uberzap.NewProductionEncoderConfig()), zapcore.AddSync(servedLog), zapcore.DebugLevel)
