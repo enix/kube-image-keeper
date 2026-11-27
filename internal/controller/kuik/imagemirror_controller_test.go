@@ -434,7 +434,9 @@ var _ = Describe("ImageMirror Controller", func() {
 				h.alternativeTo(appEntry(origin), appEntry(alternative))
 				startQueue(origin, alternative)
 				h.deleteManifest(destinationTag(origin, "acme/app"))
-				origin.Close()
+				// The origin stops serving, with a status the client does not retry. Closing it
+				// would free its port for the next registry started on the machine.
+				origin.Intercept(registrytest.Status("", "/", http.StatusNotImplemented, nil))
 				h.pass()
 				failing(alternative.Host() + "/acme/aaa:v1")
 
@@ -922,9 +924,8 @@ var _ = Describe("ImageMirror Controller", func() {
 		})
 
 		It("records the reason of the source failure, not SourceNotFound, when a source fails to answer, and emits no ImageUnrecoverable", func() {
-			broken := h.source()
-			broken.Close()
-			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: broken.Host() + "/acme/app:v1"})
+			broken := registrytest.ClosedHost()
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: broken + "/acme/app:v1"})
 			h.mirror()
 			h.reconcile()
 			h.window()
@@ -934,19 +935,18 @@ var _ = Describe("ImageMirror Controller", func() {
 		})
 
 		It("records the failure of an origin that does not answer over an alternative that lacks the manifest, naming the origin", func() {
-			origin := h.source()
-			origin.Close()
+			origin := registrytest.ClosedHost()
 			lacking := h.source()
-			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: origin.Host() + "/acme/app:v1"})
-			h.alternativeTo(appEntry(origin), appEntry(lacking))
+			createPod(h.namespace(), unique("pod"), container{name: appContainer, image: origin + "/acme/app:v1"})
+			h.alternativeTo(kuikv1alpha1.Alternative{Repository: origin + "/acme/app", Insecure: true}, appEntry(lacking))
 			h.mirror()
 			h.fallBack(lacking)
 			h.window()
 
 			Eventually(failures).Should(ConsistOf(HaveField("Reason", kuikv1alpha1.CopySourceUnreachable)))
 			_, ok := gauge(h.metrics, "kuik_image_copy_failed", map[string]string{
-				labelKind: routing.KindImageMirror, labelName: h.name, labelImage: origin.Host() + "/acme/app:v1",
-				labelRegistry: origin.Host(), labelReason: string(kuikv1alpha1.CopySourceUnreachable),
+				labelKind: routing.KindImageMirror, labelName: h.name, labelImage: origin + "/acme/app:v1",
+				labelRegistry: origin, labelReason: string(kuikv1alpha1.CopySourceUnreachable),
 			})
 			Expect(ok).To(BeTrue())
 			Expect(h.recorder.withReason("ImageUnrecoverable")).To(BeEmpty())
