@@ -67,11 +67,8 @@ test/e2e/                     End-to-end suite, runs on a Kind cluster
 test/acceptance/              Acceptance of a release on a shared cluster: user stories (scenarios.md),
                               YAML fixtures and a program that applies and prints test objects, never asserts
                               (see its README)
-test/rules/                   Unit tests of the chart's Prometheus alerts and recording rules, one
-                              promtool file per rule group, run by task test-rules
 hack/                         Developer tools run with go run (the test outline, the values check,
-                              the release notes renderer, the coverage check of the rules tests),
-                              the CodeRabbit review wait and slot
+                              the release notes renderer), the CodeRabbit review wait and slot
                               ledger of the pull-request skill, and
                               the commit rules check of check-commits and the Conform workflow
 website/                      The docs site (Astro Starlight), see .claude/rules/docs.md
@@ -101,7 +98,7 @@ task manifests generate   # after editing *_types.go or any kubebuilder marker
 task lint-fix             # after editing *.go
 task test                 # unit and envtest suites
 task test-short           # unit suites only, no envtest (the pre-push hook)
-task test-rules           # after editing the Prometheus rules or their template (needs helm)
+task lint-rules           # after editing the Prometheus rules or their template: promtool syntax check (needs helm)
 # one spec only: the suites are Ginkgo, so filter on the It text, not on -run
 go test ./internal/controller/kuik -v -ginkgo.focus 'text of the It'
 ```
