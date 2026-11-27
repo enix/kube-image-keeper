@@ -200,6 +200,10 @@ reconciler exports these series.
 | `kuik_check_cycle_started_timestamp_seconds{kind, name, registry}` | gauge | Start of the lap in progress, `cycleStarted` |
 | `kuik_check_ring_images{kind, name, registry}` | gauge | Size of the ring, `images` |
 | `kuik_registry_interval_seconds{registry, operation}` | gauge | `check.interval` (`Check`) and `copy.interval` (`Copy`) of a host, as currently loaded, and `mirror.destinationScan.interval` (`Scan`) of a destination an ImageMirror scans, gone once no mirror scans it |
+| `kuik_registry_request_interval_seconds{registry}` | gauge | `requestInterval` of a source host the reconciler reads, as currently loaded: the hosts that have the `Check` and `Copy` series above. `0` when its requests are not spaced, see [Spacing the requests](./concepts/pacing.md#spacing-the-requests) |
+
+`kuik_registry_requests_total` counts attempts, not HTTP requests, so its rate times
+`kuik_registry_request_interval_seconds` is not the share of the ceiling in use.
 
 Alert on a lap against its shared lap rather than on a literal: see
 [Watching the pace](./concepts/pacing.md#watching-the-pace).

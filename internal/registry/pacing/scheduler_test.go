@@ -1045,6 +1045,106 @@ var _ = Describe("Scheduler", func() {
 			Expect(gauges(h.s.Collector(), "kuik_registry_interval_seconds")).To(HaveKeyWithValue("operation=Check,registry=docker.io", 120.0))
 		})
 
+		It("exposes the requestInterval of every scheduled host as kuik_registry_request_interval_seconds", func() {
+			cfg := pacing(time.Minute, 3*time.Minute, map[string]config.RegistryPacing{
+				quayIO: {RequestInterval: duration(time.Second)},
+			})
+			cfg.Registries.Default.RequestInterval = duration(500 * time.Millisecond)
+			h.s.SetConfig(cfg)
+			h.s.SetRing(monitor, dockerHub, []string{imageA}, kuikv1alpha1.RegistryCheck{}, c)
+			h.s.SetCopyQueue(mirror, quayIO, []string{quayImage}, newCopier(h))
+
+			Expect(gauges(h.s.Collector(), "kuik_registry_request_interval_seconds")).To(Equal(map[string]float64{
+				"registry=docker.io": 0.5,
+				"registry=quay.io":   1,
+			}))
+		})
+
+		It("exposes 0 for a scheduled host with no requestInterval", func() {
+			h.s.SetRing(monitor, dockerHub, []string{imageA}, kuikv1alpha1.RegistryCheck{}, c)
+
+			Expect(gauges(h.s.Collector(), "kuik_registry_request_interval_seconds")).To(HaveKeyWithValue("registry=docker.io", 0.0))
+		})
+
+		It("exposes 0 for a host whose block sets requestInterval 0 over a default one", func() {
+			cfg := pacing(time.Minute, 3*time.Minute, map[string]config.RegistryPacing{
+				dockerHub: {RequestInterval: duration(0)},
+			})
+			cfg.Registries.Default.RequestInterval = duration(time.Second)
+			h.s.SetConfig(cfg)
+			h.s.SetRing(monitor, dockerHub, []string{imageA}, kuikv1alpha1.RegistryCheck{}, c)
+
+			Expect(gauges(h.s.Collector(), "kuik_registry_request_interval_seconds")).To(HaveKeyWithValue("registry=docker.io", 0.0))
+		})
+
+		It("reads the requestInterval of the host block that names the same port", func() {
+			const withPort = "registry.example:5000"
+			h.s.SetConfig(pacing(time.Minute, 3*time.Minute, map[string]config.RegistryPacing{
+				withPort: {RequestInterval: duration(time.Second)},
+			}))
+			h.s.SetRing(monitor, withPort, []string{withPort + "/a/a:1"}, kuikv1alpha1.RegistryCheck{}, c)
+
+			Expect(gauges(h.s.Collector(), "kuik_registry_request_interval_seconds")).To(HaveKeyWithValue("registry="+withPort, 1.0))
+		})
+
+		It("does not read the block of the host without its port for a host written with the default port", func() {
+			const withPort = "registry.example:443"
+			h.s.SetConfig(pacing(time.Minute, 3*time.Minute, map[string]config.RegistryPacing{
+				"registry.example": {RequestInterval: duration(time.Second)},
+			}))
+			h.s.SetRing(monitor, withPort, []string{withPort + "/a/a:1"}, kuikv1alpha1.RegistryCheck{}, c)
+
+			Expect(gauges(h.s.Collector(), "kuik_registry_request_interval_seconds")).To(Equal(map[string]float64{
+				"registry=" + withPort: 0,
+			}))
+		})
+
+		It("drops the request interval series of a host once no ring and no copy queue use it", func() {
+			h.s.SetRing(monitor, dockerHub, []string{imageA}, kuikv1alpha1.RegistryCheck{}, c)
+			h.s.SetCopyQueue(mirror, quayIO, []string{quayImage}, newCopier(h))
+			Expect(gauges(h.s.Collector(), "kuik_registry_request_interval_seconds")).To(HaveLen(2))
+
+			h.s.RemoveRing(monitor, dockerHub)
+			h.s.SetCopyQueue(mirror, quayIO, nil, newCopier(h))
+
+			Expect(gauges(h.s.Collector(), "kuik_registry_request_interval_seconds")).To(BeEmpty())
+		})
+
+		It("exposes no request interval series for a host that is only a mirror destination", func() {
+			h.s.SetRing(monitor, dockerHub, []string{imageA}, kuikv1alpha1.RegistryCheck{}, c)
+			h.s.SetDestinationScan(mirror, destinationHost)
+
+			series := gauges(h.s.Collector(), "kuik_registry_request_interval_seconds")
+			Expect(series).To(HaveKey("registry=docker.io"))
+			Expect(series).NotTo(HaveKey("registry=" + destinationHost))
+		})
+
+		It("reflects a reload in kuik_registry_request_interval_seconds", func() {
+			h.s.SetConfig(pacing(time.Minute, 3*time.Minute, map[string]config.RegistryPacing{
+				dockerHub: {RequestInterval: duration(time.Second)},
+			}))
+			h.s.SetRing(monitor, dockerHub, []string{imageA}, kuikv1alpha1.RegistryCheck{}, c)
+			h.s.SetConfig(pacing(time.Minute, 3*time.Minute, map[string]config.RegistryPacing{
+				dockerHub: {RequestInterval: duration(2 * time.Second)},
+			}))
+
+			Expect(gauges(h.s.Collector(), "kuik_registry_request_interval_seconds")).To(HaveKeyWithValue("registry=docker.io", 2.0))
+		})
+
+		It("exposes the default requestInterval of a host once a reload removes its block", func() {
+			cfg := pacing(time.Minute, 3*time.Minute, map[string]config.RegistryPacing{
+				dockerHub: {RequestInterval: duration(time.Second)},
+			})
+			cfg.Registries.Default.RequestInterval = duration(500 * time.Millisecond)
+			h.s.SetConfig(cfg)
+			h.s.SetRing(monitor, dockerHub, []string{imageA}, kuikv1alpha1.RegistryCheck{}, c)
+			reloaded := pacing(time.Minute, 3*time.Minute, nil)
+			reloaded.Registries.Default.RequestInterval = duration(500 * time.Millisecond)
+			h.s.SetConfig(reloaded)
+
+			Expect(gauges(h.s.Collector(), "kuik_registry_request_interval_seconds")).To(HaveKeyWithValue("registry=docker.io", 0.5))
+		})
+
 		It("drops the series of a removed ring", func() {
 			h.s.SetRing(monitor, dockerHub, []string{imageA}, kuikv1alpha1.RegistryCheck{}, c)
 			h.s.SetRing(mirror, dockerHub, []string{imageX}, kuikv1alpha1.RegistryCheck{}, newChecker(h))

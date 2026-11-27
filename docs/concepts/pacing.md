@@ -146,6 +146,10 @@ default, `0`, sets no bound. The Helm chart sets this block by default, and the 
 values merges over it. Each host is paced on its own: images under both send up to 2 requests
 per second to ECR Public.
 
+The reconciler exports the `requestInterval` of each source host it reads, as currently loaded,
+as `kuik_registry_request_interval_seconds`, see
+[Scheduling health](../observability.md#scheduling-health).
+
 ## Changing the pace
 
 The config is reloaded in place. A reload that changes the `check.interval` of a host restarts the
@@ -174,8 +178,8 @@ for anonymous pulls, the account behind the credential otherwise.
 
 ## Watching the pace
 
-The reconciler exports each ring's lap, size and the pace of each host, listed in
-[Scheduling health](../observability.md#scheduling-health).
+The reconciler exports each ring's lap, size, the pace of each host and its `requestInterval`,
+listed in [Scheduling health](../observability.md#scheduling-health).
 
 The rings of a host take its check windows in turn: with `n` rings on the host, a ring of `i`
 images laps in `i × n × check.interval` at most, whatever the size of the others. That is its

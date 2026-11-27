@@ -843,8 +843,11 @@ func (s *Scheduler) Collector() prometheus.Collector {
 	return collector{s: s}
 }
 
+// registryLabel names the source or destination host of a series.
+const registryLabel = "registry"
+
 var (
-	ringLabels = []string{"kind", "name", "registry"}
+	ringLabels = []string{"kind", "name", registryLabel}
 
 	// The HELP texts are those of docs/v3/observability.md, "Scheduling health".
 	cycleDurationDesc = prometheus.NewDesc("kuik_check_cycle_duration_seconds",
@@ -864,7 +867,13 @@ var (
 		"Configured pace at which kuik reads a registry for this operation, as currently loaded: "+
 			"the window between two requests for `Check` and `Copy`, the period between two whole "+
 			"passes for `Scan` (a mirror destination)",
-		[]string{"registry", "operation"}, nil)
+		[]string{registryLabel, "operation"}, nil)
+	// Not in docs/v3/observability.md: its HELP text is that of docs/observability.md,
+	// "Scheduling health".
+	requestIntervalDesc = prometheus.NewDesc("kuik_registry_request_interval_seconds",
+		"Configured least gap between two HTTP requests the reconciler sends to a source registry "+
+			"host, as currently loaded: its requestInterval. 0 when the requests of the host are not spaced",
+		[]string{registryLabel}, nil)
 )
 
 // collector reads the scheduling health from a scheduler on every scrape, so that a removed
@@ -878,6 +887,7 @@ func (c collector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- cycleStartedDesc
 	ch <- ringImagesDesc
 	ch <- intervalDesc
+	ch <- requestIntervalDesc
 }
 
 func (c collector) Collect(ch chan<- prometheus.Metric) {
@@ -891,6 +901,7 @@ func (c collector) Collect(ch chan<- prometheus.Metric) {
 		p := c.s.cfg.Registries.For(h.name)
 		ch <- prometheus.MustNewConstMetric(intervalDesc, prometheus.GaugeValue, p.Check.Interval.Seconds(), h.name, "Check")
 		ch <- prometheus.MustNewConstMetric(intervalDesc, prometheus.GaugeValue, p.Copy.Interval.Seconds(), h.name, "Copy")
+		ch <- prometheus.MustNewConstMetric(requestIntervalDesc, prometheus.GaugeValue, p.RequestInterval.Seconds(), h.name)
 
 		for _, r := range h.rings {
 			labels := []string{r.owner.Kind, r.owner.Name, h.name}
